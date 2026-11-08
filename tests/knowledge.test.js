@@ -371,7 +371,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,17);
+assert.equal(knowledge.version,18);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
