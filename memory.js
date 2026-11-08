@@ -2135,6 +2135,7 @@
     count: () => memories.length,
     search: query => memories.map(item => ({ text: item.text, claims: item.claims || [], score: scoreMemory(query, item) }))
       .sort((a, b) => b.score - a.score).slice(0, 5),
+    ask: query => askMemory(query),
     claims: () => memories.flatMap(item => item.claims || []),
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),

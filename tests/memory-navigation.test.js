@@ -564,8 +564,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
     responseText:"",responseMemoryId:"",responseClaimIds:[],answeredAt:0}
 ]));
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
-input.value = "Выведи новые гипотезы из памяти";
-document.getElementById("ask-button").dispatch("click");
+window.NGMemory.ask("Выведи новые гипотезы из памяти");
 const researchAwareReply=feed.children[feed.children.length-1].textContent;
 assert.match(researchAwareReply,/Обезвоживание ⇢ снижению концентрации/u,
   "a candidate whose causal route remains active should still be generated");
