@@ -117,6 +117,19 @@ assert.match(knowledge.answerQuestion("Что ты думаешь о музык�
 const ambiguous = knowledge.answerQuestion("Кто лучший друг?", [relationship, userFriend]);
 assert.match(ambiguous, /относящиеся и ко мне, и к тебе/u);
 
+const musicProfile = knowledge.answerQuestion("Что ты знаешь о музыке?", [opinion, preference]);
+assert.match(musicProfile, /Вот что я нашёл в сохранённой памяти/u);
+assert.match(musicProfile, /Музыка — прекрасна/u);
+assert.match(musicProfile, /нравится музыка/u);
+assert.match(musicProfile, /субъективное мнение/u);
+assert.match(musicProfile, /самоописание/u);
+assert.match(musicProfile, /не независимо проверенные факты/u);
+
+const conflictingMusicProfile = knowledge.answerQuestion("Расскажи мне о музыке", [positivePreference, negativePreference]);
+assert.match(conflictingMusicProfile, /возможное противоречие/u);
+assert.match(conflictingMusicProfile, /Я не буду автоматически выбирать/u);
+
+assert.equal(knowledge.answerQuestion("Что ты знаешь о неизвестном объекте?", [opinion, preference]), null);
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, reverse relations, preference and conflict checks passed.");
