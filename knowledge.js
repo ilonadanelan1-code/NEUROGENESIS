@@ -122,8 +122,8 @@
     const merged=[...sanitizeClaims(existing),...sanitizeClaims(incoming)],seen=new Set();
     const result=[];
     for(const claim of merged){
-      const key=[claim.kind,normalise(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
-      const prior=result.find(item=>[item.kind,normalise(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
+      const key=[claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
+      const prior=result.find(item=>[item.kind,canonicalEntity(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
       if(prior){if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;continue;}
       if(!seen.has(key)){seen.add(key);result.push(claim);}
     }
@@ -131,7 +131,9 @@
   }
   function claimLabel(claim) {
     if(!claim)return "";
+    if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
     if(claim.kind==="fact" && claim.subject==="user") return "Пользователь "+claim.predicate+" "+claim.object;
+    if(claim.kind==="preference") return "Пользователь "+(claim.polarity?"":"не ")+claim.predicate+" "+claim.object;
     if(claim.kind==="relationship"){
       const target=claim.object==="assistant"?"ассистент":claim.object==="user"?"пользователь":"общее окружение";
       return claim.subject+" — "+(claim.polarity?"":"не ")+claim.predicate+" ("+target+")";
