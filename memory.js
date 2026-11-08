@@ -399,6 +399,9 @@
       empty.textContent = memories.length ? "По этому запросу ничего не найдено." : "Память пока пуста. Сохрани первый факт выше.";
       list.appendChild(empty);
     }
+    const conflictIds = KNOWLEDGE
+      ? new Set(KNOWLEDGE.findConflicts(memories.flatMap(entry => entry.claims || [])).flatMap(conflict => [conflict.left.id, conflict.right.id]))
+      : new Set();
     for (const item of visible) {
       const card = document.createElement("article");
       card.className = "memory-entry";
@@ -410,7 +413,6 @@
       text.className = "memory-entry-text";
       text.textContent = item.text;
       if (KNOWLEDGE && item.claims && item.claims.length) {
-        const conflictIds = new Set(KNOWLEDGE.findConflicts(memories.flatMap(entry => entry.claims || [])).flatMap(conflict => [conflict.left.id, conflict.right.id]));
         const structured = document.createElement("div");
         structured.className = "memory-entry-claims";
         for (const claim of item.claims) {
