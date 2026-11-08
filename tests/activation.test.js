@@ -1,0 +1,65 @@
+"use strict";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+
+const sandbox = { window: {}, Number, Math, Map, Set, Array };
+vm.runInNewContext(fs.readFileSync("activation.js", "utf8"), sandbox, { filename: "activation.js" });
+const activation = sandbox.window.NGActivation;
+assert.ok(activation);
+assert.equal(activation.version, 1);
+
+const chain = activation.spread(
+  [{id:"A",strength:0.8}],
+  [
+    {from:"A",to:"B",weight:0.8},
+    {from:"B",to:"C",weight:0.7},
+    {from:"C",to:"D",weight:0.9}
+  ],
+  {maxDepth:2,maxNodes:8,decay:0.5,threshold:0.1}
+);
+assert.deepEqual(chain.map(item => item.id), ["A","B","C"]);
+assert.ok(chain[0].strength > chain[1].strength);
+assert.ok(chain[1].strength > chain[2].strength);
+assert.equal(chain[2].depth, 2);
+
+const directed = activation.spread(
+  ["X"],
+  [{from:"Y",to:"X",weight:1}],
+  {maxDepth:3}
+);
+assert.deepEqual(directed.map(item => item.id), ["X"], "activation must follow directed associations only");
+
+const cycle = activation.spread(
+  ["A"],
+  [{from:"A",to:"B",weight:0.9},{from:"B",to:"A",weight:0.9}],
+  {maxDepth:4,maxNodes:8,decay:0.8,threshold:0.01}
+);
+assert.equal(cycle.length, 2, "cycles must not cause unbounded traversal");
+
+const strongest = activation.spread(
+  ["A"],
+  [
+    {from:"A",to:"C",weight:0.2},
+    {from:"A",to:"B",weight:0.9},
+    {from:"B",to:"C",weight:0.9}
+  ],
+  {maxDepth:3,maxNodes:8,decay:0.9,threshold:0.01}
+);
+assert.ok(strongest.find(item => item.id === "C").strength > 0.5,
+  "the strongest path should determine a node's activation");
+
+const limited = activation.spread(
+  ["A","B","C"],
+  [{from:"A",to:"D",weight:1},{from:"B",to:"E",weight:1},{from:"C",to:"F",weight:1}],
+  {maxDepth:2,maxNodes:4,decay:1,threshold:0.01}
+);
+assert.equal(limited.length, 4, "the activation node budget must be enforced");
+
+const invalid = activation.spread(
+  [{id:"",strength:1},{id:"Z",strength:NaN}],
+  [{from:"Z",to:"Q",weight:NaN},{from:"Z",to:"Z",weight:1}],
+  {}
+);
+assert.deepEqual(invalid.map(item => item.id), ["Z"]);
+console.log("NEUROGENESIS spreading activation tests: depth, decay, direction, cycles and node budget passed.");
