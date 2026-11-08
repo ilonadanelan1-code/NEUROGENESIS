@@ -13,6 +13,7 @@ assert.equal(knowledge.systemProfile().languageModelConnected,false);
 assert.match(knowledge.answerQuestion("Кто ты?", []),/Я — NEUROGENESIS/u,"system identity should not depend on user memories");
 assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/до 500 записей/u,"capabilities should describe the implemented memory limit");
 assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/не умею свободно рассуждать/u,"the system should state its current reasoning limitations");
+assert.match(knowledge.answerQuestion("Что ты знаешь обо мне?", []),/нет конкретных сведений о тебе/u,"an empty user profile should be explained without inventing facts");
 
 const relationship = knowledge.extractClaims("Игорь Головнев твой самый лучший друг")[0];
 assert.ok(relationship, "should extract a relationship");
@@ -134,6 +135,13 @@ assert.equal(location.predicate, "живу в");
 assert.equal(location.object, "Сочи");
 assert.match(knowledge.answerQuestion("Где я живу?", [location]), /живёшь в Сочи/u);
 assert.match(knowledge.answerQuestion("Что ты знаешь о Сочи?", [location]), /Пользователь живёт в Сочи/u);
+const userProfileAnswer = knowledge.answerQuestion("Что ты знаешь обо мне?", [location, preference, userFriend, hypothesis]);
+assert.match(userProfileAnswer,/Пользователь живёт в Сочи/u);
+assert.match(userProfileAnswer,/Пользователю нравится музыка/u);
+assert.match(userProfileAnswer,/Игорь — твой друг/u);
+assert.match(userProfileAnswer,/Возможно, память можно улучшить/u);
+assert.match(userProfileAnswer,/Источник:/u);
+assert.match(knowledge.answerQuestion("Расскажи обо мне", [location]),/Пользователь живёт в Сочи/u);
 
 const directConflict = knowledge.findConflicts([userFriend, negative]);
 assert.equal(directConflict.length, 1);
