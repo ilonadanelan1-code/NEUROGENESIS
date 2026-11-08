@@ -209,7 +209,7 @@ select.text-input{color-scheme:dark}
 }
 
 
-/* NEUROGENESIS 0.9.2 — clear memory navigation and focused record editor */
+/* NEUROGENESIS 0.10.0 — clear memory navigation and evidence-linked knowledge and focused record editor */
 .memory-library-toolbar[hidden],.memory-editor-view[hidden]{display:none}
 .memory-library-heading,.memory-editor-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .memory-library-heading{margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid rgba(120,206,214,.12)}
