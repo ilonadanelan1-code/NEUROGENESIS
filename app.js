@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "neurogenesis.prototype.v1";
+  const STORAGE_KEY = "neurogenesis.prototype.v2";
   const TYPES = ["core", "sensory", "memory", "logic", "output"];
   const TYPE_NAMES = { core: "Ядро", sensory: "Сенсорный", memory: "Память", logic: "Логический", output: "Выходной" };
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
@@ -26,6 +26,7 @@
   let saveTimer = 0;
   let width = 0, height = 0, dpr = 1;
   const view = { x: 0, y: 0, zoom: 1 };
+  const stars = Array.from({length:145},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
   const pointers = new Map();
   let gesture = null;
   let drag = null;
@@ -35,23 +36,31 @@
   }
   function seedNetwork() {
     nextId = 1;
-    neurons = [
-      makeNeuron("Центральное ядро", "core", 0, 0, .78),
-      makeNeuron("Восприятие", "sensory", -205, -105, .58),
-      makeNeuron("Зрительный буфер", "sensory", -220, 95, .48),
-      makeNeuron("Краткая память", "memory", -62, -210, .66),
-      makeNeuron("Ассоциации", "memory", 145, -185, .62),
-      makeNeuron("Логический узел", "logic", 215, -20, .72),
-      makeNeuron("Анализ сигнала", "logic", 180, 170, .55),
-      makeNeuron("Реакция", "output", -35, 210, .7),
-      makeNeuron("Долгая память", "memory", -300, 225, .43)
+    const layout = [
+      ["Центральное ядро","core",0,0,.92],
+      ["Восприятие","sensory",-205,-105,.58],
+      ["Зрительный буфер","sensory",-220,95,.48],
+      ["Краткая память","memory",-62,-210,.66],
+      ["Ассоциации","memory",145,-185,.72],
+      ["Логический узел","logic",215,-20,.78],
+      ["Анализ сигнала","logic",180,170,.55],
+      ["Реакция","output",-35,210,.7],
+      ["Долгая память","memory",-300,225,.52],
+      ["Распознавание образов","sensory",-360,-35,.62],
+      ["Языковая память","memory",20,-340,.57],
+      ["Прогнозирование","logic",335,180,.64],
+      ["Карта тела","output",-70,355,.46]
     ];
-    synapses = [
-      ["n2","n1",.82],["n3","n1",.67],["n1","n4",.75],["n1","n5",.72],
-      ["n4","n5",.58],["n5","n6",.84],["n6","n7",.71],["n7","n8",.9],
-      ["n8","n1",.48],["n9","n3",.52],["n9","n1",.36],["n2","n4",.46],
-      ["n3","n8",.4],["n5","n7",.62]
-    ].map(([from,to,weight], i) => ({ id: "s" + (i+1), from, to, weight, activity: 0 }));
+    neurons = layout.map(([name,type,x,y,bias]) => makeNeuron(name,type,x,y,bias));
+    const links = [
+      [0,1,.82],[0,2,.67],[0,3,.75],[0,4,.72],[4,5,.58],[5,6,.84],
+      [6,7,.71],[7,0,.9],[2,7,.48],[8,2,.52],[8,0,.36],[1,3,.46],
+      [4,6,.62],[1,9,.76],[9,3,.55],[3,10,.7],[10,4,.63],
+      [6,11,.68],[11,7,.58],[8,9,.42],[3,12,.49],[12,0,.44],[2,12,.38]
+    ];
+    synapses = links.map(([from,to,weight],i) => ({
+      id:"s"+(i+1), from:"n"+(from+1), to:"n"+(to+1), weight, activity:0
+    }));
     selectedId = "n1";
     pulses = [];
     markDirty();
@@ -222,70 +231,197 @@
     if (n && !$("neuron-inspector").hidden) $("neuron-activity").textContent = Math.round(n.activity*100) + "%";
   }
 
-  function drawBackground() {
+  function drawBackground(time = 0) {
     ctx.clearRect(0,0,width,height);
-    const grad = ctx.createRadialGradient(width*.52,height*.48,10,width*.52,height*.48,Math.max(width,height)*.8);
-    grad.addColorStop(0,"rgba(17,68,79,.12)"); grad.addColorStop(1,"rgba(3,11,18,0)");
-    ctx.fillStyle = grad; ctx.fillRect(0,0,width,height);
-    ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.zoom,view.zoom);
-    const step = 55, left = -view.x/view.zoom, top = -view.y/view.zoom;
-    const right = left + width/view.zoom, bottom = top + height/view.zoom;
-    ctx.beginPath();
-    for(let x=Math.floor(left/step)*step;x<right;x+=step){ctx.moveTo(x,top);ctx.lineTo(x,bottom);}
-    for(let y=Math.floor(top/step)*step;y<bottom;y+=step){ctx.moveTo(left,y);ctx.lineTo(right,y);}
-    ctx.strokeStyle="rgba(109,174,185,.055)";ctx.lineWidth=1/view.zoom;ctx.stroke();
+    const base = ctx.createLinearGradient(0,0,width,height);
+    base.addColorStop(0,"#050b18");
+    base.addColorStop(.52,"#071522");
+    base.addColorStop(1,"#080d1c");
+    ctx.fillStyle=base;
+    ctx.fillRect(0,0,width,height);
+
+    const glowA=ctx.createRadialGradient(width*.48,height*.46,4,width*.48,height*.46,Math.max(width,height)*.72);
+    glowA.addColorStop(0,"rgba(22,104,119,.23)");
+    glowA.addColorStop(.46,"rgba(27,65,104,.10)");
+    glowA.addColorStop(1,"rgba(3,8,18,0)");
+    ctx.fillStyle=glowA;ctx.fillRect(0,0,width,height);
+    const glowB=ctx.createRadialGradient(width*.78,height*.22,0,width*.78,height*.22,width*.48);
+    glowB.addColorStop(0,"rgba(93,55,150,.10)");glowB.addColorStop(1,"rgba(93,55,150,0)");
+    ctx.fillStyle=glowB;ctx.fillRect(0,0,width,height);
+
+    for(let i=0;i<stars.length;i++){
+      const star=stars[i];
+      const twinkle=.35+.65*(.5+.5*Math.sin(time*.0007+star.phase));
+      ctx.globalAlpha=star.alpha*twinkle;
+      ctx.fillStyle=star.tint;
+      ctx.beginPath();ctx.arc(star.x*width,star.y*height,star.r,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    ctx.save();
+    ctx.translate(view.x,view.y);
+    ctx.scale(view.zoom,view.zoom);
+    const step=54,left=-view.x/view.zoom,top=-view.y/view.zoom;
+    const right=left+width/view.zoom,bottom=top+height/view.zoom;
+    ctx.fillStyle="rgba(116,192,207,.12)";
+    for(let x=Math.floor(left/step)*step;x<right;x+=step){
+      for(let y=Math.floor(top/step)*step;y<bottom;y+=step){
+        ctx.beginPath();ctx.arc(x,y,.85/view.zoom,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.setLineDash([3/view.zoom,9/view.zoom]);
+    ctx.lineWidth=1/view.zoom;
+    ctx.strokeStyle="rgba(91,172,185,.075)";
+    for(const radius of [190,360]){
+      ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.stroke();
+    }
+    ctx.setLineDash([]);
     ctx.restore();
   }
+
   function drawConnections(time) {
-    ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.zoom,view.zoom);
-    for (const s of synapses) {
-      const a = getNeuron(s.from), b = getNeuron(s.to); if (!a || !b) continue;
+    ctx.save();
+    ctx.translate(view.x,view.y);
+    ctx.scale(view.zoom,view.zoom);
+    const curves=[];
+    synapses.forEach((s,i)=>{
+      const a=getNeuron(s.from),b=getNeuron(s.to);
+      if(!a||!b)return;
       const dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy)||1;
-      const bend=Math.min(34,dist*.13)*(s.from < s.to ? 1 : -1);
-      const mx=(a.x+b.x)/2-(dy/dist)*bend, my=(a.y+b.y)/2+(dx/dist)*bend;
+      const bend=Math.min(58,dist*.22)*((i%2===0)?1:-1);
+      const mx=(a.x+b.x)/2-(dy/dist)*bend;
+      const my=(a.y+b.y)/2+(dx/dist)*bend;
+      curves.push({s,a,b,mx,my,index:i});
+
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
-      ctx.strokeStyle="rgba(83,160,174,"+(.13 + s.weight*.17 + s.activity*.45)+")";ctx.lineWidth=(.8+s.weight*1.2+s.activity*1.4)/view.zoom;ctx.stroke();
-      if(s.activity>.04){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);ctx.strokeStyle="rgba(106,239,219,"+(s.activity*.65)+")";ctx.lineWidth=(1+s.activity*2)/view.zoom;ctx.shadowColor="#65e7d4";ctx.shadowBlur=12/view.zoom;ctx.stroke();ctx.shadowBlur=0;}
-    }
-    for (const p of pulses) {
-      const a=getNeuron(p.from),b=getNeuron(p.to);if(!a||!b)continue;
-      const x=a.x+(b.x-a.x)*p.progress,y=a.y+(b.y-a.y)*p.progress;
-      ctx.beginPath();ctx.arc(x,y,3.2/view.zoom,0,Math.PI*2);ctx.fillStyle="rgba(183,255,241,.95)";ctx.shadowColor="#68ffe3";ctx.shadowBlur=16/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.strokeStyle="rgba(71,181,194,"+(.055+s.weight*.075)+")";
+      ctx.lineWidth=(7+s.weight*5)/view.zoom;
+      ctx.shadowColor="#34d9d0";ctx.shadowBlur=13/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
+      ctx.strokeStyle="rgba(110,205,221,"+(.18+s.weight*.25+s.activity*.48)+")";
+      ctx.lineWidth=(.9+s.weight*1.15+s.activity*1.7)/view.zoom;
+      ctx.stroke();
+
+      ctx.beginPath();ctx.arc(a.x,a.y,2.1/view.zoom,0,Math.PI*2);
+      ctx.fillStyle="rgba(115,225,220,.36)";ctx.fill();
+
+      const travel=(time*.000035+i*.19)%1;
+      const one=1-travel;
+      const px=one*one*a.x+2*one*travel*mx+travel*travel*b.x;
+      const py=one*one*a.y+2*one*travel*my+travel*travel*b.y;
+      ctx.beginPath();ctx.arc(px,py,1.9/view.zoom,0,Math.PI*2);
+      ctx.fillStyle="rgba(170,255,244,"+(.28+s.activity*.55)+")";
+      ctx.shadowColor="#6bfff0";ctx.shadowBlur=10/view.zoom;ctx.fill();ctx.shadowBlur=0;
+
+      if(s.activity>.035){
+        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
+        ctx.strokeStyle="rgba(108,255,226,"+(s.activity*.72)+")";
+        ctx.lineWidth=(1+s.activity*2.1)/view.zoom;
+        ctx.shadowColor="#65ffe0";ctx.shadowBlur=17/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+      }
+    });
+
+    for(const p of pulses){
+      const curve=curves.find(c=>c.s.from===p.from&&c.s.to===p.to);
+      if(!curve)continue;
+      const t=p.progress,one=1-t;
+      const x=one*one*curve.a.x+2*one*t*curve.mx+t*t*curve.b.x;
+      const y=one*one*curve.a.y+2*one*t*curve.my+t*t*curve.b.y;
+      ctx.beginPath();ctx.arc(x,y,4.1/view.zoom,0,Math.PI*2);
+      ctx.fillStyle="rgba(220,255,249,.98)";
+      ctx.shadowColor="#68ffe7";ctx.shadowBlur=20/view.zoom;ctx.fill();ctx.shadowBlur=0;
     }
     ctx.restore();
   }
+
   function drawNeurons(time) {
-    ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.zoom,view.zoom);
-    for (const n of neurons) {
-      const r = 18 + n.activity*2;
-      const col = colorFor(n.type);
-      const searching = searchTerm && n.name.toLowerCase().includes(searchTerm);
-      const dimmed = searchTerm && !searching;
-      const selected = n.id === selectedId;
-      ctx.globalAlpha = dimmed ? .22 : 1;
-      const halo=ctx.createRadialGradient(n.x,n.y,2,n.x,n.y,52+n.activity*18);
-      halo.addColorStop(0,colorFor(n.type,.2+n.activity*.3));halo.addColorStop(1,colorFor(n.type,0));
-      ctx.fillStyle=halo;ctx.beginPath();ctx.arc(n.x,n.y,52+n.activity*18,0,Math.PI*2);ctx.fill();
-      ctx.beginPath();ctx.arc(n.x,n.y,r+5+Math.sin(time*.001+n.phase)*1.3,0,Math.PI*2);
-      ctx.strokeStyle=colorFor(n.type,.22+n.activity*.5);ctx.lineWidth=1.2/view.zoom;ctx.stroke();
+    ctx.save();
+    ctx.translate(view.x,view.y);
+    ctx.scale(view.zoom,view.zoom);
+    for(const n of neurons){
+      const r=19+n.activity*3.5;
+      const selected=n.id===selectedId;
+      const searching=searchTerm&&n.name.toLowerCase().includes(searchTerm);
+      const dimmed=searchTerm&&!searching;
+      const pulse=.5+.5*Math.sin(time*.00125+n.phase);
+      ctx.globalAlpha=dimmed?.16:1;
+
+      const aura=ctx.createRadialGradient(n.x,n.y,1,n.x,n.y,83+n.activity*25);
+      aura.addColorStop(0,colorFor(n.type,.24+n.activity*.28));
+      aura.addColorStop(.38,colorFor(n.type,.075));
+      aura.addColorStop(1,colorFor(n.type,0));
+      ctx.fillStyle=aura;ctx.beginPath();ctx.arc(n.x,n.y,83+n.activity*25,0,Math.PI*2);ctx.fill();
+
+      ctx.beginPath();ctx.arc(n.x,n.y,r+12+pulse*2,0,Math.PI*2);
+      ctx.strokeStyle=colorFor(n.type,.13+n.activity*.2);ctx.lineWidth=1/view.zoom;ctx.stroke();
+
+      ctx.save();
+      ctx.translate(n.x,n.y);
+      ctx.rotate(time*.00018+n.phase);
+      ctx.beginPath();ctx.ellipse(0,0,r+8,r+13,0,Math.PI*.13,Math.PI*1.72);
+      ctx.strokeStyle=colorFor(n.type,.36);ctx.lineWidth=1.15/view.zoom;ctx.stroke();
+      ctx.beginPath();ctx.arc(r+8,0,2.2/view.zoom,0,Math.PI*2);
+      ctx.fillStyle=colorFor(n.type,.9);ctx.shadowColor=colorFor(n.type);ctx.shadowBlur=9/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.restore();
+
+      ctx.beginPath();ctx.arc(n.x,n.y,r+3,0,Math.PI*2);
+      ctx.strokeStyle=colorFor(n.type,.63);ctx.lineWidth=1.4/view.zoom;
+      ctx.shadowColor=colorFor(n.type,.8);ctx.shadowBlur=7/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+
       ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
-      const core=ctx.createRadialGradient(n.x-r*.35,n.y-r*.4,1,n.x,n.y,r);
-      core.addColorStop(0,"rgba(207,255,248,.95)");core.addColorStop(.18,colorFor(n.type,.95));core.addColorStop(.65,colorFor(n.type,.42));core.addColorStop(1,"rgba(7,23,34,.98)");
-      ctx.fillStyle=core;ctx.fill();ctx.strokeStyle=colorFor(n.type,.8);ctx.lineWidth=1.2/view.zoom;ctx.stroke();
-      ctx.beginPath();ctx.arc(n.x,n.y,3.2+n.activity*2,0,Math.PI*2);ctx.fillStyle="rgba(224,255,250,.95)";ctx.fill();
-      if (selected || searching) {ctx.beginPath();ctx.arc(n.x,n.y,r+10,0,Math.PI*2);ctx.strokeStyle=selected?"rgba(213,255,245,.8)":"rgba(255,222,151,.9)";ctx.lineWidth=1.5/view.zoom;ctx.setLineDash([4/view.zoom,4/view.zoom]);ctx.stroke();ctx.setLineDash([]);}
-      if (connectFrom===n.id) {ctx.beginPath();ctx.arc(n.x,n.y,r+15,0,Math.PI*2);ctx.strokeStyle="rgba(255,211,128,.9)";ctx.lineWidth=2/view.zoom;ctx.stroke();}
+      const core=ctx.createRadialGradient(n.x-r*.36,n.y-r*.42,1,n.x,n.y,r);
+      core.addColorStop(0,"rgba(239,255,255,.98)");
+      core.addColorStop(.12,colorFor(n.type,1));
+      core.addColorStop(.43,colorFor(n.type,.78));
+      core.addColorStop(.76,"rgba(14,40,58,.98)");
+      core.addColorStop(1,"rgba(3,12,25,1)");
+      ctx.fillStyle=core;ctx.fill();
+      ctx.strokeStyle=colorFor(n.type,.95);ctx.lineWidth=1.25/view.zoom;
+      ctx.shadowColor=colorFor(n.type,.9);ctx.shadowBlur=(selected?22:13)/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+
+      const beadAngle=time*.00055+n.phase;
+      for(let k=0;k<3;k++){
+        const a=beadAngle+k*Math.PI*2/3;
+        const bx=n.x+Math.cos(a)*(r+4),by=n.y+Math.sin(a)*(r+4);
+        ctx.beginPath();ctx.arc(bx,by,1.55/view.zoom,0,Math.PI*2);
+        ctx.fillStyle="rgba(230,255,250,.88)";ctx.fill();
+      }
+      ctx.beginPath();ctx.arc(n.x,n.y,4.2+n.activity*2,0,Math.PI*2);
+      ctx.fillStyle="rgba(242,255,251,.98)";
+      ctx.shadowColor="#bffff2";ctx.shadowBlur=12/view.zoom;ctx.fill();ctx.shadowBlur=0;
+
+      if(selected||searching||connectFrom===n.id){
+        ctx.beginPath();ctx.arc(n.x,n.y,r+18,0,Math.PI*2);
+        ctx.strokeStyle=connectFrom===n.id?"rgba(255,207,126,.95)":selected?"rgba(230,255,249,.84)":"rgba(255,222,151,.9)";
+        ctx.lineWidth=1.6/view.zoom;ctx.setLineDash([3/view.zoom,5/view.zoom]);ctx.stroke();ctx.setLineDash([]);
+      }
       ctx.globalAlpha=1;
     }
     ctx.restore();
-    if(view.zoom>.42){
-      for(const n of neurons){
-        const p=screenAt(n);const label=n.name;ctx.font="11px Inter,system-ui,sans-serif";
-        const tw=ctx.measureText(label).width;const w=tw+16;const x=p.x-w/2;const y=p.y+27*view.zoom+8;
-        ctx.fillStyle=n.id===selectedId?"rgba(16,43,52,.94)":"rgba(7,19,29,.82)";
-        roundRect(ctx,x,y,w,22,7);ctx.fill();
-        ctx.strokeStyle=n.id===selectedId?"rgba(103,229,209,.42)":"rgba(116,168,178,.13)";ctx.lineWidth=1;ctx.stroke();
-        ctx.fillStyle=n.id===selectedId?"#d8f9f1":"#91aab2";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(label,p.x,y+11);
+
+    if(view.zoom>.38){
+      const occupied=[];
+      ctx.font="10px Inter,system-ui,sans-serif";
+      for(let i=0;i<neurons.length;i++){
+        const n=neurons[i],p=screenAt(n);
+        const label=n.name;
+        const w=Math.min(168,Math.max(108,ctx.measureText(label).width+20));
+        const x=Math.max(7,Math.min(width-w-7,p.x-w/2));
+        const candidates=[p.y+Math.max(27,26*view.zoom),p.y-Math.max(31,27*view.zoom)-21,p.y+Math.max(48,43*view.zoom)];
+        let y=candidates[0];
+        for(const candidate of candidates){
+          const clear=occupied.every(box=>x+w<box.x-5||x>box.x+box.w+5||candidate+21<box.y-4||candidate>box.y+box.h+4);
+          if(clear){y=candidate;break;}
+        }
+        occupied.push({x,y,w,h:21});
+        ctx.fillStyle=n.id===selectedId?"rgba(14,50,59,.94)":"rgba(5,17,29,.88)";
+        roundRect(ctx,x,y,w,21,8);ctx.fill();
+        ctx.strokeStyle=n.id===selectedId?"rgba(114,245,222,.62)":"rgba(113,187,202,.2)";
+        ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle=n.id===selectedId?"#e7fff9":"#abc8d1";
+        ctx.textAlign="center";ctx.textBaseline="middle";
+        ctx.fillText(label,x+w/2,y+10.5,w-14);
       }
     }
     ctx.globalAlpha=1;
@@ -302,7 +438,7 @@
       if(p.progress>=1){const target=getNeuron(p.to);if(target)target.activity=Math.min(1,target.activity+p.strength*.7);}
     }
     pulses=pulses.filter(p=>p.progress<1);
-    drawBackground();drawConnections(time);drawNeurons(time);
+    drawBackground(time);drawConnections(time);drawNeurons(time);
     if(time%8<dt)updateMetrics();
     requestAnimationFrame(frame);
   }
@@ -386,6 +522,7 @@
 
   resize();
   loadState();
-  requestAnimationFrame(()=>{if(!localStorage.getItem(STORAGE_KEY))fitNetwork();});
+  if(!neurons.length){seedNetwork();fitNetwork();}
+  requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});
   requestAnimationFrame(frame);
 })();
