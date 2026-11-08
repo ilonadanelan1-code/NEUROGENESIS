@@ -16,6 +16,9 @@
   let libraryOpen = false;
   let libraryLimit = 20;
   let libraryFilter = "";
+  let editingMemoryId = null;
+  let libraryReturnScrollTop = 0;
+  let libraryListScrollTop = 0;
 
   function normalise(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/g, "е")
@@ -414,12 +417,77 @@
     el.className = className || "secondary-button";
     return el;
   }
+  function renderClaimPreview(text) {
+    const preview = $("memory-editor-preview");
+    if (!preview) return;
+    preview.textContent = "";
+    const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
+    if (!claims.length) {
+      const empty = document.createElement("div");
+      empty.className = "memory-preview-empty";
+      empty.textContent = "Пока не удалось выделить структурированное утверждение. Сам текст всё равно можно сохранить.";
+      preview.appendChild(empty);
+      return;
+    }
+    for (const claim of claims) {
+      const row = document.createElement("div");
+      row.className = "memory-preview-claim";
+      const kind = document.createElement("span");
+      kind.className = "memory-claim-kind";
+      kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+      const label = document.createElement("span");
+      label.textContent = KNOWLEDGE.claimLabel(claim);
+      row.append(kind, label);
+      preview.appendChild(row);
+    }
+  }
+  function renderMemoryEditor() {
+    const item = memories.find(entry => entry.id === editingMemoryId);
+    const view = $("memory-editor-view");
+    if (!view || !item) {
+      editingMemoryId = null;
+      return;
+    }
+    const input = $("memory-editor-input");
+    const meta = $("memory-editor-meta");
+    if (input && input.dataset.memoryId !== item.id) {
+      input.value = item.text;
+      input.dataset.memoryId = item.id;
+    }
+    if (meta) meta.textContent = formatDate(item.createdAt) + " · повторений: " + item.repetitions + " · извлечений: " + item.recalls;
+    renderClaimPreview(input ? input.value : item.text);
+    const save = $("memory-editor-save");
+    if (save) save.disabled = !(input && input.value.trim());
+  }
   function renderLibrary() {
     const panel = $("memory-library");
     const list = $("memory-library-list");
     if (!panel || !list) return;
+    const toolbar = $("memory-library-toolbar");
+    const editor = $("memory-editor-view");
+    const more = $("memory-more");
     panel.hidden = !libraryOpen;
-    if (!libraryOpen) return;
+    if (!libraryOpen) {
+      if (editor) editor.hidden = true;
+      if (toolbar) toolbar.hidden = false;
+      list.hidden = false;
+      if (more) more.hidden = true;
+      updateCount();
+      return;
+    }
+    if (editingMemoryId) {
+      if (toolbar) toolbar.hidden = true;
+      list.hidden = true;
+      if (more) more.hidden = true;
+      if (editor) editor.hidden = false;
+      renderMemoryEditor();
+      updateCount();
+      return;
+    }
+    if (toolbar) toolbar.hidden = false;
+    list.hidden = false;
+    if (editor) editor.hidden = true;
+    const previousScrollTop = list.scrollTop || libraryListScrollTop;
     const query = normalise(libraryFilter);
     const filtered = memories.filter(item => !query || normalise(item.text + " " + item.tags.join(" ") + " " + (item.claims || []).map(claim => KNOWLEDGE ? KNOWLEDGE.claimSearchText(claim) : "").join(" ")).includes(query));
     const visible = filtered.slice().reverse().slice(0, libraryLimit);
@@ -474,27 +542,92 @@
       }
       const actions = document.createElement("div");
       actions.className = "memory-entry-actions";
-      actions.append(button("Изменить", "edit", "secondary-button memory-mini-button"), button("Забыть", "delete", "secondary-button memory-mini-button memory-delete-button"));
-      const editor = document.createElement("div");
-      editor.className = "memory-edit";
-      editor.hidden = true;
-      const area = document.createElement("textarea");
-      area.className = "text-input memory-edit-input";
-      area.maxLength = MAX_TEXT;
-      area.value = item.text;
-      const editorActions = document.createElement("div");
-      editorActions.className = "memory-entry-actions";
-      editorActions.append(button("Сохранить", "save-edit", "primary-button memory-mini-button"), button("Отмена", "cancel-edit", "secondary-button memory-mini-button"));
-      editor.append(area, editorActions);
-      card.append(tags, actions, editor);
+      actions.append(button("Открыть", "edit", "secondary-button memory-mini-button"), button("Забыть", "delete", "secondary-button memory-mini-button memory-delete-button"));
+      card.append(tags, actions);
       list.appendChild(card);
     }
-    const more = $("memory-more");
+    list.scrollTop = previousScrollTop;
+    libraryListScrollTop = list.scrollTop;
     if (more) {
       more.hidden = filtered.length <= visible.length;
       more.textContent = "Показать ещё (" + Math.max(0, filtered.length - visible.length) + ")";
     }
+    const back = $("memory-library-back");
+    if (back) back.textContent = "← Назад к диалогу";
     updateCount();
+  }
+  function openMemoryEditor(id) {
+    const item = memories.find(entry => entry.id === id);
+    if (!item) return;
+    const list = $("memory-library-list");
+    libraryListScrollTop = list ? list.scrollTop : libraryListScrollTop;
+    editingMemoryId = id;
+    try {
+      const state = window.history && window.history.state;
+      if (!state || state.__ngMemoryView !== "editor") {
+        window.history && window.history.pushState({ __ngMemoryView: "editor", id }, "", "#ng-memory-entry");
+      }
+    } catch (_) {}
+    renderLibrary();
+    const input = $("memory-editor-input");
+    if (input) input.focus();
+  }
+  function restoreLibraryOrigin() {
+    const side = document.querySelector(".side-panel");
+    if (side) side.scrollTop = libraryReturnScrollTop;
+    const manage = $("memory-manage");
+    if (manage) manage.focus();
+  }
+  function closeMemoryLibrary() {
+    try {
+      const state = window.history && window.history.state;
+      if (state && state.__ngMemoryView === "editor") {
+        window.history.go(-2);
+        return;
+      }
+      if (state && state.__ngMemoryView === "library") {
+        window.history.back();
+        return;
+      }
+    } catch (_) {}
+    libraryOpen = false;
+    editingMemoryId = null;
+    renderLibrary();
+    restoreLibraryOrigin();
+  }
+  function backToMemoryList(force = false) {
+    const input = $("memory-editor-input");
+    const item = memories.find(entry => entry.id === editingMemoryId);
+    if (!force && item && input && input.value.trim() !== item.text &&
+        !window.confirm("Есть несохранённые изменения. Вернуться к списку без сохранения?")) return;
+    try {
+      const state = window.history && window.history.state;
+      if (state && state.__ngMemoryView === "editor") {
+        window.history.back();
+        return;
+      }
+    } catch (_) {}
+    editingMemoryId = null;
+    renderLibrary();
+    const list = $("memory-library-list");
+    if (list) list.scrollTop = libraryListScrollTop;
+  }
+  function saveMemoryEditor() {
+    if (!editingMemoryId) return;
+    const input = $("memory-editor-input");
+    if (!input || !input.value.trim()) {
+      const feedback = $("memory-editor-feedback");
+      if (feedback) feedback.textContent = "Текст записи не может быть пустым.";
+      return;
+    }
+    if (!editMemory(editingMemoryId, input.value)) {
+      const feedback = $("memory-editor-feedback");
+      if (feedback) feedback.textContent = $("memory-feedback")?.textContent || "Не удалось сохранить запись.";
+      return;
+    }
+    const feedback = $("memory-editor-feedback");
+    if (feedback) feedback.textContent = "Сохранено. Возвращаю к списку записей…";
+    backToMemoryList(true);
   }
   function handleLibraryClick(event) {
     const control = event.target.closest("button[data-action]");
@@ -504,13 +637,7 @@
     const id = card.dataset.memoryId;
     const action = control.dataset.action;
     if (action === "delete") removeMemory(id);
-    if (action === "edit") {
-      const editor = card.querySelector(".memory-edit");
-      editor.hidden = !editor.hidden;
-      if (!editor.hidden) card.querySelector(".memory-edit-input").focus();
-    }
-    if (action === "cancel-edit") card.querySelector(".memory-edit").hidden = true;
-    if (action === "save-edit") editMemory(id, card.querySelector(".memory-edit-input").value);
+    if (action === "edit") openMemoryEditor(id);
   }
 
   function exportBackup() {
