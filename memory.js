@@ -672,39 +672,42 @@
     };
     return labels[status]?.[field]||labels.not_stated[field];
   }
+  function criterionRequiresNumericOutcome(field) {
+    if(!field||field.status!=="provided")return false;
+    return /шкал|балл|процент|температур|пульс|частот|давлен|уровен|количеств|числов/u.test(normalise(field.value));
+  }
   function reviewReadinessForEdge(subject,object) {
-    const observations=memories.flatMap(entry=>entry.claims||[]).filter(claim=>
-      claim&&claim.kind==="observation"&&claim.status!=="superseded"&&
-      KNOWLEDGE.sameEntity(claim.subject,subject)&&KNOWLEDGE.sameEntity(claim.object,object));
-    const unique=new Map();
-    for(const claim of observations) {
-      const key=claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
-      if(!unique.has(key))unique.set(key,claim);
-    }
-    const distinct=[...unique.values()];
-    const supporting=distinct.filter(claim=>claim.polarity!==false);
-    const challenging=distinct.filter(claim=>claim.polarity===false);
+    const allCases=observationCases().filter(item=>
+      KNOWLEDGE.sameEntity(item.subject,subject)&&KNOWLEDGE.sameEntity(item.object,object));
+    const grouped=uniqueObservationEvents(allCases),distinct=grouped.events;
+    const supporting=distinct.filter(item=>item.polarity);
+    const challenging=distinct.filter(item=>!item.polarity);
     const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
-    const detailSources=distinct.map(claim=>claim.observationCase||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation"))
+    const detailSources=distinct.map(item=>item.details||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation"))
       .concat(relatedAnswers.map(item=>item.responseDetails||KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response")));
     const contextStatus=observationFieldStatus(detailSources,"context");
     const timingStatus=observationFieldStatus(detailSources,"timing");
     const criterionStatus=observationFieldStatus(detailSources,"criterion");
+    const outcomeStatus=observationFieldStatus(detailSources,"outcome");
     const context=contextStatus==="provided",timing=timingStatus==="provided",criterion=criterionStatus==="provided";
+    const numericOutcomeRequired=detailSources.some(source=>criterionRequiresNumericOutcome(source&&source.criterion));
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
     if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");
     if(!context)blockers.push("контекст не указан в структурированном виде");
     if(!timing)blockers.push("время или временной порядок не указаны в структурированном виде");
     if(!criterion)blockers.push("не описано, как определялся или измерялся результат (структурированное поле не заполнено)");
+    if(numericOutcomeRequired&&outcomeStatus!=="provided")blockers.push("не записано фактическое числовое значение результата (например, 6/10), хотя указан числовой способ оценки");
     const ready=blockers.length===0;
     const label=ready?"ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА":
       supporting.length&&challenging.length?"ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ":
       distinct.length?"ОДНОСТОРОННИЕ НАБЛЮДЕНИЯ":"НЕТ ПРЯМЫХ НАБЛЮДЕНИЙ";
     return {subject,object,supportingCount:supporting.length,challengingCount:challenging.length,
-      totalCount:distinct.length,context,timing,criterion,contextStatus,timingStatus,criterionStatus,
-      ready,label,blockers,answerIds:relatedAnswers.map(item=>item.id)};
+      totalCount:distinct.length,context,timing,criterion,contextStatus,timingStatus,criterionStatus,outcomeStatus,
+      numericOutcomeRequired,possibleDuplicateCount:grouped.duplicateMentions,
+      possibleDuplicateGroups:grouped.possibleDuplicateGroups,ready,label,blockers,
+      answerIds:relatedAnswers.map(item=>item.id)};
   }
   function observationCases() {
     const seen=new Set(),result=[];
@@ -719,6 +722,60 @@
         verification:claim.verification||"unverified",source:claim.source||"user_message"});
     }
     return result.sort((a,b)=>a.recordedAt-b.recordedAt);
+  }
+  function observationDuplicateRelation(left,right) {
+    if(!left||!right||left.polarity!==right.polarity||
+       !KNOWLEDGE.sameEntity(left.subject,right.subject)||!KNOWLEDGE.sameEntity(left.object,right.object))return null;
+    const a=String(left.details&&left.details.eventRef||"").trim();
+    const b=String(right.details&&right.details.eventRef||"").trim();
+    if(a||b)return a&&b&&normalise(a)===normalise(b)?"explicit_event_ref":null;
+    const leftText=normalise(left.evidence),rightText=normalise(right.evidence);
+    if(leftText&&leftText===rightText)return "same_text_possible_repeat";
+    if(leftText&&rightText&&enrichedTextLooksLikeSameMention(leftText,rightText))return "possible_enrichment";
+    const leftTime=left.details&&left.details.timing,rightTime=right.details&&right.details.timing;
+    const leftContext=left.details&&left.details.context,rightContext=right.details&&right.details.context;
+    const leftCriterion=left.details&&left.details.criterion,rightCriterion=right.details&&right.details.criterion;
+    const leftOutcome=left.details&&left.details.outcome,rightOutcome=right.details&&right.details.outcome;
+    const leftMoment=leftTime&&leftTime.status==="provided"?parseObservationMoment(leftTime.value):null;
+    const rightMoment=rightTime&&rightTime.status==="provided"?parseObservationMoment(rightTime.value):null;
+    if(leftMoment&&rightMoment&&leftMoment.precision!=="date"&&
+       normalise(leftTime.value)===normalise(rightTime.value)&&
+       leftContext&&rightContext&&leftContext.status==="provided"&&rightContext.status==="provided"&&
+       normalise(leftContext.value)===normalise(rightContext.value)&&
+       leftCriterion&&rightCriterion&&leftCriterion.status==="provided"&&rightCriterion.status==="provided"&&
+       normalise(leftCriterion.value)===normalise(rightCriterion.value)&&
+       normalise(leftOutcome&&leftOutcome.value||"")===normalise(rightOutcome&&rightOutcome.value||""))return "matching_event_details";
+    return null;
+  }
+  function uniqueObservationEvents(cases) {
+    const groups=[];
+    for(const item of Array.isArray(cases)?cases:[]) {
+      let target=null,relation=null;
+      for(const group of groups) {
+        const match=group.members.map(member=>observationDuplicateRelation(member,item)).find(Boolean);
+        if(match){target=group;relation=match;break;}
+      }
+      if(!target)groups.push({members:[item],relations:[]});
+      else {target.members.push(item);target.relations.push(relation);}
+    }
+    const events=groups.map(group=>{
+      const quality=item=>{
+        const detail=item.details||{};
+        return ["context","timing","criterion","outcome"].filter(key=>detail[key]&&detail[key].status==="provided").length+
+          (detail.eventRef?1:0);
+      };
+      const members=group.members.slice().sort((a,b)=>quality(b)-quality(a)||
+        String(b.evidence||"").length-String(a.evidence||"").length||a.recordedAt-b.recordedAt);
+      const primary=members[0];
+      const explicit=group.relations.length>0&&group.relations.every(value=>value==="explicit_event_ref");
+      return {...primary,duplicateIds:members.slice(1).map(item=>item.id),
+        duplicateCount:members.length-1,duplicateConfidence:explicit?"explicit":"possible"};
+    });
+    const duplicates=groups.filter(group=>group.members.length>1);
+    return {events:events.sort((a,b)=>a.recordedAt-b.recordedAt),
+      duplicateMentions:duplicates.reduce((sum,group)=>sum+group.members.length-1,0),
+      possibleDuplicateGroups:duplicates.filter(group=>!group.relations.every(value=>value==="explicit_event_ref")).length,
+      explicitDuplicateGroups:duplicates.filter(group=>group.relations.length&&group.relations.every(value=>value==="explicit_event_ref")).length};
   }
 
   function parseObservationMoment(value) {
