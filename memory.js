@@ -215,22 +215,54 @@
       });
     }
   }
+  function isValidArchivedCausalEdge(edge) {
+    if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string"||!edge.subject.trim()||!edge.object.trim())return false;
+    if(KNOWLEDGE&&typeof KNOWLEDGE.sanitizeClaims==="function") {
+      return KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edge.subject,predicate:"приводит к",
+        object:edge.object,evidence:""}]).length===1;
+    }
+    return !/^(?:что|то\s+что)\s+/iu.test(edge.subject.trim())&&
+      !/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(edge.subject.trim());
+  }
   function cleanReasoning(raw) {
     if (!raw || typeof raw !== "object" || raw.version !== 1 ||
         !["causal_chain","derived_hypotheses","prioritized_hypotheses"].includes(raw.type) ||
         !Array.isArray(raw.conclusions)) return null;
     const createdAt=safeTime(raw.createdAt,Date.now());
+    const excludedPaths=Array.isArray(raw.excludedPaths)?raw.excludedPaths.slice(-24).map(item=>{
+      if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+      return {origin:["conclusion","snapshot_edge","snapshot_alternative"].includes(item.origin)?item.origin:"conclusion",
+        subject:item.subject.slice(0,180),object:item.object.slice(0,180),
+        route:Array.isArray(item.route)?item.route.slice(0,3).map(edge=>({
+          subject:typeof edge.subject==="string"?edge.subject.slice(0,180):"",
+          object:typeof edge.object==="string"?edge.object.slice(0,180):""
+        })).filter(edge=>edge.subject&&edge.object):[],
+        reason:"malformed_causal_subject"};
+    }).filter(Boolean):[];
+    const excludedKeys=new Set(excludedPaths.map(item=>JSON.stringify(item)));
+    const recordExcludedPath=(origin,subject,object,path)=>{
+      const row={origin,subject:String(subject||"").slice(0,180),object:String(object||"").slice(0,180),
+        route:(Array.isArray(path)?path:[]).slice(0,3).map(edge=>({
+          subject:String(edge&&edge.subject||"").slice(0,180),object:String(edge&&edge.object||"").slice(0,180)
+        })).filter(edge=>edge.subject&&edge.object),reason:"malformed_causal_subject"};
+      const key=JSON.stringify(row);
+      if(row.subject&&row.object&&!excludedKeys.has(key)){excludedKeys.add(key);excludedPaths.push(row);}
+    };
     const conclusions=raw.conclusions.slice(0,8).map(item=>{
       if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
-      const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>
-        Array.isArray(path)?path.slice(0,3).map(edge=>{
-          if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
-          return {id:typeof edge.id==="string"?edge.id.slice(0,100):null,subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)};
-        }).filter(Boolean):[]
-      ).filter(path=>path.length):[];
+      const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
+        if(!Array.isArray(path)||!path.length)return null;
+        const candidate=path.slice(0,3);
+        if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
+          recordExcludedPath("conclusion",item.subject,item.object,candidate);
+          return null;
+        }
+        return candidate.map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,
+          subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
+      }).filter(path=>path&&path.length):[];
       return paths.length?{subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths}:null;
     }).filter(Boolean);
-    if(!conclusions.length)return null;
+    if(!conclusions.length&&!excludedPaths.length)return null;
     const reviews=Array.isArray(raw.reviews)?raw.reviews.slice(-48).map(item=>{
       if(!item||typeof item.claimId!=="string")return null;
       const at=safeTime(item.at,Date.now());
@@ -251,6 +283,10 @@
       if(!snapshot||typeof snapshot!=="object")return null;
       const edges=Array.isArray(snapshot.edges)?snapshot.edges.slice(0,12).map(edge=>{
         if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
+        if(!isValidArchivedCausalEdge(edge)) {
+          recordExcludedPath("snapshot_edge",edge.subject,edge.object,[edge]);
+          return null;
+        }
         const options=Array.isArray(edge.revisionOptions)?edge.revisionOptions.slice(0,3).map(option=>{
           if(!option||typeof option.id!=="string"||typeof option.title!=="string")return null;
           return {id:option.id.slice(0,40),title:option.title.slice(0,120),
@@ -265,15 +301,20 @@
       }).filter(Boolean):[];
       const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
-        const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>
-          Array.isArray(path)?path.slice(0,3).filter(edge=>edge&&typeof edge.subject==="string"&&typeof edge.object==="string")
-            .map(edge=>({subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)})):[]
-        ).filter(path=>path.length):[];
+        const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
+          if(!Array.isArray(path)||!path.length)return null;
+          const candidate=path.slice(0,3);
+          if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
+            recordExcludedPath("snapshot_alternative",item.subject,item.object,candidate);
+            return null;
+          }
+          return candidate.map(edge=>({subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
+        }).filter(path=>path&&path.length):[];
         return {subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths};
       }).filter(Boolean):[];
       return {at:safeTime(snapshot.at,Date.now()),signature:typeof snapshot.signature==="string"?snapshot.signature.slice(0,600):"",edges,alternatives};
     }).filter(Boolean):[];
-    return {version:1,type:raw.type,createdAt,status,conclusions,reviews,modelHistory};
+    return {version:1,type:raw.type,createdAt,status,conclusions,reviews,modelHistory,excludedPaths:excludedPaths.slice(-24)};
   }
   function reviewKindForClaim(claim) {
     if(!claim||claim.status==="superseded")return null;
@@ -1305,6 +1346,19 @@
   function buildCausalModelRevision() {
     const tracked=reasoningArchive.slice();
     if(!tracked.length)return "Пока нет причинных выводов с сохранёнными ссылками на исходные записи. Сначала попроси меня вывести причинную цепочку или новые гипотезы.";
+    const excludedRows=[...new Map(tracked.flatMap(entry=>(cleanReasoning(entry.reasoning)?.excludedPaths||[]).map(item=>[
+      item.origin+"|"+item.subject+"|"+item.object+"|"+item.route.map(edge=>edge.subject+">"+edge.object).join(">"),item
+    ])).values()].slice(0,12);
+    const excludedSection=()=>{
+      if(!excludedRows.length)return "";
+      let section="АРХИВНЫЕ МАРШРУТЫ, ИСКЛЮЧЁННЫЕ ПРИ ПРОВЕРКЕ ФОРМЫ\n";
+      for(const item of excludedRows) {
+        const route=item.route.length?[item.route[0].subject,...item.route.map(edge=>edge.object)].join(" → "):item.subject+" → "+item.object;
+        section+="• "+route+" — исключён из активного анализа: в старом маршруте обнаружена некорректная форма причинного субъекта.\n";
+      }
+      section+="Старые сообщения диалога и исходные воспоминания не удаляются. Исправлена только структурированная копия архивного маршрута; исключённый путь больше не используется для новых выводов.\n\n";
+      return section;
+    };
     const allClaims=memories.flatMap(item=>item.claims||[]);
     const decisions=currentModelDecisions();
     const reports=[];
@@ -1372,9 +1426,10 @@
     };
     const uniqueReports=reportCandidates.filter(row=>!reportCandidates.some(other=>other!==row&&
       other.conclusion.paths.some(longPath=>row.conclusion.paths.some(shortPath=>isSubpath(shortPath,longPath)))));
-    if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
+    if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.\n\n"+excludedSection();
     let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
     answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
+    answer+=excludedSection();
     const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
     if(inquiryAnswers.length) {
       answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
@@ -1679,6 +1734,7 @@
     try {
       const savedArchive=JSON.parse(localStorage.getItem(REASONING_ARCHIVE_KEY)||"[]");
       reasoningArchive=mergeReasoningArchive(savedArchive,dialog);
+      if(JSON.stringify(savedArchive)!==JSON.stringify(reasoningArchive))memoryMigrated=true;
     } catch(error) {
       reasoningArchive=mergeReasoningArchive([],dialog);
       console.warn("Could not load NEUROGENESIS reasoning archive:",error);
@@ -2678,7 +2734,7 @@
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
     modelEvolution: () => modelEvolutionAnswer(),
-    reasoningHistory: () => reasoningArchive.map(item=>({time:item.time,type:item.reasoning.type,conclusions:item.reasoning.conclusions,status:item.reasoning.status})),
+    reasoningHistory: () => reasoningArchive.map(item=>({time:item.time,type:item.reasoning.type,conclusions:item.reasoning.conclusions,status:item.reasoning.status,excludedPaths:item.reasoning.excludedPaths||[]})),
     inquiries: () => inquiries.map(item=>({...item,sourceClaimIds:item.sourceClaimIds.slice(),responseClaimIds:item.responseClaimIds.slice()})),
     refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },
     researchStrategy: () => researchStrategyAnswer(),

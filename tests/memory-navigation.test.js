@@ -877,4 +877,53 @@ window.NGMemory.ask("Покажи хронологию наблюдений");
 assert.match(feed.children[feed.children.length-1].textContent,/ХРОНОЛОГИЯ НАБЛЮДЕНИЙ/u,
   "the natural-language command should open the timeline report");
 
-console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation and event-chronology tests: passed.");
+
+// Legacy reasoning archives must quarantine malformed causal edges, not reuse them.
+const archiveSanitationFixture={
+  version:1,type:"derived_hypotheses",createdAt:1000,status:"challenged",
+  conclusions:[{subject:"Обезвоживание",object:"снижению концентрации",paths:[
+    [{id:"hydration-fatigue",subject:"Обезвоживание",object:"усталости"},
+     {id:"fatigue-focus",subject:"Усталость",object:"снижению концентрации"}],
+    [{id:"hydration-fatigue",subject:"Обезвоживание",object:"усталости"},
+     {id:"quoted-fatigue-focus",subject:"что усталость",object:"снижению концентрации"}]
+  ]}],
+  reviews:[],
+  modelHistory:[{at:1100,signature:"legacy-snapshot",edges:[
+    {subject:"Обезвоживание",object:"усталости",status:"unobserved",claimIds:[],revisionOptions:[]},
+    {subject:"что усталость",object:"снижению концентрации",status:"unobserved",claimIds:[],revisionOptions:[]}
+  ],alternatives:[{subject:"Обезвоживание",object:"снижению концентрации",paths:[
+    [{subject:"Обезвоживание",object:"усталости"},{subject:"что усталость",object:"снижению концентрации"}]
+  ]}]}
+  ]
+};
+database.set("neurogenesis.memories.v1",JSON.stringify([
+  {id:"hydration",text:"Обезвоживание может приводить к усталости",createdAt:900},
+  {id:"fatigue",text:"Усталость приводит к снижению концентрации",createdAt:901}
+]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+  {role:"assistant",time:1000,text:"Старая гипотеза с ошибочным маршрутом",reasoning:archiveSanitationFixture}
+]));
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const cleanedArchive=window.NGMemory.reasoningHistory()[0];
+assert.equal(cleanedArchive.conclusions.length,1,"a conclusion with at least one valid route should be preserved");
+assert.equal(cleanedArchive.conclusions[0].paths.length,1,"the valid route should remain");
+assert.equal(cleanedArchive.conclusions[0].paths[0][1].subject,"Усталость",
+  "the valid causal intermediate should survive unchanged");
+assert.ok(cleanedArchive.excludedPaths.length>=2,
+  "the malformed conclusion path and snapshot routes should be recorded as excluded");
+const storedArchive=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"));
+assert.ok(storedArchive[0].reasoning.excludedPaths.length>=2,
+  "archive sanitization should be persisted during backup load");
+window.NGMemory.ask("Построй обновлённую причинную модель");
+const sanitizedModelReply=feed.children[feed.children.length-1].textContent;
+assert.match(sanitizedModelReply,/АРХИВНЫЕ МАРШРУТЫ, ИСКЛЮЧЁННЫЕ ПРИ ПРОВЕРКЕ ФОРМЫ/u);
+assert.match(sanitizedModelReply,/исключён из активного анализа/u);
+assert.match(sanitizedModelReply,/исходные воспоминания не удаляются/u);
+assert.equal(window.NGMemory.modelDecisions().length,0,
+  "sanitizing historical route syntax must not silently alter model decisions");
+
+console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation, event-chronology and archive-sanitization tests: passed.");
