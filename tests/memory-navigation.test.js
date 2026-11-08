@@ -657,27 +657,27 @@ assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definiti
 
 // Model evolution must compare successive snapshots without changing memories or decisions.
 const evolutionMemories=[
-  {id:"evolution-counterexample",text:"При А не наблюдалась Б",createdAt:100},
-  {id:"evolution-route-one",text:"А приводит к В",createdAt:101},
-  {id:"evolution-route-two",text:"В приводит к Б",createdAt:102}
+  {id:"evolution-counterexample",text:"При факторе Альфа не наблюдался результат Бета",createdAt:100},
+  {id:"evolution-route-one",text:"Фактор Альфа приводит к фактору Гамма",createdAt:101},
+  {id:"evolution-route-two",text:"Фактор Гамма приводит к результату Бета",createdAt:102}
 ];
 const evolutionConclusion={
   version:1,type:"derived_hypotheses",createdAt:90,status:"current",
-  conclusions:[{subject:"А",object:"Б",paths:[[{id:"direct-edge",subject:"А",object:"Б"}]]}],
+  conclusions:[{subject:"Фактор Альфа",object:"Результат Бета",paths:[[{id:"direct-edge",subject:"Фактор Альфа",object:"Результат Бета"}]]}],
   reviews:[],
   modelHistory:[{
     at:95,signature:"baseline",
-    edges:[{subject:"А",object:"Б",status:"unobserved",decision:null,claimIds:[],revisionOptions:[]}],
+    edges:[{subject:"Фактор Альфа",object:"Результат Бета",status:"unobserved",decision:null,claimIds:[],revisionOptions:[]}],
     alternatives:[]
   }]
 };
 database.set("neurogenesis.memories.v1",JSON.stringify(evolutionMemories));
 database.set("neurogenesis.dialog.v1","[]");
 database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
-  {role:"assistant",time:90,text:"А ⇢ Б",reasoning:evolutionConclusion}
+  {role:"assistant",time:90,text:"Фактор Альфа ⇢ Результат Бета",reasoning:evolutionConclusion}
 ]));
 database.set("neurogenesis.model-decisions.v1",JSON.stringify([
-  {edgeSubject:"А",edgeObject:"Б",strategy:"suspend",at:110,claimIds:[]}
+  {edgeSubject:"Фактор Альфа",edgeObject:"Результат Бета",strategy:"suspend",at:110,claimIds:[]}
 ]));
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
@@ -690,11 +690,11 @@ assert.match(evolutionReply,/НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ → 
   "the report should show the edge status transition between snapshots");
 assert.match(evolutionReply,/НЕТ ВЫБРАННОГО РЕШЕНИЯ → СВЯЗЬ ВРЕМЕННО ПРИОСТАНОВЛЕНА/u,
   "the report should show when a model decision changes");
-assert.match(evolutionReply,/Новые записи, учтённые для А → Б: «При А не наблюдалась Б»/u,
+assert.match(evolutionReply,/Новые записи, учтённые для Фактор Альфа → Результат Бета: «При факторе Альфа не наблюдался результат Бета»/u,
   "the report should identify newly considered evidence");
-assert.match(evolutionReply,/Добавился альтернативный маршрут для А ⇢ Б: А → В → Б/u,
+assert.match(evolutionReply,/Добавился альтернативный маршрут для Фактор Альфа ⇢ Результат Бета: Фактор Альфа → Фактор Гамма → Результат Бета/u,
   "the report should identify a newly available alternative route");
-assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="А"&&item.edgeObject==="Б").strategy,"suspend",
+assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="Фактор Альфа"&&item.edgeObject==="Результат Бета").strategy,"suspend",
   "reporting evolution must not modify the user's selected model decision");
 const evolutionHistory=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))[0].reasoning.modelHistory;
 assert.equal(evolutionHistory.length,2,"the report should persist exactly one new snapshot after the baseline");
