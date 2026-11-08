@@ -111,15 +111,20 @@
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
+    const direct = extractSingleClaim(text);
     const clauses = text.split(/\s*[,;]\s*/u)
       .map(part => part.replace(/^(?:и|а|но|однако)\s+/iu,"").trim())
       .filter(Boolean).slice(0,8);
     if (clauses.length > 1) {
       const extracted = clauses.map(extractSingleClaim).filter(Boolean);
-      if (extracted.length) return extracted.slice(0,12);
+      if (extracted.length) {
+        if (direct && direct.kind === "hypothesis" && !extracted.some(claim => claim.kind === "hypothesis")) {
+          extracted.unshift(direct);
+        }
+        return extracted.slice(0,12);
+      }
     }
-    const claim = extractSingleClaim(text);
-    return claim ? [claim] : [];
+    return direct ? [direct] : [];
   }
   function sanitizeClaims(input, evidenceFallback = "") {
     if (!Array.isArray(input)) return [];
