@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111b">
+  <meta name="description" content="NEUROGENESIS — интерактивный цифровой организм и экспериментальная модель искусственного мозга.">
+  <title>NEUROGENESIS — искусственный мозг</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.1</div></div>
+      </div>
+      <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
+      <div class="top-actions">
+        <button class="icon-button" id="save-button" title="Сохранить (Ctrl+S)" aria-label="Сохранить"><span>↧</span></button>
+        <button class="icon-button" id="fit-button" title="Показать всю сеть" aria-label="Показать всю сеть"><span>⌗</span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="brain-panel" aria-label="Визуальная нейронная сеть">
+        <div class="canvas-topline">
+          <div><span class="eyebrow">НЕЙРОСЕТЬ</span><span class="canvas-title">Живое ядро</span></div>
+          <div class="live-indicator"><span class="pulse-dot"></span><span id="run-label">ОЖИДАНИЕ</span></div>
+        </div>
+        <canvas id="brain-canvas" aria-label="Поле нейронной сети. Перетаскивайте нейроны и пустое пространство."></canvas>
+        <div class="canvas-vignette"></div>
+        <div class="canvas-tools">
+          <button class="tool-button" id="zoom-out" aria-label="Уменьшить">−</button>
+          <span class="zoom-value" id="zoom-value">100%</span>
+          <button class="tool-button" id="zoom-in" aria-label="Увеличить">+</button>
+          <span class="tool-separator"></span>
+          <button class="tool-button fit-tool" id="center-button" title="Центрировать сеть">◎</button>
+        </div>
+        <div class="canvas-hint">ПЕРЕТАСКИВАЙ · КОЛЁСИКО / ЩИПOК — МАСШТАБ · ДВОЙНОЕ НАЖАТИЕ — НОВЫЙ НЕЙРОН</div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="section-block organism-block">
+          <div class="section-heading"><span class="eyebrow">СОСТОЯНИЕ</span><span class="tiny-live">● ONLINE</span></div>
+          <div class="organism-title"><span class="organism-orb"></span><div><strong>Протоорганизм</strong><small id="organism-mood">Нестабильное равновесие</small></div></div>
+          <div class="metrics">
+            <div class="metric"><span>Нейроны</span><strong id="neuron-count">0</strong></div>
+            <div class="metric"><span>Связи</span><strong id="synapse-count">0</strong></div>
+            <div class="metric"><span>Активность</span><strong id="activity-value">0%</strong></div>
+          </div>
+        </section>
+
+        <section class="section-block controls-block">
+          <div class="section-heading"><span class="eyebrow">УПРАВЛЕНИЕ</span></div>
+          <button class="primary-button" id="stimulate-button"><span class="button-symbol">ϟ</span><span><strong>Импульс</strong><small>Разбудить сеть</small></span></button>
+          <div class="button-grid">
+            <button class="secondary-button" id="add-button"><span>＋</span>Нейрон</button>
+            <button class="secondary-button" id="connect-button"><span>⟷</span>Связать</button>
+            <button class="secondary-button" id="grow-button"><span>✳</span>Рост</button>
+            <button class="secondary-button" id="run-button"><span>▶</span>Запуск</button>
+          </div>
+          <p class="control-note" id="mode-note">Выбери нейрон, чтобы изучить его состояние.</p>
+        </section>
+
+        <section class="section-block inspector-block">
+          <div class="section-heading"><span class="eyebrow">ИНСПЕКТОР</span><span id="selected-id" class="id-label">NO SELECTION</span></div>
+          <div id="empty-inspector" class="empty-state"><div class="empty-glyph">◉</div><strong>Нейрон не выбран</strong><span>Нажми на узел в сети, чтобы открыть его параметры.</span></div>
+          <div id="neuron-inspector" class="neuron-inspector" hidden>
+            <label class="field-label" for="neuron-name">Имя нейрона</label>
+            <input id="neuron-name" class="text-input" maxlength="42" autocomplete="off">
+            <label class="field-label" for="neuron-type">Тип</label>
+            <select id="neuron-type" class="text-input">
+              <option value="core">Ядро</option><option value="sensory">Сенсорный</option><option value="memory">Память</option><option value="logic">Логический</option><option value="output">Выходной</option>
+            </select>
+            <div class="range-heading"><label class="field-label" for="neuron-bias">Возбудимость</label><strong id="bias-value">50%</strong></div>
+            <input id="neuron-bias" class="range-input" type="range" min="0" max="100" value="50">
+            <div class="neuron-readout"><span>Текущая активность</span><strong id="neuron-activity">0%</strong></div>
+            <button class="danger-button" id="delete-button">Удалить нейрон</button>
+          </div>
+        </section>
+
+        <section class="section-block search-block">
+          <div class="section-heading"><span class="eyebrow">ПОИСК</span></div>
+          <input id="search-input" class="text-input search-input" placeholder="Найти нейрон..." autocomplete="off">
+          <div class="footer-note"><span class="save-dot" id="save-dot"></span><span id="save-status">Изменения сохраняются локально</span></div>
+        </section>
+      </aside>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
