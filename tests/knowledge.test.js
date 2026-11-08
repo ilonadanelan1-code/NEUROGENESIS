@@ -51,6 +51,7 @@ assert.equal(knowledge.semanticMatch("телефон","телефон").score,1,
 assert.match(knowledge.answerQuestion("Кто ты?", []),/Я — NEUROGENESIS/u,"system identity should not depend on user memories");
 assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/до 500 записей/u,"capabilities should describe the implemented memory limit");
 assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/не умею свободно рассуждать/u,"the system should state its current reasoning limitations");
+assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/хронологию/u,"the system should describe the new event timeline capability and its explicit-date boundary");
 assert.match(knowledge.answerQuestion("Что ты знаешь обо мне?", []),/нет конкретных сведений о тебе/u,"an empty user profile should be explained without inventing facts");
 
 const relationship = knowledge.extractClaims("Игорь Головнев твой самый лучший друг")[0];

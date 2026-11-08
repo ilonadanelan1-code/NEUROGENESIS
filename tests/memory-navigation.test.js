@@ -831,4 +831,50 @@ assert.match(window.NGMemory.reconcileExperience(),/СОПОСТАВЛЕНИЕ �
 assert.match(window.NGMemory.reconcileExperience(),/Независимо подтверждённых источников: 0/u);
 assert.equal(window.NGMemory.modelDecisions().length,0,"evidence reconciliation must not change model decisions");
 
-console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate and experience-reconciliation tests: passed.");
+
+// Chronology must use explicit event dates rather than memory save timestamps.
+const timelineCase=(id,claimId,text,polarity,timing,createdAt,timingStatus="provided")=>({
+  id,text,tags:["хронология"],traceIds:[],createdAt,updatedAt:createdAt,strength:.65,repetitions:1,recalls:0,
+  claims:[{id:claimId,kind:"observation",subject:"Фактор Время",predicate:"наблюдение",object:"Результат",
+    holder:"user",polarity,source:"user_message",evidence:text,verification:"unverified",
+    extractionConfidence:.9,traceId:null,createdAt,status:"current",sourceMemoryId:id,
+    observationCase:{schema:1,source:"direct_observation",sourceRef:"",
+      context:{status:"provided",value:"обычный день",source:"direct_observation"},
+      timing:{status:timingStatus,value:timingStatus==="provided"?timing:"",source:"direct_observation"},
+      criterion:{status:"provided",value:"одинаковая шкала",source:"direct_observation"}}}]
+});
+const timelineMemories=[
+  timelineCase("saved-first","event-late","При факторе времени наблюдался результат; время: 2026-11-09 21:45",true,"2026-11-09 21:45",100),
+  timelineCase("saved-last","event-early","При факторе времени результат не наблюдался; время: 09.11.2026 07:15",false,"09.11.2026 07:15",900),
+  timelineCase("saved-middle","event-date","При факторе времени наблюдался результат; дата: 2026-11-08",true,"2026-11-08",500),
+  timelineCase("saved-relative","event-relative","При факторе времени наблюдался результат; время: вчера вечером",true,"вчера вечером",300),
+  timelineCase("saved-unknown","event-unknown","При факторе времени результат не наблюдался",false,"",400,"not_recorded")
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(timelineMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const timeline=window.NGMemory.observationTimeline();
+assert.equal(timeline.totalCases,5);
+assert.equal(timeline.recognizedCount,3,"only explicit supported calendar dates should enter the chronology");
+assert.equal(timeline.unparsedCount,1,"relative language should remain unparsed rather than being guessed");
+assert.equal(timeline.missingCount,1,"missing event timing must remain separate");
+assert.deepEqual(Array.from(timeline.events, item=>item.id),["event-date","event-early","event-late"],
+  "chronology should sort by event date and clock time, not by memory save timestamp");
+assert.equal(timeline.events[0].moment.precision,"date","date-only observations must not gain an invented time");
+assert.equal(timeline.events[1].moment.timeLabel,"07:15");
+assert.equal(timeline.events[2].moment.timeLabel,"21:45");
+const timelineReport=window.NGMemory.observationTimelineReport();
+assert.match(timelineReport,/ХРОНОЛОГИЯ НАБЛЮДЕНИЙ/u);
+assert.match(timelineReport,/08\.11\.2026/u);
+assert.match(timelineReport,/09\.11\.2026/u);
+assert.match(timelineReport,/вчера вечером/u);
+assert.match(timelineReport,/Дата сохранения воспоминания не используется/u);
+window.NGMemory.ask("Покажи хронологию наблюдений");
+assert.match(feed.children[feed.children.length-1].textContent,/ХРОНОЛОГИЯ НАБЛЮДЕНИЙ/u,
+  "the natural-language command should open the timeline report");
+
+console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation and event-chronology tests: passed.");

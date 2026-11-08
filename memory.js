@@ -649,6 +649,83 @@
     }
     return result.sort((a,b)=>a.recordedAt-b.recordedAt);
   }
+
+  function parseObservationMoment(value) {
+    const raw=String(value||"").trim();
+    if(!raw)return null;
+    let match=raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/u);
+    let year,month,day,hour=null,minute=null,second=null,hasSeconds=false;
+    if(match) {
+      year=Number(match[1]);month=Number(match[2]);day=Number(match[3]);
+      if(match[4]!=null) { hour=Number(match[4]);minute=Number(match[5]);second=match[6]==null?0:Number(match[6]);hasSeconds=match[6]!=null; }
+    } else {
+      match=raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[,\s]+(?:в\s*)?(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/iu);
+      if(!match)return null;
+      day=Number(match[1]);month=Number(match[2]);year=Number(match[3]);
+      if(match[4]!=null) { hour=Number(match[4]);minute=Number(match[5]);second=match[6]==null?0:Number(match[6]);hasSeconds=match[6]!=null; }
+    }
+    if(!Number.isInteger(year)||year<1||year>9999||month<1||month>12)return null;
+    const leap=year%4===0&&(year%100!==0||year%400===0);
+    const monthDays=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
+    if(day<1||day>monthDays[month-1])return null;
+    if(hour!=null&&(hour<0||hour>23||minute<0||minute>59||second<0||second>59))return null;
+    const pad=value=>String(value).padStart(2,"0");
+    const dateKey=String(year).padStart(4,"0")+"-"+pad(month)+"-"+pad(day);
+    const timeKey=hour==null?null:pad(hour)+":"+pad(minute)+(hasSeconds?":"+pad(second):"");
+    return {dateKey,year,month,day,hour,minute,second,precision:hour==null?"date":hasSeconds?"second":"minute",
+      dateLabel:pad(day)+"."+pad(month)+"."+String(year),timeLabel:timeKey,
+      secondsOfDay:hour==null?null:hour*3600+minute*60+second};
+  }
+  function observationTimelineData() {
+    const cases=observationCases(),events=[],unparsed=[];
+    let missingCount=0;
+    for(const item of cases) {
+      const field=item.details&&item.details.timing;
+      if(!field||field.status!=="provided") {missingCount++;continue;}
+      const moment=parseObservationMoment(field.value);
+      if(!moment) {unparsed.push({id:item.id,subject:item.subject,object:item.object,polarity:item.polarity,value:field.value});continue;}
+      events.push({...item,moment});
+    }
+    events.sort((a,b)=>a.moment.dateKey.localeCompare(b.moment.dateKey)||
+      (a.moment.secondsOfDay==null?Number.MAX_SAFE_INTEGER:a.moment.secondsOfDay)-
+      (b.moment.secondsOfDay==null?Number.MAX_SAFE_INTEGER:b.moment.secondsOfDay)||
+      String(a.id).localeCompare(String(b.id)));
+    return {totalCases:cases.length,events,unparsed,missingCount,recognizedCount:events.length,unparsedCount:unparsed.length};
+  }
+  function observationTimelineAnswer() {
+    const data=observationTimelineData();
+    if(!data.totalCases)return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока нет сохранённых карточек наблюдений.";
+    if(!data.events.length) {
+      return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока не найдено ни одной даты, которую можно надёжно упорядочить. Укажи время события в формате «время: 2026-11-09 07:15» или дату в формате «дата: 09.11.2026». Описания вроде «вчера вечером» сохраняются, но не превращаются в точную дату автоматически.";
+    }
+    const byDay=new Map();
+    for(const item of data.events) { if(!byDay.has(item.moment.dateKey))byDay.set(item.moment.dateKey,[]); byDay.get(item.moment.dateKey).push(item); }
+    const fieldText=(field)=>field&&field.status==="provided"?field.value:observationFieldStatusLabel(field&&field.status||"not_stated");
+    let answer="ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\n";
+    answer+="Распознано дат/моментов: "+data.recognizedCount+" из "+data.totalCases+"; не удалось разобрать: "+data.unparsedCount+"; время не указано: "+data.missingCount+".\n";
+    answer+="Показываю только время события, явно записанное в карточке. Дата сохранения воспоминания не используется для восстановления хронологии.\n\n";
+    for(const [dateKey,items] of byDay) {
+      const first=items[0].moment; answer+=first.dateLabel+"\n";
+      const timed=items.filter(item=>item.moment.precision!=="date"),dateOnly=items.filter(item=>item.moment.precision==="date");
+      for(const item of timed) {
+        answer+="  "+item.moment.timeLabel+" · "+(item.polarity?"наблюдалось":"не наблюдалось")+" · "+item.subject+" → "+item.object+"\n";
+        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Карточка: "+item.id+"\n";
+      }
+      for(const item of dateOnly) {
+        answer+="  Время суток не указано · "+(item.polarity?"наблюдалось":"не наблюдалось")+" · "+item.subject+" → "+item.object+"\n";
+        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Карточка: "+item.id+"\n";
+      }
+      answer+="\n";
+    }
+    if(data.unparsedCount) {
+      answer+="ДАТА/ВРЕМЯ УКАЗАНЫ, НО НЕ РАСПОЗНАНЫ\n";
+      for(const item of data.unparsed.slice(0,12))answer+="• "+item.value+" — "+item.subject+" → "+item.object+" (карточка "+item.id+")\n";
+      answer+="\n";
+    }
+    if(data.missingCount)answer+="Без явно указанной даты или времени осталось карточек: "+data.missingCount+". Их нельзя достоверно расположить на временной шкале.\n\n";
+    answer+="Распознаются строгие форматы YYYY-MM-DD, YYYY-MM-DD HH:mm[:ss], DD.MM.YYYY и DD.MM.YYYY HH:mm[:ss]. Для даты без времени определяется только день, но не порядок событий внутри него. Часовой пояс не угадывается. Отчёт не подтверждает достоверность самих наблюдений.";
+    return answer;
+  }
   function observationFieldDescription(field) {
     if(!field)return "не указано";
     if(field.status==="provided")return field.value;
@@ -1900,6 +1977,9 @@
     const lower = normalise(query);
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    if(/^(?:покажи хронологию наблюдений|хронология наблюдений|покажи временную шкалу наблюдений|восстанови последовательность наблюдений)$/u.test(lower)) {
+      say("assistant",observationTimelineAnswer());setFeedback("ПАМЯТЬ ОПЫТА · ХРОНОЛОГИЯ");return;
+    }
     if(/^(?:сопоставь опыт с причинной моделью|сопоставь наблюдения с моделью|сравни новые наблюдения с моделью|проанализируй сопоставимость наблюдений)$/u.test(lower)) {
        say("assistant",experienceReconciliationAnswer());setFeedback("САМОПРОВЕРКА · СОПОСТАВЛЕНИЕ ОПЫТА");return;
      }
@@ -2605,6 +2685,8 @@
     modelReviewReadiness: () => modelReviewReadinessAnswer(),
      observationCases: () => observationCases(),
      observationJournal: () => observationCasesAnswer(),
+     observationTimeline: () => observationTimelineData(),
+     observationTimelineReport: () => observationTimelineAnswer(),
      reviewReadinessForEdge: (subject,object) => reviewReadinessForEdge(subject,object),
      reconcileEdgeEvidence: (subject,object,baselineAt=0) => evidenceReconciliationForEdge(subject,object,baselineAt),
      reconcileExperience: () => experienceReconciliationAnswer(),
