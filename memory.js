@@ -327,7 +327,7 @@
     const allClaims = memories.flatMap(item => item.claims || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
     if (structuredAnswer) {
-      const isEntityProfileQuery = /^(?:что ты знаешь|что известно|расскажи|кто такой|кто такая|кто такое)(?:\s|$)/u.test(lower);
+      const isEntityProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|что известно|расскажи|кто такой|кто такая|кто такое)(?:\s|$)/u.test(lower);
       const isIdentityQuery = /^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(lower);
       const related = memories.map(item => ({ item, score: scoreMemory(query, item) }))
         .filter(hit => hit.score > 0.08 || (isIdentityQuery && (hit.item.claims || []).some(claim => claim.kind === "identity" && claim.subject === "assistant")))
