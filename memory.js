@@ -522,6 +522,13 @@
           duplicate.repetitions += candidate.repetitions;
           duplicate.updatedAt = Date.now();
           if (KNOWLEDGE) duplicate.claims = KNOWLEDGE.mergeClaims(duplicate.claims, candidate.claims);
+          for (const tag of candidate.tags) {
+            if (duplicate.tags.includes(tag) || duplicate.tags.length >= 6) continue;
+            duplicate.tags.push(tag);
+            duplicate.traceIds.push(ensureTrace(tag));
+          }
+          const related = memories.filter(old => old.id !== duplicate.id && old.tags.some(tag => candidate.tags.includes(tag))).slice(-4);
+          linkMemory(duplicate, related);
           duplicates++;
           continue;
         }
