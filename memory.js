@@ -506,7 +506,7 @@
     const responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(raw.responseText||"","inquiry_response"):null;
     if(responseDetails)responseDetails.sourceRef=raw.id;
     return {id:raw.id,signature:raw.signature.slice(0,500),
-      kind:["contrast_observations","clarify_counterexample","missing_observation"].includes(raw.kind)?raw.kind:"missing_observation",
+      kind:["contrast_observations","clarify_counterexample","missing_observation","duplicate_observation"].includes(raw.kind)?raw.kind:"missing_observation",
       edgeSubject:typeof raw.edgeSubject==="string"?raw.edgeSubject.slice(0,180):"",
       edgeObject:typeof raw.edgeObject==="string"?raw.edgeObject.slice(0,180):"",
       question:raw.question.slice(0,700),reason:typeof raw.reason==="string"?raw.reason.slice(0,700):"",
@@ -518,8 +518,12 @@
       responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",responseDetails,
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0),
-      assessment:["insufficient_context","gap_confirmed","context_reported_unverified","observations_reported_unverified"].includes(raw.assessment)?raw.assessment:"unassessed",
+      assessment:["insufficient_context","gap_confirmed","context_reported_unverified","observations_reported_unverified",
+        "duplicate_same_event","duplicate_separate_events","duplicate_unresolved"].includes(raw.assessment)?raw.assessment:"unassessed",
       assessmentReason:typeof raw.assessmentReason==="string"?raw.assessmentReason.slice(0,700):"",
+      clarificationNote:typeof raw.clarificationNote==="string"?raw.clarificationNote.slice(0,700):"",
+      resolution:["same_event","separate_events"].includes(raw.resolution)?raw.resolution:"",
+      resolvedEventRefs:Array.isArray(raw.resolvedEventRefs)?raw.resolvedEventRefs.filter(x=>typeof x==="string").slice(0,12):[],
       assessmentAt:safeTime(raw.assessmentAt,0)};
   }
   function mergeInquiryHistory(existing,incoming) {
@@ -793,9 +797,17 @@
         duplicateCount:members.length-1,duplicateConfidence:explicit?"explicit":"possible"};
     });
     const duplicates=groups.filter(group=>group.members.length>1);
+    const possibleGroups=duplicates.filter(group=>!group.relations.every(value=>value==="explicit_event_ref")).map(group=>{
+      const members=group.members.slice().sort((a,b)=>a.recordedAt-b.recordedAt);
+      return {subject:members[0].subject,object:members[0].object,polarity:members[0].polarity,
+        claimIds:members.map(item=>item.id).filter(Boolean),
+        members:members.map(item=>({id:item.id,sourceMemoryId:item.sourceMemoryId,evidence:item.evidence,
+          recordedAt:item.recordedAt,eventRef:item.details&&item.details.eventRef||""})),
+        relationTypes:[...new Set(group.relations)]};
+    });
     return {events:events.sort((a,b)=>a.recordedAt-b.recordedAt),
       duplicateMentions:duplicates.reduce((sum,group)=>sum+group.members.length-1,0),
-      possibleDuplicateGroups:duplicates.filter(group=>!group.relations.every(value=>value==="explicit_event_ref")).length,
+      possibleDuplicateGroups:possibleGroups.length,possibleGroups,
       explicitDuplicateGroups:duplicates.filter(group=>group.relations.length&&group.relations.every(value=>value==="explicit_event_ref")).length};
   }
 
