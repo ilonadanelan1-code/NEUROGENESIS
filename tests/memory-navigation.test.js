@@ -330,9 +330,9 @@ const tracked=modelDialog.filter(item=>item.role==="assistant"&&item.reasoning&&
 assert.ok(tracked.reasoning.modelHistory.length>0,"model revision snapshots should be stored in the reasoning history");
 assert.ok(tracked.reasoning.modelHistory[0].edges.some(edge=>edge.status==="challenged"),"model history should preserve the challenged edge state");
 assert.ok(modelEntry,"the model revision answer should be part of the exported dialogue");
-const memoriesBeforeModel=JSON.stringify(window.NGMemory.list());
+const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
 input.value = "Построй обновлённую причинную модель";
 document.getElementById("ask-button").dispatch("click");
-assert.equal(JSON.stringify(window.NGMemory.list()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
+assert.equal(JSON.stringify(window.NGMemory.claims()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
 
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and causal model revision: passed.");

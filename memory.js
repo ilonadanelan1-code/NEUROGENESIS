@@ -250,7 +250,8 @@
   }
   function findAlternativeCausalPaths(start,target,allClaims,excludedEdges) {
     const blocked=new Set((excludedEdges||[]).map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)));
-    const negative=new Set(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity===false)
+    const negative=new Set(allClaims.filter(claim=>claim&&
+      ((claim.kind==="causal"&&claim.polarity===false)||(claim.kind==="observation"&&claim.polarity===false)))
       .map(claim=>normalise(claim.subject)+"|"+normalise(claim.object)));
     const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
       !blocked.has(normalise(claim.subject)+"|"+normalise(claim.object))&&
@@ -352,14 +353,22 @@
       }
       answer+="\n";
     }
-    const target=uniqueReports[0].conclusion.object;
-    const parallel=KNOWLEDGE.findCausalPaths(target,allClaims,{reverse:true,maxDepth:3})
-      .filter(path=>path.length&&uniqueReports.every(row=>!KNOWLEDGE.sameEntity(path[0].subject,row.conclusion.subject)))
-      .slice(0,3);
-    if(parallel.length) {
-      answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\n";
-      for(const path of parallel)answer+="• "+[path[0].subject,...path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\n";
-      answer+="\n";
+    const parallelRows=[];
+    for(const row of uniqueReports) {
+      const affected=row.report.challengedEdges.some(edge=>row.conclusion.paths.some(path=>path.some(item=>
+        KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
+      if(!affected)continue;
+      const paths=KNOWLEDGE.findCausalPaths(row.conclusion.object,allClaims,{reverse:true,maxDepth:3})
+        .filter(path=>path.length&&!KNOWLEDGE.sameEntity(path[0].subject,row.conclusion.subject));
+      for(const path of paths) {
+        const key=path.map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)).join(">");
+        if(!parallelRows.some(item=>item.key===key))parallelRows.push({key,path});
+      }
+    }
+    if(parallelRows.length) {
+      answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\\n";
+      for(const item of parallelRows.slice(0,3))answer+="• "+[item.path[0].subject,...item.path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\\n";
+      answer+="\\n";
     }
     answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
     answer+="История пересмотра модели сохранена в метаданных выводов и попадёт в следующую резервную копию. Новый вариант схемы — аналитическое предложение, а не установленный факт.";
