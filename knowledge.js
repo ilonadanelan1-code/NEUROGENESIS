@@ -10,7 +10,22 @@
   }
   function tokens(value) {
     return normalise(value).split(" ").filter(word => word.length >= 3 && !STOP.has(word))
-      .map(word => word.replace(/(иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ов|ев|ей|ом|ем|а|я|ы|и|е|у|ю)$/u, "")).filter(word => word.length >= 3);
+      .map(word => word.replace(/(иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ов|ев|ей|ом|ем|а|я|ы|и|е|у|ю|ь)$/u, "")).filter(word => word.length >= 3);
+  }
+  function canonicalEntity(value) {
+    return tokens(value).join(" ");
+  }
+  function sameEntity(left, right) {
+    const a = canonicalEntity(left);
+    const b = canonicalEntity(right);
+    return !!a && a === b;
+  }
+  function relationFamily(value) {
+    const role = canonicalEntity(value);
+    if (role.includes("друг") || role.includes("подруг") || role.includes("товарищ")) return "friend";
+    if (role.includes("коллег")) return "colleague";
+    if (role.includes("брат") || role.includes("сестр")) return "sibling";
+    return role;
   }
   function cleanPart(value, max = 100) {
     return String(value || "").replace(/\s+/g, " ").trim().replace(/^[,.;:—–-]+|[,.;:—–-]+$/g, "").slice(0, max);
