@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.7">
+  <link rel="stylesheet" href="./styles.css?v=0.8">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.7</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.8</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -83,6 +83,20 @@
         <section class="section-block memory-block">
           <div class="section-heading"><span class="eyebrow">ПАМЯТЬ И ДИАЛОГ</span><span id="memory-count" class="id-label">0 / 500 ЗАПИСЕЙ</span></div>
           <div class="memory-feed" id="memory-feed" aria-live="polite"></div>
+          <div class="memory-tools">
+            <button class="secondary-button memory-tool-button" id="memory-manage" type="button">Записи (0)</button>
+            <button class="secondary-button memory-tool-button" id="memory-export" type="button">Экспорт</button>
+            <button class="secondary-button memory-tool-button" id="memory-import" type="button">Импорт</button>
+            <input id="memory-import-file" type="file" accept="application/json,.json" hidden>
+          </div>
+          <div class="memory-library" id="memory-library" hidden>
+            <div class="memory-library-top">
+              <input id="memory-filter" class="text-input memory-filter" type="search" placeholder="Найти в памяти..." autocomplete="off">
+              <button class="secondary-button memory-clear-button" id="memory-clear" type="button">Очистить</button>
+            </div>
+            <div id="memory-library-list" class="memory-library-list"></div>
+            <button class="secondary-button memory-more-button" id="memory-more" type="button" hidden>Показать ещё</button>
+          </div>
           <label class="field-label" for="memory-input">НОВАЯ ИНФОРМАЦИЯ / ВОПРОС</label>
           <textarea id="memory-input" class="text-input memory-input" maxlength="1200" rows="2" placeholder="Расскажи мне факт или задай вопрос..."></textarea>
           <div class="memory-actions">
@@ -100,7 +114,7 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=0.7" defer></script>
-  <script src="./memory.js?v=0.7" defer></script>
+  <script src="./app.js?v=0.8" defer></script>
+  <script src="./memory.js?v=0.8" defer></script>
 </body>
 </html>
