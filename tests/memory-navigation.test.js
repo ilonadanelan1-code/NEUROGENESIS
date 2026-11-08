@@ -914,7 +914,7 @@ const timelineMemories=[
   timelineCase("saved-last","event-early","При факторе времени результат не наблюдался; время: 09.11.2026 07:15",false,"09.11.2026 07:15",900),
   timelineCase("saved-middle","event-date","При факторе времени наблюдался результат; дата: 2026-11-08",true,"2026-11-08",500),
   timelineCase("saved-relative","event-relative","При факторе времени наблюдался результат; время: вчера вечером",true,"вчера вечером",300),
-  timelineCase("saved-unknown","event-unknown","При факторе времени результат не наблюдался",false,"",400,"not_recorded")
+  timelineCase("saved-unknown","event-unknown","В отдельном случае фактор времени не сопровождался результатом",false,"",400,"not_recorded")
 ];
 database.set("neurogenesis.memories.v1",JSON.stringify(timelineMemories));
 database.set("neurogenesis.dialog.v1","[]");
