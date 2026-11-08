@@ -310,7 +310,7 @@
       status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
       sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
-      lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,900):"",
+      lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
       responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0)};
@@ -329,6 +329,39 @@
     const nums=result.map(x=>Number(x.id.slice(1))).filter(Number.isFinite);
     nextInquiryNumber=Math.max(nextInquiryNumber,nums.length?Math.max(...nums)+1:1);
     return result;
+  }
+  function reconcileInquiryResponsesFromEntries(entries) {
+    let changed=false;
+    const latest=new Map();
+    for(const entry of Array.isArray(entries)?entries:[]) {
+      if(!entry||entry.role!=="user"||typeof entry.text!=="string")continue;
+      const match=entry.text.match(/^ответ на вопрос\s+#?\s*(q\d+)\s*:\s*([\s\S]+)$/iu);
+      if(!match||!match[2].trim())continue;
+      const id=match[1].toUpperCase();
+      const at=safeTime(entry.time,0);
+      const previous=latest.get(id);
+      if(!previous||at>=previous.at)latest.set(id,{text:match[2].trim().slice(0,MAX_TEXT),at});
+    }
+    for(const item of inquiries) {
+      if(item.status!=="answered")continue;
+      const response=latest.get(item.id.toUpperCase());
+      if(!response||response.at<item.createdAt)continue;
+      if(item.responseText!==response.text) {
+        item.responseText=response.text;
+        item.updatedAt=Math.max(item.updatedAt,response.at);
+        changed=true;
+      }
+      const linked=memories.find(entry=>entry.id===item.responseMemoryId);
+      if(!linked) {
+        const prefix=normalise("Ответ на вопрос "+item.id+":");
+        const candidate=memories.find(entry=>normalise(entry.text).startsWith(prefix));
+        if(candidate) {
+          item.responseMemoryId=candidate.id;
+          changed=true;
+        }
+      }
+    }
+    return changed;
   }
   function inquiryEdgeKey(subject,object) {
     const key=value=>KNOWLEDGE&&KNOWLEDGE.canonicalEntity?KNOWLEDGE.canonicalEntity(value):normalise(value);
@@ -422,7 +455,7 @@
   function recordInquiryResponse(id,response,memory,claims) {
     const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
     if(!item)return "";
-    item.status="answered";item.responseText=String(response||"").trim().slice(0,900);
+    item.status="answered";item.responseText=String(response||"").trim().slice(0,MAX_TEXT);
     item.responseMemoryId=memory&&memory.id||"";
     item.responseClaimIds=[...new Set((claims||[]).map(c=>c&&c.id).filter(Boolean))].slice(0,12);
     item.answeredAt=Date.now();item.updatedAt=item.answeredAt;persist();
@@ -1021,6 +1054,7 @@
     try {
       const savedInquiries=JSON.parse(localStorage.getItem(INQUIRIES_KEY)||"[]");
       inquiries=mergeInquiryHistory([],savedInquiries);
+      if(reconcileInquiryResponsesFromEntries(dialog))memoryMigrated=true;
     } catch(error) {
       inquiries=[];nextInquiryNumber=1;
       console.warn("Could not load NEUROGENESIS inquiry queue:",error);
@@ -1197,16 +1231,18 @@
     const previousClaimIds=new Set(previousClaims.map(claim=>claim.id).filter(Boolean));
     const clean = String(raw || "").trim().slice(0, MAX_TEXT);
     if (!clean) { setFeedback("Сначала напиши, что мне нужно запомнить."); return false; }
-    const fragments = clean.split(/\n+|(?<=[.!?])\s+/u).map(x => x.trim()).filter(Boolean).slice(0, 8);
+    const fullInquiryAnswer=clean.match(/^ответ на вопрос\s+#?\s*(q\d+)\s*:\s*([\s\S]+)$/iu);
+    const fragments = fullInquiryAnswer ? [clean] : clean.split(/\n+|(?<=[.!?])\s+/u).map(x => x.trim()).filter(Boolean).slice(0, 8);
     let saved = 0, repeated = 0, skipped = 0;
     const inquiryResponseNotes=[];
     for (const fragment of fragments) {
-      const answerMatch=fragment.match(/^ответ на вопрос\s+#?\s*(q\d+)\s*:\s*(.+)$/iu);
+      const answerMatch=fragment.match(/^ответ на вопрос\s+#?\s*(q\d+)\s*:\s*([\s\S]+)$/iu);
       const knowledgeText=answerMatch?answerMatch[2].trim():fragment;
       const compact = normalise(fragment);
       if (compact.length < 3) continue;
       const tags = [...new Set(tokens(fragment))].slice(0, 6);
-      const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(knowledgeText) : [];
+      // An inquiry answer is contextual testimony. Do not turn quoted or discussed claims into facts.
+      const claims = answerMatch ? [] : (KNOWLEDGE ? KNOWLEDGE.extractClaims(knowledgeText) : []);
       let item = memories.find(x => normalise(x.text) === compact);
       if (item) {
         item.strength = Math.min(1, (item.strength || 0.6) + 0.12);
@@ -1821,6 +1857,7 @@
       reasoningArchive=mergeReasoningArchive(reasoningArchive,
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
+      reconcileInquiryResponsesFromEntries(data.dialog);
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();

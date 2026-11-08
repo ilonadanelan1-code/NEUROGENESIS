@@ -473,4 +473,28 @@ document.getElementById("ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/ПОЛУЧЕННЫЕ ОТВЕТЫ/u);
 assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openInquiry.id));
 
-console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and goal-directed inquiry: passed.");
+// Long inquiry answers must remain intact and must not turn quoted prior claims into new causal facts.
+const secondOpenInquiry=window.NGMemory.inquiries().find(item=>item.status==="open");
+assert.ok(secondOpenInquiry,"the queue should retain additional unresolved research questions");
+const fullInquiryAnswer="Ответ на вопрос "+secondOpenInquiry.id+": В сохранённых записях нет точных измерений. Есть только сообщение «Усталость приводит к снижению концентрации», но оно не является отдельным наблюдением. Поэтому связь пока остаётся непроверенной.";
+input.value=fullInquiryAnswer;
+document.getElementById("remember-button").dispatch("click");
+const secondAnswered=window.NGMemory.inquiries().find(item=>item.id===secondOpenInquiry.id);
+const answerBody=fullInquiryAnswer.replace(/^Ответ на вопрос Q\d+:\s*/u,"");
+assert.equal(secondAnswered.status,"answered");
+assert.equal(secondAnswered.responseText,answerBody,"the inquiry record should retain every sentence of the user's answer");
+const savedAnswerMemory=JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id===secondAnswered.responseMemoryId);
+assert.ok(savedAnswerMemory,"the full answer should retain a memory reference");
+assert.equal(savedAnswerMemory.text,fullInquiryAnswer,"a multi-sentence inquiry answer should be stored as one complete memory");
+assert.equal(savedAnswerMemory.claims.length,0,"quoted or discussed claims inside an inquiry answer must not become asserted facts");
+
+// Legacy 0.29 backups can recover the full answer from their user transcript.
+const savedInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
+const legacyInquiry=savedInquiries.find(item=>item.id===secondOpenInquiry.id);
+legacyInquiry.responseText=answerBody.split(".")[0]+".";
+database.set("neurogenesis.inquiries.v1",JSON.stringify(savedInquiries));
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const repairedInquiry=window.NGMemory.inquiries().find(item=>item.id===secondOpenInquiry.id);
+assert.equal(repairedInquiry.responseText,answerBody,"legacy partial inquiry answers should be repaired from the retained dialogue transcript");
+
+console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and full-fidelity goal-directed inquiry: passed.");
