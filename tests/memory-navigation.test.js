@@ -168,5 +168,5 @@ assert.match(reply,/Музыка — прекрасна/u,"the answer should inc
 assert.match(reply,/нравится музыка/u,"the answer should combine the preference from a different memory");
 assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ/u,"the interface should identify the entity-profile retrieval path");
 assert.ok(associationCalls.length > associationCallsBeforeRecall, "co-recalled memory traces should reinforce their associations");
-assert.match(document.getElementById("memory-feedback").textContent,/\\d+ СЛЕДОВ АКТИВИРОВАНО/u,"the interface should report associative trace activation");
+assert.match(document.getElementById("memory-feedback").textContent,/\d+ СЛЕДОВ АКТИВИРОВАНО/u,"the interface should report associative trace activation");
 console.log("NEUROGENESIS memory navigation and profile test: back, safe editing, cross-record answer and source status passed.");
