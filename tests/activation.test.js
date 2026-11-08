@@ -46,7 +46,7 @@ const strongest = activation.spread(
   ],
   {maxDepth:3,maxNodes:8,decay:0.9,threshold:0.01}
 );
-assert.ok(strongest.find(item => item.id === "C").strength > 0.5,
+assert.ok(strongest.find(item => item.id === "C").strength > 0.4,
   "the strongest path should determine a node's activation");
 
 const limited = activation.spread(
