@@ -266,4 +266,14 @@ assert.match(derivedReply,/Недостаток сна ⇢ снижению ко
 assert.match(derivedReply,/Обезвоживание ⇢ снижению концентрации/u,"the dialog should derive other mediated candidate connections");
 assert.match(derivedReply,/не добавлены в долговременную память/u,"derived candidates must remain proposals, not silently become memories");
 assert.match(document.getElementById("memory-feedback").textContent,/НОВЫЕ ГИПОТЕЗЫ/u);
+
+input.value = "Какую гипотезу проверять первой?";
+document.getElementById("ask-button").dispatch("click");
+const priorityReply=feed.children[feed.children.length-1].textContent;
+assert.match(priorityReply,/ПРИОРИТЕТ 1/u,"the dialog should prioritize a candidate with a potential counterexample for clarification");
+assert.match(priorityReply,/При недостатке сна не наблюдалась усталость/u,"the priority should cite the user's exact counterexample");
+assert.match(priorityReply,/Обезвоживание ⇢ снижению концентрации/u,"the other derived hypothesis should remain visible for comparison");
+assert.match(priorityReply,/общее звено между несколькими гипотезами/u,"the dialog should disclose shared evidence instead of counting it twice");
+assert.match(document.getElementById("memory-feedback").textContent,/ПРИОРИТЕТ · ЕСТЬ КОНТРПРИМЕР/u,"the interface should label a hypothesis-prioritization answer");
+
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and derived hypotheses: passed.");

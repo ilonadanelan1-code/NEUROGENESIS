@@ -607,6 +607,86 @@
     answer+="\n\nЭти гипотезы не добавлены в долговременную память и не изменяют исходные утверждения. Для проверки нужны независимые наблюдения и поиск контрпримеров.";
     return {answer,hypotheses,claimIds:used.map(edge=>edge.id).filter(Boolean),exploredEdges:explored};
   }
+  function prioritizeHypotheses(query,input) {
+    const q=normalise(query),claims=Array.isArray(input)?input:[];
+    if(!/^(?:какую гипотезу проверять первой|какую из гипотез проверять первой|какую гипотезу стоит проверить первой|какую гипотезу проверять в первую очередь|какие гипотезы проверять в первую очередь|расставь гипотезы по приоритету|расставь гипотезы по порядку проверки|с чего начать проверку гипотез|что проверять первым)$/u.test(q))return null;
+    const derived=deriveHypotheses("Выведи новые гипотезы из памяти",claims);
+    if(!derived||!derived.hypotheses.length){
+      return {answer:"В текущей памяти пока нет причинных цепочек из нескольких звеньев, из которых можно составить новые гипотезы. Сначала нужно сохранить хотя бы две связанные причинные записи. Я не буду придумывать порядок проверки без самих гипотез.",hypotheses:[],claimIds:[],counterexampleCount:0};
+    }
+    const keyOf=claim=>claim.id||claim.evidence||(canonicalEntity(claim.subject)+"=>"+canonicalEntity(claim.object));
+    const observationsFor=edge=>claims.filter(claim=>claim&&claim.kind==="observation"&&
+      sameEntity(claim.subject,edge.subject)&&sameEntity(claim.object,edge.object));
+    const ranked=derived.hypotheses.map(item=>{
+      const pathEdges=[...new Map(item.paths.flat().map(edge=>[keyOf(edge),edge])).values()];
+      const counterexamples=[],support=[],unobserved=[];
+      const involvedIds=new Set(pathEdges.map(keyOf));
+      const details=[];
+      for(const edge of pathEdges){
+        const observations=observationsFor(edge);
+        const negatives=observations.filter(claim=>claim.polarity===false);
+        const positives=observations.filter(claim=>claim.polarity!==false);
+        counterexamples.push(...negatives);
+        support.push(...positives);
+        if(!observations.length)unobserved.push(edge);
+        details.push({edge,observations});
+      }
+      const uniqueCounter=[...new Map(counterexamples.map(claim=>[keyOf(claim),claim])).values()];
+      const uniqueSupport=[...new Map(support.map(claim=>[keyOf(claim),claim])).values()];
+      const rank=uniqueCounter.length?1:unobserved.length?2:3;
+      return {
+        subject:item.subject,object:item.object,paths:item.paths,edges:pathEdges,details,
+        counterexamples:uniqueCounter,support:uniqueSupport,unobserved,
+        rank,involvedIds:[...involvedIds]
+      };
+    }).sort((a,b)=>a.rank-b.rank);
+    const sharedCounts=new Map();
+    for(const item of ranked){
+      for(const id of new Set(item.involvedIds))sharedCounts.set(id,(sharedCounts.get(id)||0)+1);
+    }
+    const edgeById=new Map(ranked.flatMap(item=>item.edges.map(edge=>[keyOf(edge),edge])));
+    const shared=[...sharedCounts.entries()].filter(([,count])=>count>1).map(([id])=>edgeById.get(id)).filter(Boolean);
+    const allUsed=new Map();
+    for(const item of ranked){
+      for(const edge of item.edges)allUsed.set(keyOf(edge),edge);
+      for(const claim of [...item.counterexamples,...item.support])allUsed.set(keyOf(claim),claim);
+    }
+    let answer="Я расставил не вероятности причин, а порядок работы с пробелами и противоречиями в памяти. Этот приоритет не означает, что одна гипотеза истиннее другой.\\n\\n";
+    for(let index=0;index<ranked.length;index++){
+      const item=ranked[index];
+      const route=item.paths[0].map(edge=>edge.subject).concat(item.paths[0][item.paths[0].length-1].object).join(" → ");
+      const label=item.rank===1?"сначала уточнить потенциальный контрпример":item.rank===2?"сначала собрать недостающие наблюдения":"перепроверить уже записанные наблюдения";
+      answer+=(index+1)+". ПРИОРИТЕТ "+(index+1)+" — "+label+"\\n";
+      answer+="Гипотеза: "+item.subject+" ⇢ "+item.object+"\\n";
+      answer+="Возможный путь: "+route+"\\n";
+      if(item.counterexamples.length){
+        for(const claim of item.counterexamples){
+          const matching=item.details.find(detail=>detail.observations.some(observation=>keyOf(observation)===keyOf(claim)));
+          const edge=matching&&matching.edge;
+          answer+="Слабое звено: "+(edge?edge.subject+" → "+edge.object:"одно из исходных звеньев")+"\\n";
+          answer+="Потенциальный контрпример: «"+String(claim.evidence||"").slice(0,220)+"»\\n";
+        }
+        answer+="Первым делом нужно уточнить контекст этого наблюдения и проверить, повторялось ли оно. Не следует автоматически отбрасывать ни правило, ни наблюдение.\\n";
+      }
+      if(item.unobserved.length){
+        answer+="Нет отдельных наблюдений для звеньев: "+item.unobserved.map(edge=>edge.subject+" → "+edge.object).join("; ")+".\\n";
+      }
+      if(item.support.length){
+        answer+="Наблюдения, согласующиеся со звеньями: "+item.support.map(claim=>"«"+String(claim.evidence||"").slice(0,160)+"»").join("; ")+".\\n";
+      }
+      if(!item.counterexamples.length&&!item.support.length){
+        answer+="В памяти нет отдельных наблюдений, которые напрямую проверяли бы эти звенья. Это пробел данных, а не подтверждение гипотезы.\\n";
+      }
+      answer+="\\n";
+    }
+    if(shared.length){
+      answer+="Общее звено между несколькими гипотезами: "+shared.map(edge=>edge.subject+" → "+edge.object).join("; ")+". Оно взято из общей исходной записи и не становится независимым подтверждением только потому, что встречается в нескольких цепочках.\\n\\n";
+    }
+    answer+="Практический порядок: сначала уточнить противоречивые наблюдения, затем собирать безопасные естественные наблюдения по звеньям, для которых данных нет. Не нужно специально создавать вредные условия. Все исходные связи остаются сообщениями из памяти, а не независимо проверенными данными. Новые гипотезы и этот порядок не сохраняются как факты.";
+    const claimIds=[...allUsed.values()].map(claim=>claim.id).filter(Boolean);
+    return {answer,hypotheses:ranked,sharedEdges:shared,claimIds:[...new Set(claimIds)],counterexampleCount:ranked.reduce((sum,item)=>sum+item.counterexamples.length,0)};
+  }
+
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -621,6 +701,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const hypothesisPriority=prioritizeHypotheses(query,claims);
+    if(hypothesisPriority)return hypothesisPriority.answer;
     const derivedHypotheses=deriveHypotheses(query,claims);
     if(derivedHypotheses)return derivedHypotheses.answer;
     const experimentPlan=designDiscriminatingTest(query,claims);
@@ -859,5 +941,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:14,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:15,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();

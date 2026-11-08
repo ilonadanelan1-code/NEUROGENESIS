@@ -348,6 +348,31 @@ const v14Blocked=knowledge.deriveHypotheses("Выведи новые гипот�
 assert.equal(v14Blocked,null,"a chain with a disputed causal edge should not be used to derive a new hypothesis");
 assert.equal(knowledge.deriveHypotheses("Выведи новые гипотезы",[]),null);
 
+
+const v15DehydrationCause=knowledge.extractClaims("Обезвоживание может приводить к усталости")[0];
+const v15CounterObservation=knowledge.extractClaims("При недостатке сна не наблюдалась усталость")[0];
+const v15Rule=knowledge.extractClaims("Если недостаток сна, то усталость")[0];
+const v15Priority=knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[
+  v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
+]);
+assert.ok(v15Priority,"the system should rank investigative priorities for derived hypotheses");
+assert.equal(v15Priority.hypotheses.length,2);
+assert.ok(knowledge.sameEntity(v15Priority.hypotheses[0].subject,"Недостаток сна"),"a hypothesis with a stored potential counterexample should be prioritized for clarification");
+assert.equal(v15Priority.hypotheses[0].counterexamples.length,1);
+assert.ok(knowledge.sameEntity(v15Priority.hypotheses[1].subject,"Обезвоживание"));
+assert.equal(v15Priority.hypotheses[1].counterexamples.length,0);
+assert.ok(v15Priority.hypotheses[1].unobserved.length>0,"missing observations should be distinguished from supporting evidence");
+assert.ok(v15Priority.sharedEdges.some(edge=>knowledge.sameEntity(edge.subject,"Усталость")&&knowledge.sameEntity(edge.object,"снижению концентрации")),"shared chain links must be disclosed, not counted as independent evidence");
+assert.match(v15Priority.answer,/порядок работы с пробелами и противоречиями/u);
+assert.match(v15Priority.answer,/Потенциальный контрпример/u);
+assert.match(v15Priority.answer,/не становится независимым подтверждением/u);
+assert.match(v15Priority.answer,/пробел данных, а не подтверждение/u);
+assert.match(knowledge.answerQuestion("Какую гипотезу проверять первой?",[
+  v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
+]),/ПРИОРИТЕТ 1/u);
+assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
+assert.equal(knowledge.version,15);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");
