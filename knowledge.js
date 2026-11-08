@@ -177,7 +177,7 @@
       {key:"timing",pattern:/^(?:время|дата|временной порядок|момент наблюдения)\s*[:—-]\s*(.*)$/iu},
       {key:"criterion",pattern:/^(?:критерий(?: результата)?|метод|способ оценки|измерение|оценка результата)\s*[:—-]\s*(.*)$/iu}
     ];
-    const segments=text.split(/[;|\n]+/u);
+    const segments=text.split(/[;|\n]+|(?<=[.!?])\\s+/u);
     for(const segment of segments) {
       const part=segment.trim();
       for(const label of labels) {
