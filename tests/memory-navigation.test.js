@@ -66,7 +66,9 @@ const database = new Map();
 database.set("neurogenesis.memories.v1", JSON.stringify([
   {id:"one",text:"Музыка прекрасна",tags:["музык","прекрасн"],traceIds:[],createdAt:1000,updatedAt:1000,strength:.65,repetitions:1,recalls:0},
   {id:"two",text:"Игорь Головнев твой лучший друг",tags:["игор","головнев"],traceIds:[],createdAt:2000,updatedAt:2000,strength:.65,repetitions:1,recalls:0},
-  {id:"three",text:"Мне нравится музыка",tags:["нравится","музык"],traceIds:[],createdAt:3000,updatedAt:3000,strength:.65,repetitions:1,recalls:0}
+  {id:"three",text:"Мне нравится музыка",tags:["нравится","музык"],traceIds:[],createdAt:3000,updatedAt:3000,strength:.65,repetitions:1,recalls:0},
+  {id:"four",text:"Ты мой оссистент",tags:["оссистент"],traceIds:[],createdAt:4000,updatedAt:4000,strength:.65,repetitions:1,recalls:0},
+  {id:"five",text:"Твоего создателя зовут Сергей",tags:["создателя","сергей"],traceIds:[],createdAt:5000,updatedAt:5000,strength:.65,repetitions:1,recalls:0}
 ]));
 database.set("neurogenesis.dialog.v1", "[]");
 
@@ -120,7 +122,7 @@ manage.dispatch("click");
 assert.equal(history.state.__ngMemoryView,"library","opening the memory library should add a navigation state");
 assert.equal(document.getElementById("memory-library").hidden,false);
 const list = document.getElementById("memory-library-list");
-assert.equal(list.children.length,3);
+assert.equal(list.children.length,5);
 list.scrollTop = 73;
 const firstCard = list.children.find(card => card.dataset.memoryId === "one");
 assert.ok(firstCard);
@@ -169,4 +171,17 @@ assert.match(reply,/нравится музыка/u,"the answer should combine t
 assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ/u,"the interface should identify the entity-profile retrieval path");
 assert.ok(associationCalls.length > associationCallsBeforeRecall, "co-recalled memory traces should reinforce their associations");
 assert.match(document.getElementById("memory-feedback").textContent,/\d+ СЛЕДОВ АКТИВИРОВАНО/u,"the interface should report associative trace activation");
-console.log("NEUROGENESIS memory navigation and profile test: back, safe editing, cross-record answer and source status passed.");
+
+input.value = "Кто ты?";
+document.getElementById("ask-button").dispatch("click");
+const identityReply = feed.children[feed.children.length - 1].textContent;
+assert.match(identityReply,/я — ассистент/u,"the dialog should answer identity questions from stored role memories");
+assert.match(identityReply,/Ты мой оссистент/u,"the identity answer should show its original source");
+assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ|СТРУКТУРНЫЙ ПОИСК/u);
+
+input.value = "Кто твой создатель?";
+document.getElementById("ask-button").dispatch("click");
+const creatorReply = feed.children[feed.children.length - 1].textContent;
+assert.match(creatorReply,/моего создателя зовут Сергей/u,"the dialog should retrieve the creator fact");
+assert.match(creatorReply,/Твоего создателя зовут Сергей/u,"the creator answer should show its original source");
+console.log("NEUROGENESIS memory navigation, assistant identity and creator recall test: passed.");
