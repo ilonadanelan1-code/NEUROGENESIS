@@ -338,10 +338,29 @@
     for(const token of aa)if(bb.has(token))overlap++;
     return overlap/(aa.size+bb.size-overlap);
   }
+  function enrichedTextLooksLikeSameMention(left,right) {
+    const a=normalise(left),b=normalise(right);
+    if(!a||!b)return false;
+    if(a===b)return true;
+    const shorter=a.length<=b.length?a:b,longer=a.length<=b.length?b:a;
+    return shorter.length>=28&&longer.startsWith(shorter);
+  }
+  function observationRefsCompatible(left,right) {
+    const a=String(left&&left.observationCase&&left.observationCase.eventRef||"").trim();
+    const b=String(right&&right.observationCase&&right.observationCase.eventRef||"").trim();
+    if(a||b)return !!a&&!!b&&normalise(a)===normalise(b);
+    return true;
+  }
   function isRepeatedEvidenceClaim(claim,previousClaims) {
     const key=claimSemanticKey(claim);
-    return (previousClaims||[]).some(old=>old&&claimSemanticKey(old)===key&&
-      evidenceSimilarity(claim.evidence||"",old.evidence||"")>=0.8);
+    return (previousClaims||[]).some(old=>{
+      if(!old||claimSemanticKey(old)!==key)return false;
+      if(claim.kind==="observation") {
+        if(!observationRefsCompatible(claim,old))return false;
+        if(enrichedTextLooksLikeSameMention(claim.evidence||"",old.evidence||""))return true;
+      }
+      return evidenceSimilarity(claim.evidence||"",old.evidence||"")>=0.8;
+    });
   }
   function evidenceClaimSignature(claim) {
     return claimSemanticKey(claim)+"|"+normalise(claim&&claim.evidence||"");
@@ -356,18 +375,29 @@
       direction:["counterexample","opposing_claim"].includes(raw.kind)?"challenging":"supporting",
       strategy:["conditional","weaken","suspend","restore"].includes(raw.strategy)?raw.strategy:null,
       signature:raw.signature.slice(0,900),at:safeTime(raw.at,Date.now()),
-      evidence:typeof raw.evidence==="string"?raw.evidence.slice(0,240):""};
+      evidence:typeof raw.evidence==="string"?raw.evidence.slice(0,240):"",
+      eventRef:typeof raw.eventRef==="string"?raw.eventRef.slice(0,100):"",
+      duplicateClaimIds:Array.isArray(raw.duplicateClaimIds)?[...new Set(raw.duplicateClaimIds.filter(id=>typeof id==="string").slice(0,12))]:[]};
   }
   function modelEvidenceKey(item) {
-    return modelDecisionKey(item.edgeSubject,item.edgeObject)+"|"+item.signature;
+    return modelDecisionKey(item.edgeSubject,item.edgeObject)+"|"+(item.eventRef?normalise(item.eventRef)+"|":"")+item.signature;
   }
   function mergeModelEvidenceHistory(existing,incoming) {
-    const unique=new Map();
+    const unique=[];
     for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
       const item=cleanModelEvidence(raw);
-      if(item)unique.set(modelEvidenceKey(item),item);
+      if(!item)continue;
+      const match=unique.find(old=>modelDecisionKey(old.edgeSubject,old.edgeObject)===modelDecisionKey(item.edgeSubject,item.edgeObject)&&
+        old.kind===item.kind&&observationRefsCompatible({observationCase:{eventRef:old.eventRef}},{observationCase:{eventRef:item.eventRef}})&&
+        enrichedTextLooksLikeSameMention(old.evidence,item.evidence));
+      if(!match) {unique.push(item);continue;}
+      match.duplicateClaimIds=[...new Set([...(match.duplicateClaimIds||[]),match.claimId,item.claimId,...(item.duplicateClaimIds||[])])].slice(0,12);
+      if(item.evidence.length>match.evidence.length) {
+        match.claimId=item.claimId;match.evidence=item.evidence;match.signature=item.signature;
+        match.eventRef=item.eventRef||match.eventRef;match.at=Math.min(match.at,item.at);
+      }
     }
-    return [...unique.values()].sort((a,b)=>a.at-b.at).slice(-MAX_MODEL_EVIDENCE);
+    return unique.sort((a,b)=>a.at-b.at).slice(-MAX_MODEL_EVIDENCE);
   }
   function mergeReasoningArchive(existing,incoming) {
     const unique=new Map();
