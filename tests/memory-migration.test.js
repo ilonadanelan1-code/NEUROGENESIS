@@ -59,13 +59,15 @@ const document = {
   body: new ElementStub()
 };
 const knownNeurons = new Set(["n112", "n113", "n114", "n115", "n116", "n118"]);
+const createdLabels = [];
 let nextNeuron = 119;
 const window = {
   NGBrain: {
     hasNeuron(id) { return knownNeurons.has(id); },
-    createMemoryTrace() {
+    createMemoryTrace(key, label) {
       const id = "n" + nextNeuron++;
       knownNeurons.add(id);
+      if (label) createdLabels.push(label);
       return id;
     },
     associateMemoryTraces() {},
@@ -101,4 +103,6 @@ const migratedIgor = migrated.find(item => item.id === "migor");
 assert.ok(migratedIgor.claims && migratedIgor.claims.length === 1, "claims should be persisted to upgraded local storage");
 assert.ok(migratedIgor.tags.includes("друг"), "legacy tags should be enriched with the missing relationship word");
 assert.ok(migratedIgor.traceIds.some(id => id && !["n114", "n115", "n118", "n116"].includes(id)), "new concept should receive a neural trace");
+assert.ok(migratedIgor.claims[0].traceId, "structured relation should receive its own claim engram");
+assert.ok(createdLabels.includes("Игорь Головнев → лучший друг"), "the new engram should be labeled as a relationship");
 console.log("NEUROGENESIS legacy memory migration: passed.");
