@@ -8,6 +8,12 @@ vm.runInNewContext(fs.readFileSync("activation.js", "utf8"), sandbox, { filename
 const activation = sandbox.window.NGActivation;
 assert.ok(activation);
 assert.equal(activation.version, 1);
+const pairs = activation.bidirectionalPairs(["A", "B", "A", "C"]);
+assert.deepEqual(pairs, [
+  ["A","B"],["B","A"],["A","C"],["C","A"],["B","C"],["C","B"]
+], "each co-active memory pair should receive links in both directions");
+assert.equal(activation.bidirectionalPairs(["A","B","C"], 2).length, 2);
+assert.equal(activation.bidirectionalPairs(["A","",null,"A"]).length, 0);
 
 const chain = activation.spread(
   [{id:"A",strength:0.8}],
@@ -62,4 +68,12 @@ const invalid = activation.spread(
   {}
 );
 assert.deepEqual(Array.from(invalid, item => item.id), ["Z"]);
+
+const invalidOptions = activation.spread(
+  ["A"],
+  [{from:"A",to:"B",weight:0.8},{from:"B",to:"C",weight:0.8},{from:"C",to:"D",weight:0.8}],
+  {maxDepth:NaN,maxNodes:NaN,decay:NaN,threshold:NaN}
+);
+assert.ok(invalidOptions.length >= 2 && invalidOptions.length <= 18,
+  "invalid options should fall back to safe bounded defaults");
 console.log("NEUROGENESIS spreading activation tests: depth, decay, direction, cycles and node budget passed.");
