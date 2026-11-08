@@ -138,6 +138,20 @@
     if (!name || name.split(" ").length > 6) return null;
     return makeClaim("fact","assistant","создатель",name,text,"self_reported",0.97);
   }
+  function extractConditionalRule(text) {
+    const match=String(text||"").match(/^если\s+(.+?)\s*,?\s+то\s+(.+)$/iu);
+    if(!match)return null;
+    const condition=cleanPart(match[1],180),result=cleanPart(match[2],180);
+    if(!condition||!result||condition.split(" ").length>10||result.split(" ").length>10||sameEntity(condition,result))return null;
+    return makeClaim("rule",condition,"если-то",result,text,"unverified",0.9);
+  }
+  function extractObservation(text) {
+    const match=String(text||"").match(/^(?:при|во время|в условиях)\s+(.+?)\s+(?:(не)\s+)?(наблюдалось|наблюдалась|наблюдался|наблюдались|было|была|были)\s+(.+)$/iu);
+    if(!match)return null;
+    const condition=cleanPart(match[1],180),result=cleanPart(match[5],180);
+    if(!condition||!result||condition.split(" ").length>10||result.split(" ").length>10||sameEntity(condition,result))return null;
+    return makeClaim("observation",condition,"наблюдение",result,text,"unverified",0.86,!match[2]);
+  }
   function extractCausal(text) {
     const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
     if(!match)return null;
@@ -197,7 +211,8 @@
   }
   function extractSingleClaim(text) {
     return extractAssistantIdentity(text) || extractAssistantCreator(text) ||
-      extractRelationship(text) || extractCausal(text) || extractPreference(text) || extractSelfReport(text) ||
+      extractRelationship(text) || extractConditionalRule(text) || extractObservation(text) ||
+      extractCausal(text) || extractPreference(text) || extractSelfReport(text) ||
       extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
   }
   function extractClaims(input) {
@@ -220,7 +235,7 @@
   }
   function sanitizeClaims(input, evidenceFallback = "") {
     if (!Array.isArray(input)) return [];
-    const kinds = new Set(["relationship","preference","fact","opinion","definition","hypothesis","identity","causal"]);
+    const kinds = new Set(["relationship","preference","fact","opinion","definition","hypothesis","identity","causal","rule","observation"]);
     return input.slice(0,12).map(raw => {
       if (!raw || typeof raw !== "object") return null;
       const kind = kinds.has(raw.kind) ? raw.kind : null;
@@ -263,6 +278,8 @@
       if(claim.modality==="possible")return claim.subject+(claim.polarity?" может ":" не может ")+(claim.predicate==="вызывает"?"вызывать":"приводить к")+" "+claim.object;
       return claim.subject+(claim.polarity?" ":" не ")+verb+" "+claim.object;
     }
+    if(claim.kind==="rule")return "Условное правило: если "+claim.subject+", то "+claim.object;
+    if(claim.kind==="observation")return "Наблюдение: при "+claim.subject+" "+(claim.polarity?"наблюдалось ":"не наблюдалось ")+claim.object;
     if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
     if(claim.kind==="fact" && claim.subject==="assistant" && claim.predicate==="создатель") return "Создатель ассистента — " + claim.object;
     if(claim.kind==="fact" && claim.subject==="user") {
@@ -281,6 +298,8 @@
     if(!claim)return "";
     const object=claim.object==="assistant"?"я ассистент мой":claim.object==="user"?"ты пользователь твой":claim.object;
     if (claim.kind === "causal") return [claim.subject,"причина","следствие","влияние",claim.predicate,claim.object,claim.evidence].join(" ");
+    if (claim.kind === "rule") return ["условное правило","если","то",claim.subject,claim.object,claim.evidence].join(" ");
+    if (claim.kind === "observation") return ["наблюдение","условие","результат",claim.subject,claim.object,claim.evidence].join(" ");
     if (claim.subject === "assistant") return ["я","меня","мне","мой","моя","ассистент","создатель",claim.predicate,object,claim.evidence].join(" ");
     return [claim.subject,claim.predicate,object,claim.evidence].join(" ");
   }
@@ -443,6 +462,37 @@
     answer+="\n\nЭто вывод из нескольких сообщений, которые ты сохранил. Я не проверял причинность независимо: цепочка показывает возможную связь, а не доказывает, что одно событие обязательно вызовет другое.";
     return {answer,claimIds:evidenceClaims.map(edge=>edge.id).filter(Boolean),paths,alternativeCount:roots.length,conflicts};
   }
+  function evaluateConditionalHypothesis(query,input) {
+    const q=normalise(query),claims=Array.isArray(input)?input:[];
+    const match=q.match(/^(?:проверь гипотезу|проверь правило|оцени гипотезу|оцени правило|найди контрпримеры к правилу|есть ли контрпримеры к правилу)\s+если\s+(.+?)\s+то\s+(.+)$/u);
+    if(!match)return null;
+    const condition=cleanPart(match[1],180),expected=cleanPart(match[2],180);
+    if(!condition||!expected)return null;
+    const storedRules=claims.filter(claim=>claim&&claim.kind==="rule"&&claim.status!=="superseded"&&sameEntity(claim.subject,condition)&&sameEntity(claim.object,expected));
+    const observations=claims.filter(claim=>claim&&claim.kind==="observation"&&sameEntity(claim.subject,condition)&&sameEntity(claim.object,expected));
+    const support=observations.filter(claim=>claim.polarity!==false);
+    const counterexamples=observations.filter(claim=>claim.polarity===false);
+    const shownRules=storedRules.slice(-3).map(claim=>"• «"+String(claim.evidence||"").slice(0,220)+"»").join("\n");
+    const supportLines=support.slice(-6).map(claim=>"• «"+String(claim.evidence||"").slice(0,220)+"»").join("\n");
+    const counterLines=counterexamples.slice(-6).map(claim=>"• «"+String(claim.evidence||"").slice(0,220)+"»").join("\n");
+    let status="insufficient";
+    if(support.length&&counterexamples.length)status="mixed";
+    else if(counterexamples.length)status="counterexample";
+    else if(support.length)status="consistent";
+    let answer="Проверяемое правило: если "+condition+", то "+expected+".\n\n";
+    if(shownRules)answer+="В памяти сохранена формулировка правила:\n"+shownRules+"\n\n";
+    if(support.length)answer+="Наблюдения, согласующиеся с правилом:\n"+supportLines+"\n\n";
+    if(counterexamples.length)answer+="Потенциальные контрпримеры (условие было, но ожидаемый результат не наблюдался):\n"+counterLines+"\n\n";
+    if(status==="mixed")answer+="Картина смешанная: в памяти есть как поддерживающие наблюдения, так и потенциальные контрпримеры. Возможно, правило слишком общее, условия различались или некоторые записи неточны.";
+    else if(status==="counterexample")answer+="Найдены потенциальные контрпримеры. Они ставят под сомнение безусловную формулировку правила, но сами по себе не доказывают её ложность: каждое наблюдение нужно проверить и уточнить контекст.";
+    else if(status==="consistent")answer+="Найденные наблюдения согласуются с правилом, но не доказывают, что оно выполняется всегда.";
+    else answer+="Недостаточно данных: в памяти нет наблюдений, где указанное условие действительно выполнялось и можно проверить ожидаемый результат.";
+    answer+="\n\nЧто ещё нужно для проверки: повторяемые наблюдения; чёткое измерение результата; описание времени и условий; независимая проверка источников; учёт других возможных факторов.";
+    answer+="\n\nВажно: случай, когда условие не выполнялось, сам по себе не опровергает правило «если X, то Y». Для контрпримера нужен случай, когда X было, а Y не наблюдалось.";
+    answer+="\n\nЯ анализирую только сохранённые тобой сообщения. Они не являются независимо проверенными экспериментальными данными.";
+    const used=[...new Map([...storedRules,...observations].map(claim=>[claim.id||claim.evidence,claim])).values()];
+    return {answer,status,supportCount:support.length,counterexampleCount:counterexamples.length,claimIds:used.map(claim=>claim.id).filter(Boolean)};
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -457,6 +507,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const hypothesisCheck=evaluateConditionalHypothesis(query,claims);
+    if(hypothesisCheck)return hypothesisCheck.answer;
     const causal=causalEvidence(query,claims);
     if(causal)return causal.answer;
     if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
@@ -687,7 +739,7 @@
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
     const conflicts=findConflicts(list);
-    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
+    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:11,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:12,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,findCausalPaths,findConflicts,summary};
 })();

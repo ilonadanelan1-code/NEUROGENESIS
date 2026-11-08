@@ -291,6 +291,37 @@ assert.equal(altDisputedRecall.paths.length,1,"a denied relationship must not be
 assert.equal(altDisputedRecall.conflicts.length,1);
 assert.match(altDisputedRecall.answer,/Противоречие в памяти/u,"causal answers should disclose contradictory evidence");
 
+const v12ConditionalRule=knowledge.extractClaims("Если недостаток сна, то усталость")[0];
+assert.equal(v12ConditionalRule.kind,"rule","if-then statements should be stored as conditional rules");
+assert.equal(v12ConditionalRule.subject,"недостаток сна");
+assert.equal(v12ConditionalRule.object,"усталость");
+assert.match(knowledge.claimLabel(v12ConditionalRule),/Условное правило/u);
+const v12SupportingObservation=knowledge.extractClaims("При недостатке сна наблюдалась усталость")[0];
+assert.equal(v12SupportingObservation.kind,"observation","explicit observations should be stored separately from general causal claims");
+assert.equal(v12SupportingObservation.polarity,true);
+const v12CounterObservation=knowledge.extractClaims("При недостатке сна не наблюдалась усталость")[0];
+assert.equal(v12CounterObservation.kind,"observation");
+assert.equal(v12CounterObservation.polarity,false,"an observation without the expected result should be marked as a possible counterexample");
+const v12CounterCheck=knowledge.evaluateConditionalHypothesis("Проверь гипотезу: если недостаток сна, то усталость",[v12ConditionalRule,v12CounterObservation]);
+assert.equal(v12CounterCheck.status,"counterexample");
+assert.equal(v12CounterCheck.counterexampleCount,1);
+assert.match(v12CounterCheck.answer,/Потенциальные контрпримеры/u);
+assert.match(v12CounterCheck.answer,/не наблюдалась усталость/u);
+assert.match(v12CounterCheck.answer,/не доказывают её ложность/u);
+assert.match(v12CounterCheck.answer,/случай, когда X было, а Y не наблюдалось/u);
+const v12SupportCheck=knowledge.evaluateConditionalHypothesis("Проверь правило: если недостаток сна, то усталость",[v12SupportingObservation]);
+assert.equal(v12SupportCheck.status,"consistent");
+assert.match(v12SupportCheck.answer,/согласуются с правилом/u);
+assert.match(v12SupportCheck.answer,/не доказывают, что оно выполняется всегда/u);
+const v12MixedCheck=knowledge.evaluateConditionalHypothesis("Найди контрпримеры к правилу: если недостаток сна, то усталость",[v12SupportingObservation,v12CounterObservation]);
+assert.equal(v12MixedCheck.status,"mixed");
+assert.match(v12MixedCheck.answer,/Картина смешанная/u);
+const v12NoDataCheck=knowledge.evaluateConditionalHypothesis("Проверь гипотезу: если недостаток сна, то усталость",[]);
+assert.equal(v12NoDataCheck.status,"insufficient");
+assert.match(v12NoDataCheck.answer,/Недостаточно данных/u);
+assert.equal(knowledge.summary([v12ConditionalRule,v12SupportingObservation]).rules,1);
+assert.equal(knowledge.summary([v12ConditionalRule,v12SupportingObservation]).observations,1);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");
