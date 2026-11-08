@@ -407,7 +407,7 @@
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
     const conflicts=findConflicts(list);
-    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
+    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
   window.NGKnowledge={version:4,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
 })();
