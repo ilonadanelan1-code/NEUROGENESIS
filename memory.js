@@ -42,10 +42,12 @@
       const index = legacyTags.indexOf(tag);
       return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
     });
+    const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
+    const claims = KNOWLEDGE ? (extractedClaims.length ? KNOWLEDGE.mergeClaims(raw.claims, extractedClaims) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
     return {
       id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 80) : makeId(),
       text, tags: tags.length ? tags : tokens(text).slice(0, 6), traceIds,
-      claims: KNOWLEDGE ? (KNOWLEDGE.extractClaims(text).length ? KNOWLEDGE.mergeClaims(raw.claims, KNOWLEDGE.extractClaims(text)) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [],
+      claims,
       createdAt: safeTime(raw.createdAt, Date.now()),
       updatedAt: safeTime(raw.updatedAt, safeTime(raw.createdAt, Date.now())),
       strength: Number.isFinite(Number(raw.strength)) ? Math.max(0, Math.min(1, Number(raw.strength))) : 0.65,
