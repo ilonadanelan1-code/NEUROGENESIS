@@ -9,9 +9,9 @@ const activation = sandbox.window.NGActivation;
 assert.ok(activation);
 assert.equal(activation.version, 1);
 const pairs = activation.bidirectionalPairs(["A", "B", "A", "C"]);
-assert.deepEqual(pairs, [
+assert.equal(JSON.stringify(pairs), JSON.stringify([
   ["A","B"],["B","A"],["A","C"],["C","A"],["B","C"],["C","B"]
-], "each co-active memory pair should receive links in both directions");
+]), "each co-active memory pair should receive links in both directions");
 assert.equal(activation.bidirectionalPairs(["A","B","C"], 2).length, 2);
 assert.equal(activation.bidirectionalPairs(["A","",null,"A"]).length, 0);
 
