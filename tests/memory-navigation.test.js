@@ -682,8 +682,7 @@ database.set("neurogenesis.model-decisions.v1",JSON.stringify([
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
-input.value="Покажи историю изменений модели";
-document.getElementById("ask-button").dispatch("click");
+window.NGMemory.ask("Покажи историю изменений модели");
 const evolutionReply=feed.children[feed.children.length-1].textContent;
 assert.match(evolutionReply,/ДИНАМИКА ПРИЧИННОЙ МОДЕЛИ/u,
   "the user should receive a dedicated working-model evolution report");
