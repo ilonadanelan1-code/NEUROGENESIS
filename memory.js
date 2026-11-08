@@ -533,6 +533,7 @@
       updateReasoningStatus(meta);
       if(previousStatus!==meta.status)changed=true;
       entry.reasoning=cleanReasoning(meta);
+      syncArchivedReasoning(entry);
       for(const conclusion of meta.conclusions) {
         for(const path of conclusion.paths) {
           for(const edge of path) {
@@ -668,6 +669,7 @@
         changed=true;
       }
       entry.reasoning=cleanReasoning(meta);
+      syncArchivedReasoning(entry);
       reports.push({entry,meta,edgeStates,challengedEdges,alternatives});
     }
     if(changed)persist();
