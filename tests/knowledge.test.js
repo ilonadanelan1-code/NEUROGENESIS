@@ -60,6 +60,12 @@ assert.equal(summary.total, 2);
 assert.equal(summary.relationships, 1);
 assert.equal(summary.opinions, 1);
 
+const compound = knowledge.extractClaims("Я живу в Сочи, мне нравится музыка");
+assert.equal(compound.length, 2, "simple comma-separated clauses should produce separate claims");
+assert.equal(compound[0].kind, "fact");
+assert.equal(compound[0].object, "Сочи");
+assert.equal(compound[1].kind, "preference");
+assert.equal(compound[1].object, "музыка");
 const location = knowledge.extractClaims("Я живу в Сочи")[0];
 assert.equal(location.kind, "fact");
 assert.equal(location.subject, "user");
