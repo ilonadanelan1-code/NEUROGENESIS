@@ -721,4 +721,62 @@ window.NGMemory.ask("Покажи историю изменений модели
 const repeatedEvolutionHistory=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))[0].reasoning.modelHistory;
 assert.equal(repeatedEvolutionHistory.length,2,"repeating the report without new evidence must not create duplicate snapshots");
 
-console.log("NEUROGENESIS model-evolution snapshot comparison, evidence deltas, alternative routes and idempotency: passed.");
+
+// Review readiness requires both directions of direct observation plus context, timing and an outcome criterion.
+const readinessMemories=[
+  {id:"readiness-positive",text:"При факторе Альфа наблюдался результат Бета",tags:["альфа"],traceIds:[],
+   claims:[{id:"obs-positive",kind:"observation",subject:"Фактор Альфа",predicate:"наблюдение",object:"Результат Бета",
+    holder:"user",polarity:true,source:"user_message",evidence:"При факторе Альфа наблюдался результат Бета",
+    verification:"unverified",extractionConfidence:.86,traceId:null,createdAt:101,status:"current"}],
+   createdAt:101,updatedAt:101,strength:.65,repetitions:1,recalls:0},
+  {id:"readiness-negative",text:"При факторе Альфа не наблюдался результат Бета",tags:["альфа"],traceIds:[],
+   claims:[{id:"obs-negative",kind:"observation",subject:"Фактор Альфа",predicate:"наблюдение",object:"Результат Бета",
+    holder:"user",polarity:false,source:"user_message",evidence:"При факторе Альфа не наблюдался результат Бета",
+    verification:"unverified",extractionConfidence:.86,traceId:null,createdAt:102,status:"current"}],
+   createdAt:102,updatedAt:102,strength:.65,repetitions:1,recalls:0}
+];
+const readinessConclusion={version:1,type:"derived_hypotheses",createdAt:90,status:"challenged",
+ conclusions:[{subject:"Фактор Альфа",object:"Результат Бета",paths:[[
+  {id:"alpha-beta",subject:"Фактор Альфа",object:"Результат Бета"}
+ ]]}],reviews:[]};
+database.set("neurogenesis.memories.v1",JSON.stringify(readinessMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+ {role:"assistant",time:90,text:"Фактор Альфа ⇢ Результат Бета",reasoning:readinessConclusion}
+]));
+database.set("neurogenesis.model-decisions.v1",JSON.stringify([
+ {edgeSubject:"Фактор Альфа",edgeObject:"Результат Бета",strategy:"suspend",at:110,claimIds:["obs-negative"]}
+]));
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1",JSON.stringify([
+ {id:"Q1",signature:"readiness-q1",kind:"contrast_observations",edgeSubject:"Фактор Альфа",edgeObject:"Результат Бета",
+  question:"Уточни условия наблюдений.",reason:"Наблюдения расходятся.",priority:0,status:"answered",
+  sourceClaimIds:["obs-positive","obs-negative"],createdAt:105,updatedAt:120,lastAskedAt:110,
+  responseText:"Обстоятельства двух наблюдений неизвестны.",responseMemoryId:"",responseClaimIds:[],answeredAt:120}
+]));
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const decisionsBeforeReadiness=JSON.stringify(window.NGMemory.modelDecisions());
+window.NGMemory.ask("Оцени готовность пересмотра модели");
+const incompleteReadiness=feed.children[feed.children.length-1].textContent;
+assert.match(incompleteReadiness,/ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ/u,
+  "balanced observations without context, time and criterion details must not pass the review gate");
+assert.match(incompleteReadiness,/время или временной порядок/u,
+  "the report should name missing temporal information");
+assert.match(incompleteReadiness,/как определялся или измерялся результат/u,
+  "the report should name the missing outcome criterion");
+const savedReadinessInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
+savedReadinessInquiries[0].responseText="Одно наблюдение было утром, другое вечером; условия различались, результат оценивался по самочувствию.";
+database.set("neurogenesis.inquiries.v1",JSON.stringify(savedReadinessInquiries));
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+window.NGMemory.ask("Оцени готовность пересмотра модели");
+const completeReadiness=feed.children[feed.children.length-1].textContent;
+assert.match(completeReadiness,/ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА/u,
+  "balanced direct observations plus reported context, timing and criterion should open a model-review candidate");
+assert.match(completeReadiness,/согласующиеся — 1; противоположные — 1/u,
+  "the gate should disclose distinct observations in both directions");
+assert.match(completeReadiness,/контекстные сведения, не независимая проверка/u,
+  "answer-derived context must remain explicitly attributed and unverified");
+assert.equal(JSON.stringify(window.NGMemory.modelDecisions()),decisionsBeforeReadiness,
+  "evaluating readiness must not silently change the selected model decision");
+
+console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness and evidence-gate tests: passed.");

@@ -582,6 +582,67 @@
     }
     return affected.size;
   }
+  function reviewReadinessForEdge(subject,object) {
+    const observations=memories.flatMap(entry=>entry.claims||[]).filter(claim=>
+      claim&&claim.kind==="observation"&&claim.status!=="superseded"&&
+      KNOWLEDGE.sameEntity(claim.subject,subject)&&KNOWLEDGE.sameEntity(claim.object,object));
+    const unique=new Map();
+    for(const claim of observations) {
+      const key=claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
+      if(!unique.has(key))unique.set(key,claim);
+    }
+    const distinct=[...unique.values()];
+    const supporting=distinct.filter(claim=>claim.polarity!==false);
+    const challenging=distinct.filter(claim=>claim.polarity===false);
+    const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
+      KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
+    const sourceText=distinct.map(claim=>claim.evidence||"").concat(relatedAnswers.map(item=>item.responseText||"")).join(" ");
+    const context=/услови|обстоятельств|контекст|различа|отлича|на фоне|после|до события|в помещении|нагрузк|режим|сопутств/u.test(normalise(sourceText));
+    const timing=/(?:\b(?:утром|днем|днём|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад)\b|\b\d{1,2}[.:]\d{2}\b|\b\d{1,2}\s+(?:январ|феврал|март|апрел|ма|июн|июл|август|сентябр|октябр|ноябр|декабр))/u.test(normalise(sourceText));
+    const criterion=/оцен|измер|критери|шкал|самочувств|балл|тестир|фиксир|показател|результат определ|результат счит/u.test(normalise(sourceText));
+    const blockers=[];
+    if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
+    if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");
+    if(!context)blockers.push("не описаны различия или сопутствующие условия");
+    if(!timing)blockers.push("не указано время или временной порядок");
+    if(!criterion)blockers.push("не описано, как определялся или измерялся результат");
+    const ready=blockers.length===0;
+    const label=ready?"ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА":
+      supporting.length&&challenging.length?"ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ":
+      distinct.length?"ОДНОСТОРОННИЕ НАБЛЮДЕНИЯ":"НЕТ ПРЯМЫХ НАБЛЮДЕНИЙ";
+    return {subject,object,supportingCount:supporting.length,challengingCount:challenging.length,
+      totalCount:distinct.length,context,timing,criterion,ready,label,blockers,
+      answerIds:relatedAnswers.map(item=>item.id)};
+  }
+  function modelReviewReadinessAnswer() {
+    const edges=new Map();
+    for(const entry of reasoningArchive) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta)continue;
+      for(const conclusion of meta.conclusions)for(const path of conclusion.paths)for(const edge of path) {
+        const key=inquiryEdgeKey(edge.subject,edge.object);
+        if(!edges.has(key))edges.set(key,{subject:edge.subject,object:edge.object});
+      }
+    }
+    if(!edges.size)return "ГОТОВНОСТЬ К ПЕРЕСМОТРУ МОДЕЛИ\n\nПока нет сохранённых причинных маршрутов, для звеньев которых можно оценить достаточность наблюдений.";
+    const rows=[...edges.values()].map(edge=>reviewReadinessForEdge(edge.subject,edge.object))
+      .sort((a,b)=>Number(b.ready)-Number(a.ready)||b.totalCount-a.totalCount);
+    let answer="ГОТОВНОСТЬ К ПЕРЕСМОТРУ МОДЕЛИ\n\n";
+    for(const row of rows.slice(0,12)) {
+      const decision=modelDecisionForEdge(row);
+      answer+="Звено: "+row.subject+" → "+row.object+"\n";
+      answer+="Прямые уникальные наблюдения: согласующиеся — "+row.supportingCount+"; противоположные — "+row.challengingCount+".\n";
+      answer+="Контекст: "+(row.context?"указан":"не указан")+" · Время: "+(row.timing?"указано":"не указано")+" · Критерий результата: "+(row.criterion?"указан":"не указан")+".\n";
+      if(row.answerIds.length)answer+="Уточнения пользователя: "+row.answerIds.join(", ")+" (контекстные сведения, не независимая проверка).\n";
+      answer+="Оценка: "+row.label+".\n";
+      if(row.blockers.length)answer+="Что ещё необходимо: "+row.blockers.join("; ")+".\n";
+      if(decision)answer+="Текущее решение рабочей модели: "+({conditional:"условная связь",weaken:"ослабленная связь",suspend:"временно приостановлена",restore:"возвращена в активную модель"})[decision.strategy]+".\n";
+      if(row.ready)answer+="Следующий шаг: можно открыть предметный пересмотр связи и сравнить варианты модели. Автоматического изменения решения не происходит.\n";
+      answer+="\n";
+    }
+    answer+="Порог означает, что есть и согласующиеся, и противоположные прямые наблюдения, а также описаны контекст, время и критерий результата. Это достаточность для обсуждения пересмотра, а не доказательство причинности: записи остаются пользовательскими и не проверены независимо. Решения меняются только отдельной явной командой.\n";
+    return answer;
+  }
   function researchStrategyAnswer() {
     const refreshed=refreshInquiryQueue();
     if(!refreshed.open.length) {
@@ -605,6 +666,10 @@
     answer+="Затрагивает разных сохранённых выводов: "+selected.impact+". ";
     answer+="Эвристический приоритет: "+selected.score+" баллов (тип вопроса и охват выводов; это не вероятность истинности связи).\n\n";
     answer+="СЛЕДУЮЩИЙ ВОПРОС · "+item.id+"\n"+item.question+"\n\n";
+    const readiness=reviewReadinessForEdge(item.edgeSubject,item.edgeObject);
+    answer+="ТЕКУЩАЯ ГОТОВНОСТЬ К ПЕРЕСМОТРУ\n"+readiness.label+".\n";
+    if(readiness.blockers.length)answer+="Пока не хватает: "+readiness.blockers.join("; ")+".\n";
+    answer+="Ответ на выбранный вопрос может уточнить эти пробелы, но сам по себе не считается новым прямым наблюдением.\n\n";
     answer+="КАК Я РАЗБЕРУ ОТВЕТ\n";
     if(item.kind==="contrast_observations") {
       answer+="• Если время, условия или критерий результата различались, зафиксирую это как возможное объяснение расхождения; само звено автоматически не подтверждается.\n";
@@ -1647,6 +1712,9 @@
     const lower = normalise(query);
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    if(/^(?:оцени готовность пересмотра модели|проверь готовность модели к пересмотру|достаточно ли данных для пересмотра|оцени достаточность наблюдений)$/u.test(lower)) {
+      say("assistant",modelReviewReadinessAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПРОВЕРКА ДОСТАТОЧНОСТИ ДАННЫХ");return;
+    }
     if(/^(?:составь план исследования|покажи план исследования|выбери следующий исследовательский шаг|какой следующий шаг исследования|определи стратегию исследования)$/u.test(lower)) {
       say("assistant",researchStrategyAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПЛАН ИССЛЕДОВАНИЯ");return;
     }
@@ -2338,6 +2406,7 @@
     inquiries: () => inquiries.map(item=>({...item,sourceClaimIds:item.sourceClaimIds.slice(),responseClaimIds:item.responseClaimIds.slice()})),
     refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },
     researchStrategy: () => researchStrategyAnswer(),
+    modelReviewReadiness: () => modelReviewReadinessAnswer(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };
