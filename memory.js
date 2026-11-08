@@ -337,8 +337,10 @@
       persist();
       say("assistant", structuredAnswer);
       const brain = window.NGBrain;
+      const activeTraceIds = [...new Set(traceIds)];
+      if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(activeTraceIds);
       const activated = brain && typeof brain.activateMemoryTraces === "function"
-        ? Number(brain.activateMemoryTraces([...new Set(traceIds)]) || 0) : 0;
+        ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
       setFeedback((isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
@@ -362,8 +364,11 @@
       "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением.";
     say("assistant", answer);
     const brain = window.NGBrain;
-    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...new Set(ids)]);
-    setFeedback("ПОИСК ЗАВЕРШЁН · НАЙДЕНО " + ranked.length);
+    const activeTraceIds = [...new Set(ids)];
+    if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(activeTraceIds);
+    const activated = brain && typeof brain.activateMemoryTraces === "function"
+      ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
+    setFeedback("ПОИСК ЗАВЕРШЁН · НАЙДЕНО " + ranked.length + " · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
   }
 
   function removeMemory(id) {
