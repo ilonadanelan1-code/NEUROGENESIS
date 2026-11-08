@@ -3,6 +3,24 @@
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их твой твоя твое твои").split(/\s+/u));
   const RELATIONS = ["самый близкий друг","лучшая подруга","лучший друг","близкий друг","друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"];
   const OWNER = {"твой":"assistant","твоя":"assistant","твоё":"assistant","твои":"assistant","твое":"assistant","мой":"user","моя":"user","моё":"user","мои":"user","мое":"user","наш":"shared","наша":"shared","наше":"shared","наши":"shared"};
+  const SYSTEM_PROFILE = Object.freeze({
+    name:"NEUROGENESIS",
+    type:"экспериментальный браузерный прототип цифрового организма",
+    architecture:"визуальная симуляция нейронной сети, локальная память и структурированные знания",
+    memoryLimit:500,
+    recordCharacterLimit:1200,
+    languageModelConnected:false
+  });
+  function systemDescription() {
+    return "Я — " + SYSTEM_PROFILE.name + ", " + SYSTEM_PROFILE.type + ". В основе — " +
+      SYSTEM_PROFILE.architecture + ". Это встроенное описание программы, а не вывод из твоих сообщений.";
+  }
+  function capabilitiesAnswer() {
+    return "В этой версии я умею сохранять до " + SYSTEM_PROFILE.memoryLimit +
+      " записей длиной до " + SYSTEM_PROFILE.recordCharacterLimit +
+      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
+      "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
+  }
   const EVALUATIONS = ["прекрасн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","великолепн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","красив(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","интересн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","важн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","ужасн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","скучн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","хорош(?:ий|ая|ее|ие|его|ей|ую|им|ими|о|а)?","плох(?:ой|ая|ое|ие|ого|ой|ую|им|ими|о|а)?","сложн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","прост(?:ой|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","удивительн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","грустн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","радостн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?"];
   const EVALUATION_RE = new RegExp("^(?:" + EVALUATIONS.join("|") + ")$", "iu");
   function normalise(value) {
@@ -260,10 +278,13 @@
   }
   function answerQuestion(query, claims) {
     const q = normalise(query);
-    if (!q || !Array.isArray(claims) || !claims.length) return null;
+    if (!q || !Array.isArray(claims)) return null;
     const qWords = new Set(q.split(/\s+/u));
     const queryTokens = new Set(tokens(q));
     const hasAny = words => words.some(word => qWords.has(word));
+    if (/^(?:что ты умеешь|что умеешь|что ты можешь|какие у тебя возможности|что может нейрогенезис|как ты устроен)$/u.test(q)) {
+      return capabilitiesAnswer();
+    }
     if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
       const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status!=="superseded");
       const latest = current[current.length-1];
@@ -275,21 +296,23 @@
       }
       return "Я не нашёл в памяти прежнего описания своей роли.";
     }
-    if (/^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(q)) {
+    if (/^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое|расскажи о себе|представься)$/u.test(q)) {
+      const intro = systemDescription();
       const identities = claims.filter(claim => claim.kind === "identity" && claim.subject === "assistant" && claim.polarity && claim.status !== "superseded");
       const roles = [...new Set(identities.map(claim => normalise(claim.object)))];
       if (roles.length > 1) {
-        return "В памяти есть несколько актуальных описаний моей роли: " + [...new Set(identities.map(claim => claim.object))].join(", ") +
+        return intro + " В моей памяти есть несколько актуальных описаний роли: " + [...new Set(identities.map(claim => claim.object))].join(", ") +
           ". Я не стану выбирать одно наугад. Скажи, какое описание оставить актуальным.";
       }
       if (identities.length) {
         const claim = identities[identities.length - 1];
         const previous = claims.filter(item=>item.kind==="identity"&&item.subject==="assistant"&&item.status==="superseded"&&item.supersededBy===claim.id);
-        let answer = (claim.revision ? "По твоему последнему уточнению" : "По твоему сообщению") + ", я — " + claim.object +
+        let answer = intro + " По твоему сообщению, я — " + claim.object +
           ". Ты задал мне эту роль, и я сохранил её в памяти. Источник: «" + claim.evidence + "».";
         if (previous.length) answer += " Ранее ты называл меня " + [...new Set(previous.map(item=>item.object))].join(", ") + "; прежняя роль сохранена в истории.";
         return answer;
       }
+      return intro + " Ты пока не задавал мне отдельную роль.";
     }
     const target = hasAny(["твой","твоя","твое","твои","твоего","твоей","твоему","твоим","твою"]) || (qWords.has("у") && qWords.has("тебя")) ? "assistant" :
       hasAny(["мой","моя","мое","мои","моего","моей","моему","моим","мою"]) || (qWords.has("у") && qWords.has("меня")) ? "user" : null;
@@ -449,5 +472,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:5,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
+  window.NGKnowledge={version:6,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
 })();
