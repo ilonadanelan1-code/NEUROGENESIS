@@ -60,13 +60,16 @@ const document = {
 };
 const knownNeurons = new Set(["n112", "n113", "n114", "n115", "n116", "n118"]);
 const createdLabels = [];
+const traceKeys = new Map([["n112","музык"],["n113","прекрасн"],["n114","игорь"],["n115","головн"],["n118","сам"],["n116","лучш"]]);
 let nextNeuron = 119;
 const window = {
   NGBrain: {
     hasNeuron(id) { return knownNeurons.has(id); },
+    hasMemoryTrace(id, key) { return traceKeys.get(id) === String(key).slice(0, 34); },
     createMemoryTrace(key, label) {
       const id = "n" + nextNeuron++;
       knownNeurons.add(id);
+      traceKeys.set(id, String(key).slice(0, 34));
       if (label) createdLabels.push(label);
       return id;
     },
