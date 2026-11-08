@@ -764,7 +764,7 @@ assert.match(incompleteReadiness,/время или временной поря�
   "the report should name missing temporal information");
 assert.match(incompleteReadiness,/как определялся или измерялся результат/u,
   "the report should name the missing outcome criterion");
-assert.match(incompleteReadiness,/Контекст: не указан/u,
+assert.match(incompleteReadiness,/Контекст: неизвестен/u,
   "the word circumstances inside an explicit denial must not be counted as described context");
 assert.match(incompleteReadiness,/Критерий результата: не указан/u,
   "a missing method and a statement about no recorded observations must not count as a measurement criterion");

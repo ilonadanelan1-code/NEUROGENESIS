@@ -179,11 +179,19 @@
     ];
     const segments=text.split(/[;|\n]+|(?<=[.!?])\s+/u);
     for(const segment of segments) {
-      const part=segment.trim();
+      const part=segment.trim(),normalizedPart=normalise(part);
       for(const label of labels) {
         const match=part.match(label.pattern);
         if(match)result[label.key]=observationFieldFromValue(match[1],source);
       }
+      if(result.context.status==="not_stated"&&/(?:услови|обстоятельств|контекст|сопутствующ)/u.test(normalizedPart)&&
+          /(?:различ|отлич|неодинаков|сопоставим|на фоне|в условиях)/u.test(normalizedPart))
+        result.context=observationFieldFromValue(part,source);
+      if(result.timing.status==="not_stated"&&/(?:утром|днем|днём|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад|\b\d{1,2}:\d{2}\b)/u.test(normalizedPart))
+        result.timing=observationFieldFromValue(part,source);
+      if(result.criterion.status==="not_stated"&&
+          /(?:результат|усталост|концентрац|показател|значение).{0,70}(?:оценивал|измерял|определял|фиксировал|считался|по шкал|по балл|по самочувств)|(?:критерием было|критерием являлось|по шкале|по баллам|по самочувствию)/u.test(normalizedPart))
+        result.criterion=observationFieldFromValue(part,source);
     }
     const normalized=normalise(text);
     const missingPatterns={
