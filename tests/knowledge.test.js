@@ -117,6 +117,11 @@ const positivePreference = knowledge.extractClaims("Мне нравится му
 const negativePreference = knowledge.extractClaims("Я ненавижу музыку")[0];
 assert.equal(knowledge.findConflicts([positivePreference, negativePreference])[0].type, "direct");
 assert.match(knowledge.answerQuestion("Что мне нравится?", [positivePreference]), /тебе нравится музыка/u);
+assert.match(knowledge.answerQuestion("Что мне нравится?", [negativePreference]), /тебе не нравится музыка/u);
+assert.match(knowledge.claimLabel(negativePreference), /Пользователю не нравится музыка/u);
+const hatedMusic = knowledge.extractClaims("Я ненавижу музыку")[0];
+assert.match(knowledge.answerQuestion("Что я люблю?", [hatedMusic]), /ты не любишь музыку/u);
+assert.match(knowledge.claimLabel(hatedMusic), /Пользователь не любит музыку/u);
 
 const intensifiedOpinion = knowledge.extractClaims("Музыка очень прекрасна")[0];
 assert.equal(intensifiedOpinion.kind, "opinion");
