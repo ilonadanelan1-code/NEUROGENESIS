@@ -696,6 +696,11 @@
       if (changed) { connectionsDirty = true; markDirty(); }
     },
     hasNeuron(id) { return neuronById.has(id); },
+    hasMemoryTrace(id, key) {
+      const neuron = neuronById.get(id);
+      const expectedKey = key == null ? null : String(key).slice(0, 34);
+      return !!(neuron && neuron.memoryTrace === true && (expectedKey == null || neuron.memoryKey === expectedKey));
+    },
     removeMemoryTraces(ids) {
       const doomed = new Set([...new Set((ids || []).filter(id => {
         const neuron = neuronById.get(id);
