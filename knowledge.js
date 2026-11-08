@@ -123,8 +123,8 @@
     const who=hasAny(["кто","кого","кому","чей","чья","чье","чьи"]);
     const relationAsked=hasAny(["друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"]);
     if(who&&relationAsked){
-      const target=hasAny(["твой","твоя","твое","твои","у"]) && qWords.has("тебя")?"assistant":
-        hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня"))?"user":null;
+      const target=hasAny(["твой","твоя","твое","твои"]) || (qWords.has("у")&&qWords.has("тебя")) ? "assistant" :
+        hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня")) ? "user" : null;
       const matches=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target)&&claim.polarity);
       if(matches.length){
         const uniqueSubjects=[...new Set(matches.map(claim=>normalise(claim.subject)))];
