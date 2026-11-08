@@ -644,7 +644,8 @@
       seen.add(key);
       result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
         polarity:claim.polarity!==false,evidence:claim.evidence||"",recordedAt:safeTime(claim.createdAt,memory.createdAt),
-        details:KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation")});
+        details:KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
+        verification:claim.verification||"unverified",source:claim.source||"user_message"});
     }
     return result.sort((a,b)=>a.recordedAt-b.recordedAt);
   }
@@ -665,6 +666,134 @@
     }
     answer+="Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
     return answer;
+  }
+  function observationValue(item,key) {
+    const field=item&&item.details&&item.details[key];
+    return field&&field.status==="provided"?normalise(field.value):"";
+  }
+  function evidenceReconciliationForEdge(subject,object,baselineAt=0) {
+    const candidates=observationCases().filter(item=>
+      KNOWLEDGE.sameEntity(item.subject,subject)&&KNOWLEDGE.sameEntity(item.object,object));
+    const seen=new Map(),cases=[];
+    let duplicateMentions=0;
+    for(const item of candidates) {
+      const text=normalise(item.evidence||"");
+      const key=[normalise(item.subject),normalise(item.object),item.polarity?"1":"0",text||item.id].join("|");
+      if(seen.has(key)){duplicateMentions++;continue;}
+      seen.set(key,item.id);cases.push(item);
+    }
+    const supporting=cases.filter(item=>item.polarity),challenging=cases.filter(item=>!item.polarity);
+    const oppositePairs=[];
+    for(const positive of supporting)for(const negative of challenging) {
+      const pc=observationValue(positive,"context"),nc=observationValue(negative,"context");
+      const pm=observationValue(positive,"criterion"),nm=observationValue(negative,"criterion");
+      const pt=observationValue(positive,"timing"),nt=observationValue(negative,"timing");
+      const complete=!!(pc&&nc&&pm&&nm&&pt&&nt),sameContext=!!pc&&pc===nc,sameCriterion=!!pm&&pm===nm;
+      oppositePairs.push({supportingId:positive.id,challengingId:negative.id,contextMatch:sameContext,
+        criterionMatch:sameCriterion,timingKnown:!!pt&&!!nt,timingDiff:!!pt&&!!nt&&pt!==nt,
+        status:complete&&sameContext&&sameCriterion?"aligned":
+          complete&&(!sameContext||!sameCriterion)?"different_metadata":"incomplete"});
+    }
+    const aligned=oppositePairs.filter(pair=>pair.status==="aligned");
+    const different=oppositePairs.filter(pair=>pair.status==="different_metadata");
+    const incomplete=oppositePairs.filter(pair=>pair.status==="incomplete");
+    const contextDifferences=different.filter(pair=>!pair.contextMatch);
+    const criterionDifferences=different.filter(pair=>!pair.criterionMatch);
+    const timingDifferences=oppositePairs.filter(pair=>pair.timingDiff);
+    const fields=cases.length*3;
+    const known=cases.reduce((sum,item)=>sum+["context","timing","criterion"].filter(key=>
+      item.details[key]&&item.details[key].status==="provided").length,0);
+    const completeCases=cases.filter(item=>["context","timing","criterion"].every(key=>
+      item.details[key]&&item.details[key].status==="provided"));
+    const independent=cases.filter(item=>item.verification==="independently_verified"||item.verification==="verified");
+    const recordIds=[...new Set(cases.map(item=>item.sourceMemoryId).filter(Boolean))];
+    const addedAfter=baselineAt?cases.filter(item=>item.recordedAt>baselineAt):[];
+    let pattern="нет прямых наблюдений";
+    let recommendation="Нужны естественные наблюдения в обе стороны: как случаи с результатом, так и случаи без него. Не создавать условия специально.";
+    if(cases.length&&(!supporting.length||!challenging.length)) {
+      pattern="односторонний материал";
+      recommendation="Не менять общее причинное утверждение по односторонним данным. Нужны естественные случаи противоположного исхода, записанные тем же способом.";
+    } else if(supporting.length&&challenging.length&&aligned.length&&different.length) {
+      pattern="смешанная картина: есть сопоставимые пары и пары с разными параметрами";
+      recommendation="Не считать связь универсальной. Сохранить её как спорную; отдельно проверить, меняется ли результат при различиях контекста или критерия, не объявляя эти различия причиной.";
+    } else if(supporting.length&&challenging.length&&aligned.length) {
+      pattern="есть разнонаправленные наблюдения с совпадающими контекстом и критерием";
+      recommendation="Общее правило пока не подтверждается однозначно: при зафиксированных одинаковых контексте и критерии исходы расходятся. Повторять только естественные наблюдения и искать независимое подтверждение.";
+    } else if(supporting.length&&challenging.length&&contextDifferences.length) {
+      pattern="противоположные исходы записаны при разных контекстах";
+      recommendation="Рассматривать условную связь только как рабочую гипотезу. Различие контекста может быть важно, но само по себе не доказывает, что именно оно объясняет расхождение.";
+    } else if(supporting.length&&challenging.length) {
+      pattern="противоположные исходы есть, но сопоставимость случаев не установлена";
+      recommendation="Пока не выбирать объяснение. Заполнять контекст, время и критерий для каждого естественного случая; не делать вывод по простому количеству записей.";
+    }
+    return {subject,object,cases,supportingCount:supporting.length,challengingCount:challenging.length,
+      duplicateMentions,completeCases:completeCases.length,metadataCoverage:fields?Math.round(known/fields*100):0,
+      knownFields:known,fieldCount:fields,alignedPairCount:aligned.length,differentMetadataPairCount:different.length,
+      contextDifferencePairCount:contextDifferences.length,criterionDifferencePairCount:criterionDifferences.length,
+      timingDifferencePairCount:timingDifferences.length,incompletePairCount:incomplete.length,
+      oppositePairCount:oppositePairs.length,independentVerifiedCount:independent.length,
+      independentVerifiedSources:new Set(independent.map(item=>item.sourceMemoryId).filter(Boolean)).size,
+      userRecordCount:recordIds.length,addedAfterModelCount:addedAfter.length,addedAfterModelIds:addedAfter.map(item=>item.id),
+      pattern,recommendation,oppositePairs:oppositePairs.slice(0,6)};
+  }
+  function trackedObservationEdges() {
+    const edges=new Map();
+    for(const entry of reasoningArchive) {
+      const meta=cleanReasoning(entry.reasoning);if(!meta)continue;
+      for(const conclusion of meta.conclusions)for(const path of conclusion.paths)for(const edge of path) {
+        const key=modelDecisionKey(edge.subject,edge.object),prior=edges.get(key);
+        if(!prior||meta.createdAt>prior.baselineAt)
+          edges.set(key,{subject:edge.subject,object:edge.object,baselineAt:meta.createdAt});
+      }
+    }
+    for(const decision of currentModelDecisions()) {
+      const key=modelDecisionKey(decision.edgeSubject,decision.edgeObject);
+      if(!edges.has(key))edges.set(key,{subject:decision.edgeSubject,object:decision.edgeObject,baselineAt:decision.at});
+    }
+    return [...edges.values()];
+  }
+  function observationEvidenceDossierText(row,index=0) {
+    const d=evidenceReconciliationForEdge(row.subject,row.object,row.baselineAt);
+    let answer=(index?index+". ":"")+"Звено: "+row.subject+" → "+row.object+"\n";
+    answer+="Наблюдения после устранения точных повторов: согласующиеся — "+d.supportingCount+"; противоположные — "+d.challengingCount+
+      "; возможные повторные упоминания — "+d.duplicateMentions+".\n";
+    answer+="Заполненность карточек контекст/время/критерий: "+d.metadataCoverage+"% ("+d.completeCases+" полностью заполненных из "+d.cases.length+").\n";
+    answer+="Отдельных записей памяти: "+d.userRecordCount+"; добавлено в память после сохранения вывода: "+d.addedAfterModelCount+".\n";
+    answer+="Независимо подтверждённых источников: "+d.independentVerifiedSources+". Все текущие случаи остаются пользовательскими и непроверенными.\n";
+    answer+="Сопоставление: "+d.pattern+".\n";
+    if(d.oppositePairCount) {
+      answer+="Пар противоположных исходов: "+d.oppositePairCount+"; совпадают контекст и критерий: "+d.alignedPairCount+
+        "; различаются метаданные: "+d.differentMetadataPairCount+"; недостаточно полей для сравнения: "+d.incompletePairCount+".\n";
+      for(const pair of d.oppositePairs.slice(0,3))
+        answer+="  • "+pair.supportingId+" / "+pair.challengingId+": "+
+          (pair.status==="aligned"?"контекст и критерий совпадают":pair.status==="different_metadata"?"контекст или критерий различаются":"поля для сопоставления неполны")+
+          (pair.timingDiff?"; время указано по-разному":"")+".\n";
+    }
+    if(d.addedAfterModelIds.length)answer+="Новые для архива записи: "+d.addedAfterModelIds.slice(0,8).join(", ")+". (Это время сохранения в память, не доказательство времени события.)\n";
+    answer+="Оценка: "+d.recommendation+"\nТекущее решение модели не меняется автоматически.";
+    return answer;
+  }
+  function experienceReconciliationAnswer() {
+    const edges=trackedObservationEdges();
+    if(!edges.length)return "СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ\n\nПока нет сохранённых причинных звеньев с историей. Сначала выведи причинную цепочку, чтобы было с чем сопоставить наблюдения.";
+    let answer="СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ\n\n";
+    for(let i=0;i<Math.min(edges.length,10);i++)answer+=observationEvidenceDossierText(edges[i],i+1)+"\n\n";
+    answer+="КАК ЧИТАТЬ ОТЧЁТ\nСовпадающий текст считается возможным повторным упоминанием и не увеличивает число разных случаев. Совпадение контекста и критерия позволяет лишь осторожно сопоставить пару, но не доказывает причинность. Разные контексты могут быть важны, но сами по себе не объясняют разницу исходов. Время здесь означает заполненное пользователем описание; точность дат и реальный временной порядок независимо не проверены.\n\nРешения рабочей модели остаются прежними. Для явного выбора варианта пересмотра используй отдельную команду после изучения отчёта.";
+    return answer;
+  }
+  function newObservationModelNote(claims) {
+    const observations=(claims||[]).filter(claim=>claim&&claim.kind==="observation");
+    if(!observations.length)return "";
+    const edges=trackedObservationEdges().filter(edge=>observations.some(claim=>
+      KNOWLEDGE.sameEntity(claim.subject,edge.subject)&&KNOWLEDGE.sameEntity(claim.object,edge.object)));
+    if(!edges.length)return "";
+    let answer="СОПОСТАВЛЕНИЕ НОВОГО ОПЫТА С ПРЕЖНЕЙ МОДЕЛЬЮ\n";
+    for(const edge of edges.slice(0,3)) {
+      const d=evidenceReconciliationForEdge(edge.subject,edge.object,edge.baselineAt);
+      answer+="• "+edge.subject+" → "+edge.object+": теперь "+d.supportingCount+" согласующихся и "+
+        d.challengingCount+" противоположных записей; полей заполнено "+d.metadataCoverage+"%; "+d.pattern+".\n";
+    }
+    return answer+"Новые записи сопоставлены с прежним выводом, но его решение не изменено. Подробности: «Сопоставь опыт с причинной моделью».";
   }
   function modelReviewReadinessAnswer() {
     const edges=new Map();
@@ -1168,6 +1297,8 @@
     if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
     let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
     answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
+    const evidenceEdges=[...new Map(uniqueReports.flatMap(row=>row.report.edgeStates.map(edge=>[modelDecisionKey(edge.subject,edge.object),{subject:edge.subject,object:edge.object,baselineAt:row.report.meta.createdAt}]))).values()];
+    if(evidenceEdges.length)answer+=evidenceEdges.slice(0,8).map((edge,index)=>observationEvidenceDossierText(edge,index+1)).join("\n\n")+"\n\n";
     const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
     if(inquiryAnswers.length) {
       answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
@@ -1732,6 +1863,8 @@
     if(revisionNote)response+="\n\n"+revisionNote;
     const decisionEvidenceNote=formatNewModelEvidenceNote(decisionEvidence);
     if(decisionEvidenceNote)response+="\n\n"+decisionEvidenceNote;
+    const observationModelNote=newObservationModelNote(independentFreshClaims);
+    if(observationModelNote)response+="\n\n"+observationModelNote;
     if(inquiryResponseNotes.length)response+="\n\n"+inquiryResponseNotes.join("\n\n");
     if (!ok) response += " Но локальное сохранение не подтвердилось.";
     say("assistant", response);
@@ -1768,7 +1901,10 @@
     const lower = normalise(query);
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
-    if(/^(?:покажи журнал наблюдений|покажи карточки наблюдений|список наблюдений|что сохранено как опыт)$/u.test(lower)) {
+    if(/^(?:сопоставь опыт с причинной моделью|сопоставь наблюдения с моделью|сравни новые наблюдения с моделью|проанализируй сопоставимость наблюдений)$/u.test(lower)) {
+       say("assistant",experienceReconciliationAnswer());setFeedback("САМОПРОВЕРКА · СОПОСТАВЛЕНИЕ ОПЫТА");return;
+     }
+     if(/^(?:покажи журнал наблюдений|покажи карточки наблюдений|список наблюдений|что сохранено как опыт)$/u.test(lower)) {
        say("assistant",observationCasesAnswer());setFeedback("ПАМЯТЬ ОПЫТА · ЖУРНАЛ НАБЛЮДЕНИЙ");return;
      }
      if(/^(?:оцени готовность пересмотра модели|проверь готовность модели к пересмотру|достаточно ли данных для пересмотра|оцени достаточность наблюдений)$/u.test(lower)) {
@@ -2471,6 +2607,8 @@
      observationCases: () => observationCases(),
      observationJournal: () => observationCasesAnswer(),
      reviewReadinessForEdge: (subject,object) => reviewReadinessForEdge(subject,object),
+     reconcileEdgeEvidence: (subject,object,baselineAt=0) => evidenceReconciliationForEdge(subject,object,baselineAt),
+     reconcileExperience: () => experienceReconciliationAnswer(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };
