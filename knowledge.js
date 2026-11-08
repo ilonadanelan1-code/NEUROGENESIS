@@ -163,19 +163,23 @@
   }
   function sanitizeObservationDetails(raw, fallbackSource="user_reported") {
     const source=raw&&["direct_observation","inquiry_response","user_reported"].includes(raw.source)?raw.source:fallbackSource;
-    return {schema:1,context:sanitizeObservationField(raw&&raw.context,source),
+    return {schema:2,context:sanitizeObservationField(raw&&raw.context,source),
       timing:sanitizeObservationField(raw&&raw.timing,source),
       criterion:sanitizeObservationField(raw&&raw.criterion,source),
+      outcome:sanitizeObservationField(raw&&raw.outcome,source),
+      eventRef:raw&&typeof raw.eventRef==="string"?cleanPart(raw.eventRef,100):"",
       source,sourceRef:raw&&typeof raw.sourceRef==="string"?raw.sourceRef.slice(0,100):""};
   }
   function parseObservationDetails(input, source="user_reported") {
     const text=String(input||"").slice(0,1200);
-    const result={schema:1,context:{status:"not_stated",value:"",source},
-      timing:{status:"not_stated",value:"",source},criterion:{status:"not_stated",value:"",source},source,sourceRef:""};
+    const result={schema:2,context:{status:"not_stated",value:"",source},
+      timing:{status:"not_stated",value:"",source},criterion:{status:"not_stated",value:"",source},
+      outcome:{status:"not_stated",value:"",source},eventRef:"",source,sourceRef:""};
     const labels=[
       {key:"context",pattern:/^(?:контекст|обстоятельства|условия|сопутствующие условия)\s*[:—-]\s*(.*)$/iu},
       {key:"timing",pattern:/^(?:время|дата|временной порядок|момент наблюдения)\s*[:—-]\s*(.*)$/iu},
-      {key:"criterion",pattern:/^(?:критерий(?: результата)?|метод|способ оценки|измерение|оценка результата)\s*[:—-]\s*(.*)$/iu}
+      {key:"criterion",pattern:/^(?:критерий(?: результата)?|метод|способ оценки|измерение|оценка результата)\s*[:—-]\s*(.*)$/iu},
+      {key:"outcome",pattern:/^(?:измеренный результат|результат измерения|результат по шкале|значение по шкале|числовое значение|результат|значение|балл|уровень|оценка по шкале)\s*[:—-]\s*(.*)$/iu}
     ];
     const segments=text.split(/[;|\n]+|(?<=[.!?])\s+/u);
     for(const segment of segments) {
@@ -183,6 +187,11 @@
       for(const label of labels) {
         const match=part.match(label.pattern);
         if(match)result[label.key]=observationFieldFromValue(match[1],source);
+      }
+      const eventMatch=part.match(/^(?:событие|эпизод|идентификатор события)\s*[:—-]\s*(.*)$/iu);
+      if(eventMatch) {
+        const ref=observationFieldFromValue(eventMatch[1],source);
+        result.eventRef=ref.status==="provided"?ref.value.slice(0,100):"";
       }
       if(result.context.status==="not_stated"&&/(?:услови|обстоятельств|контекст|сопутствующ)/u.test(normalizedPart)&&
           /(?:различ|отлич|неодинаков|сопоставим|на фоне|в условиях)/u.test(normalizedPart))
@@ -1032,5 +1041,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:21,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:22,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();

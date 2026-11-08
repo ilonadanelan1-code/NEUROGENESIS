@@ -324,7 +324,7 @@ assert.match(v12CounterCheck.answer,/не доказывают её ложнос
 assert.match(v12CounterCheck.answer,/случай, когда X было, а Y не наблюдалось/u);
 const v21StructuredObservation=knowledge.extractClaims("При недостатке сна наблюдалась усталость; контекст: после тяжёлой тренировки; время: вечером; критерий: по шкале 1–10")[0];
 assert.equal(v21StructuredObservation.kind,"observation");
-assert.equal(v21StructuredObservation.observationCase.schema,1);
+assert.equal(v21StructuredObservation.observationCase.schema,2);
 assert.equal(v21StructuredObservation.observationCase.context.status,"provided");
 assert.equal(v21StructuredObservation.observationCase.context.value,"после тяжёлой тренировки");
 assert.equal(v21StructuredObservation.observationCase.timing.value,"вечером");
@@ -342,9 +342,16 @@ assert.equal(v21InquiryDetails.criterion.status,"not_recorded");
 const v21NoFalseCriterion=knowledge.parseObservationDetails("Нет конкретных зафиксированных естественных наблюдений","inquiry_response");
 assert.equal(v21NoFalseCriterion.criterion.status,"not_stated",
   "absence of recorded observations must not be mistaken for a described measurement method");
+const v21MeasuredObservation=knowledge.extractClaims("При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 07:15; критерий: по шкале 1–10; результат: 6/10; событие: сон-эпизод-01")[0];
+assert.equal(v21MeasuredObservation.observationCase.criterion.value,"по шкале 1–10");
+assert.equal(v21MeasuredObservation.observationCase.outcome.status,"provided");
+assert.equal(v21MeasuredObservation.observationCase.outcome.value,"6/10");
+assert.equal(v21MeasuredObservation.observationCase.eventRef,"сон-эпизод-01");
 const v21Sanitized=knowledge.sanitizeClaims([v21StructuredObservation])[0];
 assert.equal(v21Sanitized.observationCase.context.value,"после тяжёлой тренировки");
-assert.equal(v21Sanitized.observationCase.schema,1);
+assert.equal(v21Sanitized.observationCase.schema,2);
+assert.equal(v21Sanitized.observationCase.outcome.status,"not_stated",
+  "older observation cards must migrate with an explicit empty measured-result field");
 
 const v12SupportCheck=knowledge.evaluateConditionalHypothesis("Проверь правило: если недостаток сна, то усталость",[v12SupportingObservation]);
 assert.equal(v12SupportCheck.status,"consistent");
@@ -408,7 +415,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,21);
+assert.equal(knowledge.version,22);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
