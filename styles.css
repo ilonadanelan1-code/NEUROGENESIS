@@ -193,3 +193,17 @@ select.text-input{color-scheme:dark}
   .memory-entry-meta{font-size:7px}
   .memory-mini-button{height:26px;min-height:26px;font-size:7px}
 }
+
+
+/* NEUROGENESIS 0.9 — structured knowledge */
+.knowledge-summary{margin:-7px 0 10px;color:#78c9bd;font-size:8px;letter-spacing:.12em;line-height:1.5}
+.memory-entry-claims{display:flex;flex-direction:column;gap:6px;margin-top:9px;padding:8px;border:1px solid rgba(120,220,203,.17);border-radius:8px;background:linear-gradient(130deg,rgba(20,65,69,.23),rgba(18,35,57,.38))}
+.memory-entry-claim{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;align-items:center}
+.memory-claim-kind{font-size:7px;letter-spacing:.1em;color:#83ead3;padding:3px 5px;border:1px solid rgba(120,240,223,.22);border-radius:5px;background:rgba(63,137,126,.12)}
+.memory-entry-claim>span:nth-child(2){min-width:0;font-size:9px;line-height:1.45;color:#d6f0ed;overflow-wrap:anywhere}
+.memory-entry-claim small{grid-column:2;color:#88a9b0;font-size:7px;line-height:1.35}
+@media(max-width:640px){
+  .knowledge-summary{font-size:7px;margin:-5px 0 8px}
+  .memory-entry-claims{padding:7px;gap:5px}
+  .memory-entry-claim>span:nth-child(2){font-size:8px}
+}
