@@ -201,7 +201,7 @@
     const unique = [...new Set(ids.filter(Boolean))];
     const brain = window.NGBrain;
     if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(unique);
-    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...item.traceIds || [], ...(item.claims || []).map(claim => claim.traceId)]);
+    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
   }
   function rememberText(raw) {
     const clean = String(raw || "").trim().slice(0, MAX_TEXT);
