@@ -264,6 +264,33 @@ assert.match(conflictingMusicProfile, /возможное противоречи
 assert.match(conflictingMusicProfile, /Я не буду автоматически выбирать/u);
 
 assert.equal(knowledge.answerQuestion("Что ты знаешь о неизвестном объекте?", [opinion, preference]), null);
+
+const sleepCause = knowledge.extractClaims("Недостаток сна может приводить к усталости")[0];
+const dehydrationCause = knowledge.extractClaims("Обезвоживание может приводить к усталости")[0];
+const alternativeClaims = [sleepCause, dehydrationCause];
+const alternativeAnswer = knowledge.answerQuestion("Почему возникает усталость?", alternativeClaims);
+assert.match(alternativeAnswer,/несколько возможных объяснений/u,"multiple distinct causes should be presented as alternatives");
+assert.match(alternativeAnswer,/Недостаток сна → усталости/u);
+assert.match(alternativeAnswer,/Обезвоживание → усталости/u);
+assert.match(alternativeAnswer,/нельзя определить, какая из них основная/u,"the system must not choose a winner without evidence");
+const alternativeRecall = knowledge.causalEvidence("Что ещё может вызвать усталость?", alternativeClaims);
+assert.equal(alternativeRecall.alternativeCount,2,"the alternative query should count distinct root causes");
+assert.equal(alternativeRecall.paths.length,2);
+const deniedCause = knowledge.extractClaims("Обезвоживание не приводит к усталости")[0];
+assert.equal(deniedCause.kind,"causal");
+assert.equal(deniedCause.polarity,false,"causal negation should be represented explicitly");
+assert.match(knowledge.claimLabel(deniedCause),/не приводит к усталости/u);
+const uncertainDenial = knowledge.extractClaims("Обезвоживание не может приводить к усталости")[0];
+assert.equal(uncertainDenial.polarity,false);
+assert.equal(uncertainDenial.modality,"possible");
+const causalConflict = knowledge.findConflicts([dehydrationCause,deniedCause]);
+assert.equal(causalConflict.length,1,"opposite statements about the same causal link should be a direct conflict");
+assert.equal(causalConflict[0].type,"direct");
+const disputedRecall = knowledge.causalEvidence("Почему возникает усталость?",[dehydrationCause,deniedCause]);
+assert.equal(disputedRecall.paths.length,1,"a denied relationship must not be traversed as a positive causal edge");
+assert.equal(disputedRecall.conflicts.length,1);
+assert.match(disputedRecall.answer,/Противоречие в памяти/u,"causal answers should disclose contradictory evidence");
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");

@@ -139,13 +139,15 @@
     return makeClaim("fact","assistant","создатель",name,text,"self_reported",0.97);
   }
   function extractCausal(text) {
-    const match = text.match(/^(.+?)\s+(?:(может|могут)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
-    if (!match) return null;
-    const cause=cleanPart(match[1],180), effect=cleanPart(match[4],180);
-    if (!cause || !effect || cause.split(" ").length>10 || effect.split(" ").length>10 || sameEntity(cause,effect)) return null;
-    const predicate=/вызыв|вызва/u.test(match[3])?"вызывает":"приводит к";
-    const claim=makeClaim("causal",cause,predicate,effect,text,"unverified",0.88);
-    if (claim) claim.modality=(match[2]||/вызывать|вызвать|приводить|привести/u.test(match[3]))?"possible":"asserted";
+    const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
+    if(!match)return null;
+    const cause=cleanPart(match[1],180),effect=cleanPart(match[6],180);
+    if(!cause||!effect||cause.split(" ").length>10||effect.split(" ").length>10||sameEntity(cause,effect))return null;
+    const relation=match[5];
+    const predicate=/вызыв|вызва/u.test(relation)?"вызывает":"приводит к";
+    const polarity=!match[2]&&!match[4];
+    const claim=makeClaim("causal",cause,predicate,effect,text,"unverified",0.88,polarity);
+    if(claim)claim.modality=(!!match[3]||/вызывать|вызвать|приводить|привести/u.test(relation))?"possible":"asserted";
     return claim;
   }
   function extractPreference(text) {
@@ -256,7 +258,11 @@
   function claimLabel(claim) {
     if(!claim)return "";
     if(claim.kind==="identity") return "Роль ассистента — " + claim.object;
-    if(claim.kind==="causal") return claim.subject + (claim.modality==="possible"?" может приводить к ":" — причинно связано с ") + claim.object;
+    if(claim.kind==="causal") {
+      const verb=claim.predicate==="вызывает"?"вызывает":"приводит к";
+      if(claim.modality==="possible")return claim.subject+(claim.polarity?" может ":" не может ")+(claim.predicate==="вызывает"?"вызывать":"приводить к")+" "+claim.object;
+      return claim.subject+(claim.polarity?" ":" не ")+verb+" "+claim.object;
+    }
     if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
     if(claim.kind==="fact" && claim.subject==="assistant" && claim.predicate==="создатель") return "Создатель ассистента — " + claim.object;
     if(claim.kind==="fact" && claim.subject==="user") {
@@ -372,7 +378,7 @@
     const reverse=options.reverse===true,target=options.target?canonicalEntity(options.target):"";
     const startKey=canonicalEntity(start);
     if(!startKey)return [];
-    const edges=claims.filter(c=>c&&c.kind==="causal"&&c.status!=="superseded"&&canonicalEntity(c.subject)&&canonicalEntity(c.object));
+    const edges=claims.filter(c=>c&&c.kind==="causal"&&c.polarity!==false&&c.status!=="superseded"&&canonicalEntity(c.subject)&&canonicalEntity(c.object));
     const paths=[],seen=new Set();
     const save=path=>{
       if(!path.length)return;
@@ -408,7 +414,11 @@
       if(match){mode="forward";from=match[1];}
     }
     if(!mode){
-      match=q.match(/^(?:что может вызвать|что вызывает|из-за чего возникает|почему возникает|почему появляется)\s+(.+)$/u);
+      match=q.match(/^(?:что может вызвать|что вызывает|из-за чего возникает|почему возникает|почему появляется|от чего возникает)\s+(.+)$/u);
+      if(match){mode="reverse";from=match[1];}
+    }
+    if(!mode){
+      match=q.match(/^(?:какие есть альтернативные объяснения|какие еще альтернативные объяснения|какие еще есть объяснения|есть ли другие причины|что еще может вызвать|что еще вызывает)\s+(.+)$/u);
       if(match){mode="reverse";from=match[1];}
     }
     if(!mode)return null;
@@ -416,13 +426,22 @@
     if(!paths.length)return null;
     const labels=paths.map((path,index)=>(index+1)+". "+[path[0].subject,...path.map(edge=>edge.object)].join(" → "));
     const used=[...new Map(paths.flat().map(edge=>[edge.id||edge.evidence,edge])).values()];
-    const evidence=used.slice(0,10).map(edge=>"• «"+String(edge.evidence||"").slice(0,220)+"»").join("\n");
-    const opening=mode==="reverse"?"В памяти нашлись возможные причины и промежуточные звенья:":
+    const roots=mode==="reverse"?[...new Map(paths.map(path=>[canonicalEntity(path[0].subject),path[0].subject])).values()]:[];
+    const relatedClaims=claims.filter(claim=>claim&&claim.kind==="causal"&&used.some(edge=>
+      sameEntity(edge.subject,claim.subject)&&sameEntity(edge.object,claim.object)));
+    const conflicts=findConflicts(relatedClaims).filter(conflict=>conflict.left.kind==="causal");
+    const conflictClaims=[...new Map(conflicts.flatMap(conflict=>[conflict.left,conflict.right]).map(claim=>[claim.id||claim.evidence,claim])).values()];
+    const evidenceClaims=[...new Map([...used,...conflictClaims].map(claim=>[claim.id||claim.evidence,claim])).values()];
+    const evidence=evidenceClaims.slice(0,12).map(edge=>"• «"+String(edge.evidence||"").slice(0,220)+"»"+(edge.polarity===false?" · отрицание связи":"")).join("\n");
+    const alternatives=roots.length>1;
+    const opening=mode==="reverse"?(alternatives?"В памяти найдены несколько возможных объяснений:":"В памяти нашлась возможная причина или промежуточная цепочка:"):
       mode==="forward"?"По сохранённым связям можно проследить возможные последствия:":
       "Между этими понятиями найдена причинная цепочка:";
-    const answer=opening+"\n\n"+labels.join("\n")+"\n\nИсходные записи:\n"+evidence+
-      "\n\nЭто вывод из нескольких сообщений, которые ты сохранил. Я не проверял причинность независимо: цепочка показывает возможную связь, а не доказывает, что одно событие обязательно вызовет другое.";
-    return {answer,claimIds:used.map(edge=>edge.id).filter(Boolean),paths};
+    let answer=opening+"\n\n"+labels.join("\n")+"\n\nИсходные записи:\n"+evidence;
+    if(alternatives)answer+="\n\nЭто разные возможные причины одного события. По сохранённой информации нельзя определить, какая из них основная, была ли какая-либо из них реальной причиной или существуют другие объяснения.";
+    if(conflicts.length)answer+="\n\nПротиворечие в памяти: для одной и той же причинной связи сохранены утверждение и отрицание. Я не могу считать её установленной и показываю обе исходные записи.";
+    answer+="\n\nЭто вывод из нескольких сообщений, которые ты сохранил. Я не проверял причинность независимо: цепочка показывает возможную связь, а не доказывает, что одно событие обязательно вызовет другое.";
+    return {answer,claimIds:evidenceClaims.map(edge=>edge.id).filter(Boolean),paths,alternativeCount:roots.length,conflicts};
   }
   function answerQuestion(query, claims) {
     const q = normalise(query);
@@ -569,31 +588,32 @@
     return "В памяти есть запись: " + claimLabel(claim) + ". Источник — твоё сообщение.";
   }
   function findConflicts(input) {
-    const list = Array.isArray(input) ? input : [];
-    const conflicts = [];
-    const isBestFriend = claim => /лучший друг|лучшая подруга|самый близкий друг/u.test(normalise(claim.predicate));
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const a = list[i], b = list[j];
-        if (!a || !b || a.kind !== b.kind) continue;
-        if (a.kind === "relationship") {
-          const sameSubject = sameEntity(a.subject, b.subject);
-          const sameObject = a.object === b.object;
-          const samePredicate = canonicalEntity(a.predicate) === canonicalEntity(b.predicate);
-          if (sameSubject && sameObject && samePredicate && a.polarity !== b.polarity) {
+    const list=Array.isArray(input)?input:[];
+    const conflicts=[];
+    const isBestFriend=claim=>/лучший друг|лучшая подруга|самый близкий друг/u.test(normalise(claim.predicate));
+    for(let i=0;i<list.length;i++){
+      for(let j=i+1;j<list.length;j++){
+        const a=list[i],b=list[j];
+        if(!a||!b||a.kind!==b.kind)continue;
+        if(a.kind==="relationship"){
+          const sameSubject=sameEntity(a.subject,b.subject),sameObject=a.object===b.object;
+          const samePredicate=canonicalEntity(a.predicate)===canonicalEntity(b.predicate);
+          if(sameSubject&&sameObject&&samePredicate&&a.polarity!==b.polarity){
             conflicts.push({type:"direct",left:a,right:b,reason:"Одно и то же отношение одновременно утверждается и отрицается."});
-          } else if (!sameSubject && sameObject && a.polarity && b.polarity && isBestFriend(a) && isBestFriend(b)) {
+          }else if(!sameSubject&&sameObject&&a.polarity&&b.polarity&&isBestFriend(a)&&isBestFriend(b)){
             conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
           }
-        } else if (a.kind === "identity" && a.status !== "superseded" && b.status !== "superseded" &&
-          sameEntity(a.subject,b.subject) && (a.polarity !== b.polarity || !sameEntity(a.object,b.object))) {
+        }else if(a.kind==="identity"&&a.status!=="superseded"&&b.status!=="superseded"&&
+          sameEntity(a.subject,b.subject)&&(a.polarity!==b.polarity||!sameEntity(a.object,b.object))){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для ассистента сохранены разные описания роли."});
-        } else if (a.kind === "fact" && a.status !== "superseded" && b.status !== "superseded" &&
-          sameEntity(a.subject,b.subject) && factFamily(a.predicate) === factFamily(b.predicate) && !sameEntity(a.object,b.object)) {
+        }else if(a.kind==="fact"&&a.status!=="superseded"&&b.status!=="superseded"&&
+          sameEntity(a.subject,b.subject)&&factFamily(a.predicate)===factFamily(b.predicate)&&!sameEntity(a.object,b.object)){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
-        } else if (a.kind === "preference" && a.status !== "superseded" && b.status !== "superseded" &&
-          sameEntity(a.subject,b.subject) && sameEntity(a.object,b.object) && a.polarity !== b.polarity) {
+        }else if(a.kind==="preference"&&a.status!=="superseded"&&b.status!=="superseded"&&
+          sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
           conflicts.push({type:"direct",left:a,right:b,reason:"Одно предпочтение одновременно утверждается и отрицается."});
+        }else if(a.kind==="causal"&&sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
+          conflicts.push({type:"direct",left:a,right:b,reason:"Одна и та же причинная связь одновременно утверждается и отрицается."});
         }
       }
     }
@@ -669,5 +689,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:10,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:11,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,findCausalPaths,findConflicts,summary};
 })();

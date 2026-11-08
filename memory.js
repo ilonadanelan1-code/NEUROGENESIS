@@ -364,7 +364,8 @@
       const activated = brain && typeof brain.activateMemoryTraces === "function"
         ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
       const associativeMatches = related.filter(hit=>hit.associativeHits>0).length;
-      setFeedback((isCausalQuery ? "ПРИЧИННАЯ ЦЕПОЧКА · " : associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
+      const causalLabel=isCausalQuery?(causalRecall.alternativeCount>1?"АЛЬТЕРНАТИВНЫЕ ОБЪЯСНЕНИЯ · ":causalRecall.conflicts&&causalRecall.conflicts.length?"ПРОТИВОРЕЧИЕ В ПРИЧИНАХ · ":"ПРИЧИННАЯ ЦЕПОЧКА · "):"";
+      setFeedback((isCausalQuery ? causalLabel : associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
         (isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
