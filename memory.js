@@ -263,21 +263,23 @@
       return paths.length?{subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths}:null;
     }).filter(Boolean);
     if(!conclusions.length&&!excludedPaths.length)return null;
-    const reviews=Array.isArray(raw.reviews)?raw.reviews.slice(-48).map(item=>{
+    const reviews=Array.isArray(raw.reviews)?mergeSimilarReasoningReviews(raw.reviews.slice(-48).map(item=>{
       if(!item||typeof item.claimId!=="string")return null;
       const at=safeTime(item.at,Date.now());
       return {
         claimId:item.claimId.slice(0,100),
+        relatedClaimIds:Array.isArray(item.relatedClaimIds)?[...new Set(item.relatedClaimIds.filter(id=>typeof id==="string").slice(0,12))]:[],
         kind:["counterexample","opposing_claim","supporting_observation","supporting_claim","source_revised"].includes(item.kind)?item.kind:"counterexample",
         phase:["baseline","subsequent"].includes(item.phase)?item.phase:(at<=createdAt?"baseline":"subsequent"),
         subject:typeof item.subject==="string"?item.subject.slice(0,180):"",
         object:typeof item.object==="string"?item.object.slice(0,180):"",
         evidence:typeof item.evidence==="string"?item.evidence.slice(0,240):"",
+        eventRef:typeof item.eventRef==="string"?item.eventRef.slice(0,100):"",
         edgeSubject:typeof item.edgeSubject==="string"?item.edgeSubject.slice(0,180):"",
         edgeObject:typeof item.edgeObject==="string"?item.edgeObject.slice(0,180):"",
         at
       };
-    }).filter(Boolean):[];
+    }).filter(Boolean)):[];
     const status=["current","updated","challenged","revised"].includes(raw.status)?raw.status:"current";
     const modelHistory=Array.isArray(raw.modelHistory)?raw.modelHistory.slice(-8).map(snapshot=>{
       if(!snapshot||typeof snapshot!=="object")return null;
@@ -315,6 +317,25 @@
       return {at:safeTime(snapshot.at,Date.now()),signature:typeof snapshot.signature==="string"?snapshot.signature.slice(0,600):"",edges,alternatives};
     }).filter(Boolean):[];
     return {version:1,type:raw.type,createdAt,status,conclusions,reviews,modelHistory,excludedPaths:excludedPaths.slice(-24)};
+  }
+  function mergeSimilarReasoningReviews(input) {
+    const result=[];
+    for(const row of Array.isArray(input)?input:[]) {
+      if(!row)continue;
+      const match=result.find(old=>old.kind===row.kind&&
+        modelDecisionKey(old.edgeSubject,old.edgeObject)===modelDecisionKey(row.edgeSubject,row.edgeObject)&&
+        observationRefsCompatible({observationCase:{eventRef:old.eventRef}},{observationCase:{eventRef:row.eventRef}})&&
+        enrichedTextLooksLikeSameMention(old.evidence,row.evidence));
+      if(!match) {
+        result.push({...row,relatedClaimIds:[...new Set([...(row.relatedClaimIds||[]),row.claimId].filter(Boolean))].slice(0,12)});
+        continue;
+      }
+      match.relatedClaimIds=[...new Set([...(match.relatedClaimIds||[]),match.claimId,row.claimId,...(row.relatedClaimIds||[])].filter(Boolean))].slice(0,12);
+      if(String(row.evidence||"").length>String(match.evidence||"").length) {
+        match.claimId=row.claimId;match.evidence=row.evidence;match.eventRef=row.eventRef||match.eventRef;
+      }
+    }
+    return result.slice(-48);
   }
   function reviewKindForClaim(claim) {
     if(!claim||claim.status==="superseded")return null;
@@ -883,10 +904,11 @@
     for(const item of cases.slice(-24).reverse()) {
       answer+=(item.polarity?"НАБЛЮДАЛОСЬ: ":"НЕ НАБЛЮДАЛОСЬ: ")+item.subject+" → "+item.object+"\n";
       answer+="Карточка: "+item.id+" · Источник памяти: "+item.sourceMemoryId+"\n";
-      answer+="Контекст: "+observationFieldDescription(item.details.context)+" · Время: "+observationFieldDescription(item.details.timing)+" · Критерий: "+observationFieldDescription(item.details.criterion)+"\n";
+      answer+="Контекст: "+observationFieldDescription(item.details.context)+" · Время: "+observationFieldDescription(item.details.timing)+" · Критерий: "+observationFieldDescription(item.details.criterion)+" · Значение: "+observationFieldDescription(item.details.outcome)+"\n";
+      if(item.details.eventRef)answer+="Идентификатор события: "+item.details.eventRef+"\n";
       answer+="Исходная запись: «"+item.evidence.slice(0,260)+"»\n\n";
     }
-    answer+="Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
+    answer+="Метки «событие: ...» или «эпизод: ...» связывают карточки одного эпизода; разные метки не дают системе слить отдельные события. Метод оценки и полученное значение указываются отдельно. Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
     return answer;
   }
   function observationValue(item,key) {
@@ -1037,6 +1059,8 @@
       answer+="Звено: "+row.subject+" → "+row.object+"\n";
       answer+="Прямые уникальные наблюдения: согласующиеся — "+row.supportingCount+"; противоположные — "+row.challengingCount+".\n";
       answer+="Контекст: "+observationFieldStatusLabel(row.contextStatus,"context")+" · Время: "+observationFieldStatusLabel(row.timingStatus,"timing")+" · Критерий результата: "+observationFieldStatusLabel(row.criterionStatus,"criterion")+".\n";
+      answer+="Фактическое значение: "+observationFieldStatusLabel(row.outcomeStatus,"criterion")+(row.numericOutcomeRequired?" · требуется для указанной числовой шкалы":" · отдельно от метода оценки")+".\n";
+      if(row.possibleDuplicateCount)answer+="Возможные повторы/дополнения: "+row.possibleDuplicateCount+" карточка(и) сгруппированы как один случай до уточнения идентификатора события.\n";
       if(row.answerIds.length)answer+="Уточнения пользователя: "+row.answerIds.join(", ")+" (контекстные сведения, не независимая проверка).\n";
       answer+="Оценка: "+row.label+".\n";
       if(row.blockers.length)answer+="Что ещё необходимо: "+row.blockers.join("; ")+".\n";
@@ -1200,6 +1224,7 @@
           claimId:claim.id,kind,phase,subject:String(claim.subject||"").slice(0,180),
           object:String(claim.object||"").slice(0,180),
           evidence:String(claim.evidence||"").slice(0,240),
+          eventRef:claim.kind==="observation"?String(claim.observationCase&&claim.observationCase.eventRef||""):"",
           edgeSubject:edge.subject,edgeObject:edge.object,at
         });
       }
@@ -1823,7 +1848,7 @@
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
       memoryMigrated = Array.isArray(saved) && saved.some(item => item && (
         ((!Array.isArray(item.claims) || item.claims.length === 0) && KNOWLEDGE && KNOWLEDGE.extractClaims(item.text).length > 0) ||
-        (Array.isArray(item.claims) && KNOWLEDGE && (KNOWLEDGE.sanitizeClaims(item.claims,item.text).length !== item.claims.length || item.claims.some(claim=>claim&&claim.kind==="observation"&&(!claim.observationCase||claim.observationCase.schema!==1||claim.sourceMemoryId!==item.id))))
+        (Array.isArray(item.claims) && KNOWLEDGE && (KNOWLEDGE.sanitizeClaims(item.claims,item.text).length !== item.claims.length || item.claims.some(claim=>claim&&claim.kind==="observation"&&(!claim.observationCase||claim.observationCase.schema!==2||claim.sourceMemoryId!==item.id))))
       ));
       memories = Array.isArray(saved) ? saved.map(cleanMemory).filter(Boolean).slice(-MAX_MEMORIES) : [];
     } catch (error) {
@@ -1863,6 +1888,7 @@
     try {
       const savedEvidence=JSON.parse(localStorage.getItem(MODEL_EVIDENCE_KEY)||"[]");
       modelEvidence=mergeModelEvidenceHistory([],savedEvidence);
+      if(JSON.stringify(savedEvidence)!==JSON.stringify(modelEvidence))memoryMigrated=true;
     } catch(error) {
       modelEvidence=[];
       console.warn("Could not load NEUROGENESIS model evidence:",error);
