@@ -289,6 +289,27 @@ assert.match(priorityReply,/Общее звено между нескольки�
 assert.match(document.getElementById("memory-feedback").textContent,/ПРИОРИТЕТ · ЕСТЬ КОНТРПРИМЕР/u,"the interface should label a hypothesis-prioritization answer");
 
 
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+const modelReply=feed.children[feed.children.length-1].textContent;
+assert.match(modelReply,/ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ/u,"the app should build a revised causal model from tracked conclusions");
+assert.match(modelReply,/Недостаток сна → усталости — ПОД ВОПРОСОМ/u,"the model should mark the specific contradicted edge");
+assert.match(modelReply,/Усталость → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,"the model should preserve uncertainty for unobserved edges");
+assert.match(modelReply,/Альтернативного маршрута от исходного понятия/u,"the model must not invent a substitute route when no route exists");
+assert.match(modelReply,/Обезвоживание → усталости → снижению концентрации/u,"a separate route to the outcome should remain a parallel hypothesis, not a replacement");
+assert.match(document.getElementById("memory-feedback").textContent,/ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ/u);
+const modelDialog=JSON.parse(database.get("neurogenesis.dialog.v1"));
+const modelEntry=modelDialog.filter(item=>item.role==="assistant"&&item.text.includes("ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ")).slice(-1)[0];
+const tracked=modelDialog.filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
+assert.ok(tracked.reasoning.modelHistory.length>0,"model revision snapshots should be stored in the reasoning history");
+assert.ok(tracked.reasoning.modelHistory[0].edges.some(edge=>edge.status==="challenged"),"model history should preserve the challenged edge state");
+assert.ok(modelEntry,"the model revision answer should be part of the exported dialogue");
+const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+assert.equal(JSON.stringify(window.NGMemory.claims()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
+
+
 input.value = "Усталость не приводит к снижению концентрации";
 document.getElementById("remember-button").dispatch("click");
 const lateRevisionReply=feed.children[feed.children.length-1].textContent;
@@ -314,25 +335,12 @@ const backfilledAudit=feed.children[feed.children.length-1].textContent;
 assert.match(backfilledAudit,/Уже было в памяти при создании вывода/u,"legacy 0.23 reasoning metadata should be backfilled from stored memory");
 assert.match(backfilledAudit,/Появилось после создания вывода/u,"legacy audit should reconstruct post-conclusion evidence too");
 assert.match(document.getElementById("memory-feedback").textContent,/САМОПРОВЕРКА/u);
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+const postConflictModel=feed.children[feed.children.length-1].textContent;
+assert.doesNotMatch(postConflictModel,/Обезвоживание → усталости → снижению концентрации/u,"an alternate route must not reuse a shared edge that has since been opposed");
 
-input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
-const modelReply=feed.children[feed.children.length-1].textContent;
-assert.match(modelReply,/ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ/u,"the app should build a revised causal model from tracked conclusions");
-assert.match(modelReply,/Недостаток сна → усталости — ПОД ВОПРОСОМ/u,"the model should mark the specific contradicted edge");
-assert.match(modelReply,/Усталость → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,"the model should preserve uncertainty for unobserved edges");
-assert.match(modelReply,/Альтернативного маршрута от исходного понятия/u,"the model must not invent a substitute route when no route exists");
-assert.match(modelReply,/Обезвоживание → усталости → снижению концентрации/u,"a separate route to the outcome should remain a parallel hypothesis, not a replacement");
-assert.match(document.getElementById("memory-feedback").textContent,/ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ/u);
-const modelDialog=JSON.parse(database.get("neurogenesis.dialog.v1"));
-const modelEntry=modelDialog.filter(item=>item.role==="assistant"&&item.text.includes("ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ")).slice(-1)[0];
-const tracked=modelDialog.filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
-assert.ok(tracked.reasoning.modelHistory.length>0,"model revision snapshots should be stored in the reasoning history");
-assert.ok(tracked.reasoning.modelHistory[0].edges.some(edge=>edge.status==="challenged"),"model history should preserve the challenged edge state");
-assert.ok(modelEntry,"the model revision answer should be part of the exported dialogue");
-const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
-input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
-assert.equal(JSON.stringify(window.NGMemory.claims()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
+
+
 
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and causal model revision: passed.");

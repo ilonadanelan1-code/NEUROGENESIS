@@ -310,7 +310,10 @@
       }
       const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,claimIds:edge.claimIds}));
       const snapshotAlternatives=alternatives.map(item=>({subject:item.subject,object:item.object,paths:item.paths.map(path=>path.map(edge=>({subject:edge.subject,object:edge.object})))}));
-      const signature=JSON.stringify({edges:snapshotEdges,alternatives:snapshotAlternatives});
+      const signatureSource=JSON.stringify({edges:snapshotEdges,alternatives:snapshotAlternatives});
+      let signatureHash=2166136261;
+      for(let i=0;i<signatureSource.length;i++){signatureHash^=signatureSource.charCodeAt(i);signatureHash=Math.imul(signatureHash,16777619);}
+      const signature=(signatureHash>>>0).toString(36);
       const last=meta.modelHistory[meta.modelHistory.length-1];
       if(!last||last.signature!==signature) {
         meta.modelHistory.push({at:Date.now(),signature,edges:snapshotEdges,alternatives:snapshotAlternatives});
@@ -354,21 +357,25 @@
       answer+="\n";
     }
     const parallelRows=[];
+    const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded")
+      .map(claim=>[KNOWLEDGE.canonicalEntity(claim.subject),claim.subject])).values()];
     for(const row of uniqueReports) {
       const affected=row.report.challengedEdges.some(edge=>row.conclusion.paths.some(path=>path.some(item=>
         KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
       if(!affected)continue;
-      const paths=KNOWLEDGE.findCausalPaths(row.conclusion.object,allClaims,{reverse:true,maxDepth:3})
-        .filter(path=>path.length&&!KNOWLEDGE.sameEntity(path[0].subject,row.conclusion.subject));
-      for(const path of paths) {
-        const key=path.map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)).join(">");
-        if(!parallelRows.some(item=>item.key===key))parallelRows.push({key,path});
+      for(const root of candidateRoots) {
+        if(KNOWLEDGE.sameEntity(root,row.conclusion.subject))continue;
+        const paths=findAlternativeCausalPaths(root,row.conclusion.object,allClaims,[]);
+        for(const path of paths) {
+          const key=path.map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)).join(">");
+          if(!parallelRows.some(item=>item.key===key))parallelRows.push({key,path});
+        }
       }
     }
     if(parallelRows.length) {
-      answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\\n";
-      for(const item of parallelRows.slice(0,3))answer+="• "+[item.path[0].subject,...item.path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\\n";
-      answer+="\\n";
+      answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\n";
+      for(const item of parallelRows.slice(0,3))answer+="• "+[item.path[0].subject,...item.path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\n";
+      answer+="\n";
     }
     answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
     answer+="История пересмотра модели сохранена в метаданных выводов и попадёт в следующую резервную копию. Новый вариант схемы — аналитическое предложение, а не установленный факт.";
