@@ -190,10 +190,12 @@
     });
     const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
     const claims = KNOWLEDGE ? (extractedClaims.length ? KNOWLEDGE.mergeClaims(raw.claims, extractedClaims) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
+    const id=typeof raw.id==="string"&&raw.id?raw.id.slice(0,80):makeId();
+    const linkedClaims=claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:id}:claim);
     return {
-      id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 80) : makeId(),
+      id,
       text, tags: tags.length ? tags : tokens(text).slice(0, 6), traceIds,
-      claims,
+      claims:linkedClaims,
       createdAt: safeTime(raw.createdAt, Date.now()),
       updatedAt: safeTime(raw.updatedAt, safeTime(raw.createdAt, Date.now())),
       strength: Number.isFinite(Number(raw.strength)) ? Math.max(0, Math.min(1, Number(raw.strength))) : 0.65,
@@ -582,6 +584,15 @@
     }
     return affected.size;
   }
+  function observationFieldStatus(fields,key) {
+    const rank={not_stated:0,unknown:1,not_recorded:2,none_reported:3,provided:4};
+    return (fields||[]).map(item=>item&&item[key]&&item[key].status||"not_stated")
+      .sort((a,b)=>(rank[b]||0)-(rank[a]||0))[0]||"not_stated";
+  }
+  function observationFieldStatusLabel(status) {
+    return ({provided:"указан",not_stated:"не указан",not_recorded:"не записан",
+      unknown:"неизвестен",none_reported:"сообщено об отсутствии"})[status]||"не указан";
+  }
   function reviewReadinessForEdge(subject,object) {
     const observations=memories.flatMap(entry=>entry.claims||[]).filter(claim=>
       claim&&claim.kind==="observation"&&claim.status!=="superseded"&&
@@ -596,30 +607,56 @@
     const challenging=distinct.filter(claim=>claim.polarity===false);
     const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
-    const sourceText=distinct.map(claim=>claim.evidence||"").concat(relatedAnswers.map(item=>item.responseText||"")).join(" ");
-    const normalizedSource=normalise(sourceText);
-    const contextMissing=/(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран|не установ).{0,140}(?:контекст|обстоятельств|услови|сопутствующ)|(?:контекст|обстоятельств|услови|сопутствующ).{0,140}(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран|не установ)/u.test(normalizedSource);
-    const contextPresent=/(?:контекст|обстоятельств|услови|сопутствующ).{0,80}(?:различ|отлич|разн|описан|указан|сопостав)|(?:различ|отлич|разн|сопостав).{0,80}(?:контекст|обстоятельств|услови)|(?:на фоне|после|до|во время|в условиях)\s+\p{L}{3,}/u.test(normalizedSource);
-    const context=contextPresent&&!contextMissing;
-    const timing=/(?:утром|днем|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад)/u.test(normalizedSource)||
-      /\d{1,2}:\d{2}/u.test(sourceText)||
-      /(?:^| )\d{1,2} (?:январ|феврал|март|апрел|ма|июн|июл|август|сентябр|октябр|ноябр|декабр)/u.test(normalizedSource);
-    const criterionMissing=/(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран).{0,140}(?:способ|метод|критери|оцен|измер|результат|самочувств|шкал|показател)|(?:способ|метод|критери|оцен|измер|результат|самочувств|шкал|показател).{0,140}(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран)/u.test(normalizedSource);
-    const criterionPresent=/(?:результат|усталост|концентрац|показател|значение).{0,60}(?:оценивал|измерял|определял|фиксировал|считался|по шкал|по балл)|(?:оценивал|измерял|определял|фиксировал|считал).{0,60}(?:результат|усталост|концентрац|показател)|по шкале|по баллам|критерием был/u.test(normalizedSource);
-    const criterion=criterionPresent&&!criterionMissing;
+    const detailSources=distinct.map(claim=>claim.observationCase||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation"))
+      .concat(relatedAnswers.map(item=>item.responseDetails||KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response")));
+    const contextStatus=observationFieldStatus(detailSources,"context");
+    const timingStatus=observationFieldStatus(detailSources,"timing");
+    const criterionStatus=observationFieldStatus(detailSources,"criterion");
+    const context=contextStatus==="provided",timing=timingStatus==="provided",criterion=criterionStatus==="provided";
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
     if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");
-    if(!context)blockers.push("не описаны различия или сопутствующие условия");
-    if(!timing)blockers.push("не указано время или временной порядок");
-    if(!criterion)blockers.push("не описано, как определялся или измерялся результат");
+    if(!context)blockers.push("контекст не указан в структурированном виде");
+    if(!timing)blockers.push("время или временной порядок не указаны в структурированном виде");
+    if(!criterion)blockers.push("критерий или способ оценки не указан в структурированном виде");
     const ready=blockers.length===0;
     const label=ready?"ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА":
       supporting.length&&challenging.length?"ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ":
       distinct.length?"ОДНОСТОРОННИЕ НАБЛЮДЕНИЯ":"НЕТ ПРЯМЫХ НАБЛЮДЕНИЙ";
     return {subject,object,supportingCount:supporting.length,challengingCount:challenging.length,
-      totalCount:distinct.length,context,timing,criterion,ready,label,blockers,
-      answerIds:relatedAnswers.map(item=>item.id)};
+      totalCount:distinct.length,context,timing,criterion,contextStatus,timingStatus,criterionStatus,
+      ready,label,blockers,answerIds:relatedAnswers.map(item=>item.id)};
+  }
+  function observationCases() {
+    const seen=new Set(),result=[];
+    for(const memory of memories)for(const claim of memory.claims||[]) {
+      if(!claim||claim.kind!=="observation"||claim.status==="superseded")continue;
+      const key=memory.id+"|"+claim.id;
+      if(seen.has(key))continue;
+      seen.add(key);
+      result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
+        polarity:claim.polarity!==false,evidence:claim.evidence||"",recordedAt:safeTime(claim.createdAt,memory.createdAt),
+        details:KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation")});
+    }
+    return result.sort((a,b)=>a.recordedAt-b.recordedAt);
+  }
+  function observationFieldDescription(field) {
+    if(!field)return "не указано";
+    if(field.status==="provided")return field.value;
+    return observationFieldStatusLabel(field.status);
+  }
+  function observationCasesAnswer() {
+    const cases=observationCases();
+    if(!cases.length)return "ЖУРНАЛ НАБЛЮДЕНИЙ\n\nПока нет отдельных структурированных наблюдений. Для записи используй форму:\nПри X наблюдалось Y; контекст: ...; время: ...; критерий: ...\n\nДля явно отсутствующей информации можно указать: «не записано», «неизвестно» или «отсутствовало». Неизвестные поля не будут додумываться.";
+    let answer="ЖУРНАЛ НАБЛЮДЕНИЙ · "+cases.length+" КАРТОЧЕК\n\n";
+    for(const item of cases.slice(-24).reverse()) {
+      answer+=(item.polarity?"НАБЛЮДАЛОСЬ: ":"НЕ НАБЛЮДАЛОСЬ: ")+item.subject+" → "+item.object+"\n";
+      answer+="Карточка: "+item.id+" · Источник памяти: "+item.sourceMemoryId+"\n";
+      answer+="Контекст: "+observationFieldDescription(item.details.context)+" · Время: "+observationFieldDescription(item.details.timing)+" · Критерий: "+observationFieldDescription(item.details.criterion)+"\n";
+      answer+="Исходная запись: «"+item.evidence.slice(0,260)+"»\n\n";
+    }
+    answer+="Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
+    return answer;
   }
   function modelReviewReadinessAnswer() {
     const edges=new Map();
@@ -639,7 +676,7 @@
       const decision=modelDecisionForEdge(row);
       answer+="Звено: "+row.subject+" → "+row.object+"\n";
       answer+="Прямые уникальные наблюдения: согласующиеся — "+row.supportingCount+"; противоположные — "+row.challengingCount+".\n";
-      answer+="Контекст: "+(row.context?"указан":"не указан")+" · Время: "+(row.timing?"указано":"не указано")+" · Критерий результата: "+(row.criterion?"указан":"не указан")+".\n";
+      answer+="Контекст: "+observationFieldStatusLabel(row.contextStatus)+" · Время: "+observationFieldStatusLabel(row.timingStatus)+" · Критерий результата: "+observationFieldStatusLabel(row.criterionStatus)+".\n";
       if(row.answerIds.length)answer+="Уточнения пользователя: "+row.answerIds.join(", ")+" (контекстные сведения, не независимая проверка).\n";
       answer+="Оценка: "+row.label+".\n";
       if(row.blockers.length)answer+="Что ещё необходимо: "+row.blockers.join("; ")+".\n";
