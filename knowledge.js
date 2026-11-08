@@ -72,11 +72,12 @@
     return makeClaim("preference","user",predicate.replace(/^не\s+/u,""),cleanPart(match[3]),text,"self_reported",0.94,polarity);
   }
   function extractOpinion(text) {
-    const match = text.match(/^(.+?)\s+(?:[—–-]\s*)?([а-яё]+)$/iu);
+    const match = text.match(/^(.+?)\s+(?:не\s+)?(?:(?:очень|довольно|невероятно|действительно)\s+)?([а-яё]+)$/iu);
     if (!match || !EVALUATION_RE.test(match[2])) return null;
-    const subject = cleanPart(match[1]);
+    const negative = /\sне\s/iu.test(text);
+    const subject = cleanPart(text.replace(/\s+(?:не\s+)?(?:(?:очень|довольно|невероятно|действительно)\s+)?[а-яё]+$/iu, ""));
     if (!subject || subject.split(" ").length > 6) return null;
-    return makeClaim("opinion",subject,"оценка",match[2].toLowerCase(),text,"subjective",0.91);
+    return makeClaim("opinion", subject, "оценка", match[2].toLowerCase(), text, "subjective", 0.91, !negative);
   }
   function extractDefinition(text) {
     let match = text.match(/^(.+?)\s+[—–-]\s+(?:это\s+)?(.+)$/iu);
