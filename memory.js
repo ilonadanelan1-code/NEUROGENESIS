@@ -1149,7 +1149,10 @@
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
-      memoryMigrated = Array.isArray(saved) && saved.some(item => item && (!Array.isArray(item.claims) || item.claims.length === 0) && KNOWLEDGE && KNOWLEDGE.extractClaims(item.text).length > 0);
+      memoryMigrated = Array.isArray(saved) && saved.some(item => item && (
+        ((!Array.isArray(item.claims) || item.claims.length === 0) && KNOWLEDGE && KNOWLEDGE.extractClaims(item.text).length > 0) ||
+        (Array.isArray(item.claims) && KNOWLEDGE && KNOWLEDGE.sanitizeClaims(item.claims,item.text).length !== item.claims.length)
+      ));
       memories = Array.isArray(saved) ? saved.map(cleanMemory).filter(Boolean).slice(-MAX_MEMORIES) : [];
     } catch (error) {
       memories = [];

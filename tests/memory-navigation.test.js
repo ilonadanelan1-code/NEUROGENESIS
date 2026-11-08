@@ -579,5 +579,27 @@ assert.match(researchAwareReply,/Q1 не установил обстоятель
 assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="Недостаток сна").strategy,"suspend",
   "research-aware explanation must not change the selected model decision");
 
-console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion and inquiry provenance: passed.");
+// Legacy backups can contain a false causal claim created from the "что ..." half
+// of a comma-separated explanatory sentence. It must be removed and persisted on load.
+const legacyQuotedClaim={id:"legacy-quoted-cause",kind:"causal",subject:"что усталость",predicate:"приводит к",
+  object:"снижению концентрации",holder:"user",polarity:true,source:"user_message",
+  evidence:"что усталость приводит к снижению концентрации",verification:"unverified",
+  extractionConfidence:0.88,traceId:null,createdAt:500,revision:false,status:"current",modality:"asserted"};
+database.set("neurogenesis.memories.v1",JSON.stringify([
+  {id:"legacy-quote",text:"Есть только исходное утверждение о том, что усталость приводит к снижению концентрации.",
+   tags:["усталост"],traceIds:[],claims:[legacyQuotedClaim],createdAt:500,updatedAt:500,strength:.65,repetitions:1,recalls:0}
+]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+assert.equal(window.NGMemory.claims().some(claim=>claim.subject==="что усталость"),false,
+  "loading a legacy backup must discard the malformed quoted causal claim");
+const migratedLegacyMemories=JSON.parse(database.get("neurogenesis.memories.v1"));
+assert.equal(migratedLegacyMemories[0].claims.length,0,
+  "the repaired memory data should be persisted rather than reintroducing the malformed claim on next load");
+
+console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion, inquiry provenance and quoted-claim migration: passed.");
 

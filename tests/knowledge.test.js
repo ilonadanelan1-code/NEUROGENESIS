@@ -18,6 +18,18 @@ assert.equal(v18SleepCause.subject,"Недостаток сна");
 assert.equal(v18SleepCause.object,"усталости");
 assert.equal(v18SleepCause.modality,"possible");
 assert.equal(fatigueCause.kind,"causal");
+const quotedCausalSentence="Есть только исходное утверждение о том, что усталость приводит к снижению концентрации.";
+assert.equal(knowledge.extractClaims(quotedCausalSentence).length,0,
+  "a causal clause introduced as quoted/reporting context must not become a new causal claim");
+assert.equal(knowledge.extractClaims("что усталость приводит к снижению концентрации").length,0,
+  "a subordinate clause beginning with 'что' must not be treated as an independent causal subject");
+assert.equal(knowledge.extractClaims("Ответ на вопрос Q2: В памяти нет наблюдений. "+quotedCausalSentence).length,0,
+  "research answers must remain contextual testimony even after memory reloading");
+const malformedQuotedClaim={id:"legacy-quoted-cause",kind:"causal",subject:"что усталость",predicate:"приводит к",
+  object:"снижению концентрации",evidence:"что усталость приводит к снижению концентрации",
+  verification:"unverified",extractionConfidence:0.88,createdAt:1};
+assert.equal(knowledge.sanitizeClaims([malformedQuotedClaim]).length,0,
+  "legacy causal claims with a subordinate-clause subject must be removed during migration");
 assert.equal(knowledge.summary([v18SleepCause,fatigueCause]).causal,2);
 const causalChain=knowledge.causalEvidence("Как недостаток сна влияет на снижение концентрации?",[v18SleepCause,fatigueCause]);
 assert.ok(causalChain,"two causal memories should form a chain");
@@ -371,7 +383,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,19);
+assert.equal(knowledge.version,20);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
