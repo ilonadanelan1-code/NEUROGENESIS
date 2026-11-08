@@ -70,6 +70,7 @@ assert.match(knowledge.answerQuestion("Где я живу?", [location]), /жи�
 const directConflict = knowledge.findConflicts([userFriend, negative]);
 assert.equal(directConflict.length, 1);
 assert.equal(directConflict[0].type, "direct");
+assert.match(knowledge.answerQuestion("Кто мой друг?", [userFriend, negative]), /противоречащие утверждения/u);
 
 const secondBestFriend = knowledge.extractClaims("Сергей твой лучший друг")[0];
 const possibleConflict = knowledge.findConflicts([relationship, secondBestFriend]);
