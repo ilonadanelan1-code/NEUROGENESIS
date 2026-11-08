@@ -3,6 +3,8 @@
 
   const MEMORY_KEY = "neurogenesis.memories.v1";
   const DIALOG_KEY = "neurogenesis.dialog.v1";
+  const MODEL_DECISIONS_KEY = "neurogenesis.model-decisions.v1";
+  const MAX_MODEL_DECISIONS = 32;
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
   const MAX_DIALOG_TEXT = 4200;
@@ -13,6 +15,7 @@
   const $ = id => document.getElementById(id);
   let memories = [];
   let dialog = [];
+  let modelDecisions = [];
   let tagTrace = Object.create(null);
   let libraryOpen = false;
   let libraryLimit = 20;
@@ -37,6 +40,69 @@
   function safeTime(value, fallback) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+  function cleanModelDecision(raw) {
+    if (!raw || typeof raw !== "object" ||
+        typeof raw.edgeSubject !== "string" || typeof raw.edgeObject !== "string" ||
+        !["conditional","weaken","suspend","restore"].includes(raw.strategy)) return null;
+    const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
+    if(!edgeSubject||!edgeObject)return null;
+    return {
+      edgeSubject,edgeObject,strategy:raw.strategy,
+      at:safeTime(raw.at,Date.now()),
+      claimIds:Array.isArray(raw.claimIds)?raw.claimIds.filter(id=>typeof id==="string").slice(0,8):[]
+    };
+  }
+  function modelDecisionKey(subject,object) {
+    return normalise(subject)+"|"+normalise(object);
+  }
+  function mergeModelDecisionHistory(existing,incoming) {
+    const unique=new Map();
+    for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
+      const decision=cleanModelDecision(raw);
+      if(!decision)continue;
+      const key=modelDecisionKey(decision.edgeSubject,decision.edgeObject)+"|"+decision.strategy+"|"+decision.at;
+      unique.set(key,decision);
+    }
+    return [...unique.values()].sort((a,b)=>a.at-b.at).slice(-MAX_MODEL_DECISIONS);
+  }
+  function currentModelDecisions() {
+    const latest=new Map();
+    for(const raw of modelDecisions) {
+      const decision=cleanModelDecision(raw);
+      if(!decision)continue;
+      const key=modelDecisionKey(decision.edgeSubject,decision.edgeObject);
+      const prior=latest.get(key);
+      if(!prior||decision.at>=prior.at)latest.set(key,decision);
+    }
+    return [...latest.values()].sort((a,b)=>a.at-b.at);
+  }
+  function modelDecisionForEdge(edge,decisions=currentModelDecisions()) {
+    if(!edge)return null;
+    return decisions.find(item=>
+      KNOWLEDGE && KNOWLEDGE.sameEntity
+        ? KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)
+        : modelDecisionKey(item.edgeSubject,item.edgeObject)===modelDecisionKey(edge.subject,edge.object)
+    )||null;
+  }
+  function claimsForWorkingModel(claims) {
+    const suspended=currentModelDecisions().filter(item=>item.strategy==="suspend");
+    if(!suspended.length)return claims;
+    return claims.filter(claim=>!(claim&&claim.kind==="causal"&&suspended.some(item=>
+      KNOWLEDGE.sameEntity(item.edgeSubject,claim.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,claim.object))));
+  }
+  function formatModelDecisionNote() {
+    const decisions=currentModelDecisions();
+    if(!decisions.length)return "";
+    const description={
+      conditional:"сохранена как условная; важные условия пока не установлены",
+      weaken:"учитывается только как один из возможных факторов, не как обязательная или достаточная причина",
+      suspend:"временно исключена из новых причинных цепочек и прогнозов",
+      restore:"возвращена в активную рабочую модель"
+    };
+    return "\n\nРЕШЕНИЯ РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ\n"+
+      decisions.slice(-8).map(item=>"• "+item.edgeSubject+" → "+item.edgeObject+" — "+description[item.strategy]).join("\n")+
+      "\nИсходные воспоминания и наблюдения не изменены.";
   }
   function cleanMemory(raw) {
     if (!raw || typeof raw.text !== "string") return null;
@@ -121,6 +187,7 @@
         }).filter(Boolean):[];
         return {subject:edge.subject.slice(0,180),object:edge.object.slice(0,180),
           status:["challenged","observed","unobserved"].includes(edge.status)?edge.status:"unobserved",
+          decision:["conditional","weaken","suspend","restore"].includes(edge.decision)?edge.decision:null,
           claimIds:Array.isArray(edge.claimIds)?edge.claimIds.filter(id=>typeof id==="string").slice(0,8):[],
           revisionOptions:options};
       }).filter(Boolean):[];
@@ -259,11 +326,14 @@
   function findAlternativeCausalPaths(start,target,allClaims,excludedEdges) {
     const isExcluded=edge=>(excludedEdges||[]).some(item=>
       KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object));
+    const suspended=currentModelDecisions().filter(item=>item.strategy==="suspend");
+    const isSuspended=edge=>suspended.some(item=>
+      KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
     const isBlocked=edge=>allClaims.some(claim=>claim&&
       ((claim.kind==="causal"&&claim.polarity===false)||(claim.kind==="observation"&&claim.polarity===false))&&
       edgeMatchesClaim(edge,claim));
     const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
-      !isExcluded(claim)&&!isBlocked(claim));
+      !isExcluded(claim)&&!isBlocked(claim)&&!isSuspended(claim));
     const paths=[];
     const startKey=KNOWLEDGE.canonicalEntity(start),targetKey=KNOWLEDGE.canonicalEntity(target);
     if(!startKey||!targetKey)return paths;
@@ -314,10 +384,112 @@
       }
     ];
   }
+  function challengedModelEdges() {
+    const allClaims=memories.flatMap(item=>item.claims||[]);
+    const edges=new Map();
+    let changed=false;
+    for(const entry of dialog) {
+      if(entry.role!=="assistant"||!entry.reasoning)continue;
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta)continue;
+      const additions=collectReasoningFindings(meta,allClaims);
+      if(additions.length) {
+        meta.reviews.push(...additions);
+        meta.reviews=meta.reviews.slice(-24);
+        changed=true;
+      }
+      const previousStatus=meta.status;
+      updateReasoningStatus(meta);
+      if(previousStatus!==meta.status)changed=true;
+      entry.reasoning=cleanReasoning(meta);
+      for(const conclusion of meta.conclusions) {
+        for(const path of conclusion.paths) {
+          for(const edge of path) {
+            const findings=meta.reviews.filter(item=>
+              KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)&&
+              ["counterexample","opposing_claim","source_revised"].includes(item.kind));
+            if(!findings.length)continue;
+            const key=modelDecisionKey(edge.subject,edge.object);
+            edges.set(key,{subject:edge.subject,object:edge.object,claimIds:[...new Set(findings.map(item=>item.claimId))].slice(0,8)});
+          }
+        }
+      }
+    }
+    if(changed)persist();
+    return [...edges.values()];
+  }
+  function findReasoningEntryForEdge(edge) {
+    const rows=dialog.filter(item=>item.role==="assistant"&&item.reasoning).slice().reverse();
+    for(const entry of rows) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta||meta.type!=="derived_hypotheses")continue;
+      const found=meta.conclusions.some(conclusion=>conclusion.paths.some(path=>path.some(item=>
+        KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
+      if(found)return {entry,meta};
+    }
+    return null;
+  }
+  function applyRevisionChoice(query) {
+    const clean=String(query||"").trim().replace(/[.!?]+$/u,"");
+    const match=clean.match(/^(?:выбираю|применяю|применить|прими|зафиксируй|фиксирую)\s+(?:вариант\s*)?([123])(?:\s+для\s+(?:связи|звена)\s+(.+?)\s*(?:→|⇢|->|—|–)\s*(.+))?$/iu);
+    if(!match)return null;
+    const candidates=challengedModelEdges();
+    let selected;
+    if(match[2]&&match[3]) {
+      selected=candidates.find(edge=>KNOWLEDGE.sameEntity(edge.subject,match[2])&&KNOWLEDGE.sameEntity(edge.object,match[3]));
+      if(!selected) {
+        return "Я не нашёл среди спорных звеньев связь «"+match[2]+" → "+match[3]+"». Сначала построй обновлённую причинную модель и выбирай вариант только для звена, отмеченного как «ПОД ВОПРОСОМ».";
+      }
+    } else if(candidates.length===1) {
+      selected=candidates[0];
+    } else if(candidates.length>1) {
+      return "Есть несколько спорных звеньев. Укажи, к какому применить вариант "+match[1]+":\n"+
+        candidates.map(edge=>"• "+edge.subject+" → "+edge.object).join("\n")+
+        "\n\nФормат: «Выбираю вариант "+match[1]+" для связи X → Y».";
+    } else {
+      return "Сейчас в отслеживаемой причинной модели нет спорных звеньев с вариантами пересмотра. Сначала выведи гипотезу и проверь её по сохранённым наблюдениям.";
+    }
+    const context=findReasoningEntryForEdge(selected);
+    if(!context)return "Не удалось найти исходный вывод для выбранной связи. Исходные записи не изменены.";
+    const optionId=({1:"conditional",2:"weaken",3:"suspend"})[match[1]];
+    const option=revisionOptionsForEdge(selected).find(item=>item.id===optionId);
+    if(!option)return "Для этого звена не удалось подготовить выбранный вариант. Ничего не изменено.";
+    modelDecisions=mergeModelDecisionHistory(modelDecisions,[{
+      edgeSubject:selected.subject,edgeObject:selected.object,strategy:optionId,at:Date.now(),claimIds:selected.claimIds
+    }]);
+    const ok=persist();
+    const effect=optionId==="conditional"
+      ?"Связь остаётся в выводах, но теперь явно трактуется как условная; необходимые условия ещё неизвестны."
+      :optionId==="weaken"
+        ?"Связь остаётся доступной как один из возможных факторов, но не считается обязательной или достаточной причиной."
+        :"Связь исключена из новых причинных цепочек и прогнозов. Её исходная запись и контрпример остаются в памяти.";
+    return "РЕШЕНИЕ ПРИМЕНЕНО К РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ\n\n"+
+      "Звено: "+selected.subject+" → "+selected.object+"\n"+
+      "Выбрано: "+option.title+"\n"+effect+
+      "\n\nЭто решение относится только к рабочей модели. Оно не переписывает и не удаляет исходные воспоминания."+
+      (ok?"":"\n\nЛокальное сохранение решения не подтвердилось.");
+  }
+  function restoreModelEdge(query) {
+    let clean=String(query||"").trim().replace(/[.!?]+$/u,"");
+    clean=clean.replace(/\s+в\s+рабочую\s+модель$/iu,"");
+    const match=clean.match(/^(?:верни|восстанови)\s+(?:связь|звено)\s+(.+?)\s*(?:→|⇢|->|—|–)\s*(.+)$/iu);
+    if(!match)return null;
+    const existing=currentModelDecisions().find(item=>
+      KNOWLEDGE.sameEntity(item.edgeSubject,match[1])&&KNOWLEDGE.sameEntity(item.edgeObject,match[2]));
+    if(!existing)return "Для связи «"+match[1]+" → "+match[2]+" нет сохранённого решения о пересмотре. Исходная причинная запись не была изменена.";
+    if(existing.strategy==="restore")return "Эта связь уже возвращена в активную рабочую модель: "+existing.edgeSubject+" → "+existing.edgeObject+".";
+    modelDecisions=mergeModelDecisionHistory(modelDecisions,[{
+      edgeSubject:existing.edgeSubject,edgeObject:existing.edgeObject,strategy:"restore",at:Date.now(),claimIds:existing.claimIds
+    }]);
+    const ok=persist();
+    return "Связь "+existing.edgeSubject+" → "+existing.edgeObject+" возвращена в активную рабочую модель. Она снова может участвовать в новых выводах, но прежний контрпример остаётся видимым, а сама связь не становится доказанной."+
+      (ok?"":" Локальное сохранение решения не подтвердилось.");
+  }
   function buildCausalModelRevision() {
     const tracked=dialog.filter(item=>item.role==="assistant"&&item.reasoning).slice(-8);
     if(!tracked.length)return "Пока нет причинных выводов с сохранёнными ссылками на исходные записи. Сначала попроси меня вывести причинную цепочку или новые гипотезы.";
     const allClaims=memories.flatMap(item=>item.claims||[]);
+    const decisions=currentModelDecisions();
     const reports=[];
     let changed=false;
     for(const entry of tracked) {
@@ -338,7 +510,7 @@
         const challenged=matched.filter(finding=>finding.kind==="counterexample"||finding.kind==="opposing_claim"||finding.kind==="source_revised");
         const supporting=matched.filter(finding=>finding.kind==="supporting_observation");
         const status=challenged.length?"challenged":supporting.length?"observed":"unobserved";
-        return {subject:edge.subject,object:edge.object,status,
+        return {subject:edge.subject,object:edge.object,status,decision:modelDecisionForEdge(edge,decisions),
           claimIds:matched.map(finding=>finding.claimId).slice(0,8),findings:matched,
           revisionOptions:status==="challenged"?revisionOptionsForEdge(edge):[]};
       });
@@ -351,7 +523,8 @@
         const paths=findAlternativeCausalPaths(conclusion.subject,conclusion.object,allClaims,relevant);
         if(paths.length)alternatives.push({subject:conclusion.subject,object:conclusion.object,paths});
       }
-      const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,claimIds:edge.claimIds,revisionOptions:edge.revisionOptions}));
+      const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,
+        decision:edge.decision?edge.decision.strategy:null,claimIds:edge.claimIds,revisionOptions:edge.revisionOptions}));
       const snapshotAlternatives=alternatives.map(item=>({subject:item.subject,object:item.object,paths:item.paths.map(path=>path.map(edge=>({subject:edge.subject,object:edge.object})))}));
       const signatureSource=JSON.stringify({edges:snapshotEdges,alternatives:snapshotAlternatives});
       let signatureHash=2166136261;
@@ -391,7 +564,11 @@
         answer+="Маршрут: "+[path[0].subject,...path.map(edge=>edge.object)].join(" → ")+"\n";
         for(const edge of path) {
           const state=report.edgeStates.find(item=>KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object));
-          const label=!state?"не оценено":state.status==="challenged"?"ПОД ВОПРОСОМ":state.status==="observed"?"ЕСТЬ СОГЛАСУЮЩЕЕСЯ НАБЛЮДЕНИЕ":"НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ";
+          const label=state&&state.decision&&state.decision.strategy==="suspend"?"ПРИОСТАНОВЛЕНО В РАБОЧЕЙ МОДЕЛИ":
+            state&&state.decision&&state.decision.strategy==="conditional"?"УСЛОВНАЯ СВЯЗЬ":
+            state&&state.decision&&state.decision.strategy==="weaken"?"ОСЛАБЛЕННАЯ СВЯЗЬ":
+            state&&state.decision&&state.decision.strategy==="restore"?"ВОЗВРАЩЕНО В АКТИВНУЮ МОДЕЛЬ":
+            !state?"не оценено":state.status==="challenged"?"ПОД ВОПРОСОМ":state.status==="observed"?"ЕСТЬ СОГЛАСУЮЩЕЕСЯ НАБЛЮДЕНИЕ":"НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ";
           answer+="  • "+edge.subject+" → "+edge.object+" — "+label+"\n";
           if(state&&state.status==="challenged") {
             for(const finding of state.findings.filter(item=>item.kind!=="supporting_observation").slice(0,2)) {
@@ -420,8 +597,14 @@
         if(shownRevisionEdges.has(key))continue;
         shownRevisionEdges.add(key);
         answer+="\nЗвено: "+row.edge.subject+" → "+row.edge.object+"\n";
+        const currentDecision=modelDecisionForEdge(row.edge,decisions);
+        if(currentDecision) {
+          const selected=currentDecision.strategy==="restore"?"Связь возвращена в активную модель":
+            "Выбранный вариант: "+(revisionOptionsForEdge(row.edge).find(option=>option.id===currentDecision.strategy)?.title||currentDecision.strategy);
+          answer+=selected+"\n";
+        }
         for(const option of row.edge.revisionOptions) {
-          answer+=option.title+"\n";
+          answer+=option.title+(currentDecision&&currentDecision.strategy===option.id?" · ВЫБРАН":"")+"\n";
           answer+="Предлагаемая модель: "+option.proposal+"\n";
           answer+="Что поможет различить варианты:\n";
           for(const discriminator of option.discriminators)answer+="  • "+discriminator+"\n";
@@ -441,7 +624,9 @@
     }
     const parallelRows=[];
     const alreadyListedRoots=new Set(uniqueReports.map(row=>KNOWLEDGE.canonicalEntity(row.conclusion.subject)));
-    const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded")
+    const suspendedDecisions=decisions.filter(item=>item.strategy==="suspend");
+    const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
+      !suspendedDecisions.some(item=>KNOWLEDGE.sameEntity(item.edgeSubject,claim.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,claim.object)))
       .map(claim=>[KNOWLEDGE.canonicalEntity(claim.subject),claim.subject])).values()]
       .filter(root=>!alreadyListedRoots.has(KNOWLEDGE.canonicalEntity(root)));
     for(const row of uniqueReports) {
@@ -466,7 +651,7 @@
       answer+="\n";
     }
     answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
-    answer+="История пересмотра модели сохранена в метаданных выводов и попадёт в следующую резервную копию. Новый вариант схемы — аналитическое предложение, а не установленный факт.";
+    answer+="Выбранные решения рабочей модели хранятся отдельно от исходных воспоминаний и попадут в резервную копию. Их можно изменить или отменить командой «Верни связь X → Y в рабочую модель». Новый вариант схемы — аналитическое предложение, а не установленный факт.";
     return answer;
   }
 
@@ -520,6 +705,7 @@
     if(updated.length)answer+="\n\nВыводы, дополненные только согласующимися наблюдениями: "+updated.length+".";
     answer+="\n\nВсего выводов с отслеживаемыми источниками: "+tracked.length+".";
     if(older.length)answer+="\n\nЧасть более старых ответов не содержит связей с конкретными источниками. Они остаются в истории, но автоматическая проверка для них недоступна.";
+    answer+=formatModelDecisionNote();
     return answer;
   }
 
@@ -542,6 +728,13 @@
     } catch (error) {
       dialog = [];
       console.warn("Could not load NEUROGENESIS dialogue:", error);
+    }
+    try {
+      const savedDecisions=JSON.parse(localStorage.getItem(MODEL_DECISIONS_KEY)||"[]");
+      modelDecisions=mergeModelDecisionHistory([],savedDecisions);
+    } catch(error) {
+      modelDecisions=[];
+      console.warn("Could not load NEUROGENESIS model decisions:",error);
     }
     rebuildTagTraceIndex();
     const brain = window.NGBrain;
@@ -580,6 +773,12 @@
     } catch (error) {
       ok = false;
       console.warn("NEUROGENESIS dialogue storage failed", error);
+    }
+    try {
+      localStorage.setItem(MODEL_DECISIONS_KEY,JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
+    } catch(error) {
+      ok=false;
+      console.warn("NEUROGENESIS model decision storage failed",error);
     }
     if (!ok) setFeedback("Не удалось полностью сохранить данные: хранилище браузера заполнено или недоступно. Сделай экспорт резервной копии.");
     return ok;
@@ -773,6 +972,18 @@
       say("assistant", "Привет. Я на связи. Можешь рассказать мне факт для памяти или спросить о том, что я уже сохранил.");
       return;
     }
+    const choiceAnswer=applyRevisionChoice(query);
+    if(choiceAnswer) {
+      say("assistant",choiceAnswer);
+      setFeedback("РЕШЕНИЕ РАБОЧЕЙ МОДЕЛИ СОХРАНЕНО");
+      return;
+    }
+    const restoreAnswer=restoreModelEdge(query);
+    if(restoreAnswer) {
+      say("assistant",restoreAnswer);
+      setFeedback("СВЯЗЬ ВОЗВРАЩЕНА В РАБОЧУЮ МОДЕЛЬ");
+      return;
+    }
     if (/^(?:построй обновленную причинную модель|обнови причинную модель|как перестроить причинную модель|предложи пересмотр причинной модели|предложи варианты пересмотра|какие есть варианты пересмотра|что различит варианты модели|что изменить в причинной модели|покажи модель причинных связей)$/u.test(lower)) {
       say("assistant",buildCausalModelRevision());
       setFeedback("ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ · ИСТОРИЯ СОХРАНЕНА");
@@ -794,7 +1005,8 @@
       if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
       return;
     }
-    const allClaims = memories.flatMap(item => item.claims || []);
+    const sourceClaims = memories.flatMap(item => item.claims || []);
+    const allClaims = claimsForWorkingModel(sourceClaims);
     const hypothesisPriority = KNOWLEDGE && typeof KNOWLEDGE.prioritizeHypotheses==="function" ? KNOWLEDGE.prioritizeHypotheses(query,allClaims) : null;
     const priorityClaimIds = new Set(hypothesisPriority && hypothesisPriority.claimIds || []);
     const derivedHypotheses = KNOWLEDGE && typeof KNOWLEDGE.deriveHypotheses==="function" ? KNOWLEDGE.deriveHypotheses(query,allClaims) : null;
@@ -836,10 +1048,11 @@
         traceIds.push(...(hit.item.traceIds || []), ...(hit.item.claims || []).map(claim => claim.traceId));
       }
       persist();
-      const conclusionMeta=isHypothesisPriority?makeReasoningMeta("prioritized_hypotheses",hypothesisPriority,allClaims):
-        isDerivedHypotheses?makeReasoningMeta("derived_hypotheses",derivedHypotheses,allClaims):
-        isCausalQuery?makeReasoningMeta("causal_chain",causalRecall,allClaims):null;
-      const conclusionAnswer=structuredAnswer+baselineReviewNote(conclusionMeta);
+      const conclusionMeta=isHypothesisPriority?makeReasoningMeta("prioritized_hypotheses",hypothesisPriority,sourceClaims):
+        isDerivedHypotheses?makeReasoningMeta("derived_hypotheses",derivedHypotheses,sourceClaims):
+        isCausalQuery?makeReasoningMeta("causal_chain",causalRecall,sourceClaims):null;
+      const modelNote=(isHypothesisPriority||isDerivedHypotheses||isExperimentPlan||isCausalQuery)?formatModelDecisionNote():"";
+      const conclusionAnswer=structuredAnswer+modelNote+baselineReviewNote(conclusionMeta);
       say("assistant", conclusionAnswer, conclusionMeta);
       const brain = window.NGBrain;
       const activeTraceIds = [...new Set(traceIds)];
@@ -873,7 +1086,8 @@
     persist();
     const answer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминания:") +
       "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + hit.item.text).join("\n\n") +
-      "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением.";
+      "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением."+
+      (currentModelDecisions().length?formatModelDecisionNote():"");
     say("assistant", answer);
     const brain = window.NGBrain;
     const activeTraceIds = [...new Set(ids)];
@@ -923,10 +1137,11 @@
     return true;
   }
   function clearMemory() {
-    if (!memories.length) { setFeedback("Память уже пуста."); return; }
-    if (!window.confirm("Удалить все " + memories.length + " записей и их уникальные нейронные следы? История диалога останется.")) return;
+    if (!memories.length && !modelDecisions.length) { setFeedback("Память уже пуста."); return; }
+    if (!window.confirm("Удалить все " + memories.length + " записей, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
+    modelDecisions = [];
     releaseUnusedTraces(oldIds);
     persist();
     renderLibrary();
@@ -1187,7 +1402,8 @@
         knowledgeModel: KNOWLEDGE ? KNOWLEDGE.version : 0,
         exportedAt: new Date().toISOString(),
         memories,
-        dialog
+        dialog,
+        modelDecisions
       };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -1247,9 +1463,10 @@
       }
       if (Array.isArray(data.dialog)) {
         const restored = data.dialog.filter(item => item && typeof item.text === "string")
-          .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, 1800), time: safeTime(item.time, Date.now()), reasoning: cleanReasoning(item.reasoning) }));
+          .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(item.time, Date.now()), reasoning: cleanReasoning(item.reasoning) }));
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
       }
+      if(Array.isArray(data.modelDecisions))modelDecisions=mergeModelDecisionHistory(modelDecisions,data.modelDecisions);
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();
@@ -1400,6 +1617,7 @@
     search: query => memories.map(item => ({ text: item.text, claims: item.claims || [], score: scoreMemory(query, item) }))
       .sort((a, b) => b.score - a.score).slice(0, 5),
     claims: () => memories.flatMap(item => item.claims || []),
+    modelDecisions: () => currentModelDecisions(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };

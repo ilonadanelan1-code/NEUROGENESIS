@@ -329,6 +329,35 @@ document.getElementById("ask-button").dispatch("click");
 const repeatedTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
 assert.equal(repeatedTracked.reasoning.modelHistory.length,snapshotCount,"repeating an unchanged review must not create duplicate snapshots");
 
+// Choosing a revision strategy changes only the working model, not source memories.
+const originalClaimsBeforeChoice=JSON.stringify(window.NGMemory.claims());
+input.value = "Выбираю вариант 3";
+document.getElementById("ask-button").dispatch("click");
+const choiceReply=feed.children[feed.children.length-1].textContent;
+assert.match(choiceReply,/РЕШЕНИЕ ПРИМЕНЕНО К РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ/u,"the app should accept a revision choice when exactly one challenged edge exists");
+assert.match(choiceReply,/Недостаток сна → усталости/u);
+assert.equal(JSON.stringify(window.NGMemory.claims()),originalClaimsBeforeChoice,"a model revision decision must never rewrite source memories");
+const storedDecisions=JSON.parse(database.get("neurogenesis.model-decisions.v1"));
+assert.equal(storedDecisions.at(-1).strategy,"suspend","the selected third option should be persisted separately from memories");
+input.value = "Выведи новые гипотезы из памяти";
+document.getElementById("ask-button").dispatch("click");
+const suspendedHypotheses=feed.children[feed.children.length-1].textContent;
+assert.doesNotMatch(suspendedHypotheses,/Недостаток сна ⇢ снижению концентрации/u,"a suspended causal edge must not be used in new derived hypotheses");
+assert.match(suspendedHypotheses,/Обезвоживание ⇢ снижению концентрации/u,"other available paths should remain usable");
+assert.match(suspendedHypotheses,/РЕШЕНИЯ РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ/u,"derived answers should disclose the active model decision");
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/ПРИОСТАНОВЛЕНО В РАБОЧЕЙ МОДЕЛИ/u,"the model report should show a suspended edge explicitly");
+input.value = "Верни связь Недостаток сна → усталости в рабочую модель";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/возвращена в активную рабочую модель/u,"the user should be able to restore a previously suspended edge");
+assert.equal(window.NGMemory.modelDecisions().at(-1).strategy,"restore","restoration should be stored as a separate model decision");
+input.value = "Выведи новые гипотезы из памяти";
+document.getElementById("ask-button").dispatch("click");
+const restoredHypotheses=feed.children[feed.children.length-1].textContent;
+assert.match(restoredHypotheses,/Недостаток сна ⇢ снижению концентрации/u,"a restored edge should participate in future candidate generation again");
+assert.match(restoredHypotheses,/Обезвоживание ⇢ снижению концентрации/u,"restoring one edge should not disturb the other candidate path");
+
 
 input.value = "Перегрузка приводит к снижению концентрации";
 document.getElementById("remember-button").dispatch("click");
