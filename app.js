@@ -7,7 +7,7 @@
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
   const $ = (id) => document.getElementById(id);
   const canvas = $("brain-canvas");
-  const ctx = canvas.getContext("2d", { alpha: true });
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!ctx) { $("system-status").textContent = "CANVAS НЕ ПОДДЕРЖИВАЕТСЯ"; return; }
 
   let neurons = [];
@@ -25,8 +25,19 @@
   let toastTimer = 0;
   let saveTimer = 0;
   let width = 0, height = 0, dpr = 1;
+  let lastMetricsUpdate = 0;
+  const FRAME_INTERVAL = 1000 / 30;
+  const neuronById = new Map();
+  const synapseByKey = new Map();
+  const edgeKey = (from, to) => from + "\u0000" + to;
+  function rebuildIndexes() {
+    neuronById.clear();
+    synapseByKey.clear();
+    for (const n of neurons) neuronById.set(n.id, n);
+    for (const s of synapses) synapseByKey.set(edgeKey(s.from, s.to), s);
+  }
   const view = { x: 0, y: 0, zoom: 1 };
-  const stars = Array.from({length:145},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
+  const stars = Array.from({length:window.innerWidth <= 700 ? 65 : 95},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
   const pointers = new Map();
   let gesture = null;
   let drag = null;
@@ -61,6 +72,7 @@
     synapses = links.map(([from,to,weight],i) => ({
       id:"s"+(i+1), from:"n"+(from+1), to:"n"+(to+1), weight, activity:0
     }));
+    rebuildIndexes();
     selectedId = "n1";
     pulses = [];
     markDirty();
@@ -77,6 +89,7 @@
       neurons = data.neurons.filter(n => n && typeof n.id === "string" && Number.isFinite(n.x) && Number.isFinite(n.y) && TYPES.includes(n.type));
       const ids = new Set(neurons.map(n => n.id));
       synapses = data.synapses.filter(s => ids.has(s.from) && ids.has(s.to) && s.from !== s.to);
+      rebuildIndexes();
       nextId = Math.max(1, ...neurons.map(n => Number(n.id.slice(1)) || 0)) + 1;
       selectedId = ids.has(data.selectedId) ? data.selectedId : neurons[0].id;
       renderInspector(); updateMetrics(); $("save-status").textContent = "Сохранённая сеть загружена";
@@ -119,13 +132,14 @@
     toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
   }
   function currentNeuron() { return neurons.find(n => n.id === selectedId) || null; }
-  function getNeuron(id) { return neurons.find(n => n.id === id); }
+  function getNeuron(id) { return neuronById.get(id); }
   function colorFor(type, alpha = 1) { const c = TYPE_COLORS[type] || TYPE_COLORS.core; return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`; }
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
     width = Math.max(1, rect.width); height = Math.max(1, rect.height);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const maxDpr = window.innerWidth <= 700 ? 1.25 : 1.5;
+    dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
@@ -167,18 +181,21 @@
   }
   function addNeuron(x, y, type = "logic") {
     const n = makeNeuron("Новый нейрон " + nextId, type, x, y, .5);
-    neurons.push(n); selectNeuron(n.id); showToast("Новый нейрон создан"); markDirty();
+    neurons.push(n); neuronById.set(n.id, n); selectNeuron(n.id); showToast("Новый нейрон создан"); markDirty();
     return n;
   }
   function connect(a, b) {
     if (!a || !b || a === b) return false;
     if (synapses.some(s => s.from === a && s.to === b)) { showToast("Такая связь уже существует"); return false; }
-    synapses.push({ id: "s" + (Date.now()) + Math.floor(Math.random()*1000), from:a, to:b, weight:.65, activity:0 });
+    const edge = { id: "s" + (Date.now()) + Math.floor(Math.random()*1000), from:a, to:b, weight:.65, activity:0 };
+    synapses.push(edge);
+    synapseByKey.set(edgeKey(a, b), edge);
     markDirty(); updateMetrics(); showToast("Связь сформирована"); return true;
   }
   function removeNeuron(id) {
     neurons = neurons.filter(n => n.id !== id);
     synapses = synapses.filter(s => s.from !== id && s.to !== id);
+    rebuildIndexes();
     pulses = pulses.filter(p => p.from !== id && p.to !== id);
     selectedId = neurons[0]?.id || null;
     connectFrom = null; renderInspector(); updateMetrics(); markDirty();
@@ -283,7 +300,7 @@
     ctx.save();
     ctx.translate(view.x,view.y);
     ctx.scale(view.zoom,view.zoom);
-    const curves=[];
+    const curves=new Map();
     synapses.forEach((s,i)=>{
       const a=getNeuron(s.from),b=getNeuron(s.to);
       if(!a||!b)return;
@@ -291,12 +308,12 @@
       const bend=Math.min(58,dist*.22)*((i%2===0)?1:-1);
       const mx=(a.x+b.x)/2-(dy/dist)*bend;
       const my=(a.y+b.y)/2+(dx/dist)*bend;
-      curves.push({s,a,b,mx,my,index:i});
+      curves.set(edgeKey(s.from, s.to), {s,a,b,mx,my,index:i});
 
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
       ctx.strokeStyle="rgba(71,181,194,"+(.055+s.weight*.075)+")";
       ctx.lineWidth=(7+s.weight*5)/view.zoom;
-      ctx.shadowColor="#34d9d0";ctx.shadowBlur=13/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+      ctx.shadowColor="#34d9d0";ctx.shadowBlur=7;ctx.stroke();ctx.shadowBlur=0;
 
       ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
       ctx.strokeStyle="rgba(110,205,221,"+(.18+s.weight*.25+s.activity*.48)+")";
@@ -312,18 +329,18 @@
       const py=one*one*a.y+2*one*travel*my+travel*travel*b.y;
       ctx.beginPath();ctx.arc(px,py,1.9/view.zoom,0,Math.PI*2);
       ctx.fillStyle="rgba(170,255,244,"+(.28+s.activity*.55)+")";
-      ctx.shadowColor="#6bfff0";ctx.shadowBlur=10/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.shadowColor="#6bfff0";ctx.shadowBlur=6;ctx.fill();ctx.shadowBlur=0;
 
       if(s.activity>.035){
         ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
         ctx.strokeStyle="rgba(108,255,226,"+(s.activity*.72)+")";
         ctx.lineWidth=(1+s.activity*2.1)/view.zoom;
-        ctx.shadowColor="#65ffe0";ctx.shadowBlur=17/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+        ctx.shadowColor="#65ffe0";ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;
       }
     });
 
     for(const p of pulses){
-      const curve=curves.find(c=>c.s.from===p.from&&c.s.to===p.to);
+      const curve=curves.get(edgeKey(p.from, p.to));
       if(!curve)continue;
       const t=p.progress,one=1-t;
       const x=one*one*curve.a.x+2*one*t*curve.mx+t*t*curve.b.x;
@@ -362,12 +379,12 @@
       ctx.beginPath();ctx.ellipse(0,0,r+8,r+13,0,Math.PI*.13,Math.PI*1.72);
       ctx.strokeStyle=colorFor(n.type,.36);ctx.lineWidth=1.15/view.zoom;ctx.stroke();
       ctx.beginPath();ctx.arc(r+8,0,2.2/view.zoom,0,Math.PI*2);
-      ctx.fillStyle=colorFor(n.type,.9);ctx.shadowColor=colorFor(n.type);ctx.shadowBlur=9/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.fillStyle=colorFor(n.type,.9);ctx.shadowColor=colorFor(n.type);ctx.shadowBlur=5;ctx.fill();ctx.shadowBlur=0;
       ctx.restore();
 
       ctx.beginPath();ctx.arc(n.x,n.y,r+3,0,Math.PI*2);
       ctx.strokeStyle=colorFor(n.type,.63);ctx.lineWidth=1.4/view.zoom;
-      ctx.shadowColor=colorFor(n.type,.8);ctx.shadowBlur=7/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+      ctx.shadowColor=colorFor(n.type,.8);ctx.shadowBlur=4;ctx.stroke();ctx.shadowBlur=0;
 
       ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
       const core=ctx.createRadialGradient(n.x-r*.36,n.y-r*.42,1,n.x,n.y,r);
@@ -378,7 +395,7 @@
       core.addColorStop(1,"rgba(3,12,25,1)");
       ctx.fillStyle=core;ctx.fill();
       ctx.strokeStyle=colorFor(n.type,.95);ctx.lineWidth=1.25/view.zoom;
-      ctx.shadowColor=colorFor(n.type,.9);ctx.shadowBlur=(selected?22:13)/view.zoom;ctx.stroke();ctx.shadowBlur=0;
+      ctx.shadowColor=colorFor(n.type,.9);ctx.shadowBlur=selected?10:6;ctx.stroke();ctx.shadowBlur=0;
 
       const beadAngle=time*.00055+n.phase;
       for(let k=0;k<3;k++){
@@ -389,7 +406,7 @@
       }
       ctx.beginPath();ctx.arc(n.x,n.y,4.2+n.activity*2,0,Math.PI*2);
       ctx.fillStyle="rgba(242,255,251,.98)";
-      ctx.shadowColor="#bffff2";ctx.shadowBlur=12/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.shadowColor="#bffff2";ctx.shadowBlur=7;ctx.fill();ctx.shadowBlur=0;
 
       if(selected||searching||connectFrom===n.id){
         ctx.beginPath();ctx.arc(n.x,n.y,r+18,0,Math.PI*2);
@@ -401,10 +418,15 @@
     ctx.restore();
 
     if(view.zoom>.38){
+      const showAllLabels = neurons.length <= 36 || view.zoom > .85;
       const occupied=[];
       ctx.font="10px Inter,system-ui,sans-serif";
       for(let i=0;i<neurons.length;i++){
-        const n=neurons[i],p=screenAt(n);
+        const n=neurons[i];
+        const searching=searchTerm&&n.name.toLowerCase().includes(searchTerm);
+        if(!showAllLabels && n.id!==selectedId && !searching && connectFrom!==n.id) continue;
+        const p=screenAt(n);
+        if(p.x < -180 || p.x > width+180 || p.y < -55 || p.y > height+70) continue;
         const label=n.name;
         const w=Math.min(168,Math.max(108,ctx.measureText(label).width+20));
         const x=Math.max(7,Math.min(width-w-7,p.x-w/2));
@@ -428,19 +450,20 @@
   }
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
-    const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
+    requestAnimationFrame(frame);
+    if (time - lastFrame < FRAME_INTERVAL) return;
+    const dt=Math.min(50,time-lastFrame||FRAME_INTERVAL);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const n of neurons)n.activity=Math.max(0,n.activity-dt*.00048);
     for(const s of synapses)s.activity=Math.max(0,s.activity-dt*.0013);
     for(const p of pulses){
       p.progress+=dt/720;
-      const edge=synapses.find(s=>s.from===p.from&&s.to===p.to);if(edge)edge.activity=Math.max(edge.activity,p.strength);
-      if(p.progress>=1){const target=getNeuron(p.to);if(target)target.activity=Math.min(1,target.activity+p.strength*.7);}
+      const edge=synapseByKey.get(edgeKey(p.from, p.to));if(edge)edge.activity=Math.max(edge.activity,p.strength);
+      if(p.progress>=1){const target=neuronById.get(p.to);if(target)target.activity=Math.min(1,target.activity+p.strength*.7);}
     }
     pulses=pulses.filter(p=>p.progress<1);
     drawBackground(time);drawConnections(time);drawNeurons(time);
-    if(time%8<dt)updateMetrics();
-    requestAnimationFrame(frame);
+    if(time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
   }
 
   canvas.addEventListener("pointerdown", event => {
