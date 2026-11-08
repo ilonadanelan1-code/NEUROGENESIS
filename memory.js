@@ -6,6 +6,8 @@
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
   const MAX_TEXT = 1200;
+  const KNOWLEDGE = window.NGKnowledge || null;
+  let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
   let memories = [];
@@ -35,12 +37,13 @@
     const text = raw.text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
     const tags = Array.isArray(raw.tags)
-      ? [...new Set(raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean))].slice(0, 4)
-      : tokens(text).slice(0, 4);
+      ? [...new Set(raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean))].slice(0, 6)
+      : tokens(text).slice(0, 6);
     const traceIds = tags.map((_, i) => Array.isArray(raw.traceIds) && typeof raw.traceIds[i] === "string" ? raw.traceIds[i] : null);
     return {
       id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 80) : makeId(),
-      text, tags: tags.length ? tags : tokens(text).slice(0, 4), traceIds,
+      text, tags: tags.length ? tags : tokens(text).slice(0, 6), traceIds,
+      claims: KNOWLEDGE ? (KNOWLEDGE.extractClaims(text).length ? KNOWLEDGE.mergeClaims(raw.claims, KNOWLEDGE.extractClaims(text)) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [],
       createdAt: safeTime(raw.createdAt, Date.now()),
       updatedAt: safeTime(raw.updatedAt, safeTime(raw.createdAt, Date.now())),
       strength: Number.isFinite(Number(raw.strength)) ? Math.max(0, Math.min(1, Number(raw.strength))) : 0.65,
@@ -63,6 +66,7 @@
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
+      memoryMigrated = Array.isArray(saved) && saved.some(item => item && (!Array.isArray(item.claims) || item.claims.length === 0) && KNOWLEDGE && KNOWLEDGE.extractClaims(item.text).length > 0);
       memories = Array.isArray(saved) ? saved.map(cleanMemory).filter(Boolean).slice(-MAX_MEMORIES) : [];
     } catch (error) {
       memories = [];
@@ -92,8 +96,9 @@
         if (item.traceIds.some((id, index) => id !== oldIds[index])) repaired = true;
       }
       rebuildTagTraceIndex();
-      if (repaired) persist();
+      if (repaired) memoryMigrated = true;
     }
+    if (memoryMigrated) { memoryMigrated = false; persist(); }
   }
   function persist() {
     updateCount();
@@ -118,6 +123,11 @@
     if (el) el.textContent = memories.length + " / " + MAX_MEMORIES + " ЗАПИСЕЙ";
     const manage = $("memory-manage");
     if (manage) manage.textContent = "Записи (" + memories.length + ")";
+    const knowledgeCount = $("knowledge-count");
+    if (knowledgeCount && KNOWLEDGE) {
+      const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
+      knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ СВЯЗЕЙ";
+    }
   }
   function setFeedback(message) {
     const el = $("memory-feedback");
@@ -181,7 +191,8 @@
     for (const fragment of fragments) {
       const compact = normalise(fragment);
       if (compact.length < 3) continue;
-      const tags = [...new Set(tokens(fragment))].slice(0, 4);
+      const tags = [...new Set(tokens(fragment))].slice(0, 6);
+      const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(fragment) : [];
       let item = memories.find(x => normalise(x.text) === compact);
       if (item) {
         item.strength = Math.min(1, (item.strength || 0.6) + 0.12);
@@ -192,6 +203,7 @@
           item.tags.push(tag);
           item.traceIds.push(ensureTrace(tag));
         }
+        if (KNOWLEDGE) item.claims = KNOWLEDGE.mergeClaims(item.claims, claims);
         repeated++;
         const related = memories.filter(old => old.id !== item.id && old.tags.some(tag => tags.includes(tag))).slice(-4);
         linkMemory(item, related);
@@ -202,7 +214,8 @@
         item = {
           id: makeId(), text: fragment.slice(0, MAX_TEXT), tags, traceIds,
           createdAt: Date.now(), updatedAt: Date.now(), strength: 0.65,
-          repetitions: 1, recalls: 0
+          repetitions: 1, recalls: 0,
+          claims
         };
         memories.push(item);
         saved++;
@@ -234,7 +247,8 @@
   }
   function scoreMemory(query, item) {
     const q = [...new Set(tokens(query))];
-    const words = [...new Set(tokens(item.text))];
+    const structuredText = KNOWLEDGE ? (item.claims || []).map(claim => KNOWLEDGE.claimSearchText(claim)).join(" ") : "";
+    const words = [...new Set(tokens(item.text + " " + structuredText))];
     if (!q.length || !words.length) return 0;
     const set = new Set(words);
     const hits = q.filter(word => set.has(word) || (item.tags || []).includes(word)).length;
@@ -265,6 +279,24 @@
       const ids = recent.flatMap(m => m.traceIds || []);
       const brain = window.NGBrain;
       if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
+      return;
+    }
+    const allClaims = memories.flatMap(item => item.claims || []);
+    const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
+    if (structuredAnswer) {
+      const related = memories.map(item => ({ item, score: scoreMemory(query, item) }))
+        .filter(hit => hit.score > 0.08).sort((a, b) => b.score - a.score).slice(0, 3);
+      const traceIds = [];
+      for (const hit of related) {
+        hit.item.recalls = (hit.item.recalls || 0) + 1;
+        hit.item.strength = Math.min(1, (hit.item.strength || 0.6) + 0.015);
+        traceIds.push(...(hit.item.traceIds || []));
+      }
+      persist();
+      say("assistant", structuredAnswer);
+      const brain = window.NGBrain;
+      if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...new Set(traceIds)]);
+      setFeedback("СТРУКТУРНЫЙ ПОИСК · " + related.length + " ЗАПИСЕЙ");
       return;
     }
     const ranked = memories.map(item => ({ item, score: scoreMemory(query, item) }))
@@ -310,8 +342,10 @@
       return false;
     }
     const oldIds = [...(item.traceIds || [])];
-    const tags = [...new Set(tokens(value))].slice(0, 4);
+    const tags = [...new Set(tokens(value))].slice(0, 6);
+    const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
+    item.claims = claims;
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
     item.updatedAt = Date.now();
@@ -354,7 +388,7 @@
     panel.hidden = !libraryOpen;
     if (!libraryOpen) return;
     const query = normalise(libraryFilter);
-    const filtered = memories.filter(item => !query || normalise(item.text + " " + item.tags.join(" ")).includes(query));
+    const filtered = memories.filter(item => !query || normalise(item.text + " " + item.tags.join(" ") + " " + (item.claims || []).map(claim => KNOWLEDGE ? KNOWLEDGE.claimSearchText(claim) : "").join(" ")).includes(query));
     const visible = filtered.slice().reverse().slice(0, libraryLimit);
     list.textContent = "";
     if (!visible.length) {
@@ -373,6 +407,24 @@
       const text = document.createElement("div");
       text.className = "memory-entry-text";
       text.textContent = item.text;
+      if (KNOWLEDGE && item.claims && item.claims.length) {
+        const structured = document.createElement("div");
+        structured.className = "memory-entry-claims";
+        for (const claim of item.claims) {
+          const line = document.createElement("div");
+          line.className = "memory-entry-claim";
+          const kind = document.createElement("span");
+          kind.className = "memory-claim-kind";
+          kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+          const label = document.createElement("span");
+          label.textContent = KNOWLEDGE.claimLabel(claim);
+          const source = document.createElement("small");
+          source.textContent = claim.verification === "subjective" ? "Субъективная оценка" : claim.verification === "self_reported" ? "Самоописание" : claim.verification === "hypothesis" ? "Предположение" : "Источник: сообщение пользователя · не проверено";
+          line.append(kind, label, source);
+          structured.appendChild(line);
+        }
+        card.appendChild(structured);
+      }
       const tags = document.createElement("div");
       tags.className = "memory-entry-tags";
       for (const tag of item.tags) {
@@ -426,7 +478,8 @@
     try {
       const backup = {
         format: "NEUROGENESIS_MEMORY_BACKUP",
-        version: 1,
+        version: 2,
+        knowledgeModel: KNOWLEDGE ? KNOWLEDGE.version : 0,
         exportedAt: new Date().toISOString(),
         memories,
         dialog
@@ -449,6 +502,8 @@
   async function importBackup(file) {
     try {
       const data = JSON.parse(await file.text());
+      if (data && data.format && data.format !== "NEUROGENESIS_MEMORY_BACKUP") throw new Error("Это не резервная копия NEUROGENESIS.");
+      if (data && Number(data.version) > 2) throw new Error("Версия резервной копии новее поддерживаемой.");
       const incoming = Array.isArray(data) ? data : data && data.memories;
       if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
       let imported = 0, duplicates = 0, skipped = 0;
@@ -460,12 +515,14 @@
           duplicate.strength = Math.min(1, Math.max(duplicate.strength, candidate.strength));
           duplicate.repetitions += candidate.repetitions;
           duplicate.updatedAt = Date.now();
+          if (KNOWLEDGE) duplicate.claims = KNOWLEDGE.mergeClaims(duplicate.claims, candidate.claims);
           duplicates++;
           continue;
         }
         if (memories.length >= MAX_MEMORIES) { skipped++; continue; }
         candidate.id = makeId();
-        candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 4);
+        candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 6);
+        candidate.claims = KNOWLEDGE ? (candidate.claims.length ? candidate.claims : KNOWLEDGE.extractClaims(candidate.text)) : [];
         candidate.traceIds = candidate.tags.map(ensureTrace);
         candidate.createdAt = safeTime(candidate.createdAt, Date.now());
         candidate.updatedAt = Date.now();
@@ -550,7 +607,10 @@
   setFeedback("ЛОКАЛЬНАЯ ПАМЯТЬ · ДАННЫЕ ОСТАЮТСЯ В ЭТОМ БРАУЗЕРЕ");
   window.NGMemory = {
     count: () => memories.length,
-    search: query => memories.map(item => ({ text: item.text, score: scoreMemory(query, item) }))
-      .sort((a, b) => b.score - a.score).slice(0, 5)
+    search: query => memories.map(item => ({ text: item.text, claims: item.claims || [], score: scoreMemory(query, item) }))
+      .sort((a, b) => b.score - a.score).slice(0, 5),
+    claims: () => memories.flatMap(item => item.claims || []),
+    summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
+
   };
 })();
