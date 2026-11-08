@@ -348,9 +348,7 @@ const alternateSection=postConflictModel.split("ОТДЕЛЬНЫЕ МАРШРУ�
 assert.doesNotMatch(alternateSection,/Обезвоживание → усталости → снижению концентрации/u,"an alternate route must not reuse a shared edge that has since been opposed");
 const latestTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
 assert.ok(latestTracked.reasoning.modelHistory.length>=2,"a materially changed model state should append a new historical snapshot");
-console.log("MODEL HISTORY DEBUG",JSON.stringify(latestTracked.reasoning.modelHistory));
-console.log("MODEL REVIEWS DEBUG",JSON.stringify(latestTracked.reasoning.reviews));
-assert.ok(latestTracked.reasoning.modelHistory.at(-1).edges.some(edge=>/усталост/u.test(edge.subject)&&/концентрац/u.test(edge.object)&&edge.status==="challenged"),"the new opposing claim should appear as a changed edge state in model history");
+assert.ok(latestTracked.reasoning.modelHistory.at(-1).edges.some(edge=>window.NGKnowledge.sameEntity(edge.subject,"Усталость")&&window.NGKnowledge.sameEntity(edge.object,"снижению концентрации")&&edge.status==="challenged"),"the new opposing claim should appear as a changed edge state in model history");
 
 
 
