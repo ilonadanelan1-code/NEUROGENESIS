@@ -42,9 +42,13 @@
     const text = raw.text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
     const legacyTags = Array.isArray(raw.tags) ? raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean) : [];
-    const tags = [...new Set([...legacyTags, ...tokens(text)])].slice(0, 6);
+    const extractedTags = [...new Set(tokens(text))];
+    const tags = [...new Set([...extractedTags, ...legacyTags])].slice(0, 6);
     const traceIds = tags.map(tag => {
-      const index = legacyTags.indexOf(tag);
+      let index = legacyTags.indexOf(tag);
+      if (index < 0 && KNOWLEDGE && typeof KNOWLEDGE.sameEntity === "function") {
+        index = legacyTags.findIndex(oldTag => KNOWLEDGE.sameEntity(oldTag, tag));
+      }
       return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
     });
     const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
