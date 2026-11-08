@@ -288,13 +288,15 @@
     setFeedback("ПАМЯТЬ ОБНОВЛЕНА · " + memories.length + " / " + MAX_MEMORIES);
     return true;
   }
-  function scoreMemory(query, item) {
+  function matchMemory(query, item) {
     const q = [...new Set(tokens(query))];
     const structuredText = KNOWLEDGE ? (item.claims || []).map(claim => KNOWLEDGE.claimSearchText(claim)).join(" ") : "";
     const words = [...new Set(tokens(item.text + " " + structuredText))];
-    if (!q.length || !words.length) return 0;
-    const set = new Set(words);
-    const hits = q.filter(word => set.has(word) || (item.tags || []).includes(word)).length;
+    if (!q.length || !words.length) return {score:0,directHits:0,associativeHits:0};
+    const similarity = KNOWLEDGE && typeof KNOWLEDGE.semanticMatch === "function"
+      ? KNOWLEDGE.semanticMatch(q, words)
+      : {weightedHits:q.filter(word=>words.includes(word)).length,directHits:q.filter(word=>words.includes(word)).length,associativeHits:0};
+    const hits = similarity.weightedHits;
     const coverage = hits / q.length;
     const density = hits / Math.sqrt(q.length * words.length);
     const qNorm = normalise(query);
@@ -302,8 +304,12 @@
     const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.34 : 0;
     const tagHits = q.filter(word => (item.tags || []).includes(word)).length;
     const tagBoost = tagHits / q.length * 0.08;
-    return Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
+    const score = Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
       (0.75 + (item.strength || 0.6) * 0.25);
+    return {score,directHits:similarity.directHits,associativeHits:similarity.associativeHits};
+  }
+  function scoreMemory(query, item) {
+    return matchMemory(query, item).score;
   }
   function askMemory(raw) {
     const query = String(raw || "").trim();
@@ -329,9 +335,17 @@
     if (structuredAnswer) {
       const isEntityProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|что известно|расскажи|кто такой|кто такая|кто такое)(?:\s|$)/u.test(lower);
       const isIdentityQuery = /^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(lower);
-      const related = memories.map(item => ({ item, score: scoreMemory(query, item) }))
-        .filter(hit => hit.score > 0.08 || (isIdentityQuery && (hit.item.claims || []).some(claim => claim.kind === "identity" && claim.subject === "assistant")))
-        .sort((a, b) => b.score - a.score).slice(0, isEntityProfileQuery ? 6 : 3);
+      const isUserProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|расскажи)(?:\s|$)/u.test(lower) && /\b(?:обо мне|о мне|про меня)\b/u.test(lower);
+      const related = memories.map(item => ({ item, ...matchMemory(query,item) }))
+        .filter(hit => hit.score > 0.08 ||
+          (isIdentityQuery && (hit.item.claims || []).some(claim => claim.kind === "identity" && claim.subject === "assistant")) ||
+          (isUserProfileQuery && (hit.item.claims || []).some(claim =>
+            (claim.kind==="fact"&&claim.subject==="user") ||
+            (claim.kind==="preference"&&claim.subject==="user") ||
+            (claim.kind==="relationship"&&claim.object==="user") ||
+            (claim.kind==="hypothesis"&&claim.subject==="user") ||
+            claim.kind==="opinion")))
+        .sort((a, b) => b.score - a.score).slice(0, isUserProfileQuery ? 12 : isEntityProfileQuery ? 6 : 3);
       const traceIds = [];
       for (const hit of related) {
         hit.item.recalls = (hit.item.recalls || 0) + 1;
@@ -345,7 +359,9 @@
       if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(activeTraceIds);
       const activated = brain && typeof brain.activateMemoryTraces === "function"
         ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
-      setFeedback((isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
+      const associativeMatches = related.filter(hit=>hit.associativeHits>0).length;
+      setFeedback((associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
+        (isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
     }
