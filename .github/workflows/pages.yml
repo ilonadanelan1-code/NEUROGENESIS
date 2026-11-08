@@ -27,9 +27,11 @@ jobs:
 
       - name: Check JavaScript syntax
         run: |
+          node --check activation.js
           node --check app.js
           node --check knowledge.js
           node --check memory.js
+          node tests/activation.test.js
           node tests/knowledge.test.js
           node tests/memory-migration.test.js
           node tests/memory-navigation.test.js
@@ -39,7 +41,7 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const html = fs.readFileSync('index.html', 'utf8');
-          for (const file of ['styles.css', 'app.js', 'knowledge.js', 'memory.js']) {
+          for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'memory.js']) {
             if (!html.includes('./' + file + '?v=0.10.1')) {
               throw new Error('Missing or stale app reference: ' + file);
             }
