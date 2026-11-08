@@ -21,6 +21,13 @@
       " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
       "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
   }
+  const SEMANTIC_GROUPS = [
+    ["автомобил","машин","авто"],
+    ["телефон","смартфон"],
+    ["ноутбук","лэптоп"],
+    ["музык","песн","мелод"],
+    ["спорт","тренировк","фитнес"]
+  ];
   const EVALUATIONS = ["прекрасн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","великолепн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","красив(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","интересн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","важн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","ужасн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","скучн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","хорош(?:ий|ая|ее|ие|его|ей|ую|им|ими|о|а)?","плох(?:ой|ая|ое|ие|ого|ой|ую|им|ими|о|а)?","сложн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","прост(?:ой|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","удивительн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","грустн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?","радостн(?:ый|ая|ое|ые|ого|ой|ую|ым|ыми|а|о)?"];
   const EVALUATION_RE = new RegExp("^(?:" + EVALUATIONS.join("|") + ")$", "iu");
   function normalise(value) {
@@ -34,6 +41,28 @@
         if (word.length >= 6 && /(ев|ов)$/u.test(word)) return word;
         return word.replace(/(иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ей|ом|ем|а|я|ы|и|е|у|ю|ь)$/u, "");
       }).filter(word => word.length >= 3);
+  }
+  function semanticMatch(query, candidate) {
+    const queryWords = [...new Set(Array.isArray(query) ? query : tokens(query))];
+    const candidateWords = new Set(Array.isArray(candidate) ? candidate : tokens(candidate));
+    let weightedHits = 0, directHits = 0, associativeHits = 0;
+    const matches = [];
+    for (const word of queryWords) {
+      if (candidateWords.has(word)) {
+        weightedHits += 1;
+        directHits++;
+        matches.push({query:word,matched:word,kind:"direct",weight:1});
+        continue;
+      }
+      const group = SEMANTIC_GROUPS.find(items=>items.includes(word));
+      const related = group && group.find(item=>item!==word&&candidateWords.has(item));
+      if (related) {
+        weightedHits += 0.45;
+        associativeHits++;
+        matches.push({query:word,matched:related,kind:"associative",weight:0.45});
+      }
+    }
+    return {score:queryWords.length?weightedHits/queryWords.length:0,weightedHits,directHits,associativeHits,matches};
   }
   function canonicalEntity(value) {
     return tokens(value).join(" ");
@@ -236,13 +265,14 @@
         const key = canonicalEntity(value);
         if (!key) continue;
         const words = [...new Set(tokens(value))];
-        const hits = queryWords.filter(word => words.includes(word)).length;
+        const similarity = semanticMatch(queryWords, words);
+        const hits = similarity.weightedHits;
         if (!hits) continue;
         const coverage = hits / queryWords.length;
         const precision = hits / Math.max(1, words.length);
         const score = coverage * 0.75 + precision * 0.25;
         const old = candidates.get(key);
-        if (!old || score > old.score) candidates.set(key, { value, key, score, hits });
+        if (!old || score > old.score) candidates.set(key, { value, key, score, hits, associativeHits:similarity.associativeHits });
       }
     }
     const ranked = [...candidates.values()].sort((a, b) => b.score - a.score || b.hits - a.hits);
@@ -506,5 +536,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:7,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
+  window.NGKnowledge={version:8,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
 })();
