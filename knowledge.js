@@ -59,6 +59,13 @@
     if (!subject || !object || subject.split(" ").length > 6 || object.length > 180) return null;
     return makeClaim("definition",subject,"определяется как",object,text,"unverified",0.87);
   }
+  function extractSelfReport(text) {
+    let match = text.match(/^я\s+(живу в|нахожусь в|работаю в|учусь в|работаю|учусь|занимаюсь)\s+(.+)$/iu);
+    if (match) return makeClaim("fact","user",match[1].toLowerCase(),cleanPart(match[2],180),text,"self_reported",0.93);
+    match = text.match(/^у меня есть\s+(.+)$/iu);
+    if (match) return makeClaim("fact","user","имеет",cleanPart(match[1],180),text,"self_reported",0.93);
+    return null;
+  }
   function extractHypothesis(text) {
     const match = text.match(/^(?:(?:возможно|вероятно|кажется),?\s+|(?:я предполагаю|я думаю)(?:\s*,?\s*что)?\s+)(.+)$/iu);
     if (!match) return null;
@@ -67,12 +74,12 @@
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
-    const claim = extractRelationship(text) || extractPreference(text) || extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
+    const claim = extractRelationship(text) || extractPreference(text) || extractSelfReport(text) || extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
     return claim ? [claim] : [];
   }
   function sanitizeClaims(input, evidenceFallback = "") {
     if (!Array.isArray(input)) return [];
-    const kinds = new Set(["relationship","preference","opinion","definition","hypothesis"]);
+    const kinds = new Set(["relationship","preference","fact","opinion","definition","hypothesis"]);
     return input.slice(0,12).map(raw => {
       if (!raw || typeof raw !== "object") return null;
       const kind = kinds.has(raw.kind) ? raw.kind : null;
@@ -108,6 +115,10 @@
     if(!q||!Array.isArray(claims)||!claims.length)return null;
     const qWords=new Set(q.split(/\s+/u));
     const hasAny=words=>words.some(word=>qWords.has(word));
+    if (qWords.has("где") && (qWords.has("я") || qWords.has("мне") || qWords.has("меня"))) {
+      const location = claims.filter(claim => claim.kind === "fact" && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
+      if (location) return "Ты сообщал мне, что живёшь в " + location.object + ". Я храню это как твоё самоописание, а не как независимо проверенные данные.";
+    }
     const who=hasAny(["кто","кого","кому","чей","чья","чье","чьи"]);
     const relationAsked=hasAny(["друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"]);
     if(who&&relationAsked){
@@ -132,13 +143,36 @@
     const claim=relevant[0].claim;
     if(claim.kind==="opinion")return "В моей памяти сохранена твоя оценка: «"+claim.subject+" "+claim.object+"». Это субъективное мнение, записанное с твоих слов, а не объективно установленный факт.";
     if(claim.kind==="preference")return "Ты сообщал мне, что "+(claim.polarity?"тебе ":"тебе не ")+claim.predicate+" "+claim.object+". Я храню это как твоё самоописание.";
+    if(claim.kind==="fact")return "Ты сообщал мне: "+claim.predicate+" "+claim.object+". Я храню это как твоё самоописание, а не как независимо проверенный факт.";
     if(claim.kind==="definition")return "В сохранённой записи сказано: "+claim.subject+" "+claim.predicate+" "+claim.object+". Это определение из твоего сообщения; я не проверял его независимо.";
     if(claim.kind==="hypothesis")return "Я сохранил твоё предположение: "+claim.object+". Оно помечено как гипотеза, а не как установленный факт.";
     return "В памяти есть запись: "+claimLabel(claim)+". Источник — твоё сообщение.";
   }
+  function findConflicts(input) {
+    const list=Array.isArray(input)?input:[];
+    const conflicts=[];
+    for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) {
+      const a=list[i], b=list[j];
+      if(!a||!b||a.kind!==b.kind)continue;
+      if(a.kind==="relationship") {
+        const sameSubject=normalise(a.subject)===normalise(b.subject);
+        const sameObject=a.object===b.object;
+        const samePredicate=normalise(a.predicate)===normalise(b.predicate);
+        if(sameSubject&&sameObject&&samePredicate&&a.polarity!==b.polarity) {
+          conflicts.push({type:"direct",left:a,right:b,reason:"Одно и то же отношение одновременно утверждается и отрицается."});
+        } else if(!sameSubject&&sameObject&&samePredicate&&a.polarity&&b.polarity&&/лучший друг|лучшая подруга|единственн/u.test(a.predicate)) {
+          conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
+        }
+      } else if(a.kind==="fact"&&normalise(a.subject)===normalise(b.subject)&&normalise(a.predicate)===normalise(b.predicate)&&normalise(a.object)!==normalise(b.object)) {
+        conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
+      }
+    }
+    return conflicts;
+  }
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
-    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length};
+    const conflicts=findConflicts(list);
+    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:1,normalise,tokens,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,summary};
+  window.NGKnowledge={version:1,normalise,tokens,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,findConflicts,summary};
 })();
