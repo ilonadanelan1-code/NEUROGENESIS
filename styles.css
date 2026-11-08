@@ -32,6 +32,10 @@ button,input,select{font:inherit}button{color:inherit;cursor:pointer}
 .eyebrow{font-size:9px;letter-spacing:.2em;color:#789aaa;font-weight:800}
 .canvas-title{font-size:16px;font-weight:680;margin-left:13px;color:#e3f6f7;text-shadow:0 0 18px rgba(110,229,220,.18)}
 .live-indicator{display:flex;align-items:center;gap:9px;color:#a4c4cd;font-size:9px;letter-spacing:.16em}
+.fps-badge{padding:3px 6px;border:1px solid rgba(122,211,220,.24);border-radius:6px;font-size:8px;letter-spacing:.04em;color:#90c9c8;font-variant-numeric:tabular-nums}
+.fps-badge[data-level="good"]{color:#8cf2cc;border-color:rgba(110,235,190,.38)}
+.fps-badge[data-level="mid"]{color:#f0d18a;border-color:rgba(240,209,138,.35)}
+.fps-badge[data-level="low"]{color:#ff9d9d;border-color:rgba(255,140,140,.45)}
 .pulse-dot{width:6px;height:6px;animation:pulse 1.8s infinite}
 .canvas-tools{position:absolute;bottom:27px;left:27px;z-index:2;display:flex;align-items:center;gap:7px;padding:7px;border:1px solid rgba(126,200,213,.2);border-radius:13px;background:rgba(5,17,30,.78);backdrop-filter:blur(16px);box-shadow:0 12px 35px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.035)}
 .tool-button{width:32px;height:32px;font-size:19px;border-radius:8px}
