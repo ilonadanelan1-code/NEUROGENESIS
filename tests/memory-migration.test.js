@@ -28,6 +28,30 @@ const legacyMemories = [
     recalls: 0
   },
   {
+    id: "massistant",
+    text: "Ты мой оссистент",
+    tags: ["оссистент"],
+    traceIds: [],
+    createdAt: 1794158000000,
+    updatedAt: 1794158000000,
+    strength: 0.65,
+    repetitions: 1,
+    recalls: 0,
+    claims: []
+  },
+  {
+    id: "mcreator",
+    text: "Твоего создателя зовут Сергей",
+    tags: ["создателя", "сергей"],
+    traceIds: [],
+    createdAt: 1794158100000,
+    updatedAt: 1794158100000,
+    strength: 0.65,
+    repetitions: 1,
+    recalls: 0,
+    claims: []
+  },
+  {
     id: "migor",
     text: "Игорь Головнев твой самый лучший друг",
     tags: ["игорь", "головн", "сам", "лучш"],
@@ -98,15 +122,23 @@ const sandbox = { window, document, localStorage, console, Date, Math, Set, Map,
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
-assert.equal(window.NGMemory.count(), 3);
+assert.equal(window.NGMemory.count(), 5);
 const claims = window.NGMemory.claims();
-assert.equal(claims.length, 3, "all legacy memories should be upgraded to structured claims");
+assert.equal(claims.length, 5, "all legacy memories should be upgraded to structured claims");
 const relation = claims.find(claim => claim.kind === "relationship");
 const opinion = claims.find(claim => claim.kind === "opinion");
 assert.ok(relation);
 assert.equal(relation.subject, "Игорь Головнев");
 assert.equal(relation.predicate, "лучший друг");
 assert.equal(relation.object, "assistant");
+const identity = claims.find(claim => claim.kind === "identity");
+assert.ok(identity, "old assistant-role memory should migrate automatically");
+assert.equal(identity.object, "ассистент");
+assert.match(window.NGKnowledge.answerQuestion("Кто ты?", claims), /я — ассистент/u);
+const creator = claims.find(claim => claim.subject === "assistant" && claim.predicate === "создатель");
+assert.ok(creator, "old creator memory should migrate automatically");
+assert.equal(creator.object, "Сергей");
+assert.match(window.NGKnowledge.answerQuestion("Кто твой создатель?", claims), /моего создателя зовут Сергей/u);
 assert.ok(opinion);
 assert.equal(opinion.subject, "Музыка");
 assert.equal(opinion.object, "прекрасна");
@@ -125,4 +157,10 @@ assert.ok(migratedIgor.tags.includes("друг"), "legacy tags should be enriche
 assert.ok(migratedIgor.traceIds.some(id => id && !["n114", "n115", "n118", "n116"].includes(id)), "new concept should receive a neural trace");
 assert.ok(migratedIgor.claims[0].traceId, "structured relation should receive its own claim engram");
 assert.ok(createdLabels.includes("Игорь Головнев → лучший друг"), "the new engram should be labeled as a relationship");
-console.log("NEUROGENESIS legacy memory migration and cross-record knowledge profile: passed.");
+const migratedIdentity = migrated.find(item => item.id === "massistant");
+const migratedCreator = migrated.find(item => item.id === "mcreator");
+assert.equal(migratedIdentity.claims[0].kind, "identity");
+assert.ok(migratedIdentity.claims[0].traceId, "migrated assistant role should receive an engram");
+assert.equal(migratedCreator.claims[0].predicate, "создатель");
+assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
+console.log("NEUROGENESIS legacy memory migration, assistant identity, creator and cross-record profile: passed.");
