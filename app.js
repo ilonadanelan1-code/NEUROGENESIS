@@ -345,7 +345,7 @@
       const searching=searchTerm&&n.name.toLowerCase().includes(searchTerm);
       const dimmed=searchTerm&&!searching;
       const pulse=.5+.5*Math.sin(time*.00125+n.phase);
-      ctx.globalAlpha=dimmed?.16:1;
+      ctx.globalAlpha = dimmed ? 0.16 : 1;
 
       const aura=ctx.createRadialGradient(n.x,n.y,1,n.x,n.y,83+n.activity*25);
       aura.addColorStop(0,colorFor(n.type,.24+n.activity*.28));
