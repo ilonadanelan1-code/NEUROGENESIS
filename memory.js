@@ -597,12 +597,16 @@
     const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
     const sourceText=distinct.map(claim=>claim.evidence||"").concat(relatedAnswers.map(item=>item.responseText||"")).join(" ");
-    const context=/услови|обстоятельств|контекст|различа|отлича|на фоне|после|до события|в помещении|нагрузк|режим|сопутств/u.test(normalise(sourceText));
     const normalizedSource=normalise(sourceText);
+    const contextMissing=/(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран|не установ).{0,140}(?:контекст|обстоятельств|услови|сопутствующ)|(?:контекст|обстоятельств|услови|сопутствующ).{0,140}(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран|не установ)/u.test(normalizedSource);
+    const contextPresent=/(?:контекст|обстоятельств|услови|сопутствующ).{0,80}(?:различ|отлич|разн|описан|указан|сопостав)|(?:различ|отлич|разн|сопостав).{0,80}(?:контекст|обстоятельств|услови)|(?:на фоне|после|до|во время|в условиях)\s+\p{L}{3,}/u.test(normalizedSource);
+    const context=contextPresent&&!contextMissing;
     const timing=/(?:утром|днем|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад)/u.test(normalizedSource)||
       /\d{1,2}:\d{2}/u.test(sourceText)||
       /(?:^| )\d{1,2} (?:январ|феврал|март|апрел|ма|июн|июл|август|сентябр|октябр|ноябр|декабр)/u.test(normalizedSource);
-    const criterion=/оцен|измер|критери|шкал|самочувств|балл|тестир|фиксир|показател|результат определ|результат счит/u.test(normalise(sourceText));
+    const criterionMissing=/(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран).{0,140}(?:способ|метод|критери|оцен|измер|результат|самочувств|шкал|показател)|(?:способ|метод|критери|оцен|измер|результат|самочувств|шкал|показател).{0,140}(?:нет|не было|отсутств|не указан|не описан|неизвест|без|не сохран)/u.test(normalizedSource);
+    const criterionPresent=/(?:результат|усталост|концентрац|показател|значение).{0,60}(?:оценивал|измерял|определял|фиксировал|считался|по шкал|по балл)|(?:оценивал|измерял|определял|фиксировал|считал).{0,60}(?:результат|усталост|концентрац|показател)|по шкале|по баллам|критерием был/u.test(normalizedSource);
+    const criterion=criterionPresent&&!criterionMissing;
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
     if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");

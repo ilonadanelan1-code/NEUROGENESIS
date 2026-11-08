@@ -752,7 +752,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
  {id:"Q1",signature:"readiness-q1",kind:"contrast_observations",edgeSubject:"Фактор Альфа",edgeObject:"Результат Бета",
   question:"Уточни условия наблюдений.",reason:"Наблюдения расходятся.",priority:0,status:"answered",
   sourceClaimIds:["obs-positive","obs-negative"],createdAt:105,updatedAt:120,lastAskedAt:110,
-  responseText:"Обстоятельства двух наблюдений неизвестны.",responseMemoryId:"",responseClaimIds:[],answeredAt:120}
+  responseText:"Обстоятельства двух наблюдений неизвестны. Нет точных дат и времени, информации о продолжительности, сопутствующих условиях и способе определения результата. Нет конкретных зафиксированных естественных наблюдений.",responseMemoryId:"",responseClaimIds:[],answeredAt:120}
 ]));
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 const decisionsBeforeReadiness=JSON.stringify(window.NGMemory.modelDecisions());
@@ -764,12 +764,18 @@ assert.match(incompleteReadiness,/время или временной поря�
   "the report should name missing temporal information");
 assert.match(incompleteReadiness,/как определялся или измерялся результат/u,
   "the report should name the missing outcome criterion");
+assert.match(incompleteReadiness,/Контекст: не указан/u,
+  "the word circumstances inside an explicit denial must not be counted as described context");
+assert.match(incompleteReadiness,/Критерий результата: не указан/u,
+  "a missing method and a statement about no recorded observations must not count as a measurement criterion");
 const savedReadinessInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
 savedReadinessInquiries[0].responseText="Одно наблюдение было утром, другое вечером; условия различались, результат оценивался по самочувствию.";
 database.set("neurogenesis.inquiries.v1",JSON.stringify(savedReadinessInquiries));
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 window.NGMemory.ask("Оцени готовность пересмотра модели");
 const completeReadiness=feed.children[feed.children.length-1].textContent;
+assert.match(completeReadiness,/Контекст: указан · Время: указано · Критерий результата: указан/u,
+  "explicitly described differences, time markers and an outcome method should satisfy the metadata checks");
 assert.match(completeReadiness,/ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА/u,
   "balanced direct observations plus reported context, timing and criterion should open a model-review candidate");
 assert.match(completeReadiness,/согласующиеся — 1; противоположные — 1/u,
