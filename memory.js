@@ -479,14 +479,14 @@
     const responses=inquiries.filter(item=>item.status==="answered"&&item.responseText&&item.answeredAt>0)
       .map(item=>({
         at:item.answeredAt,
-        fragments:item.responseText.split(/\\n+|(?<=[.!?])\\s+/u).map(value=>value.trim()).filter(Boolean)
+        fragments:item.responseText.split(/\n+|(?<=[.!?])\s+/u).map(value=>value.trim()).filter(Boolean)
       })).filter(item=>item.fragments.length);
     if(!responses.length)return false;
     let changed=false;
     for(const memory of memories) {
       if(!Array.isArray(memory.claims)||!memory.claims.length)continue;
       let comparable=memory.text;
-      const prefix=comparable.match(/^ответ на вопрос\\s+#?\\s*q\\d+\\s*:\\s*/iu);
+      const prefix=comparable.match(/^ответ на вопрос\s+#?\s*q\d+\s*:\s*/iu);
       if(prefix)comparable=comparable.slice(prefix[0].length);
       const normalized=normalise(comparable);
       if(!normalized)continue;
