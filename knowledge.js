@@ -145,53 +145,93 @@
     const object=claim.object==="assistant"?"я ассистент мой":claim.object==="user"?"ты пользователь твой":claim.object;
     return [claim.subject,claim.predicate,object,claim.evidence].join(" ");
   }
-  function answerQuestion(query,claims) {
-    const q=normalise(query);
-    if(!q||!Array.isArray(claims)||!claims.length)return null;
-    const qWords=new Set(q.split(/\s+/u));
-    const hasAny=words=>words.some(word=>qWords.has(word));
+  function answerQuestion(query, claims) {
+    const q = normalise(query);
+    if (!q || !Array.isArray(claims) || !claims.length) return null;
+    const qWords = new Set(q.split(/\s+/u));
+    const queryTokens = new Set(tokens(q));
+    const hasAny = words => words.some(word => qWords.has(word));
+    const target = hasAny(["твой","твоя","твое","твои","твоего","твоей","твоему","твоим","твою"]) || (qWords.has("у") && qWords.has("тебя")) ? "assistant" :
+      hasAny(["мой","моя","мое","мои","моего","моей","моему","моим","мою"]) || (qWords.has("у") && qWords.has("меня")) ? "user" : null;
+
     if (qWords.has("где") && (qWords.has("я") || qWords.has("мне") || qWords.has("меня"))) {
       const location = claims.filter(claim => claim.kind === "fact" && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
       if (location) return "Ты сообщал мне, что живёшь в " + location.object + ". Я храню это как твоё самоописание, а не как независимо проверенные данные.";
     }
-    const who=hasAny(["кто","кого","кому","чей","чья","чье","чьи"]);
-    const relationAsked=hasAny(["друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"]);
-    if(who&&relationAsked){
-      const target=hasAny(["твой","твоя","твое","твои"]) || (qWords.has("у")&&qWords.has("тебя")) ? "assistant" :
-        hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня")) ? "user" : null;
-      const relatedClaims=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target));
-      const directConflict=findConflicts(relatedClaims).find(conflict=>conflict.type==="direct");
-      if(directConflict) {
-        return "В памяти есть противоречащие утверждения: «"+directConflict.left.evidence+"» и «"+directConflict.right.evidence+"». Я не буду угадывать, какое из них верно — нужно уточнение.";
+
+    const asksWho = hasAny(["кто","кого","кому","чей","чья","чье","чьи"]) ||
+      (hasAny(["как"]) && hasAny(["зовут","имя"]));
+    const relationRoots = ["друг","подруг","коллег","наставник","учител","партнер","товарищ","брат","сестр","враг","знаком"];
+    const asksRelation = [...queryTokens].some(token => relationRoots.some(root => token.startsWith(root)));
+    if (asksWho && asksRelation) {
+      const related = claims.filter(claim => claim.kind === "relationship" && (!target || claim.object === target));
+      const directConflict = findConflicts(related).find(conflict => conflict.type === "direct");
+      if (directConflict) {
+        return "В памяти есть противоречащие утверждения: «" + directConflict.left.evidence + "» и «" + directConflict.right.evidence + "». Я не буду угадывать, какое из них верно — нужно уточнение.";
       }
-      const matches=relatedClaims.filter(claim=>claim.polarity);
-      if(matches.length){
-        const uniqueSubjects=[...new Set(matches.map(claim=>normalise(claim.subject)))];
-        if(uniqueSubjects.length>1 && matches.some(claim=>/лучший друг|лучшая подруга/u.test(claim.predicate))) {
-          const names=[...new Set(matches.map(claim=>claim.subject))];
-          return "В памяти есть несколько записей о лучшем друге: "+names.join(", ")+". Они могут противоречить друг другу. Я не стану выбирать наугад — уточни, какая запись верна.";
+      const matches = related.filter(claim => claim.polarity);
+      if (matches.length) {
+        const targetKinds = new Set(matches.map(claim => claim.object));
+        if (!target && targetKinds.size > 1) {
+          return "Я нашёл отношения, относящиеся и ко мне, и к тебе. Уточни: ты спрашиваешь про моего друга или про своего?";
         }
-        const claim=matches[matches.length-1];
-        if(claim.object==="assistant")return "По твоему сообщению, "+claim.subject+" — мой "+claim.predicate+". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
-        if(claim.object==="user")return "По твоему сообщению, "+claim.subject+" — твой "+claim.predicate+". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
-        return "В моей памяти записано: "+claimLabel(claim)+". Источник — твоё сообщение; независимо проверить это утверждение я не могу.";
+        const uniqueSubjects = [...new Set(matches.map(claim => canonicalEntity(claim.subject)))];
+        if (uniqueSubjects.length > 1 && matches.some(claim => /лучший друг|лучшая подруга|единственн/u.test(claim.predicate))) {
+          const names = [...new Set(matches.map(claim => claim.subject))];
+          return "В памяти есть несколько записей о лучшем друге: " + names.join(", ") + ". Они могут противоречить друг другу. Я не стану выбирать наугад — уточни, какая запись верна.";
+        }
+        const claim = matches[matches.length - 1];
+        const feminine = /подруга|сестра|знакомая/u.test(claim.predicate);
+        if (claim.object === "assistant") {
+          return "По твоему сообщению, " + claim.subject + " — " + (feminine ? "моя " : "мой ") + claim.predicate + ". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
+        }
+        if (claim.object === "user") {
+          return "По твоему сообщению, " + claim.subject + " — " + (feminine ? "твоя " : "твой ") + claim.predicate + ". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
+        }
+        return "В моей памяти записано: " + claimLabel(claim) + ". Источник — твоё сообщение; независимо проверить это утверждение я не могу.";
       }
     }
-    const qTokens=new Set(tokens(q));
-    if(!qTokens.size)return null;
-    const relevant=claims.map(claim=>{
-      const cTokens=new Set(tokens(claimSearchText(claim)));let hits=0;
-      for(const token of qTokens)if(cTokens.has(token))hits++;
-      return {claim,score:hits/Math.sqrt(qTokens.size*Math.max(1,cTokens.size))};
-    }).filter(row=>row.score>=0.16).sort((a,b)=>b.score-a.score);
-    if(!relevant.length)return null;
-    const claim=relevant[0].claim;
-    if(claim.kind==="opinion")return "В моей памяти сохранена твоя оценка: «"+claim.subject+" "+claim.object+"». Это субъективное мнение, записанное с твоих слов, а не объективно установленный факт.";
-    if(claim.kind==="preference")return "Ты сообщал мне, что "+(claim.polarity?"тебе ":"тебе не ")+claim.predicate+" "+claim.object+". Я храню это как твоё самоописание.";
-    if(claim.kind==="fact")return "Ты сообщал мне: "+claim.predicate+" "+claim.object+". Я храню это как твоё самоописание, а не как независимо проверенный факт.";
-    if(claim.kind==="definition")return "В сохранённой записи сказано: "+claim.subject+" "+claim.predicate+" "+claim.object+". Это определение из твоего сообщения; я не проверял его независимо.";
-    if(claim.kind==="hypothesis")return "Я сохранил твоё предположение: "+claim.object+". Оно помечено как гипотеза, а не как установленный факт.";
-    return "В памяти есть запись: "+claimLabel(claim)+". Источник — твоё сообщение.";
+
+    const asksPreference = hasAny(["люблю","любишь","любит","нравится","нравятся","предпочитаю","предпочитаешь","обожаю","обожаешь"]);
+    if (asksPreference) {
+      const preferences = claims.filter(claim => claim.kind === "preference" && claim.subject === "user");
+      const relevantPreferences = preferences.map(claim => {
+        const objectTokens = new Set(tokens(claim.object));
+        const hits = [...queryTokens].filter(token => objectTokens.has(token)).length;
+        return { claim, score: hits / Math.sqrt(Math.max(1, queryTokens.size) * Math.max(1, objectTokens.size)) };
+      }).filter(row => row.score > 0 || queryTokens.size <= 2).sort((a,b) => b.score - a.score);
+      if (relevantPreferences.length) {
+        const claim = relevantPreferences[0].claim;
+        return "Ты сообщал мне, что " + (claim.polarity ? "тебе " : "тебе не ") + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание.";
+      }
+    }
+
+    const qTokens = new Set(tokens(q));
+    if (!qTokens.size) return null;
+    const relevant = claims.map(claim => {
+      const cTokens = new Set(tokens(claimSearchText(claim)));
+      let hits = 0;
+      for (const token of qTokens) if (cTokens.has(token)) hits++;
+      return { claim, score: hits / Math.sqrt(qTokens.size * Math.max(1, cTokens.size)) };
+    }).filter(row => row.score >= 0.16).sort((a,b) => b.score - a.score);
+    if (!relevant.length) return null;
+    const claim = relevant[0].claim;
+    if (claim.kind === "opinion") {
+      return "В моей памяти сохранена твоя оценка: «" + claim.subject + " " + (claim.polarity ? "" : "не ") + claim.object + "». Это субъективное мнение, записанное с твоих слов, а не объективно установленный факт.";
+    }
+    if (claim.kind === "preference") {
+      return "Ты сообщал мне, что " + (claim.polarity ? "тебе " : "тебе не ") + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание.";
+    }
+    if (claim.kind === "fact") {
+      return "Ты сообщал мне: " + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание, а не как независимо проверенный факт.";
+    }
+    if (claim.kind === "definition") {
+      return "В сохранённой записи сказано: " + claim.subject + " " + claim.predicate + " " + claim.object + ". Это определение из твоего сообщения; я не проверял его независимо.";
+    }
+    if (claim.kind === "hypothesis") {
+      return "Я сохранил твоё предположение: " + claim.object + ". Оно помечено как гипотеза, а не как установленный факт.";
+    }
+    return "В памяти есть запись: " + claimLabel(claim) + ". Источник — твоё сообщение.";
   }
   function findConflicts(input) {
     const list=Array.isArray(input)?input:[];
