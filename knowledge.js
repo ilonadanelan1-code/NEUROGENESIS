@@ -138,6 +138,16 @@
     if (!name || name.split(" ").length > 6) return null;
     return makeClaim("fact","assistant","создатель",name,text,"self_reported",0.97);
   }
+  function extractCausal(text) {
+    const match = text.match(/^(.+?)\s+(?:(может|могут)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
+    if (!match) return null;
+    const cause=cleanPart(match[1],180), effect=cleanPart(match[4],180);
+    if (!cause || !effect || cause.split(" ").length>10 || effect.split(" ").length>10 || sameEntity(cause,effect)) return null;
+    const predicate=/вызыв|вызва/u.test(match[3])?"вызывает":"приводит к";
+    const claim=makeClaim("causal",cause,predicate,effect,text,"unverified",0.88);
+    if (claim) claim.modality=(match[2]||/вызывать|вызвать|приводить|привести/u.test(match[3]))?"possible":"asserted";
+    return claim;
+  }
   function extractPreference(text) {
     const match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?(?:я\s+(люблю|обожаю|предпочитаю|ненавижу)|мне\s+(нравится|не\s+нравится))\s+(.+)$/iu);
     if (!match) return null;
@@ -185,7 +195,7 @@
   }
   function extractSingleClaim(text) {
     return extractAssistantIdentity(text) || extractAssistantCreator(text) ||
-      extractRelationship(text) || extractPreference(text) || extractSelfReport(text) ||
+      extractRelationship(text) || extractCausal(text) || extractPreference(text) || extractSelfReport(text) ||
       extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
   }
   function extractClaims(input) {
@@ -208,7 +218,7 @@
   }
   function sanitizeClaims(input, evidenceFallback = "") {
     if (!Array.isArray(input)) return [];
-    const kinds = new Set(["relationship","preference","fact","opinion","definition","hypothesis","identity"]);
+    const kinds = new Set(["relationship","preference","fact","opinion","definition","hypothesis","identity","causal"]);
     return input.slice(0,12).map(raw => {
       if (!raw || typeof raw !== "object") return null;
       const kind = kinds.has(raw.kind) ? raw.kind : null;
@@ -216,7 +226,7 @@
       if (!kind || !subject || !predicate || !object) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
-      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null};
+      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted"};
     }).filter(Boolean);
   }
   function mergeClaims(existing,incoming) {
@@ -246,6 +256,7 @@
   function claimLabel(claim) {
     if(!claim)return "";
     if(claim.kind==="identity") return "Роль ассистента — " + claim.object;
+    if(claim.kind==="causal") return claim.subject + (claim.modality==="possible"?" может приводить к ":" — причинно связано с ") + claim.object;
     if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
     if(claim.kind==="fact" && claim.subject==="assistant" && claim.predicate==="создатель") return "Создатель ассистента — " + claim.object;
     if(claim.kind==="fact" && claim.subject==="user") {
@@ -263,6 +274,7 @@
   function claimSearchText(claim) {
     if(!claim)return "";
     const object=claim.object==="assistant"?"я ассистент мой":claim.object==="user"?"ты пользователь твой":claim.object;
+    if (claim.kind === "causal") return [claim.subject,"причина","следствие","влияние",claim.predicate,claim.object,claim.evidence].join(" ");
     if (claim.subject === "assistant") return ["я","меня","мне","мой","моя","ассистент","создатель",claim.predicate,object,claim.evidence].join(" ");
     return [claim.subject,claim.predicate,object,claim.evidence].join(" ");
   }
@@ -354,6 +366,64 @@
     answer += "\n\nЭто сведения, которыми ты поделился со мной, а не независимо проверенные факты.";
     return answer;
   }
+  function findCausalPaths(start,input,options={}) {
+    const claims=Array.isArray(input)?input:[];
+    const maxDepth=Math.max(1,Math.min(3,Number(options.maxDepth)||3));
+    const reverse=options.reverse===true,target=options.target?canonicalEntity(options.target):"";
+    const startKey=canonicalEntity(start);
+    if(!startKey)return [];
+    const edges=claims.filter(c=>c&&c.kind==="causal"&&c.status!=="superseded"&&canonicalEntity(c.subject)&&canonicalEntity(c.object));
+    const paths=[],seen=new Set();
+    const save=path=>{
+      if(!path.length)return;
+      const ordered=reverse?path.slice().reverse():path.slice();
+      const key=ordered.map(edge=>edge.id||edge.evidence).join("|");
+      if(!seen.has(key)){seen.add(key);paths.push(ordered);}
+    };
+    function walk(node,path,visited){
+      if(paths.length>=8)return;
+      if(path.length>=maxDepth){if(!target)save(path);return;}
+      const candidates=edges.filter(edge=>canonicalEntity(reverse?edge.object:edge.subject)===node);
+      let advanced=false;
+      for(const edge of candidates){
+        const next=canonicalEntity(reverse?edge.subject:edge.object);
+        if(!next||visited.has(next))continue;
+        if(target&&next===target){save([...path,edge]);advanced=true;continue;}
+        if(target&&path.length+1>=maxDepth)continue;
+        advanced=true;
+        walk(next,[...path,edge],new Set([...visited,next]));
+      }
+      if(!target&&!advanced&&path.length)save(path);
+    }
+    walk(startKey,[],new Set([startKey]));
+    return paths.sort((a,b)=>b.length-a.length).slice(0,4);
+  }
+  function causalEvidence(query,input) {
+    const q=normalise(query),claims=Array.isArray(input)?input:[];
+    let mode=null,from="",to="";
+    let match=q.match(/^(?:как|каким образом)\s+(.+?)\s+(?:влияет на|может повлиять на)\s+(.+)$/u);
+    if(match){mode="between";from=match[1];to=match[2];}
+    if(!mode){
+      match=q.match(/^(?:к чему может привести|к чему приводит|каковы последствия)\s+(.+)$/u);
+      if(match){mode="forward";from=match[1];}
+    }
+    if(!mode){
+      match=q.match(/^(?:что может вызвать|что вызывает|из-за чего возникает|почему возникает|почему появляется)\s+(.+)$/u);
+      if(match){mode="reverse";from=match[1];}
+    }
+    if(!mode)return null;
+    const paths=findCausalPaths(from,claims,{reverse:mode==="reverse",target:mode==="between"?to:"",maxDepth:3});
+    if(!paths.length)return null;
+    const labels=paths.map((path,index)=>(index+1)+". "+[path[0].subject,...path.map(edge=>edge.object)].join(" → "));
+    const used=[...new Map(paths.flat().map(edge=>[edge.id||edge.evidence,edge])).values()];
+    const evidence=used.slice(0,10).map(edge=>"• «"+String(edge.evidence||"").slice(0,220)+"»").join("\n");
+    const opening=mode==="reverse"?"В памяти нашлись возможные причины и промежуточные звенья:":
+      mode==="forward"?"По сохранённым связям можно проследить возможные последствия:":
+      "Между этими понятиями найдена причинная цепочка:";
+    const answer=opening+"\n\n"+labels.join("\n")+"\n\nИсходные записи:\n"+evidence+
+      "\n\nЭто вывод из нескольких сообщений, которые ты сохранил. Я не проверял причинность независимо: цепочка показывает возможную связь, а не доказывает, что одно событие обязательно вызовет другое.";
+    return {answer,claimIds:used.map(edge=>edge.id).filter(Boolean),paths};
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -368,6 +438,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const causal=causalEvidence(query,claims);
+    if(causal)return causal.answer;
     if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
       const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status!=="superseded");
       const latest = current[current.length-1];
@@ -595,7 +667,7 @@
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
     const conflicts=findConflicts(list);
-    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
+    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:9,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
+  window.NGKnowledge={version:10,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,findCausalPaths,findConflicts,summary};
 })();

@@ -331,10 +331,13 @@
       return;
     }
     const allClaims = memories.flatMap(item => item.claims || []);
+    const causalRecall = KNOWLEDGE && typeof KNOWLEDGE.causalEvidence==="function" ? KNOWLEDGE.causalEvidence(query,allClaims) : null;
+    const causalClaimIds = new Set(causalRecall && causalRecall.claimIds || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
     if (structuredAnswer) {
       const isEntityProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|что известно|расскажи|кто такой|кто такая|кто такое)(?:\s|$)/u.test(lower);
       const isIdentityQuery = /^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(lower);
+      const isCausalQuery = !!(causalRecall && causalRecall.answer);
       const isUserProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|расскажи)(?:\s|$)/u.test(lower) && /\b(?:обо мне|о мне|про меня)\b/u.test(lower);
       const related = memories.map(item => ({ item, ...matchMemory(query,item) }))
         .filter(hit => hit.score > 0.08 ||
@@ -344,8 +347,9 @@
             (claim.kind==="preference"&&claim.subject==="user") ||
             (claim.kind==="relationship"&&claim.object==="user") ||
             (claim.kind==="hypothesis"&&claim.subject==="user") ||
-            claim.kind==="opinion")))
-        .sort((a, b) => b.score - a.score).slice(0, isUserProfileQuery ? 12 : isEntityProfileQuery ? 6 : 3);
+            claim.kind==="opinion")) ||
+          (isCausalQuery && (hit.item.claims || []).some(claim=>causalClaimIds.has(claim.id))))
+        .sort((a, b) => b.score - a.score).slice(0, isCausalQuery ? 6 : isUserProfileQuery ? 12 : isEntityProfileQuery ? 6 : 3);
       const traceIds = [];
       for (const hit of related) {
         hit.item.recalls = (hit.item.recalls || 0) + 1;
@@ -360,7 +364,7 @@
       const activated = brain && typeof brain.activateMemoryTraces === "function"
         ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
       const associativeMatches = related.filter(hit=>hit.associativeHits>0).length;
-      setFeedback((associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
+      setFeedback((isCausalQuery ? "ПРИЧИННАЯ ЦЕПОЧКА · " : associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
         (isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
@@ -470,7 +474,7 @@
       row.className = "memory-preview-claim";
       const kind = document.createElement("span");
       kind.className = "memory-claim-kind";
-      kind.textContent = ({relationship:"СВЯЗЬ",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+      kind.textContent = ({relationship:"СВЯЗЬ",causal:"ПРИЧИНА",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
       const label = document.createElement("span");
       label.textContent = KNOWLEDGE.claimLabel(claim);
       row.append(kind, label);
@@ -555,7 +559,7 @@
           line.className = "memory-entry-claim";
           const kind = document.createElement("span");
           kind.className = "memory-claim-kind";
-          kind.textContent = ({relationship:"СВЯЗЬ",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+          kind.textContent = ({relationship:"СВЯЗЬ",causal:"ПРИЧИНА",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
           const label = document.createElement("span");
           label.textContent = KNOWLEDGE.claimLabel(claim);
           const source = document.createElement("small");

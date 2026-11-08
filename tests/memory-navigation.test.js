@@ -220,4 +220,16 @@ document.getElementById("ask-button").dispatch("click");
 const creatorReply = feed.children[feed.children.length - 1].textContent;
 assert.match(creatorReply,/моего создателя зовут Сергей/u,"the dialog should retrieve the creator fact");
 assert.match(creatorReply,/Твоего создателя зовут Сергей/u,"the creator answer should show its original source");
-console.log("NEUROGENESIS memory navigation, assistant identity and creator recall test: passed.");
+
+input.value = "Недостаток сна может приводить к усталости";
+document.getElementById("remember-button").dispatch("click");
+input.value = "Усталость приводит к снижению концентрации";
+document.getElementById("remember-button").dispatch("click");
+input.value = "Как недостаток сна влияет на снижение концентрации?";
+document.getElementById("ask-button").dispatch("click");
+const causalReply=feed.children[feed.children.length-1].textContent;
+assert.match(causalReply,/Недостаток сна → усталости → снижению концентрации/u,"the dialog should derive a two-step causal chain from separate memories");
+assert.match(causalReply,/Исходные записи:/u,"the inference should expose its exact source memories");
+assert.match(causalReply,/не проверял причинность независимо/u,"the inference must not be presented as a proven fact");
+assert.match(document.getElementById("memory-feedback").textContent,/ПРИЧИННАЯ ЦЕПОЧКА/u,"the interface should disclose when a causal inference was used");
+console.log("NEUROGENESIS memory navigation, assistant identity, creator and causal recall test: passed.");
