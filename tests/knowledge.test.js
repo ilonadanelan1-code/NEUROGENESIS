@@ -8,6 +8,11 @@ const sandbox = { window: {} };
 vm.runInNewContext(source, sandbox, { filename: "knowledge.js" });
 const knowledge = sandbox.window.NGKnowledge;
 assert.ok(knowledge, "knowledge module should expose its API");
+assert.equal(knowledge.systemProfile().name,"NEUROGENESIS");
+assert.equal(knowledge.systemProfile().languageModelConnected,false);
+assert.match(knowledge.answerQuestion("Кто ты?", []),/Я — NEUROGENESIS/u,"system identity should not depend on user memories");
+assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/до 500 записей/u,"capabilities should describe the implemented memory limit");
+assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/не умею свободно рассуждать/u,"the system should state its current reasoning limitations");
 
 const relationship = knowledge.extractClaims("Игорь Головнев твой самый лучший друг")[0];
 assert.ok(relationship, "should extract a relationship");
@@ -53,7 +58,7 @@ assert.match(knowledge.answerQuestion("Кто ты?", identityTimeline), /я —
 assert.match(knowledge.answerQuestion("Кто ты?", identityTimeline), /Ранее ты называл меня ассистент/u);
 assert.match(knowledge.answerQuestion("Кем ты был раньше?", identityTimeline), /роль «ассистент»/u);
 assert.equal(knowledge.summary(identityTimeline).activeIdentities, 1);
-assert.equal(knowledge.answerQuestion("Кто ты?", [knowledge.extractClaims("Музыка прекрасна")[0]]), null);
+assert.match(knowledge.answerQuestion("Кто ты?", [knowledge.extractClaims("Музыка прекрасна")[0]]),/NEUROGENESIS/u,"system identity should be available without a user-defined role");
 
 const assistantCreator = knowledge.extractClaims("Твоего создателя зовут Сергей")[0];
 assert.ok(assistantCreator, "the creator statement should be extracted");
