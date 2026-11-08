@@ -111,6 +111,7 @@ assert.ok(opinion);
 assert.equal(opinion.subject, "Музыка");
 assert.equal(opinion.object, "прекрасна");
 assert.match(window.NGKnowledge.answerQuestion("Кто твой лучший друг?", claims), /Игорь Головнев — мой лучший друг/u);
+assert.ok(window.NGMemory.search("Головнева").some(item => item.text.includes("Игорь Головнев")), "memory search should use the same Russian case normalization as knowledge profiles");
 const musicProfile = window.NGKnowledge.answerQuestion("Что ты знаешь о музыке?", claims);
 assert.match(musicProfile, /Музыка — прекрасна/u);
 assert.match(musicProfile, /нравится музыка/u);
