@@ -10,6 +10,7 @@ const knowledge = sandbox.window.NGKnowledge;
 assert.ok(knowledge, "knowledge module should expose its API");
 assert.equal(knowledge.systemProfile().name,"NEUROGENESIS");
 assert.equal(knowledge.systemProfile().languageModelConnected,false);
+assert.equal(knowledge.sameEntity("снижение концентрации","снижению концентрации"),true,"Russian case endings should converge to the same concept for causal chaining");
 const sleepCause=knowledge.extractClaims("Недостаток сна может приводить к усталости")[0];
 const fatigueCause=knowledge.extractClaims("Усталость приводит к снижению концентрации")[0];
 assert.equal(sleepCause.kind,"causal");
