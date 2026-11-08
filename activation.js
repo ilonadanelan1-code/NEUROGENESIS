@@ -2,10 +2,14 @@
   "use strict";
 
   function spread(seeds, edges, options = {}) {
-    const maxDepth = Math.max(0, Math.min(4, Math.floor(Number(options.maxDepth ?? 2))));
-    const maxNodes = Math.max(1, Math.min(64, Math.floor(Number(options.maxNodes ?? 18))));
-    const decay = Math.max(0, Math.min(1, Number(options.decay ?? 0.62)));
-    const threshold = Math.max(0, Math.min(1, Number(options.threshold ?? 0.12)));
+    const optionNumber = (value, fallback) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    };
+    const maxDepth = Math.max(0, Math.min(4, Math.floor(optionNumber(options.maxDepth, 2))));
+    const maxNodes = Math.max(1, Math.min(64, Math.floor(optionNumber(options.maxNodes, 18))));
+    const decay = Math.max(0, Math.min(1, optionNumber(options.decay, 0.62)));
+    const threshold = Math.max(0, Math.min(1, optionNumber(options.threshold, 0.12)));
     const adjacency = new Map();
 
     for (const edge of Array.isArray(edges) ? edges : []) {
@@ -20,7 +24,7 @@
     const queue = [];
     for (const seed of Array.isArray(seeds) ? seeds : []) {
       const id = typeof seed === "string" ? seed : seed && seed.id;
-      const strength = typeof seed === "string" ? 0.72 : Number(seed && seed.strength);
+      const strength = typeof seed === "string" || !seed || seed.strength == null ? 0.72 : Number(seed.strength);
       if (typeof id !== "string" || !id || best.has(id)) continue;
       const safeStrength = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 0.72;
       if (safeStrength < threshold) continue;
