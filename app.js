@@ -658,10 +658,10 @@
       const traces = neurons.filter(n => n.memoryTrace);
       const anchor = neurons.find(n => n.name === "Долгая память") || neurons.find(n => n.type === "memory") || neurons[0];
       if (!anchor) return null;
-      if (traces.length >= 32) return anchor.id;
+      if (traces.length >= 64) return anchor.id;
       const index = traces.length;
       const angle = index * 2.399963229728653;
-      const radius = 112 + Math.floor(index / 8) * 58;
+      const radius = 112 + Math.floor(index / 12) * 46;
       const trace = makeNeuron("Энграмма · " + cleanName, "memory",
         anchor.x + Math.cos(angle) * radius,
         anchor.y + Math.sin(angle) * radius, .62);
