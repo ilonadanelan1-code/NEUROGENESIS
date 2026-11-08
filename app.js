@@ -26,15 +26,34 @@
   let saveTimer = 0;
   let width = 0, height = 0, dpr = 1;
   let lastMetricsUpdate = 0;
-  const FRAME_INTERVAL = 1000 / 30;
+  const MAX_PULSES = 180;
+  const MAX_BRANCH_PULSES = 28;
   const neuronById = new Map();
   const synapseByKey = new Map();
+  const outgoingById = new Map();
   const edgeKey = (from, to) => from + "\u0000" + to;
+  const backgroundLayer = document.createElement("canvas");
+  const connectionLayer = document.createElement("canvas");
+  const backgroundCtx = backgroundLayer.getContext("2d", {alpha:false});
+  const connectionCtx = connectionLayer.getContext("2d", {alpha:true});
+  const neuronSprites = new Map();
+  let backgroundDirty = true;
+  let connectionsDirty = true;
+  const curveByKey = new Map();
   function rebuildIndexes() {
     neuronById.clear();
     synapseByKey.clear();
-    for (const n of neurons) neuronById.set(n.id, n);
-    for (const s of synapses) synapseByKey.set(edgeKey(s.from, s.to), s);
+    outgoingById.clear();
+    for (const n of neurons) {
+      neuronById.set(n.id, n);
+      outgoingById.set(n.id, []);
+    }
+    for (const s of synapses) {
+      synapseByKey.set(edgeKey(s.from, s.to), s);
+      if (!outgoingById.has(s.from)) outgoingById.set(s.from, []);
+      outgoingById.get(s.from).push(s);
+    }
+    connectionsDirty = true;
   }
   const view = { x: 0, y: 0, zoom: 1 };
   const stars = Array.from({length:window.innerWidth <= 700 ? 65 : 95},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
@@ -137,11 +156,21 @@
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    width = Math.max(1, rect.width); height = Math.max(1, rect.height);
-    const maxDpr = window.innerWidth <= 700 ? 1.25 : 1.5;
+    width = Math.max(1, rect.width);
+    height = Math.max(1, rect.height);
+    const maxDpr = window.innerWidth <= 700 ? 1 : 1.25;
     dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
-    canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const layer of [backgroundLayer, connectionLayer]) {
+      layer.width = canvas.width;
+      layer.height = canvas.height;
+    }
+    backgroundCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    connectionCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    backgroundDirty = true;
+    connectionsDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
   new ResizeObserver(resize).observe(canvas);
@@ -154,6 +183,7 @@
     const before = worldAt({x:px,y:py});
     view.zoom = Math.max(.16, Math.min(5.5, view.zoom * factor));
     view.x = px - before.x * view.zoom; view.y = py - before.y * view.zoom;
+    backgroundDirty = true; connectionsDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
   }
   function fitNetwork() {
@@ -164,6 +194,7 @@
     view.zoom = Math.max(.2, Math.min(1.8, Math.min((width - 80) / Math.max(1,maxX-minX), (height - 100) / Math.max(1,maxY-minY))));
     view.x = width/2 - ((minX+maxX)/2) * view.zoom;
     view.y = height/2 - ((minY+maxY)/2) * view.zoom;
+    backgroundDirty = true; connectionsDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom*100) + "%";
   }
 
@@ -177,7 +208,7 @@
   }
   function selectNeuron(id) {
     selectedId = id;
-    renderInspector(); updateMetrics(); markDirty();
+    renderInspector(); updateMetrics();
   }
   function addNeuron(x, y, type = "logic") {
     const n = makeNeuron("Новый нейрон " + nextId, type, x, y, .5);
@@ -190,6 +221,9 @@
     const edge = { id: "s" + (Date.now()) + Math.floor(Math.random()*1000), from:a, to:b, weight:.65, activity:0 };
     synapses.push(edge);
     synapseByKey.set(edgeKey(a, b), edge);
+    if (!outgoingById.has(a)) outgoingById.set(a, []);
+    outgoingById.get(a).push(edge);
+    connectionsDirty = true;
     markDirty(); updateMetrics(); showToast("Связь сформирована"); return true;
   }
   function removeNeuron(id) {
@@ -202,9 +236,16 @@
     showToast("Нейрон удалён");
   }
   function activate(id, strength = 1) {
-    const n = getNeuron(id); if (!n) return;
+    const n = getNeuron(id);
+    if (!n) return;
     n.activity = Math.min(1, n.activity + strength);
-    for (const edge of synapses) if (edge.from === id) pulses.push({ from:id, to:edge.to, progress:0, strength:strength * edge.weight });
+    const outgoing = outgoingById.get(id) || [];
+    let emitted = 0;
+    for (const edge of outgoing) {
+      if (pulses.length >= MAX_PULSES || emitted >= MAX_BRANCH_PULSES) break;
+      pulses.push({ from:id, to:edge.to, progress:0, strength:strength * edge.weight });
+      emitted++;
+    }
     updateMetrics();
   }
   function stimulateRandom() {
@@ -248,183 +289,198 @@
     if (n && !$("neuron-inspector").hidden) $("neuron-activity").textContent = Math.round(n.activity*100) + "%";
   }
 
-  function drawBackground(time = 0) {
-    ctx.clearRect(0,0,width,height);
-    const base = ctx.createLinearGradient(0,0,width,height);
-    base.addColorStop(0,"#050b18");
-    base.addColorStop(.52,"#071522");
-    base.addColorStop(1,"#080d1c");
-    ctx.fillStyle=base;
-    ctx.fillRect(0,0,width,height);
 
-    const glowA=ctx.createRadialGradient(width*.48,height*.46,4,width*.48,height*.46,Math.max(width,height)*.72);
-    glowA.addColorStop(0,"rgba(22,104,119,.23)");
-    glowA.addColorStop(.46,"rgba(27,65,104,.10)");
-    glowA.addColorStop(1,"rgba(3,8,18,0)");
-    ctx.fillStyle=glowA;ctx.fillRect(0,0,width,height);
-    const glowB=ctx.createRadialGradient(width*.78,height*.22,0,width*.78,height*.22,width*.48);
-    glowB.addColorStop(0,"rgba(93,55,150,.10)");glowB.addColorStop(1,"rgba(93,55,150,0)");
-    ctx.fillStyle=glowB;ctx.fillRect(0,0,width,height);
-
-    for(let i=0;i<stars.length;i++){
-      const star=stars[i];
-      const twinkle=.35+.65*(.5+.5*Math.sin(time*.0007+star.phase));
-      ctx.globalAlpha=star.alpha*twinkle;
-      ctx.fillStyle=star.tint;
-      ctx.beginPath();ctx.arc(star.x*width,star.y*height,star.r,0,Math.PI*2);ctx.fill();
+  function drawBackground() {
+    if (!backgroundDirty) {
+      ctx.drawImage(backgroundLayer, 0, 0, width, height);
+      return;
     }
-    ctx.globalAlpha=1;
+    backgroundCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    backgroundCtx.clearRect(0, 0, width, height);
+    const base = backgroundCtx.createLinearGradient(0, 0, width, height);
+    base.addColorStop(0, "#050b18");
+    base.addColorStop(.52, "#071522");
+    base.addColorStop(1, "#080d1c");
+    backgroundCtx.fillStyle = base;
+    backgroundCtx.fillRect(0, 0, width, height);
 
-    ctx.save();
-    ctx.translate(view.x,view.y);
-    ctx.scale(view.zoom,view.zoom);
+    const glow = backgroundCtx.createRadialGradient(width*.48,height*.46,4,width*.48,height*.46,Math.max(width,height)*.72);
+    glow.addColorStop(0, "rgba(22,104,119,.23)");
+    glow.addColorStop(.46, "rgba(27,65,104,.10)");
+    glow.addColorStop(1, "rgba(3,8,18,0)");
+    backgroundCtx.fillStyle = glow;
+    backgroundCtx.fillRect(0, 0, width, height);
+
+    for (const star of stars) {
+      backgroundCtx.globalAlpha = star.alpha;
+      backgroundCtx.fillStyle = star.tint;
+      backgroundCtx.beginPath();
+      backgroundCtx.arc(star.x*width, star.y*height, star.r, 0, Math.PI*2);
+      backgroundCtx.fill();
+    }
+    backgroundCtx.globalAlpha = 1;
+
+    backgroundCtx.save();
+    backgroundCtx.translate(view.x, view.y);
+    backgroundCtx.scale(view.zoom, view.zoom);
     const step=54,left=-view.x/view.zoom,top=-view.y/view.zoom;
     const right=left+width/view.zoom,bottom=top+height/view.zoom;
-    ctx.fillStyle="rgba(116,192,207,.12)";
+    backgroundCtx.fillStyle="rgba(116,192,207,.12)";
     for(let x=Math.floor(left/step)*step;x<right;x+=step){
       for(let y=Math.floor(top/step)*step;y<bottom;y+=step){
-        ctx.beginPath();ctx.arc(x,y,.85/view.zoom,0,Math.PI*2);ctx.fill();
+        backgroundCtx.beginPath();
+        backgroundCtx.arc(x,y,.85/view.zoom,0,Math.PI*2);
+        backgroundCtx.fill();
       }
     }
-    ctx.setLineDash([3/view.zoom,9/view.zoom]);
-    ctx.lineWidth=1/view.zoom;
-    ctx.strokeStyle="rgba(91,172,185,.075)";
+    backgroundCtx.setLineDash([3/view.zoom,9/view.zoom]);
+    backgroundCtx.lineWidth=1/view.zoom;
+    backgroundCtx.strokeStyle="rgba(91,172,185,.075)";
     for(const radius of [190,360]){
-      ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.stroke();
+      backgroundCtx.beginPath();
+      backgroundCtx.arc(0,0,radius,0,Math.PI*2);
+      backgroundCtx.stroke();
     }
-    ctx.setLineDash([]);
-    ctx.restore();
+    backgroundCtx.setLineDash([]);
+    backgroundCtx.restore();
+    backgroundDirty = false;
+    ctx.drawImage(backgroundLayer, 0, 0, width, height);
   }
 
-  function drawConnections(time) {
-    ctx.save();
-    ctx.translate(view.x,view.y);
-    ctx.scale(view.zoom,view.zoom);
-    const curves=new Map();
-    synapses.forEach((s,i)=>{
-      const a=getNeuron(s.from),b=getNeuron(s.to);
-      if(!a||!b)return;
-      const dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy)||1;
-      const bend=Math.min(58,dist*.22)*((i%2===0)?1:-1);
-      const mx=(a.x+b.x)/2-(dy/dist)*bend;
-      const my=(a.y+b.y)/2+(dx/dist)*bend;
-      curves.set(edgeKey(s.from, s.to), {s,a,b,mx,my,index:i});
-
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
-      ctx.strokeStyle="rgba(71,181,194,"+(.055+s.weight*.075)+")";
-      ctx.lineWidth=(7+s.weight*5)/view.zoom;
-      ctx.shadowColor="#34d9d0";ctx.shadowBlur=7;ctx.stroke();ctx.shadowBlur=0;
-
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
-      ctx.strokeStyle="rgba(110,205,221,"+(.18+s.weight*.25+s.activity*.48)+")";
-      ctx.lineWidth=(.9+s.weight*1.15+s.activity*1.7)/view.zoom;
-      ctx.stroke();
-
-      ctx.beginPath();ctx.arc(a.x,a.y,2.1/view.zoom,0,Math.PI*2);
-      ctx.fillStyle="rgba(115,225,220,.36)";ctx.fill();
-
-      const travel=(time*.000035+i*.19)%1;
-      const one=1-travel;
-      const px=one*one*a.x+2*one*travel*mx+travel*travel*b.x;
-      const py=one*one*a.y+2*one*travel*my+travel*travel*b.y;
-      ctx.beginPath();ctx.arc(px,py,1.9/view.zoom,0,Math.PI*2);
-      ctx.fillStyle="rgba(170,255,244,"+(.28+s.activity*.55)+")";
-      ctx.shadowColor="#6bfff0";ctx.shadowBlur=6;ctx.fill();ctx.shadowBlur=0;
-
-      if(s.activity>.035){
-        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(mx,my,b.x,b.y);
-        ctx.strokeStyle="rgba(108,255,226,"+(s.activity*.72)+")";
-        ctx.lineWidth=(1+s.activity*2.1)/view.zoom;
-        ctx.shadowColor="#65ffe0";ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;
+  function drawConnections() {
+    if (connectionsDirty) {
+      connectionCtx.setTransform(dpr,0,0,dpr,0,0);
+      connectionCtx.clearRect(0,0,width,height);
+      connectionCtx.save();
+      connectionCtx.translate(view.x,view.y);
+      connectionCtx.scale(view.zoom,view.zoom);
+      const glowPath = new Path2D();
+      const linePath = new Path2D();
+      curveByKey.clear();
+      const left=-view.x/view.zoom-120, top=-view.y/view.zoom-120;
+      const right=left+width/view.zoom+240, bottom=top+height/view.zoom+240;
+      for(let i=0;i<synapses.length;i++){
+        const s=synapses[i],a=getNeuron(s.from),b=getNeuron(s.to);
+        if(!a||!b) continue;
+        const dx=b.x-a.x,dy=b.y-a.y,dist=Math.hypot(dx,dy)||1;
+        const bend=Math.min(58,dist*.22)*(i%2===0?1:-1);
+        const mx=(a.x+b.x)/2-(dy/dist)*bend;
+        const my=(a.y+b.y)/2+(dx/dist)*bend;
+        const minX=Math.min(a.x,b.x,mx),maxX=Math.max(a.x,b.x,mx);
+        const minY=Math.min(a.y,b.y,my),maxY=Math.max(a.y,b.y,my);
+        if(maxX<left||minX>right||maxY<top||minY>bottom) continue;
+        const key=edgeKey(s.from,s.to);
+        curveByKey.set(key,{a,b,mx,my});
+        glowPath.moveTo(a.x,a.y);
+        glowPath.quadraticCurveTo(mx,my,b.x,b.y);
+        linePath.moveTo(a.x,a.y);
+        linePath.quadraticCurveTo(mx,my,b.x,b.y);
       }
-    });
-
-    for(const p of pulses){
-      const curve=curves.get(edgeKey(p.from, p.to));
-      if(!curve)continue;
-      const t=p.progress,one=1-t;
-      const x=one*one*curve.a.x+2*one*t*curve.mx+t*t*curve.b.x;
-      const y=one*one*curve.a.y+2*one*t*curve.my+t*t*curve.b.y;
-      ctx.beginPath();ctx.arc(x,y,4.1/view.zoom,0,Math.PI*2);
-      ctx.fillStyle="rgba(220,255,249,.98)";
-      ctx.shadowColor="#68ffe7";ctx.shadowBlur=9;ctx.fill();ctx.shadowBlur=0;
+      connectionCtx.lineCap="round";
+      connectionCtx.lineJoin="round";
+      connectionCtx.strokeStyle="rgba(48,185,190,.105)";
+      connectionCtx.lineWidth=5/view.zoom;
+      connectionCtx.stroke(glowPath);
+      connectionCtx.strokeStyle="rgba(110,205,221,.34)";
+      connectionCtx.lineWidth=1.05/view.zoom;
+      connectionCtx.stroke(linePath);
+      connectionCtx.restore();
+      connectionsDirty=false;
     }
-    ctx.restore();
+    ctx.drawImage(connectionLayer,0,0,width,height);
+
+    if(pulses.length){
+      ctx.save();
+      ctx.translate(view.x,view.y);
+      ctx.scale(view.zoom,view.zoom);
+      ctx.fillStyle="rgba(210,255,248,.96)";
+      for(const p of pulses){
+        const curve=curveByKey.get(edgeKey(p.from,p.to));
+        if(!curve) continue;
+        const t=p.progress,one=1-t;
+        const x=one*one*curve.a.x+2*one*t*curve.mx+t*t*curve.b.x;
+        const y=one*one*curve.a.y+2*one*t*curve.my+t*t*curve.b.y;
+        ctx.beginPath();
+        ctx.arc(x,y,2.8/view.zoom,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function getNeuronSprite(type) {
+    let sprite=neuronSprites.get(type);
+    if(sprite) return sprite;
+    const size=184,center=92,r=19;
+    sprite=document.createElement("canvas");
+    sprite.width=size;sprite.height=size;
+    const c=sprite.getContext("2d");
+    const aura=c.createRadialGradient(center,center,2,center,center,84);
+    aura.addColorStop(0,colorFor(type,.24));
+    aura.addColorStop(.38,colorFor(type,.075));
+    aura.addColorStop(1,colorFor(type,0));
+    c.fillStyle=aura;c.beginPath();c.arc(center,center,84,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(center,center,r+12,0,Math.PI*2);
+    c.strokeStyle=colorFor(type,.19);c.lineWidth=1.3;c.stroke();
+    c.beginPath();c.ellipse(center,center,r+8,r+13,0,Math.PI*.13,Math.PI*1.72);
+    c.strokeStyle=colorFor(type,.36);c.lineWidth=1.15;c.stroke();
+    c.beginPath();c.arc(center,center,r+3,0,Math.PI*2);
+    c.strokeStyle=colorFor(type,.63);c.lineWidth=1.4;c.stroke();
+    c.beginPath();c.arc(center,center,r,0,Math.PI*2);
+    const core=c.createRadialGradient(center-r*.36,center-r*.42,1,center,center,r);
+    core.addColorStop(0,"rgba(239,255,255,.98)");
+    core.addColorStop(.12,colorFor(type,1));
+    core.addColorStop(.43,colorFor(type,.78));
+    core.addColorStop(.76,"rgba(14,40,58,.98)");
+    core.addColorStop(1,"rgba(3,12,25,1)");
+    c.fillStyle=core;c.fill();
+    c.strokeStyle=colorFor(type,.95);c.lineWidth=1.25;c.stroke();
+    c.fillStyle="rgba(242,255,251,.98)";
+    c.beginPath();c.arc(center,center,4.2,0,Math.PI*2);c.fill();
+    for(let k=0;k<3;k++){
+      const a=k*Math.PI*2/3;
+      c.beginPath();c.arc(center+Math.cos(a)*(r+4),center+Math.sin(a)*(r+4),1.55,0,Math.PI*2);
+      c.fillStyle="rgba(230,255,250,.88)";c.fill();
+    }
+    neuronSprites.set(type,sprite);
+    return sprite;
   }
 
   function drawNeurons(time) {
+    const left=-view.x/view.zoom-100,top=-view.y/view.zoom-100;
+    const right=left+width/view.zoom+200,bottom=top+height/view.zoom+200;
     ctx.save();
     ctx.translate(view.x,view.y);
     ctx.scale(view.zoom,view.zoom);
     for(const n of neurons){
-      const r=19+n.activity*3.5;
+      if(n.x<left||n.x>right||n.y<top||n.y>bottom) continue;
       const selected=n.id===selectedId;
-      const searching=searchTerm&&n.name.toLowerCase().includes(searchTerm);
-      const dimmed=searchTerm&&!searching;
-      const pulse=.5+.5*Math.sin(time*.00125+n.phase);
-      ctx.globalAlpha = dimmed ? 0.16 : 1;
-
-      const aura=ctx.createRadialGradient(n.x,n.y,1,n.x,n.y,83+n.activity*25);
-      aura.addColorStop(0,colorFor(n.type,.24+n.activity*.28));
-      aura.addColorStop(.38,colorFor(n.type,.075));
-      aura.addColorStop(1,colorFor(n.type,0));
-      ctx.fillStyle=aura;ctx.beginPath();ctx.arc(n.x,n.y,83+n.activity*25,0,Math.PI*2);ctx.fill();
-
-      ctx.beginPath();ctx.arc(n.x,n.y,r+12+pulse*2,0,Math.PI*2);
-      ctx.strokeStyle=colorFor(n.type,.13+n.activity*.2);ctx.lineWidth=1/view.zoom;ctx.stroke();
-
-      ctx.save();
-      ctx.translate(n.x,n.y);
-      ctx.rotate(time*.00018+n.phase);
-      ctx.beginPath();ctx.ellipse(0,0,r+8,r+13,0,Math.PI*.13,Math.PI*1.72);
-      ctx.strokeStyle=colorFor(n.type,.36);ctx.lineWidth=1.15/view.zoom;ctx.stroke();
-      ctx.beginPath();ctx.arc(r+8,0,2.2/view.zoom,0,Math.PI*2);
-      ctx.fillStyle=colorFor(n.type,.9);ctx.shadowColor=colorFor(n.type);ctx.shadowBlur=5;ctx.fill();ctx.shadowBlur=0;
-      ctx.restore();
-
-      ctx.beginPath();ctx.arc(n.x,n.y,r+3,0,Math.PI*2);
-      ctx.strokeStyle=colorFor(n.type,.63);ctx.lineWidth=1.4/view.zoom;
-      ctx.shadowColor=colorFor(n.type,.8);ctx.shadowBlur=4;ctx.stroke();ctx.shadowBlur=0;
-
-      ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
-      const core=ctx.createRadialGradient(n.x-r*.36,n.y-r*.42,1,n.x,n.y,r);
-      core.addColorStop(0,"rgba(239,255,255,.98)");
-      core.addColorStop(.12,colorFor(n.type,1));
-      core.addColorStop(.43,colorFor(n.type,.78));
-      core.addColorStop(.76,"rgba(14,40,58,.98)");
-      core.addColorStop(1,"rgba(3,12,25,1)");
-      ctx.fillStyle=core;ctx.fill();
-      ctx.strokeStyle=colorFor(n.type,.95);ctx.lineWidth=1.25/view.zoom;
-      ctx.shadowColor=colorFor(n.type,.9);ctx.shadowBlur=selected?10:6;ctx.stroke();ctx.shadowBlur=0;
-
-      const beadAngle=time*.00055+n.phase;
-      for(let k=0;k<3;k++){
-        const a=beadAngle+k*Math.PI*2/3;
-        const bx=n.x+Math.cos(a)*(r+4),by=n.y+Math.sin(a)*(r+4);
-        ctx.beginPath();ctx.arc(bx,by,1.55/view.zoom,0,Math.PI*2);
-        ctx.fillStyle="rgba(230,255,250,.88)";ctx.fill();
+      const searching=!!searchTerm&&n.name.toLowerCase().includes(searchTerm);
+      const sprite=getNeuronSprite(n.type);
+      ctx.globalAlpha=searchTerm&&!searching?.18:1;
+      ctx.drawImage(sprite,n.x-92,n.y-92);
+      if(n.activity>.04){
+        ctx.beginPath();ctx.arc(n.x,n.y,27+n.activity*8,0,Math.PI*2);
+        ctx.fillStyle="rgba(112,255,224,"+(n.activity*.10)+")";
+        ctx.fill();
       }
-      ctx.beginPath();ctx.arc(n.x,n.y,4.2+n.activity*2,0,Math.PI*2);
-      ctx.fillStyle="rgba(242,255,251,.98)";
-      ctx.shadowColor="#bffff2";ctx.shadowBlur=7;ctx.fill();ctx.shadowBlur=0;
-
-      if(selected||searching||connectFrom===n.id){
-        ctx.beginPath();ctx.arc(n.x,n.y,r+18,0,Math.PI*2);
-        ctx.strokeStyle=connectFrom===n.id?"rgba(255,207,126,.95)":selected?"rgba(230,255,249,.84)":"rgba(255,222,151,.9)";
+      if(selected||connectFrom===n.id){
+        ctx.beginPath();ctx.arc(n.x,n.y,41,0,Math.PI*2);
+        ctx.strokeStyle=connectFrom===n.id?"rgba(255,207,126,.95)":"rgba(230,255,249,.84)";
         ctx.lineWidth=1.6/view.zoom;ctx.setLineDash([3/view.zoom,5/view.zoom]);ctx.stroke();ctx.setLineDash([]);
       }
-      ctx.globalAlpha=1;
     }
     ctx.restore();
 
     if(view.zoom>.38){
-      const showAllLabels = neurons.length <= 36 || view.zoom > .85;
+      const crowded=neurons.length>60;
       const occupied=[];
+      let labels=0;
       ctx.font="10px Inter,system-ui,sans-serif";
-      for(let i=0;i<neurons.length;i++){
-        const n=neurons[i];
-        const searching=searchTerm&&n.name.toLowerCase().includes(searchTerm);
-        if(!showAllLabels && n.id!==selectedId && !searching && connectFrom!==n.id) continue;
+      for(const n of neurons){
+        const searching=!!searchTerm&&n.name.toLowerCase().includes(searchTerm);
+        if(crowded&&n.id!==selectedId&&!searching&&connectFrom!==n.id) continue;
+        if(++labels>(crowded?32:80)) break;
         const p=screenAt(n);
         if(p.x < -180 || p.x > width+180 || p.y < -55 || p.y > height+70) continue;
         const label=n.name;
@@ -448,21 +504,23 @@
     }
     ctx.globalAlpha=1;
   }
+
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
     requestAnimationFrame(frame);
-    if (time - lastFrame < FRAME_INTERVAL) return;
-    const dt=Math.min(50,time-lastFrame||FRAME_INTERVAL);lastFrame=time;
+    const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const n of neurons)n.activity=Math.max(0,n.activity-dt*.00048);
-    for(const s of synapses)s.activity=Math.max(0,s.activity-dt*.0013);
-    for(const p of pulses){
+    for(let i=pulses.length-1;i>=0;i--){
+      const p=pulses[i];
       p.progress+=dt/720;
-      const edge=synapseByKey.get(edgeKey(p.from, p.to));if(edge)edge.activity=Math.max(edge.activity,p.strength);
-      if(p.progress>=1){const target=neuronById.get(p.to);if(target)target.activity=Math.min(1,target.activity+p.strength*.7);}
+      if(p.progress>=1){
+        const target=neuronById.get(p.to);
+        if(target)target.activity=Math.min(1,target.activity+p.strength*.7);
+        pulses.splice(i,1);
+      }
     }
-    pulses=pulses.filter(p=>p.progress<1);
-    drawBackground(time);drawConnections(time);drawNeurons(time);
+    drawBackground();drawConnections();drawNeurons(time);
     if(time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
   }
 
@@ -494,14 +552,15 @@
       const mid={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
       view.zoom=Math.max(.16,Math.min(5.5,gesture.zoom*(dist/Math.max(1,gesture.distance))));
       view.x=mid.x-gesture.world.x*view.zoom;view.y=mid.y-gesture.world.y*view.zoom;
+      backgroundDirty=true;connectionsDirty=true;
       $("zoom-value").textContent=Math.round(view.zoom*100)+"%";return;
     }
     if(!drag)return;
     if(drag.kind==="node"){
       const n=getNeuron(drag.id);if(!n)return;
-      const w=worldAt(point);n.x+=w.x-drag.last.x;n.y+=w.y-drag.last.y;drag.last=w;markDirty();
+      const w=worldAt(point);n.x+=w.x-drag.last.x;n.y+=w.y-drag.last.y;drag.last=w;connectionsDirty=true;markDirty();
     }else if(drag.kind==="pan"){
-      view.x+=point.x-drag.last.x;view.y+=point.y-drag.last.y;drag.last=point;
+      view.x+=point.x-drag.last.x;view.y+=point.y-drag.last.y;drag.last=point;backgroundDirty=true;connectionsDirty=true;
     }
   });
   function endPointer(event){pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;if(pointers.size===0)drag=null;}
