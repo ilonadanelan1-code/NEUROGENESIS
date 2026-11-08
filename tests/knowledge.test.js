@@ -335,6 +335,19 @@ assert.match(v13SinglePlan.answer,/только одно возможное об
 const v13NoPlan=knowledge.designDiscriminatingTest("Как различить причины неизвестного явления?",[]);
 assert.equal(v13NoPlan,null);
 
+const v14Derived=knowledge.deriveHypotheses("Какие новые гипотезы можно вывести из памяти?",[v18SleepCause,fatigueCause]);
+assert.ok(v14Derived,"a multi-step causal path should yield a candidate hypothesis");
+assert.ok(v14Derived.hypotheses.some(item=>knowledge.sameEntity(item.subject,"Недостаток сна")&&knowledge.sameEntity(item.object,"снижению концентрации")));
+assert.match(v14Derived.answer,/Недостаток сна ⇢ снижению концентрации/u);
+assert.match(v14Derived.answer,/Недостаток сна → усталости → снижению концентрации/u);
+assert.match(v14Derived.answer,/НЕ означает, что первая сущность напрямую вызывает последнюю/u);
+assert.match(v14Derived.answer,/не добавлены в долговременную память/u);
+const v14NoNew=knowledge.deriveHypotheses("Выведи новые гипотезы из памяти",[v18SleepCause,fatigueCause,knowledge.extractClaims("Недостаток сна приводит к снижению концентрации")[0]]);
+assert.equal(v14NoNew,null,"an already stored direct relation should not be offered as a new hypothesis");
+const v14Blocked=knowledge.deriveHypotheses("Выведи новые гипотезы",[v18SleepCause,fatigueCause,knowledge.extractClaims("Усталость не приводит к снижению концентрации")[0]]);
+assert.equal(v14Blocked,null,"a chain with a disputed causal edge should not be used to derive a new hypothesis");
+assert.equal(knowledge.deriveHypotheses("Выведи новые гипотезы",[]),null);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");

@@ -18,7 +18,7 @@
   function capabilitiesAnswer() {
     return "В этой версии я умею сохранять до " + SYSTEM_PROFILE.memoryLimit +
       " записей длиной до " + SYSTEM_PROFILE.recordCharacterLimit +
-      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
+      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
       "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
   }
   const SEMANTIC_GROUPS = [
@@ -547,6 +547,66 @@
     answer+="\n\nЭто план сбора и сравнения наблюдений, а не готовый экспериментальный вывод. Сохранённые сообщения не являются независимо проверенными данными.";
     return {answer,outcome,alternativeCount:roots.length,paths:candidates,observations,conflicts,claimIds:evidenceClaims.map(claim=>claim.id).filter(Boolean)};
   }
+  function deriveHypotheses(query,input) {
+    const q=normalise(query),claims=Array.isArray(input)?input:[];
+    if(!/^(?:какие новые гипотезы можно вывести(?: из памяти)?|выведи новые гипотезы(?: из памяти)?|сформируй новые гипотезы(?: из памяти)?|предложи гипотезы из памяти|что можно вывести из причинных связей)$/u.test(q))return null;
+    const edges=claims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&canonicalEntity(claim.subject)&&canonicalEntity(claim.object)).slice(-180);
+    if(edges.length<2)return null;
+    const adjacency=new Map(),direct=new Set(),blockedEdges=new Set();
+    const pairKey=(a,b)=>canonicalEntity(a)+"=>"+canonicalEntity(b);
+    for(const edge of edges){
+      const from=canonicalEntity(edge.subject);
+      if(!adjacency.has(from))adjacency.set(from,[]);
+      adjacency.get(from).push(edge);
+      direct.add(pairKey(edge.subject,edge.object));
+      if(claims.some(other=>other&&other.kind==="causal"&&other.polarity===false&&sameEntity(other.subject,edge.subject)&&sameEntity(other.object,edge.object)))blockedEdges.add(edge.id||edge.evidence);
+    }
+    const starts=[...new Set(edges.map(edge=>canonicalEntity(edge.subject)))];
+    const proposals=new Map();
+    let explored=0;
+    const maxExplored=2400,maxProposals=8,maxDepth=3;
+    function walk(node,path,visited){
+      if(explored>=maxExplored||proposals.size>=maxProposals||path.length>=maxDepth)return;
+      const nextEdges=adjacency.get(node)||[];
+      for(const edge of nextEdges){
+        explored++;
+        if(explored>maxExplored)break;
+        const next=canonicalEntity(edge.object);
+        if(!next||visited.has(next))continue;
+        const nextPath=[...path,edge];
+        if(nextPath.length>=2){
+          const first=nextPath[0].subject,last=edge.object,key=pairKey(first,last);
+          const disputed=nextPath.some(item=>blockedEdges.has(item.id||item.evidence));
+          if(!direct.has(key)&&!disputed){
+            if(!proposals.has(key))proposals.set(key,{subject:first,object:last,paths:[]});
+            const proposal=proposals.get(key);
+            const pathKey=nextPath.map(item=>item.id||item.evidence).join("|");
+            if(proposal.paths.length<3&&!proposal.paths.some(existing=>existing.map(item=>item.id||item.evidence).join("|")===pathKey))proposal.paths.push(nextPath);
+          }
+        }
+        if(nextPath.length<maxDepth)walk(next,nextPath,new Set([...visited,next]));
+        if(explored>=maxExplored||proposals.size>=maxProposals)break;
+      }
+    }
+    for(const start of starts){
+      walk(start,[],new Set([start]));
+      if(explored>=maxExplored||proposals.size>=maxProposals)break;
+    }
+    if(!proposals.size)return null;
+    const hypotheses=[...proposals.values()].slice(0,6);
+    const used=[...new Map(hypotheses.flatMap(item=>item.paths.flat()).map(edge=>[edge.id||edge.evidence,edge])).values()];
+    const lines=hypotheses.map((item,index)=>{
+      const routes=item.paths.map(path=>path.map(edge=>edge.subject).concat(path[path.length-1].object).join(" → "));
+      const sources=[...new Map(item.paths.flat().map(edge=>[edge.id||edge.evidence,edge])).values()]
+        .map(edge=>"• «"+String(edge.evidence||"").slice(0,200)+"»").join("\n");
+      return (index+1)+". "+item.subject+" ⇢ "+item.object+"\n   Возможный путь: "+routes.join(" ИЛИ ")+"\n   Основание:\n"+sources;
+    });
+    let answer="Я нашёл новые возможные гипотезы, которые можно построить из нескольких сохранённых причинных связей:\n\n"+lines.join("\n\n");
+    answer+="\n\nКак читать вывод: знак ⇢ обозначает только предположение об опосредованной связи через промежуточные звенья. Он НЕ означает, что первая сущность напрямую вызывает последнюю.";
+    answer+="\n\nПочему это ещё не знание: каждое звено цепочки само могло быть неточным, факторы могут иметь общую причину, а направление влияния и дополнительные условия могут быть неизвестны. Логическая цепочка помогает сформулировать вопрос, но не доказывает новую связь.";
+    answer+="\n\nЭти гипотезы не добавлены в долговременную память и не изменяют исходные утверждения. Для проверки нужны независимые наблюдения и поиск контрпримеров.";
+    return {answer,hypotheses,claimIds:used.map(edge=>edge.id).filter(Boolean),exploredEdges:explored};
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -561,6 +621,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const derivedHypotheses=deriveHypotheses(query,claims);
+    if(derivedHypotheses)return derivedHypotheses.answer;
     const experimentPlan=designDiscriminatingTest(query,claims);
     if(experimentPlan)return experimentPlan.answer;
     const hypothesisCheck=evaluateConditionalHypothesis(query,claims);
@@ -797,5 +859,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:13,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:14,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,findCausalPaths,findConflicts,summary};
 })();
