@@ -200,6 +200,21 @@ input.value = "Кем ты был раньше?";
 document.getElementById("ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length - 1].textContent,/роль «ассистент»/u,"the dialog should retrieve the superseded role");
 
+input.value = "Я живу в Сочи";
+document.getElementById("remember-button").dispatch("click");
+input.value = "Теперь я живу в Париже";
+document.getElementById("remember-button").dispatch("click");
+const locationClaims = window.NGMemory.claims().filter(claim=>claim.kind==="fact"&&claim.subject==="user"&&/живу в|нахожусь в/u.test(claim.predicate));
+assert.equal(locationClaims.find(claim=>claim.object==="Сочи").status,"superseded","a previously saved location should become historical after an explicit update");
+assert.equal(locationClaims.find(claim=>claim.object==="Париже").status,"current","the corrected location should become current");
+input.value = "Где я живу?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/живёшь в Париже/u,"the dialog should answer with the current location");
+input.value = "Что ты знаешь обо мне?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/Сочи/u,"the user profile should preserve the historical location");
+assert.match(feed.children[feed.children.length-1].textContent,/историческое самоописание/u,"the user profile should label the old location as historical");
+
 input.value = "Кто твой создатель?";
 document.getElementById("ask-button").dispatch("click");
 const creatorReply = feed.children[feed.children.length - 1].textContent;
