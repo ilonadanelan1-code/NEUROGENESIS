@@ -169,7 +169,7 @@ assert.match(musicProfile, /самоописание/u);
 
 const migratedObservation=claims.find(claim=>claim.kind==="observation");
 assert.ok(migratedObservation,"legacy observation text should migrate into a structured case");
-assert.equal(migratedObservation.observationCase.schema,1);
+assert.equal(migratedObservation.observationCase.schema,2);
 assert.equal(migratedObservation.observationCase.context.status,"not_stated");
 assert.equal(migratedObservation.sourceMemoryId,"mobservation");
 const observationCases=window.NGMemory.observationCases();
@@ -200,6 +200,6 @@ assert.ok(migratedIdentity.claims[0].traceId, "migrated assistant role should re
 assert.equal(migratedCreator.claims[0].predicate, "создатель");
 const persistedObservation = JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id==="mobservation");
 assert.equal(persistedObservation.claims[0].sourceMemoryId,"mobservation");
-assert.equal(persistedObservation.claims[0].observationCase.schema,1);
+assert.equal(persistedObservation.claims[0].observationCase.schema,2);
 assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
 console.log("NEUROGENESIS legacy memory migration, assistant identity, creator and cross-record profile: passed.");

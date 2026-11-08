@@ -792,10 +792,11 @@ const reconciliationMemoryCase=(id,claimId,text,polarity,context,timing,criterio
   claims:[{id:claimId,kind:"observation",subject:"Недостаток сна",predicate:"наблюдение",object:"Усталости",
     holder:"user",polarity,source:"user_message",evidence:text,verification:"unverified",
     extractionConfidence:.86,traceId:null,createdAt,status:"current",sourceMemoryId:id,
-    observationCase:{schema:1,source:"direct_observation",sourceRef:"",
+    observationCase:{schema:2,source:"direct_observation",sourceRef:"",
       context:{status:"provided",value:context,source:"direct_observation"},
       timing:{status:"provided",value:timing,source:"direct_observation"},
-      criterion:{status:"provided",value:criterion,source:"direct_observation"}}}]
+      criterion:{status:"provided",value:criterion,source:"direct_observation"},
+      outcome:{status:"provided",value:"6/10",source:"direct_observation"}}}]
 });
 const reconciliationMemories=[
   reconciliationMemoryCase("case-positive-1","case-pos-1","При недостатке сна наблюдалась усталость; после тренировки; вечером; шкала 1–10",true,"после тренировки","вечером","шкала 1–10",300),
@@ -822,7 +823,7 @@ assert.equal(reconciliation.supportingCount,2,"the dossier should count distinct
 assert.equal(reconciliation.challengingCount,1,"the dossier should count the separate counter-observation");
 assert.equal(reconciliation.duplicateMentions,1,"identical evidence text should be flagged instead of counted as an extra case");
 assert.equal(reconciliation.completeCases,3,"the dossier should measure complete structured cases");
-assert.equal(reconciliation.metadataCoverage,100,"metadata coverage should count context, timing and criterion fields");
+assert.equal(reconciliation.metadataCoverage,100,"metadata coverage should count context, timing, method and measured value fields");
 assert.equal(reconciliation.alignedPairCount,1,"same context and criterion with opposite outcomes should be recognized as a comparable pair");
 assert.equal(reconciliation.contextDifferencePairCount,1,"different contexts should be reported as a possible source of heterogeneity");
 assert.equal(reconciliation.independentVerifiedSources,0,"multiple user memories must not be misrepresented as independent verification");
@@ -831,6 +832,71 @@ assert.match(window.NGMemory.reconcileExperience(),/СОПОСТАВЛЕНИЕ �
 assert.match(window.NGMemory.reconcileExperience(),/Независимо подтверждённых источников: 0/u);
 assert.equal(window.NGMemory.modelDecisions().length,0,"evidence reconciliation must not change model decisions");
 
+
+// Regressions from the supplied backup: enrichments must not inflate independent event counts.
+const backupTime=Date.parse("2026-11-08T23:16:38.585Z");
+const eventMemory=(id,claimId,text,createdAt,polarity,details)=>({
+  id,text,tags:["недостаток сна","усталость"],traceIds:[],createdAt,updatedAt:createdAt,
+  strength:.65,repetitions:1,recalls:0,
+  claims:[{id:claimId,kind:"observation",subject:details&&details.subject||"Недостатке сна",predicate:"наблюдение",
+    object:details&&details.object||"усталости",holder:"user",polarity,source:"user_message",evidence:text,
+    verification:"unverified",extractionConfidence:.86,traceId:null,createdAt,status:"current",sourceMemoryId:id,
+    ...(details?{observationCase:{schema:2,source:"direct_observation",sourceRef:"",
+      context:{status:details.context?"provided":"not_stated",value:details.context||"",source:"direct_observation"},
+      timing:{status:details.timing?"provided":"not_stated",value:details.timing||"",source:"direct_observation"},
+      criterion:{status:details.criterion?"provided":"not_stated",value:details.criterion||"",source:"direct_observation"},
+      outcome:{status:details.outcome?"provided":"not_stated",value:details.outcome||"",source:"direct_observation"},
+      eventRef:details.eventRef||""}}:{})}]
+});
+const backupDefectMemories=[
+  eventMemory("old-short","old-positive","При недостатке сна наблюдалась усталость",backupTime,true,null),
+  eventMemory("new-enriched","new-positive","При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 07:15; критерий: по шкале 1–10",backupTime+1000,true,
+    {context:"после тренировки",timing:"2026-11-09 07:15",criterion:"по шкале 1–10"}),
+  eventMemory("counter-case","counter-negative","При недостатке сна не наблюдалась усталость",backupTime+2000,false,null)
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(backupDefectMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+assert.equal(window.NGMemory.observationCases().length,3,"all original user cards must remain in the raw observation journal");
+const backupReadiness=window.NGMemory.reviewReadinessForEdge("Недостатке сна","усталости");
+assert.equal(backupReadiness.supportingCount,1,"an enriched copy must not become a second supporting event");
+assert.equal(backupReadiness.challengingCount,1,"the separate negative observation must remain distinct");
+assert.equal(backupReadiness.possibleDuplicateCount,1,"the suspected duplicate must be disclosed");
+assert.equal(backupReadiness.numericOutcomeRequired,true,"the scale method requires a measured value");
+assert.equal(backupReadiness.ready,false,"a scale without a recorded score must not pass review readiness");
+assert.ok(backupReadiness.blockers.some(item=>/фактическое числовое значение/u.test(item)));
+const backupDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости",0);
+assert.equal(backupDossier.supportingCount,1);
+assert.equal(backupDossier.possibleDuplicateGroups,1);
+const backupTimeline=window.NGMemory.observationTimeline();
+assert.equal(backupTimeline.rawCardCount,3);
+assert.equal(backupTimeline.totalCases,2,"the timeline must group cards that could describe a single episode");
+assert.equal(backupTimeline.futureCount,1,"an event later than its saved card timestamp should be flagged");
+assert.equal(backupTimeline.events[0].futureRelativeToRecord,true);
+const backupTimelineReport=window.NGMemory.observationTimelineReport();
+assert.match(backupTimelineReport,/позже времени сохранения карточки/u);
+assert.match(backupTimelineReport,/часовой пояс/u);
+
+// Different explicit IDs protect two truly separate episodes from automatic merging.
+const explicitEventMemories=[
+  eventMemory("event-a","event-a-claim","При факторе Альфа наблюдался результат Бета",500,true,
+    {subject:"Фактор Альфа",object:"Результат Бета",context:"обычный день",timing:"2026-11-09 08:00",criterion:"фиксировался результат",eventRef:"alpha-episode-1"}),
+  eventMemory("event-b","event-b-claim","При факторе Альфа наблюдался результат Бета",600,true,
+    {subject:"Фактор Альфа",object:"Результат Бета",context:"обычный день",timing:"2026-11-09 08:00",criterion:"фиксировался результат",eventRef:"alpha-episode-2"})
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(explicitEventMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+assert.equal(window.NGMemory.reconcileEdgeEvidence("Фактор Альфа","Результат Бета").supportingCount,2,
+  "different explicit event IDs must preserve separate observations");
 
 // Chronology must use explicit event dates rather than memory save timestamps.
 const timelineCase=(id,claimId,text,polarity,timing,createdAt,timingStatus="provided")=>({
