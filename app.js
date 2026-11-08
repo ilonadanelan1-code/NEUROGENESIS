@@ -347,7 +347,7 @@
       const y=one*one*curve.a.y+2*one*t*curve.my+t*t*curve.b.y;
       ctx.beginPath();ctx.arc(x,y,4.1/view.zoom,0,Math.PI*2);
       ctx.fillStyle="rgba(220,255,249,.98)";
-      ctx.shadowColor="#68ffe7";ctx.shadowBlur=20/view.zoom;ctx.fill();ctx.shadowBlur=0;
+      ctx.shadowColor="#68ffe7";ctx.shadowBlur=9;ctx.fill();ctx.shadowBlur=0;
     }
     ctx.restore();
   }
