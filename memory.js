@@ -320,7 +320,7 @@
     const allClaims = memories.flatMap(item => item.claims || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
     if (structuredAnswer) {
-      const isEntityProfileQuery = /^(?:что ты знаешь|что известно|расскажи|кто такой|кто такая|кто такое)\\b/u.test(lower);
+      const isEntityProfileQuery = /^(?:что ты знаешь|что известно|расскажи|кто такой|кто такая|кто такое)\b/u.test(lower);
       const related = memories.map(item => ({ item, score: scoreMemory(query, item) }))
         .filter(hit => hit.score > 0.08).sort((a, b) => b.score - a.score).slice(0, isEntityProfileQuery ? 6 : 3);
       const traceIds = [];
