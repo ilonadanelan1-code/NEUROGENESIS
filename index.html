@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.3">
+  <link rel="stylesheet" href="./styles.css?v=0.4">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.3</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.4</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -26,7 +26,7 @@
       <section class="brain-panel" aria-label="Визуальная нейронная сеть">
         <div class="canvas-topline">
           <div><span class="eyebrow">НЕЙРОСЕТЬ</span><span class="canvas-title">Живое ядро</span></div>
-          <div class="live-indicator"><span class="pulse-dot"></span><span id="run-label">ОЖИДАНИЕ</span></div>
+          <div class="live-indicator"><span class="pulse-dot"></span><span id="run-label">ОЖИДАНИЕ</span><span class="fps-badge" id="fps-value">-- FPS</span></div>
         </div>
         <canvas id="brain-canvas" aria-label="Поле нейронной сети. Перетаскивайте нейроны и пустое пространство."></canvas>
         <div class="canvas-vignette"></div>
@@ -89,6 +89,6 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=0.3" defer></script>
+  <script src="./app.js?v=0.4" defer></script>
 </body>
 </html>
