@@ -721,11 +721,26 @@
       return doomed.size;
     },
     activateMemoryTraces(ids) {
-      const unique = [...new Set((ids || []).filter(id => neuronById.has(id)))].slice(0, 8);
-      for (const id of unique) activate(id, .72);
+      const unique = [...new Set((ids || []).filter(id => {
+        const neuron = neuronById.get(id);
+        return neuron && neuron.memoryTrace === true;
+      }))].slice(0, 8);
+      const associationEdges = synapses
+        .filter(edge => {
+          const from = neuronById.get(edge.from), to = neuronById.get(edge.to);
+          return from && to && from.memoryTrace === true && to.memoryTrace === true;
+        })
+        .map(edge => ({ from: edge.from, to: edge.to, weight: edge.weight }));
+      const spread = window.NGActivation && typeof window.NGActivation.spread === "function"
+        ? window.NGActivation.spread(unique, associationEdges, {
+            maxDepth: 2, maxNodes: 18, decay: .62, threshold: .12
+          })
+        : unique.map(id => ({ id, strength: .72 }));
+      for (const item of spread) activate(item.id, item.strength);
       const anchor = neurons.find(n => n.name === "Долгая память");
       if (anchor) activate(anchor.id, .35);
       visualDirty = true;
+      return spread.length;
     }
   };
 
