@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.8">
+  <link rel="stylesheet" href="./styles.css?v=0.9">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.8</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.9</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -82,6 +82,7 @@
 
         <section class="section-block memory-block">
           <div class="section-heading"><span class="eyebrow">ПАМЯТЬ И ДИАЛОГ</span><span id="memory-count" class="id-label">0 / 500 ЗАПИСЕЙ</span></div>
+          <div class="knowledge-summary" id="knowledge-count">0 СТРУКТУРНЫХ СВЯЗЕЙ</div>
           <div class="memory-feed" id="memory-feed" aria-live="polite"></div>
           <div class="memory-tools">
             <button class="secondary-button memory-tool-button" id="memory-manage" type="button">Записи (0)</button>
@@ -114,7 +115,8 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=0.8" defer></script>
-  <script src="./memory.js?v=0.8" defer></script>
+  <script src="./app.js?v=0.9" defer></script>
+  <script src="./knowledge.js?v=0.9" defer></script>
+  <script src="./memory.js?v=0.9" defer></script>
 </body>
 </html>
