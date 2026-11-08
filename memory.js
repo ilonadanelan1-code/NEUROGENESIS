@@ -29,6 +29,7 @@
     return word.replace(/(иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ов|ев|ей|ом|ем|а|я|ы|и|е|у|ю)$/u, "");
   }
   function tokens(value) {
+    if (KNOWLEDGE && typeof KNOWLEDGE.tokens === "function") return KNOWLEDGE.tokens(value);
     return normalise(value).split(" ").filter(word => word.length >= 3 && !STOP.has(word))
       .map(stem).filter(word => word.length >= 3);
   }
