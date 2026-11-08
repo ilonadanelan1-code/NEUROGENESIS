@@ -785,4 +785,49 @@ assert.match(completeReadiness,/контекстные сведения, не н
 assert.equal(JSON.stringify(window.NGMemory.modelDecisions()),decisionsBeforeReadiness,
   "evaluating readiness must not silently change the selected model decision");
 
-console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness and evidence-gate tests: passed.");
+// Evidence reconciliation compares cases without counting repeated wording as a new event
+// or multiple user memories as independent external verification.
+const reconciliationMemoryCase=(id,claimId,text,polarity,context,timing,criterion,createdAt)=>({
+  id,text,tags:["сон","усталость"],traceIds:[],createdAt,updatedAt:createdAt,strength:.65,repetitions:1,recalls:0,
+  claims:[{id:claimId,kind:"observation",subject:"Недостаток сна",predicate:"наблюдение",object:"Усталости",
+    holder:"user",polarity,source:"user_message",evidence:text,verification:"unverified",
+    extractionConfidence:.86,traceId:null,createdAt,status:"current",sourceMemoryId:id,
+    observationCase:{schema:1,source:"direct_observation",sourceRef:"",
+      context:{status:"provided",value:context,source:"direct_observation"},
+      timing:{status:"provided",value:timing,source:"direct_observation"},
+      criterion:{status:"provided",value:criterion,source:"direct_observation"}}}]
+});
+const reconciliationMemories=[
+  reconciliationMemoryCase("case-positive-1","case-pos-1","При недостатке сна наблюдалась усталость; после тренировки; вечером; шкала 1–10",true,"после тренировки","вечером","шкала 1–10",300),
+  reconciliationMemoryCase("case-negative","case-neg","При недостатке сна не наблюдалась усталость; после тренировки; утром; шкала 1–10",false,"после тренировки","утром","шкала 1–10",310),
+  reconciliationMemoryCase("case-positive-2","case-pos-2","При недостатке сна наблюдалась усталость; обычный день; днём; шкала 1–10",true,"обычный день","днём","шкала 1–10",320),
+  reconciliationMemoryCase("case-positive-repeat","case-pos-repeat","При недостатке сна наблюдалась усталость; после тренировки; вечером; шкала 1–10",true,"после тренировки","вечером","шкала 1–10",330)
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(reconciliationMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([{
+  role:"assistant",time:200,text:"Недостаток сна → усталость",
+  reasoning:{version:1,type:"derived_hypotheses",createdAt:200,status:"current",
+    conclusions:[{subject:"Недостаток сна",object:"Усталости",paths:[[
+      {id:"tracked-sleep-fatigue",subject:"Недостаток сна",object:"Усталости"}
+    ]]}],reviews:[],modelHistory:[]}
+}]));
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const reconciliation=window.NGMemory.reconcileEdgeEvidence("Недостаток сна","Усталости",200);
+assert.equal(reconciliation.supportingCount,2,"the dossier should count distinct supporting observations");
+assert.equal(reconciliation.challengingCount,1,"the dossier should count the separate counter-observation");
+assert.equal(reconciliation.duplicateMentions,1,"identical evidence text should be flagged instead of counted as an extra case");
+assert.equal(reconciliation.completeCases,3,"the dossier should measure complete structured cases");
+assert.equal(reconciliation.metadataCoverage,100,"metadata coverage should count context, timing and criterion fields");
+assert.equal(reconciliation.alignedPairCount,1,"same context and criterion with opposite outcomes should be recognized as a comparable pair");
+assert.equal(reconciliation.contextDifferencePairCount,1,"different contexts should be reported as a possible source of heterogeneity");
+assert.equal(reconciliation.independentVerifiedSources,0,"multiple user memories must not be misrepresented as independent verification");
+assert.equal(reconciliation.addedAfterModelCount,3,"the dossier should identify unique records saved after the archived conclusion");
+assert.match(window.NGMemory.reconcileExperience(),/СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ/u);
+assert.match(window.NGMemory.reconcileExperience(),/Независимо подтверждённых источников: 0/u);
+assert.equal(window.NGMemory.modelDecisions().length,0,"evidence reconciliation must not change model decisions");
+
+console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate and experience-reconciliation tests: passed.");
