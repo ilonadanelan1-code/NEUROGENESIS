@@ -339,7 +339,7 @@ const v14Derived=knowledge.deriveHypotheses("Какие новые гипоте�
 assert.ok(v14Derived,"a multi-step causal path should yield a candidate hypothesis");
 assert.ok(v14Derived.hypotheses.some(item=>knowledge.sameEntity(item.subject,"Недостаток сна")&&knowledge.sameEntity(item.object,"снижению концентрации")));
 assert.match(v14Derived.answer,/Недостаток сна ⇢ снижению концентрации/u);
-assert.match(v14Derived.answer,/Недостаток сна → усталости → снижению концентрации/u);
+assert.match(v14Derived.answer,/Недостаток сна → Усталость → снижению концентрации/u);
 assert.match(v14Derived.answer,/НЕ означает, что первая сущность напрямую вызывает последнюю/u);
 assert.match(v14Derived.answer,/не добавлены в долговременную память/u);
 const v14NoNew=knowledge.deriveHypotheses("Выведи новые гипотезы из памяти",[v18SleepCause,fatigueCause,knowledge.extractClaims("Недостаток сна приводит к снижению концентрации")[0]]);
