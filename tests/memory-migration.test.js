@@ -61,10 +61,27 @@ const legacyMemories = [
     strength: 0.65,
     repetitions: 1,
     recalls: 0
+  },
+  {
+    id: "mobservation",
+    text: "При недостатке сна наблюдалась усталость",
+    tags: ["недостаток", "сна", "усталость"],
+    traceIds: [],
+    createdAt: 1794158200000,
+    updatedAt: 1794158200000,
+    strength: 0.65,
+    repetitions: 1,
+    recalls: 0
   }
 ];
 database.set("neurogenesis.memories.v1", JSON.stringify(legacyMemories));
 database.set("neurogenesis.dialog.v1", "[]");
+database.set("neurogenesis.inquiries.v1", JSON.stringify([{
+  id:"Q1",signature:"legacy-observation-context-test",kind:"contrast_observations",
+  edgeSubject:"Недостаток сна",edgeObject:"усталости",question:"Уточни контекст наблюдений",
+  status:"answered",createdAt:1794158300000,updatedAt:1794158300000,answeredAt:1794158300000,
+  responseText:"Обстоятельства двух наблюдений не указаны. Даты и время неизвестны. Критерий определения результата не описан."
+}]));
 
 class ElementStub {
   constructor() {
@@ -122,9 +139,9 @@ const sandbox = { window, document, localStorage, console, Date, Math, Set, Map,
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
-assert.equal(window.NGMemory.count(), 5);
+assert.equal(window.NGMemory.count(), 6);
 const claims = window.NGMemory.claims();
-assert.equal(claims.length, 5, "all legacy memories should be upgraded to structured claims");
+assert.equal(claims.length, 6, "all legacy memories should be upgraded to structured claims");
 const relation = claims.find(claim => claim.kind === "relationship");
 const opinion = claims.find(claim => claim.kind === "opinion");
 assert.ok(relation);
@@ -150,6 +167,25 @@ assert.match(musicProfile, /нравится музыка/u);
 assert.match(musicProfile, /субъективное мнение/u);
 assert.match(musicProfile, /самоописание/u);
 
+const migratedObservation=claims.find(claim=>claim.kind==="observation");
+assert.ok(migratedObservation,"legacy observation text should migrate into a structured case");
+assert.equal(migratedObservation.observationCase.schema,1);
+assert.equal(migratedObservation.observationCase.context.status,"not_stated");
+assert.equal(migratedObservation.sourceMemoryId,"mobservation");
+const observationCases=window.NGMemory.observationCases();
+assert.equal(observationCases.length,1);
+assert.equal(observationCases[0].sourceMemoryId,"mobservation");
+assert.match(window.NGMemory.observationJournal(),/ЖУРНАЛ НАБЛЮДЕНИЙ/u);
+const migratedInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q1");
+assert.equal(migratedInquiry.responseDetails.context.status,"not_recorded");
+assert.equal(migratedInquiry.responseDetails.timing.status,"unknown");
+assert.equal(migratedInquiry.responseDetails.criterion.status,"not_recorded");
+const readiness=window.NGMemory.reviewReadinessForEdge("Недостаток сна","усталости");
+assert.equal(readiness.contextStatus,"not_recorded");
+assert.equal(readiness.timingStatus,"unknown");
+assert.equal(readiness.criterionStatus,"not_recorded");
+assert.equal(readiness.context,false,"an absence report must never count as a provided context");
+
 const migrated = JSON.parse(database.get("neurogenesis.memories.v1"));
 const migratedIgor = migrated.find(item => item.id === "migor");
 assert.ok(migratedIgor.claims && migratedIgor.claims.length === 1, "claims should be persisted to upgraded local storage");
@@ -162,5 +198,8 @@ const migratedCreator = migrated.find(item => item.id === "mcreator");
 assert.equal(migratedIdentity.claims[0].kind, "identity");
 assert.ok(migratedIdentity.claims[0].traceId, "migrated assistant role should receive an engram");
 assert.equal(migratedCreator.claims[0].predicate, "создатель");
+const persistedObservation = JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id==="mobservation");
+assert.equal(persistedObservation.claims[0].sourceMemoryId,"mobservation");
+assert.equal(persistedObservation.claims[0].observationCase.schema,1);
 assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
 console.log("NEUROGENESIS legacy memory migration, assistant identity, creator and cross-record profile: passed.");
