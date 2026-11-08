@@ -30,6 +30,24 @@ jobs:
           node --check app.js
           node --check memory.js
 
+      - name: Check app asset references
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          for (const file of ['styles.css', 'app.js', 'memory.js']) {
+            if (!html.includes('./' + file + '?v=0.8')) {
+              throw new Error('Missing or stale app reference: ' + file);
+            }
+          }
+          for (const id of ['memory-feed', 'memory-manage', 'memory-export', 'memory-import', 'memory-import-file', 'memory-library', 'memory-library-list', 'memory-filter', 'memory-more', 'memory-clear']) {
+            if (!html.includes('id="' + id + '"')) {
+              throw new Error('Missing memory UI element: ' + id);
+            }
+          }
+          console.log('App assets and memory UI references are valid.');
+          NODE
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
