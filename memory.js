@@ -411,6 +411,8 @@
   function cleanInquiry(raw) {
     if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !/^Q\d{1,8}$/u.test(raw.id) ||
         typeof raw.signature !== "string" || typeof raw.question !== "string") return null;
+    const responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(raw.responseText||"","inquiry_response"):null;
+    if(responseDetails)responseDetails.sourceRef=raw.id;
     return {id:raw.id,signature:raw.signature.slice(0,500),
       kind:["contrast_observations","clarify_counterexample","missing_observation"].includes(raw.kind)?raw.kind:"missing_observation",
       edgeSubject:typeof raw.edgeSubject==="string"?raw.edgeSubject.slice(0,180):"",
@@ -421,7 +423,7 @@
       sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
       lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
-      responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",
+      responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",responseDetails,
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0),
       assessment:["insufficient_context","gap_confirmed","context_reported_unverified","observations_reported_unverified"].includes(raw.assessment)?raw.assessment:"unassessed",
@@ -756,6 +758,8 @@
     if(!item)return "";
     item.status="answered";item.responseText=String(response||"").trim().slice(0,MAX_TEXT);
     item.responseMemoryId=memory&&memory.id||"";
+    item.responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response"):null;
+    if(item.responseDetails)item.responseDetails.sourceRef=item.id;
     item.responseClaimIds=[...new Set((claims||[]).map(c=>c&&c.id).filter(Boolean))].slice(0,12);
     item.answeredAt=Date.now();item.updatedAt=item.answeredAt;applyInquiryAssessment(item);persist();
     return "ОТВЕТ ПРИВЯЗАН К "+item.id+"\nВ памяти сохранён ответ: «"+item.responseText+"»."+
@@ -1441,7 +1445,7 @@
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
       memoryMigrated = Array.isArray(saved) && saved.some(item => item && (
         ((!Array.isArray(item.claims) || item.claims.length === 0) && KNOWLEDGE && KNOWLEDGE.extractClaims(item.text).length > 0) ||
-        (Array.isArray(item.claims) && KNOWLEDGE && KNOWLEDGE.sanitizeClaims(item.claims,item.text).length !== item.claims.length)
+        (Array.isArray(item.claims) && KNOWLEDGE && (KNOWLEDGE.sanitizeClaims(item.claims,item.text).length !== item.claims.length || item.claims.some(claim=>claim&&claim.kind==="observation"&&(!claim.observationCase||claim.observationCase.schema!==1||claim.sourceMemoryId!==item.id))))
       ));
       memories = Array.isArray(saved) ? saved.map(cleanMemory).filter(Boolean).slice(-MAX_MEMORIES) : [];
     } catch (error) {
@@ -1469,6 +1473,7 @@
     try {
       const savedInquiries=JSON.parse(localStorage.getItem(INQUIRIES_KEY)||"[]");
       inquiries=mergeInquiryHistory([],savedInquiries);
+       if(Array.isArray(savedInquiries)&&savedInquiries.some(item=>item&&item.status==="answered"&&!item.responseDetails))memoryMigrated=true;
       if(reconcileInquiryResponsesFromEntries(dialog))memoryMigrated=true;
       if(assessAnsweredInquiries())memoryMigrated=true;
       if(clearLegacyInquiryFragmentClaims())memoryMigrated=true;
@@ -1690,6 +1695,7 @@
         saved++;
         linkMemory(item, related);
       }
+      if(item)for(const claim of item.claims||[])if(claim.kind==="observation")claim.sourceMemoryId=item.id;
       if(answerMatch) {
         const note=recordInquiryResponse(answerMatch[1].toUpperCase(),knowledgeText,item,claims);
         if(note)inquiryResponseNotes.push(note);
@@ -1756,7 +1762,10 @@
     const lower = normalise(query);
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
-    if(/^(?:оцени готовность пересмотра модели|проверь готовность модели к пересмотру|достаточно ли данных для пересмотра|оцени достаточность наблюдений)$/u.test(lower)) {
+    if(/^(?:покажи журнал наблюдений|покажи карточки наблюдений|список наблюдений|что сохранено как опыт)$/u.test(lower)) {
+       say("assistant",observationCasesAnswer());setFeedback("ПАМЯТЬ ОПЫТА · ЖУРНАЛ НАБЛЮДЕНИЙ");return;
+     }
+     if(/^(?:оцени готовность пересмотра модели|проверь готовность модели к пересмотру|достаточно ли данных для пересмотра|оцени достаточность наблюдений)$/u.test(lower)) {
       say("assistant",modelReviewReadinessAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПРОВЕРКА ДОСТАТОЧНОСТИ ДАННЫХ");return;
     }
     if(/^(?:составь план исследования|покажи план исследования|выбери следующий исследовательский шаг|какой следующий шаг исследования|определи стратегию исследования)$/u.test(lower)) {
@@ -2451,6 +2460,9 @@
     refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },
     researchStrategy: () => researchStrategyAnswer(),
     modelReviewReadiness: () => modelReviewReadinessAnswer(),
+     observationCases: () => observationCases(),
+     observationJournal: () => observationCasesAnswer(),
+     reviewReadinessForEdge: (subject,object) => reviewReadinessForEdge(subject,object),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };
