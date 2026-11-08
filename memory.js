@@ -591,9 +591,15 @@
     return (fields||[]).map(item=>item&&item[key]&&item[key].status||"not_stated")
       .sort((a,b)=>(rank[b]||0)-(rank[a]||0))[0]||"not_stated";
   }
-  function observationFieldStatusLabel(status) {
-    return ({provided:"указан",not_stated:"не указан",not_recorded:"не записан",
-      unknown:"неизвестен",none_reported:"сообщено об отсутствии"})[status]||"не указан";
+  function observationFieldStatusLabel(status,field="context") {
+    const labels={
+      provided:{context:"указан",timing:"указано",criterion:"указан"},
+      not_stated:{context:"не указан",timing:"не указано",criterion:"не указан"},
+      not_recorded:{context:"не записан",timing:"не записано",criterion:"не записан"},
+      unknown:{context:"неизвестен",timing:"неизвестно",criterion:"неизвестен"},
+      none_reported:{context:"сообщено об отсутствии",timing:"сообщено об отсутствии",criterion:"сообщено об отсутствии"}
+    };
+    return labels[status]?.[field]||labels.not_stated[field];
   }
   function reviewReadinessForEdge(subject,object) {
     const observations=memories.flatMap(entry=>entry.claims||[]).filter(claim=>
@@ -678,7 +684,7 @@
       const decision=modelDecisionForEdge(row);
       answer+="Звено: "+row.subject+" → "+row.object+"\n";
       answer+="Прямые уникальные наблюдения: согласующиеся — "+row.supportingCount+"; противоположные — "+row.challengingCount+".\n";
-      answer+="Контекст: "+observationFieldStatusLabel(row.contextStatus)+" · Время: "+observationFieldStatusLabel(row.timingStatus)+" · Критерий результата: "+observationFieldStatusLabel(row.criterionStatus)+".\n";
+      answer+="Контекст: "+observationFieldStatusLabel(row.contextStatus,"context")+" · Время: "+observationFieldStatusLabel(row.timingStatus,"timing")+" · Критерий результата: "+observationFieldStatusLabel(row.criterionStatus,"criterion")+".\n";
       if(row.answerIds.length)answer+="Уточнения пользователя: "+row.answerIds.join(", ")+" (контекстные сведения, не независимая проверка).\n";
       answer+="Оценка: "+row.label+".\n";
       if(row.blockers.length)answer+="Что ещё необходимо: "+row.blockers.join("; ")+".\n";
