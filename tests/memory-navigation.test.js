@@ -446,4 +446,31 @@ assert.doesNotMatch(feed.children[feed.children.length-1].textContent,/НОВЫ�
 assert.ok(JSON.parse(database.get("neurogenesis.model-evidence.v1")).length>=1,
   "new model-evidence events should persist separately from memories and decisions");
 
-console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and causal model revision: passed.");
+
+// Goal-directed inquiry creates source-linked questions, avoids duplicates and stores attributed answers.
+input.value = "Найди пробелы в знаниях";
+document.getElementById("ask-button").dispatch("click");
+const inquiryReport=feed.children[feed.children.length-1].textContent;
+assert.match(inquiryReport,/ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН/u);
+const openInquiry=window.NGMemory.inquiries().find(item=>item.status==="open");
+assert.ok(openInquiry,"causal archive should produce a targeted open question");
+assert.ok(openInquiry.sourceClaimIds.length>0,"questions should retain source-claim links");
+assert.match(openInquiry.question,/наблюден|услови/u,"question should identify a knowledge gap");
+const inquiryCountBefore=window.NGMemory.inquiries().length;
+input.value = "Найди пробелы в знаниях";
+document.getElementById("ask-button").dispatch("click");
+assert.equal(window.NGMemory.inquiries().length,inquiryCountBefore,"repeated discovery must not duplicate questions");
+input.value = "Ответ на вопрос "+openInquiry.id+": Наблюдение было сделано вечером, результат оценивался по самочувствию.";
+document.getElementById("remember-button").dispatch("click");
+const answeredInquiry=window.NGMemory.inquiries().find(item=>item.id===openInquiry.id);
+assert.equal(answeredInquiry.status,"answered","explicitly prefixed answer should attach to the inquiry");
+assert.equal(answeredInquiry.responseText,"Наблюдение было сделано вечером, результат оценивался по самочувствию.");
+assert.ok(answeredInquiry.responseMemoryId,"answer should link to its saved memory");
+assert.ok(JSON.parse(database.get("neurogenesis.inquiries.v1")).some(item=>item.id===openInquiry.id&&item.status==="answered"),
+  "inquiry answer provenance should persist");
+input.value = "Какие вопросы открыты?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/ПОЛУЧЕННЫЕ ОТВЕТЫ/u);
+assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openInquiry.id));
+
+console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and goal-directed inquiry: passed.");

@@ -6,9 +6,11 @@
   const MODEL_DECISIONS_KEY = "neurogenesis.model-decisions.v1";
   const MODEL_EVIDENCE_KEY = "neurogenesis.model-evidence.v1";
   const REASONING_ARCHIVE_KEY = "neurogenesis.reasoning-archive.v1";
+  const INQUIRIES_KEY = "neurogenesis.inquiries.v1";
   const MAX_MODEL_DECISIONS = 32;
   const MAX_MODEL_EVIDENCE = 64;
   const MAX_REASONING_ARCHIVE = 128;
+  const MAX_INQUIRIES = 48;
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
   const MAX_DIALOG_TEXT = 4200;
@@ -22,6 +24,8 @@
   let modelDecisions = [];
   let modelEvidence = [];
   let reasoningArchive = [];
+  let inquiries = [];
+  let nextInquiryNumber = 1;
   let tagTrace = Object.create(null);
   let libraryOpen = false;
   let libraryLimit = 20;
@@ -293,6 +297,138 @@
           row.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
       if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
     }
+  }
+  function cleanInquiry(raw) {
+    if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !/^Q\d{1,8}$/u.test(raw.id) ||
+        typeof raw.signature !== "string" || typeof raw.question !== "string") return null;
+    return {id:raw.id,signature:raw.signature.slice(0,500),
+      kind:["contrast_observations","clarify_counterexample","missing_observation"].includes(raw.kind)?raw.kind:"missing_observation",
+      edgeSubject:typeof raw.edgeSubject==="string"?raw.edgeSubject.slice(0,180):"",
+      edgeObject:typeof raw.edgeObject==="string"?raw.edgeObject.slice(0,180):"",
+      question:raw.question.slice(0,700),reason:typeof raw.reason==="string"?raw.reason.slice(0,700):"",
+      priority:Math.max(0,Math.min(9,Number(raw.priority)||0)),
+      status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
+      sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+      createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
+      lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,900):"",
+      responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",
+      responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+      answeredAt:safeTime(raw.answeredAt,0)};
+  }
+  function mergeInquiryHistory(existing,incoming) {
+    const unique=new Map();
+    for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
+      const item=cleanInquiry(raw);if(!item)continue;
+      const previous=unique.get(item.signature);
+      if(!previous||item.updatedAt>=previous.updatedAt) {
+        if(previous&&item.id!==previous.id)item.id=previous.id;
+        unique.set(item.signature,item);
+      }
+    }
+    const result=[...unique.values()].sort((a,b)=>a.createdAt-b.createdAt).slice(-MAX_INQUIRIES);
+    const nums=result.map(x=>Number(x.id.slice(1))).filter(Number.isFinite);
+    nextInquiryNumber=Math.max(nextInquiryNumber,nums.length?Math.max(...nums)+1:1);
+    return result;
+  }
+  function inquiryEdgeKey(subject,object) {
+    const key=value=>KNOWLEDGE&&KNOWLEDGE.canonicalEntity?KNOWLEDGE.canonicalEntity(value):normalise(value);
+    return key(subject)+"|"+key(object);
+  }
+  function inquiryCandidates() {
+    const claims=memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&claim.status!=="superseded");
+    const edges=new Map();
+    for(const entry of reasoningArchive) {
+      const meta=cleanReasoning(entry.reasoning);if(!meta)continue;
+      for(const conclusion of meta.conclusions)for(const path of conclusion.paths)for(const edge of path) {
+        const key=inquiryEdgeKey(edge.subject,edge.object);
+        if(!edges.has(key))edges.set(key,{subject:edge.subject,object:edge.object});
+      }
+    }
+    const candidates=[];
+    for(const edge of edges.values()) {
+      const obs=claims.filter(c=>c.kind==="observation"&&KNOWLEDGE.sameEntity(c.subject,edge.subject)&&KNOWLEDGE.sameEntity(c.object,edge.object));
+      const positive=obs.filter(c=>c.polarity!==false),negative=obs.filter(c=>c.polarity===false);
+      const causal=claims.filter(c=>c.kind==="causal"&&KNOWLEDGE.sameEntity(c.subject,edge.subject)&&KNOWLEDGE.sameEntity(c.object,edge.object));
+      const sourceClaimIds=[...new Set([...causal,...obs].map(c=>c.id).filter(Boolean))].slice(0,12);
+      if(positive.length&&negative.length) {
+        candidates.push({signature:"contrast_observations|"+inquiryEdgeKey(edge.subject,edge.object),kind:"contrast_observations",
+          edgeSubject:edge.subject,edgeObject:edge.object,priority:0,sourceClaimIds,
+          question:"В чём различались обстоятельства двух наблюдений по связи «"+edge.subject+" → "+edge.object+"»? Уточни контекст, время и то, как определялся результат. Не нужно специально создавать какие-либо условия.",
+          reason:"В памяти есть наблюдение с результатом и противоположное наблюдение для того же звена. Нужно понять, относятся ли они к разным условиям или действительно противоречат друг другу."});
+      } else if(negative.length) {
+        candidates.push({signature:"clarify_counterexample|"+inquiryEdgeKey(edge.subject,edge.object),kind:"clarify_counterexample",
+          edgeSubject:edge.subject,edgeObject:edge.object,priority:1,sourceClaimIds,
+          question:"Можешь уточнить контекст наблюдения, в котором «"+edge.subject+"» присутствовало, а «"+edge.object+"» не наблюдалось? Важно понять время, условия и критерий результата.",
+          reason:"Найден потенциальный контрпример к сохранённой причинной связи. Нужно уточнить обстоятельства, не отбрасывая ни исходную запись, ни наблюдение."});
+      } else if(!obs.length) {
+        candidates.push({signature:"missing_observation|"+inquiryEdgeKey(edge.subject,edge.object),kind:"missing_observation",
+          edgeSubject:edge.subject,edgeObject:edge.object,priority:2,sourceClaimIds,
+          question:"Есть ли у тебя конкретные естественные наблюдения, которые помогают проверить связь «"+edge.subject+" → "+edge.object+"»? Подойдут случаи с наличием и отсутствием исходного условия, а также с наличием и отсутствием результата.",
+          reason:"В архиве есть причинное звено, но в памяти нет отдельных наблюдений, непосредственно проверяющих его. Отсутствие данных не подтверждает и не опровергает связь."});
+      }
+    }
+    return candidates.sort((a,b)=>a.priority-b.priority);
+  }
+  function refreshInquiryQueue() {
+    let added=0,changed=false;
+    for(const c of inquiryCandidates()) {
+      const old=inquiries.find(x=>x.signature===c.signature);
+      if(old) {
+        if(old.status==="open"&&(old.question!==c.question||old.reason!==c.reason)) {
+          old.question=c.question;old.reason=c.reason;old.sourceClaimIds=c.sourceClaimIds;old.updatedAt=Date.now();changed=true;
+        }
+        continue;
+      }
+      if(inquiries.length>=MAX_INQUIRIES)break;
+      inquiries.push({id:"Q"+nextInquiryNumber++,signature:c.signature,kind:c.kind,edgeSubject:c.edgeSubject,edgeObject:c.edgeObject,
+        question:c.question,reason:c.reason,priority:c.priority,status:"open",sourceClaimIds:c.sourceClaimIds,
+        createdAt:Date.now(),updatedAt:Date.now(),lastAskedAt:0,responseText:"",responseMemoryId:"",responseClaimIds:[],answeredAt:0});
+      added++;changed=true;
+    }
+    if(changed)persist();
+    return {added,open:openInquiries(),answered:inquiries.filter(x=>x.status==="answered")};
+  }
+  function openInquiries() {
+    return inquiries.filter(x=>x.status==="open").sort((a,b)=>a.lastAskedAt-b.lastAskedAt||a.priority-b.priority||a.createdAt-b.createdAt);
+  }
+  function presentInquiry(item) {
+    if(!item)return "Сейчас у меня нет открытых исследовательских вопросов. Сначала сформируй причинные выводы или запусти «Найди пробелы в знаниях».";
+    item.lastAskedAt=Date.now();item.updatedAt=Date.now();persist();
+    return "ВОПРОС ДЛЯ УТОЧНЕНИЯ · "+item.id+"\n\n"+item.question+
+      "\n\nЗАЧЕМ Я СПРАШИВАЮ\n"+item.reason+
+      "\n\nОТВЕТ\nНажми «Запомнить» и начни ответ точно так:\nОтвет на вопрос "+item.id+": [твой ответ]\n\nОтвет будет сохранён как твоё сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом.";
+  }
+  function researchGapsAnswer() {
+    const r=refreshInquiryQueue();
+    if(!r.open.length)return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых открытых вопросов не получилось сформировать. Возможно, в архиве пока нет подходящих причинных выводов или найденные вопросы уже получили ответы.\n\nОчередь доступна командой «Какие вопросы открыты?».";
+    return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых вопросов: "+r.added+". Открыто: "+r.open.length+". Уже получили ответ: "+r.answered.length+".\n\nПриоритет отражает наличие противоречий и пробелов, а не вероятность истинности гипотез.\n\n"+presentInquiry(r.open[0]);
+  }
+  function inquiryOverviewAnswer() {
+    refreshInquiryQueue();
+    const open=openInquiries(),answered=inquiries.filter(x=>x.status==="answered"),skipped=inquiries.filter(x=>x.status==="skipped");
+    if(!inquiries.length)return "Очередь исследовательских вопросов пока пуста. Сохрани причинные выводы, затем попроси «Найди пробелы в знаниях».";
+    let answer="ИССЛЕДОВАТЕЛЬСКАЯ ОЧЕРЕДЬ\n\nОткрыто: "+open.length+" · Получили ответ: "+answered.length+" · Пропущено: "+skipped.length+"\n";
+    if(open.length)answer+="\nОТКРЫТЫЕ ВОПРОСЫ\n"+open.map(x=>"• "+x.id+" — "+x.edgeSubject+" → "+x.edgeObject+" · "+x.question).join("\n");
+    if(answered.length)answer+="\n\nПОЛУЧЕННЫЕ ОТВЕТЫ\n"+answered.slice(-5).map(x=>"• "+x.id+" — ответ сохранён"+(x.responseClaimIds.length?" · структурированных утверждений: "+x.responseClaimIds.length:" · текст без выделенных утверждений")).join("\n");
+    if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ");
+    return answer+"\n\nОтветы остаются пользовательскими сведениями. Они не подтверждают причинную связь автоматически.";
+  }
+  function skipInquiry(id) {
+    const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
+    if(!item)return "Не нашёл открытый вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
+    item.status="skipped";item.updatedAt=Date.now();persist();
+    return "Вопрос "+item.id+" помечен как пропущенный. Его история и источники сохранены.";
+  }
+  function recordInquiryResponse(id,response,memory,claims) {
+    const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
+    if(!item)return "";
+    item.status="answered";item.responseText=String(response||"").trim().slice(0,900);
+    item.responseMemoryId=memory&&memory.id||"";
+    item.responseClaimIds=[...new Set((claims||[]).map(c=>c&&c.id).filter(Boolean))].slice(0,12);
+    item.answeredAt=Date.now();item.updatedAt=item.answeredAt;persist();
+    return "ОТВЕТ ПРИВЯЗАН К "+item.id+"\nВ памяти сохранён ответ: «"+item.responseText+"»."+
+      (item.responseClaimIds.length?" Выделено структурированных утверждений: "+item.responseClaimIds.length+".":" Структурированное утверждение не выделено, но текст сохранён.")+
+      " Рабочая причинная модель не меняется автоматически.";
   }
   function mergeReviewFindings(existing,incoming) {
     const unique=new Map();
@@ -883,6 +1019,13 @@
       console.warn("Could not load NEUROGENESIS reasoning archive:",error);
     }
     try {
+      const savedInquiries=JSON.parse(localStorage.getItem(INQUIRIES_KEY)||"[]");
+      inquiries=mergeInquiryHistory([],savedInquiries);
+    } catch(error) {
+      inquiries=[];nextInquiryNumber=1;
+      console.warn("Could not load NEUROGENESIS inquiry queue:",error);
+    }
+    try {
       const savedEvidence=JSON.parse(localStorage.getItem(MODEL_EVIDENCE_KEY)||"[]");
       modelEvidence=mergeModelEvidenceHistory([],savedEvidence);
     } catch(error) {
@@ -949,8 +1092,12 @@
     try {
       localStorage.setItem(REASONING_ARCHIVE_KEY,JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE)));
     } catch(error) {
-      ok=false;
-      console.warn("NEUROGENESIS reasoning archive storage failed",error);
+      ok=false;console.warn("NEUROGENESIS reasoning archive storage failed",error);
+    }
+    try {
+      localStorage.setItem(INQUIRIES_KEY,JSON.stringify(inquiries.slice(-MAX_INQUIRIES)));
+    } catch(error) {
+      ok=false;console.warn("NEUROGENESIS inquiry queue storage failed",error);
     }
     if (!ok) setFeedback("Не удалось полностью сохранить данные: хранилище браузера заполнено или недоступно. Сделай экспорт резервной копии.");
     return ok;
@@ -1052,11 +1199,14 @@
     if (!clean) { setFeedback("Сначала напиши, что мне нужно запомнить."); return false; }
     const fragments = clean.split(/\n+|(?<=[.!?])\s+/u).map(x => x.trim()).filter(Boolean).slice(0, 8);
     let saved = 0, repeated = 0, skipped = 0;
+    const inquiryResponseNotes=[];
     for (const fragment of fragments) {
+      const answerMatch=fragment.match(/^ответ на вопрос\s+#?\s*(q\d+)\s*:\s*(.+)$/iu);
+      const knowledgeText=answerMatch?answerMatch[2].trim():fragment;
       const compact = normalise(fragment);
       if (compact.length < 3) continue;
       const tags = [...new Set(tokens(fragment))].slice(0, 6);
-      const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(fragment) : [];
+      const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(knowledgeText) : [];
       let item = memories.find(x => normalise(x.text) === compact);
       if (item) {
         item.strength = Math.min(1, (item.strength || 0.6) + 0.12);
@@ -1087,6 +1237,10 @@
         saved++;
         linkMemory(item, related);
       }
+      if(answerMatch) {
+        const note=recordInquiryResponse(answerMatch[1].toUpperCase(),knowledgeText,item,claims);
+        if(note)inquiryResponseNotes.push(note);
+      }
     }
     rebuildTagTraceIndex();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]));
@@ -1113,6 +1267,7 @@
     if(revisionNote)response+="\n\n"+revisionNote;
     const decisionEvidenceNote=formatNewModelEvidenceNote(decisionEvidence);
     if(decisionEvidenceNote)response+="\n\n"+decisionEvidenceNote;
+    if(inquiryResponseNotes.length)response+="\n\n"+inquiryResponseNotes.join("\n\n");
     if (!ok) response += " Но локальное сохранение не подтвердилось.";
     say("assistant", response);
     renderLibrary();
@@ -1146,6 +1301,17 @@
     const query = String(raw || "").trim();
     if (!query) { setFeedback("Напиши вопрос к моей памяти."); return; }
     const lower = normalise(query);
+    const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
+    if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    if(/^(?:найди пробелы в знаниях|исследуй пробелы в памяти|сформируй вопросы для проверки|обнови исследовательские вопросы)$/u.test(lower)) {
+      say("assistant",researchGapsAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПОИСК ПРОБЕЛОВ");return;
+    }
+    if(/^(?:задай мне вопрос|задай следующий вопрос|следующий исследовательский вопрос|какой вопрос ты хочешь мне задать|что тебе нужно уточнить)$/u.test(lower)) {
+      const r=refreshInquiryQueue();say("assistant",presentInquiry(r.open[0]));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ДЛЯ УТОЧНЕНИЯ");return;
+    }
+    if(/^(?:какие вопросы открыты|покажи исследовательские вопросы|что ты хочешь узнать|покажи очередь вопросов)$/u.test(lower)) {
+      say("assistant",inquiryOverviewAnswer());setFeedback("ИССЛЕДОВАНИЕ · ОЧЕРЕДЬ ВОПРОСОВ");return;
+    }
     if (/^(привет|здравствуй|добрый день|доброе утро|добрый вечер)(?:\s|$)/u.test(lower)) {
       say("assistant", "Привет. Я на связи. Можешь рассказать мне факт для памяти или спросить о том, что я уже сохранил.");
       return;
@@ -1321,6 +1487,8 @@
     memories = [];
     modelDecisions = [];
     modelEvidence = [];
+    inquiries = [];
+    nextInquiryNumber = 1;
     releaseUnusedTraces(oldIds);
     persist();
     renderLibrary();
@@ -1584,7 +1752,8 @@
         dialog,
         modelDecisions,
         modelEvidence,
-        reasoningArchive
+        reasoningArchive,
+        inquiries
       };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -1651,6 +1820,7 @@
       if(Array.isArray(data.modelEvidence))modelEvidence=mergeModelEvidenceHistory(modelEvidence,data.modelEvidence);
       reasoningArchive=mergeReasoningArchive(reasoningArchive,
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
+      if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();
@@ -1804,6 +1974,8 @@
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
     reasoningHistory: () => reasoningArchive.map(item=>({time:item.time,type:item.reasoning.type,conclusions:item.reasoning.conclusions,status:item.reasoning.status})),
+    inquiries: () => inquiries.map(item=>({...item,sourceClaimIds:item.sourceClaimIds.slice(),responseClaimIds:item.responseClaimIds.slice()})),
+    refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };
