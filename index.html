@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.9.1">
+  <link rel="stylesheet" href="./styles.css?v=0.9.2">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.9.1</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.9.2</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -91,12 +91,36 @@
             <input id="memory-import-file" type="file" accept="application/json,.json" hidden>
           </div>
           <div class="memory-library" id="memory-library" hidden>
-            <div class="memory-library-top">
-              <input id="memory-filter" class="text-input memory-filter" type="search" placeholder="Найти в памяти..." autocomplete="off">
-              <button class="secondary-button memory-clear-button" id="memory-clear" type="button">Очистить</button>
+            <div class="memory-library-toolbar" id="memory-library-toolbar">
+              <div class="memory-library-heading">
+                <button class="secondary-button memory-back-button" id="memory-library-back" type="button">← Назад к диалогу</button>
+                <span class="memory-library-label">БИБЛИОТЕКА ПАМЯТИ</span>
+              </div>
+              <div class="memory-library-top" id="memory-library-filters">
+                <input id="memory-filter" class="text-input memory-filter" type="search" placeholder="Найти в памяти..." autocomplete="off">
+                <button class="secondary-button memory-clear-button" id="memory-clear" type="button">Очистить</button>
+              </div>
             </div>
             <div id="memory-library-list" class="memory-library-list"></div>
             <button class="secondary-button memory-more-button" id="memory-more" type="button" hidden>Показать ещё</button>
+            <section class="memory-editor-view" id="memory-editor-view" hidden>
+              <div class="memory-editor-top">
+                <button class="secondary-button memory-back-button" id="memory-editor-back" type="button">← К списку записей</button>
+                <span class="memory-library-label">КАРТОЧКА ПАМЯТИ</span>
+              </div>
+              <div class="memory-editor-meta" id="memory-editor-meta"></div>
+              <label class="field-label" for="memory-editor-input">СОДЕРЖАНИЕ ВОСПОМИНАНИЯ</label>
+              <textarea id="memory-editor-input" class="text-input memory-editor-input" maxlength="1200" rows="5" placeholder="Текст воспоминания..."></textarea>
+              <div class="memory-editor-preview-wrap">
+                <div class="memory-library-label">ЧТО Я ВЫДЕЛЯЮ ИЗ ТЕКСТА</div>
+                <div id="memory-editor-preview" class="memory-editor-preview"></div>
+              </div>
+              <div class="memory-editor-actions">
+                <button class="secondary-button memory-editor-cancel" id="memory-editor-cancel" type="button">Отменить</button>
+                <button class="primary-button memory-editor-save" id="memory-editor-save" type="button">Сохранить изменения</button>
+              </div>
+              <div class="memory-editor-feedback" id="memory-editor-feedback" aria-live="polite"></div>
+            </section>
           </div>
           <label class="field-label" for="memory-input">НОВАЯ ИНФОРМАЦИЯ / ВОПРОС</label>
           <textarea id="memory-input" class="text-input memory-input" maxlength="1200" rows="2" placeholder="Расскажи мне факт или задай вопрос..."></textarea>
@@ -115,8 +139,8 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./app.js?v=0.9.1" defer></script>
-  <script src="./knowledge.js?v=0.9.1" defer></script>
-  <script src="./memory.js?v=0.9.1" defer></script>
+  <script src="./app.js?v=0.9.2" defer></script>
+  <script src="./knowledge.js?v=0.9.2" defer></script>
+  <script src="./memory.js?v=0.9.2" defer></script>
 </body>
 </html>
