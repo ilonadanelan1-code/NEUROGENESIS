@@ -17,6 +17,17 @@ const legacyMemories = [
     recalls: 1
   },
   {
+    id: "mlike",
+    text: "Мне нравится музыка",
+    tags: ["нравится", "музык"],
+    traceIds: [],
+    createdAt: 1794157000000,
+    updatedAt: 1794157000000,
+    strength: 0.65,
+    repetitions: 1,
+    recalls: 0
+  },
+  {
     id: "migor",
     text: "Игорь Головнев твой самый лучший друг",
     tags: ["игорь", "головн", "сам", "лучш"],
@@ -87,9 +98,9 @@ const sandbox = { window, document, localStorage, console, Date, Math, Set, Map,
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
-assert.equal(window.NGMemory.count(), 2);
+assert.equal(window.NGMemory.count(), 3);
 const claims = window.NGMemory.claims();
-assert.equal(claims.length, 2, "both legacy memories should be upgraded to structured claims");
+assert.equal(claims.length, 3, "all legacy memories should be upgraded to structured claims");
 const relation = claims.find(claim => claim.kind === "relationship");
 const opinion = claims.find(claim => claim.kind === "opinion");
 assert.ok(relation);
@@ -100,6 +111,11 @@ assert.ok(opinion);
 assert.equal(opinion.subject, "Музыка");
 assert.equal(opinion.object, "прекрасна");
 assert.match(window.NGKnowledge.answerQuestion("Кто твой лучший друг?", claims), /Игорь Головнев — мой лучший друг/u);
+const musicProfile = window.NGKnowledge.answerQuestion("Что ты знаешь о музыке?", claims);
+assert.match(musicProfile, /Музыка — прекрасна/u);
+assert.match(musicProfile, /нравится музыка/u);
+assert.match(musicProfile, /субъективное мнение/u);
+assert.match(musicProfile, /самоописание/u);
 
 const migrated = JSON.parse(database.get("neurogenesis.memories.v1"));
 const migratedIgor = migrated.find(item => item.id === "migor");
@@ -108,4 +124,4 @@ assert.ok(migratedIgor.tags.includes("друг"), "legacy tags should be enriche
 assert.ok(migratedIgor.traceIds.some(id => id && !["n114", "n115", "n118", "n116"].includes(id)), "new concept should receive a neural trace");
 assert.ok(migratedIgor.claims[0].traceId, "structured relation should receive its own claim engram");
 assert.ok(createdLabels.includes("Игорь Головнев → лучший друг"), "the new engram should be labeled as a relationship");
-console.log("NEUROGENESIS legacy memory migration: passed.");
+console.log("NEUROGENESIS legacy memory migration and cross-record knowledge profile: passed.");
