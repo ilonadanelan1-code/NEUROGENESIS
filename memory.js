@@ -363,8 +363,11 @@
       const affected=row.report.challengedEdges.some(edge=>row.conclusion.paths.some(path=>path.some(item=>
         KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
       if(!affected)continue;
+      const internalNodes=new Set(row.conclusion.paths.flatMap(path=>
+        path.slice(1).map(edge=>KNOWLEDGE.canonicalEntity(edge.subject))
+          .concat(path.length?KNOWLEDGE.canonicalEntity(path[path.length-1].object):[])));
       for(const root of candidateRoots) {
-        if(KNOWLEDGE.sameEntity(root,row.conclusion.subject))continue;
+        if(KNOWLEDGE.sameEntity(root,row.conclusion.subject)||internalNodes.has(KNOWLEDGE.canonicalEntity(root)))continue;
         const paths=findAlternativeCausalPaths(root,row.conclusion.object,allClaims,[]);
         for(const path of paths) {
           const key=path.map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)).join(">");

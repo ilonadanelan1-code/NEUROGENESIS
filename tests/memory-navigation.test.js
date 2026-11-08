@@ -297,6 +297,8 @@ assert.match(modelReply,/Недостаток сна → усталости — 
 assert.match(modelReply,/Усталость → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,"the model should preserve uncertainty for unobserved edges");
 assert.match(modelReply,/Альтернативного маршрута от исходного понятия/u,"the model must not invent a substitute route when no route exists");
 assert.match(modelReply,/Обезвоживание → усталости → снижению концентрации/u,"a separate route to the outcome should remain a parallel hypothesis, not a replacement");
+const parallelModelSection=modelReply.split("ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ")[1]||"";
+assert.doesNotMatch(parallelModelSection,/Усталость → снижению концентрации/u,"an intermediate mediator should not be mislabeled as a separate alternative cause");
 assert.match(document.getElementById("memory-feedback").textContent,/ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ/u);
 const modelDialog=JSON.parse(database.get("neurogenesis.dialog.v1"));
 const modelEntry=modelDialog.filter(item=>item.role==="assistant"&&item.text.includes("ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ")).slice(-1)[0];
