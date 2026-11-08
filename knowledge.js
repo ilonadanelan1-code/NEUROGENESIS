@@ -23,7 +23,7 @@
   }
   function makeClaim(kind, subject, predicate, object, evidence, verification, extractionConfidence, polarity = true) {
     const cleanEvidence = cleanPart(evidence, 1200);
-    const claim = {id:makeId(kind,cleanEvidence),kind,subject:cleanPart(subject),predicate:cleanPart(predicate,80),object:cleanPart(object,180),holder:"user",polarity,source:"user_message",evidence:cleanEvidence,verification,extractionConfidence,createdAt:Date.now()};
+    const claim = {id:makeId(kind,cleanEvidence),kind,subject:cleanPart(subject),predicate:cleanPart(predicate,80),object:cleanPart(object,180),holder:"user",polarity,source:"user_message",evidence:cleanEvidence,verification,extractionConfidence,traceId:null,createdAt:Date.now()};
     return claim.subject && claim.predicate && claim.object ? claim : null;
   }
   function extractRelationship(text) {
@@ -87,15 +87,19 @@
       if (!kind || !subject || !predicate || !object) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
-      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now()};
+      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now()};
     }).filter(Boolean);
   }
   function mergeClaims(existing,incoming) {
     const merged=[...sanitizeClaims(existing),...sanitizeClaims(incoming)],seen=new Set();
-    return merged.filter(claim=>{
+    const result=[];
+    for(const claim of merged){
       const key=[claim.kind,normalise(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
-      if(seen.has(key))return false;seen.add(key);return true;
-    }).slice(0,12);
+      const prior=result.find(item=>[item.kind,normalise(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
+      if(prior){if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;continue;}
+      if(!seen.has(key)){seen.add(key);result.push(claim);}
+    }
+    return result.slice(0,12);
   }
   function claimLabel(claim) {
     if(!claim)return "";
