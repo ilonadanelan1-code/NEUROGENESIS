@@ -834,7 +834,7 @@ assert.equal(window.NGMemory.modelDecisions().length,0,"evidence reconciliation 
 
 // Chronology must use explicit event dates rather than memory save timestamps.
 const timelineCase=(id,claimId,text,polarity,timing,createdAt,timingStatus="provided")=>({
-  id,text,tags:["хронология"],traceIds:[],createdAt,updatedAt:createdAt,strength:.65,repetitions:1,recalls:0,
+  id,text:"Запись события "+id,tags:["хронология"],traceIds:[],createdAt,updatedAt:createdAt,strength:.65,repetitions:1,recalls:0,
   claims:[{id:claimId,kind:"observation",subject:"Фактор Время",predicate:"наблюдение",object:"Результат",
     holder:"user",polarity,source:"user_message",evidence:text,verification:"unverified",
     extractionConfidence:.9,traceId:null,createdAt,status:"current",sourceMemoryId:id,
