@@ -452,8 +452,44 @@
       if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
     }
   }
+  function duplicateInquiryResolution(response) {
+    const text=String(response||"").toLocaleLowerCase("ru").replace(/ё/gu,"е");
+    const separate=/(?:разн(?:ые|ых|ыми)\s+(?:эпизод\w*|случа\w*|событи\w*|наблюден\w*)|два\s+(?:разных|отдельных)\s+(?:эпизод\w*|случа\w*|событи\w*|наблюден\w*)|отдельн\w+\s+(?:эпизод\w*|случа\w*|событи\w*|наблюден\w*)|кажд\w+\s+карточк\w+\s+отдельно|не\s+(?:один\s+и\s+тот\s+же|одно\s+и\s+то\s+же))/u.test(text);
+    if(separate)return "separate_events";
+    const same=/(?:один\s+(?:и\s+тот\s+же\s+)?(?:эпизод\w*|случа\w*|событи\w*|наблюден\w*)|одно\s+(?:и\s+то\s+же|событи\w*|наблюден\w*)|это\s+один\s+и\s+тот\s+же|тот\s+же\s+эпизод|считай\s+(?:их\s+)?одним)/u.test(text);
+    return same?"same_event":null;
+  }
+  function applyDuplicateInquiryResolution(item,resolution) {
+    if(!item||item.kind!=="duplicate_observation"||!["same_event","separate_events"].includes(resolution))return {updated:0,missing:[]};
+    const ids=[...new Set(item.sourceClaimIds||[])];
+    const found=[],missing=[];
+    for(const id of ids) {
+      let match=null;
+      for(const memory of memories) {
+        match=(memory.claims||[]).find(claim=>claim&&claim.id===id&&claim.kind==="observation"&&
+          KNOWLEDGE.sameEntity(claim.subject,item.edgeSubject)&&KNOWLEDGE.sameEntity(claim.object,item.edgeObject));
+        if(match)break;
+      }
+      if(!match){missing.push(id);continue;}
+      found.push(match);
+    }
+    if(found.length<2)return {updated:0,missing};
+    const base="ng-"+item.id.toLowerCase()+"-episode";
+    found.forEach((claim,index)=>{
+      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
+      claim.observationCase={...details,schema:2,eventRef:resolution==="same_event"?base:base+"-"+(index+1)};
+    });
+    item.resolution=resolution;
+    item.resolvedEventRefs=resolution==="same_event"?[base]:found.map((claim,index)=>base+"-"+(index+1));
+    return {updated:found.length,missing};
+  }
   function inquiryAssessmentFor(item) {
     const text=normalise(item&&item.responseText||"");
+    if(item&&item.kind==="duplicate_observation") {
+      if(item.resolution==="same_event")return {assessment:"duplicate_same_event",reason:"Пользователь уточнил, что карточки относятся к одному эпизоду. Им присвоен общий идентификатор события; число независимых случаев уменьшено. Это уточнение происхождения записей, а не подтверждение причинной связи."};
+      if(item.resolution==="separate_events")return {assessment:"duplicate_separate_events",reason:"Пользователь уточнил, что карточки относятся к разным эпизодам. Каждой карточке присвоен отдельный идентификатор события; они учитываются раздельно."};
+      return {assessment:"duplicate_unresolved",reason:"Ответ пока не позволяет однозначно определить, описывают ли карточки один эпизод или разные. Их группировка не изменена; требуется уточнение."};
+    }
     if(!text)return {assessment:"unassessed",reason:"Ответ не содержит текста для оценки."};
     if(item.kind==="contrast_observations"||item.kind==="clarify_counterexample") {
       const noContext=/не указа|нет точн|неизвестн|не хватает информац|не могу установ|нет сведени|нет информац|не располага|контекст отсутств|условия не сохран/u.test(text);
@@ -482,7 +518,11 @@
   function inquiryAssessmentLabel(item) {
     return ({insufficient_context:"контекст не установлен",gap_confirmed:"отсутствие наблюдений отмечено",
       context_reported_unverified:"контекст указан, но не проверен",
-      observations_reported_unverified:"наблюдения заявлены, но не проверены",unassessed:"ответ ещё не оценён"})[item&&item.assessment]||"ответ ещё не оценён";
+      observations_reported_unverified:"наблюдения заявлены, но не проверены",
+      duplicate_same_event:"карточки подтверждены как один эпизод",
+      duplicate_separate_events:"карточки подтверждены как разные эпизоды",
+      duplicate_unresolved:"идентичность эпизодов пока не уточнена",
+      unassessed:"ответ ещё не оценён"})[item&&item.assessment]||"ответ ещё не оценён";
   }
   function inquiryAssessmentReport() {
     refreshInquiryQueue();
@@ -1165,7 +1205,32 @@
   function recordInquiryResponse(id,response,memory,claims) {
     const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
     if(!item)return "";
-    item.status="answered";item.responseText=String(response||"").trim().slice(0,MAX_TEXT);
+    const responseText=String(response||"").trim().slice(0,MAX_TEXT);
+    if(item.kind==="duplicate_observation") {
+      const resolution=duplicateInquiryResolution(responseText);
+      if(!resolution) {
+        item.clarificationNote=responseText.slice(0,700);
+        item.updatedAt=Date.now();persist();
+        return "УТОЧНЕНИЕ ПО "+item.id+" ПОКА НЕОДНОЗНАЧНО\nТекст сохранён, но группировка карточек не изменена. Ответь однозначно: «один эпизод» или «разные эпизоды». Если это несколько групп, перечисли отдельно, какие карточки относятся к одному эпизоду.";
+      }
+      const applied=applyDuplicateInquiryResolution(item,resolution);
+      if(applied.updated<2) {
+        item.clarificationNote="Не удалось найти исходные карточки для применения ответа: "+applied.missing.join(", ");
+        item.updatedAt=Date.now();persist();
+        return "НЕ УДАЛОСЬ ПРИМЕНИТЬ УТОЧНЕНИЕ "+item.id+"\nЯ не нашёл минимум две исходные карточки в памяти. Никакие идентификаторы событий не изменены; проверь, не были ли записи удалены.";
+      }
+      item.status="answered";item.responseText=responseText;item.responseMemoryId=memory&&memory.id||"";
+      item.responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(responseText,"inquiry_response"):null;
+      if(item.responseDetails)item.responseDetails.sourceRef=item.id;
+      item.responseClaimIds=[];item.answeredAt=Date.now();item.updatedAt=item.answeredAt;
+      applyInquiryAssessment(item);persist();
+      const same=resolution==="same_event";
+      return "УТОЧНЕНИЕ ПРИМЕНЕНО · "+item.id+"\n"+
+        (same?"Карточкам присвоен общий идентификатор одного события.":"Карточкам присвоены разные идентификаторы событий.")+
+        " Исходные записи и их тексты сохранены; изменена только привязка к эпизодам. Теперь эти карточки "+(same?"не считаются независимыми событиями.":"учитываются как отдельные события.")+
+        " Причинная связь от этого не считается подтверждённой.";
+    }
+    item.status="answered";item.responseText=responseText;
     item.responseMemoryId=memory&&memory.id||"";
     item.responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response"):null;
     if(item.responseDetails)item.responseDetails.sourceRef=item.id;
