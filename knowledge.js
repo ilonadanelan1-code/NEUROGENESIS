@@ -70,10 +70,12 @@
     return makeClaim("relationship", subject, relation, owner, text, "unverified", 0.96, polarity);
   }
   function extractAssistantIdentity(text) {
-    const match = text.match(/^(?:ты|вы)\s*(?:[—–-]\s*)?(?:мой|моя|моё|мое)\s+(ассистент|оссистент|асистент|assistant|помощник|помощница)$/iu);
+    const match = text.match(/^(?:(теперь|с\s+этого\s+момента|отныне)\s+)?(?:ты|вы)\s*(?:[—–-]\s*)?(?:мой|моя|моё|мое)\s+(ассистент|оссистент|асистент|assistant|помощник|помощница|советник|собеседник|компаньон|партнер|партнёр|друг)$/iu);
     if (!match) return null;
-    const role = ({ "оссистент":"ассистент", "асистент":"ассистент", "assistant":"ассистент" })[match[1].toLowerCase()] || match[1].toLowerCase();
-    return makeClaim("identity","assistant","роль",role,text,"self_reported",0.98);
+    const role = ({ "оссистент":"ассистент", "асистент":"ассистент", "assistant":"ассистент" })[match[2].toLowerCase()] || match[2].toLowerCase();
+    const claim = makeClaim("identity","assistant","роль",role,text,"self_reported",0.98);
+    if (claim) { claim.revision = !!match[1]; claim.status = "current"; }
+    return claim;
   }
   function extractAssistantCreator(text) {
     const match = text.match(/^(?:твоего\s+создателя\s+зовут|твой\s+создатель\s*(?:[—–-]\s*|это\s+|\s+)|тебя\s+создал(?:а|и)?\s+)(.+)$/iu);
@@ -150,7 +152,7 @@
       if (!kind || !subject || !predicate || !object) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
-      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now()};
+      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null};
     }).filter(Boolean);
   }
   function mergeClaims(existing,incoming) {
@@ -262,16 +264,31 @@
     const qWords = new Set(q.split(/\s+/u));
     const queryTokens = new Set(tokens(q));
     const hasAny = words => words.some(word => qWords.has(word));
+    if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
+      const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status!=="superseded");
+      const latest = current[current.length-1];
+      const past = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status==="superseded"&&(!latest||claim.supersededBy===latest.id));
+      if (past.length) {
+        const roles = [...new Map(past.map(claim=>[normalise(claim.object),claim])).values()];
+        return "Ранее ты задавал мне роль " + roles.map(claim=>"«"+claim.object+"»").join(", ") +
+          ". Я сохранил прежнее описание в истории. Источник: «" + roles[roles.length-1].evidence + "».";
+      }
+      return "Я не нашёл в памяти прежнего описания своей роли.";
+    }
     if (/^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(q)) {
-      const identities = claims.filter(claim => claim.kind === "identity" && claim.subject === "assistant" && claim.polarity);
+      const identities = claims.filter(claim => claim.kind === "identity" && claim.subject === "assistant" && claim.polarity && claim.status !== "superseded");
       const roles = [...new Set(identities.map(claim => normalise(claim.object)))];
       if (roles.length > 1) {
-        return "В памяти есть несколько описаний моей роли: " + [...new Set(identities.map(claim => claim.object))].join(", ") +
-          ". Я не стану выбирать одно наугад. Уточни, какое описание оставить актуальным.";
+        return "В памяти есть несколько актуальных описаний моей роли: " + [...new Set(identities.map(claim => claim.object))].join(", ") +
+          ". Я не стану выбирать одно наугад. Скажи, какое описание оставить актуальным.";
       }
       if (identities.length) {
         const claim = identities[identities.length - 1];
-        return "По твоему сообщению, я — " + claim.object + ". Ты задал мне эту роль, и я сохранил её в памяти. Источник: «" + claim.evidence + "».";
+        const previous = claims.filter(item=>item.kind==="identity"&&item.subject==="assistant"&&item.status==="superseded"&&item.supersededBy===claim.id);
+        let answer = (claim.revision ? "По твоему последнему уточнению" : "По твоему сообщению") + ", я — " + claim.object +
+          ". Ты задал мне эту роль, и я сохранил её в памяти. Источник: «" + claim.evidence + "».";
+        if (previous.length) answer += " Ранее ты называл меня " + [...new Set(previous.map(item=>item.object))].join(", ") + "; прежняя роль сохранена в истории.";
+        return answer;
       }
     }
     const target = hasAny(["твой","твоя","твое","твои","твоего","твоей","твоему","твоим","твою"]) || (qWords.has("у") && qWords.has("тебя")) ? "assistant" :
@@ -390,8 +407,8 @@
           } else if (!sameSubject && sameObject && a.polarity && b.polarity && isBestFriend(a) && isBestFriend(b)) {
             conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
           }
-        } else if (a.kind === "identity" && sameEntity(a.subject,b.subject) &&
-          (a.polarity !== b.polarity || !sameEntity(a.object,b.object))) {
+        } else if (a.kind === "identity" && a.status !== "superseded" && b.status !== "superseded" &&
+          sameEntity(a.subject,b.subject) && (a.polarity !== b.polarity || !sameEntity(a.object,b.object))) {
           conflicts.push({type:"possible",left:a,right:b,reason:"Для ассистента сохранены разные описания роли."});
         } else if (a.kind === "fact" && sameEntity(a.subject,b.subject) &&
           relationFamily(a.predicate) === relationFamily(b.predicate) && !sameEntity(a.object,b.object)) {
@@ -404,10 +421,33 @@
     }
     return conflicts;
   }
+  function reconcileIdentityHistory(input) {
+    const claims = Array.isArray(input) ? input : [];
+    const identities = claims.map((claim,index)=>({claim,index}))
+      .filter(row=>row.claim&&row.claim.kind==="identity"&&row.claim.subject==="assistant")
+      .sort((a,b)=>(Number(a.claim.createdAt)||0)-(Number(b.claim.createdAt)||0)||a.index-b.index)
+      .map(row=>row.claim);
+    const before = identities.map(claim=>[claim.id,claim.status,claim.supersededBy||null].join("|")).join(";");
+    for (const claim of identities) { claim.status = "current"; delete claim.supersededBy; }
+    const active = [];
+    for (const claim of identities) {
+      if (claim.revision) {
+        for (const prior of active) {
+          if (prior.id === claim.id) continue;
+          prior.status = "superseded";
+          prior.supersededBy = claim.id;
+        }
+        for (let i=active.length-1;i>=0;i--) if (active[i].status === "superseded") active.splice(i,1);
+      }
+      if (!active.some(prior=>prior.id===claim.id)) active.push(claim);
+    }
+    const after = identities.map(claim=>[claim.id,claim.status,claim.supersededBy||null].join("|")).join(";");
+    return before !== after;
+  }
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
     const conflicts=findConflicts(list);
-    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
+    return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:4,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
+  window.NGKnowledge={version:5,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
 })();
