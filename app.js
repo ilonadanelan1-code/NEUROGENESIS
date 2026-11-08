@@ -694,6 +694,25 @@
       }
       if (changed) { connectionsDirty = true; markDirty(); }
     },
+    removeMemoryTraces(ids) {
+      const doomed = new Set([...new Set((ids || []).filter(id => {
+        const neuron = neuronById.get(id);
+        return neuron && neuron.memoryTrace === true;
+      }))]);
+      if (!doomed.size) return 0;
+      neurons = neurons.filter(neuron => !doomed.has(neuron.id));
+      synapses = synapses.filter(edge => !doomed.has(edge.from) && !doomed.has(edge.to));
+      pulses = pulses.filter(pulse => !doomed.has(pulse.from) && !doomed.has(pulse.to));
+      for (const id of doomed) activeNeuronIds.delete(id);
+      rebuildIndexes();
+      if (doomed.has(selectedId)) selectedId = neurons[0]?.id || null;
+      if (doomed.has(connectFrom)) connectFrom = null;
+      renderInspector();
+      updateMetrics();
+      markDirty();
+      visualDirty = true;
+      return doomed.size;
+    },
     activateMemoryTraces(ids) {
       const unique = [...new Set((ids || []).filter(id => neuronById.has(id)))].slice(0, 8);
       for (const id of unique) activate(id, .72);
