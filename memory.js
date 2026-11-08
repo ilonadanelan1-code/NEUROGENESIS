@@ -116,6 +116,7 @@
       rebuildTagTraceIndex();
       if (repaired) memoryMigrated = true;
     }
+    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory && KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(item=>item.claims||[]))) memoryMigrated = true;
     if (memoryMigrated) { memoryMigrated = false; persist(); }
   }
   function persist() {
@@ -264,6 +265,7 @@
       }
     }
     rebuildTagTraceIndex();
+    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(item=>item.claims||[]));
     const ok = persist();
     if (!saved && !repeated && skipped) {
       const response = "Память заполнена: лимит — " + MAX_MEMORIES + " записей. Я не стал молча удалять старые воспоминания. Открой «Записи», удали ненужное или сделай экспорт.";
@@ -378,6 +380,7 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
+    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
     releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     persist();
     renderLibrary();
@@ -401,6 +404,7 @@
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
     item.updatedAt = Date.now();
+    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
     const related = memories.filter(entry => entry.id !== id && entry.tags.some(tag => tags.includes(tag))).slice(-4);
     linkMemory(item, related);
     releaseUnusedTraces(oldIds);
@@ -450,7 +454,7 @@
       row.className = "memory-preview-claim";
       const kind = document.createElement("span");
       kind.className = "memory-claim-kind";
-      kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+      kind.textContent = ({relationship:"СВЯЗЬ",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
       const label = document.createElement("span");
       label.textContent = KNOWLEDGE.claimLabel(claim);
       row.append(kind, label);
@@ -535,11 +539,13 @@
           line.className = "memory-entry-claim";
           const kind = document.createElement("span");
           kind.className = "memory-claim-kind";
-          kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+          kind.textContent = ({relationship:"СВЯЗЬ",identity:"РОЛЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
           const label = document.createElement("span");
           label.textContent = KNOWLEDGE.claimLabel(claim);
           const source = document.createElement("small");
           source.textContent = claim.verification === "subjective" ? "Субъективная оценка" : claim.verification === "self_reported" ? "Самоописание · источник: сообщение пользователя" : claim.verification === "hypothesis" ? "Предположение" : "Источник: сообщение пользователя · не проверено";
+          if (claim.kind==="identity" && claim.status==="superseded") source.textContent = "Прежняя роль · сохранена в истории";
+          else if (claim.revision) source.textContent = "Текущая роль · установлена последним уточнением";
           if (conflictIds.has(claim.id)) source.textContent += " · возможное противоречие";
           line.append(kind, label, source);
           structured.appendChild(line);
@@ -735,6 +741,7 @@
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
       }
       rebuildTagTraceIndex();
+      if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();
       renderLibrary();
       renderDialog();
