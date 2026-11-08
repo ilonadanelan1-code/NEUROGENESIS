@@ -1,6 +1,20 @@
 (() => {
   "use strict";
 
+  function bidirectionalPairs(ids, maxIds = 8) {
+    const limitValue = Number(maxIds);
+    const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(64, Math.floor(limitValue))) : 8;
+    const unique = [...new Set((Array.isArray(ids) ? ids : [])
+      .filter(id => typeof id === "string" && id.length > 0))].slice(0, limit);
+    const pairs = [];
+    for (let i = 0; i < unique.length; i++) {
+      for (let j = i + 1; j < unique.length; j++) {
+        pairs.push([unique[i], unique[j]], [unique[j], unique[i]]);
+      }
+    }
+    return pairs;
+  }
+
   function spread(seeds, edges, options = {}) {
     const optionNumber = (value, fallback) => {
       const number = Number(value);
@@ -52,5 +66,5 @@
     return [...best.values()].sort((a, b) => a.depth - b.depth || b.strength - a.strength);
   }
 
-  window.NGActivation = { version: 1, spread };
+  window.NGActivation = { version: 1, bidirectionalPairs, spread };
 })();
