@@ -166,18 +166,18 @@ input.value = "Что ты знаешь о музыке?";
 document.getElementById("ask-button").dispatch("click");
 const feed = document.getElementById("memory-feed");
 
-assert.ok(window.NGMemory.search("телефон").some(item=>item.text==="У меня есть смартфон"),"memory search should retrieve smartphone notes for a phone query through association");
-input.value = "Что ты знаешь о телефоне?";
-document.getElementById("ask-button").dispatch("click");
-assert.match(feed.children[feed.children.length-1].textContent,/смартфон/u,"the dialog should find related phone concepts instead of requiring an exact word match");
-assert.match(document.getElementById("memory-feedback").textContent,/АСОЦИАТИВНЫЙ ПОИСК/u,"the interface should disclose when recall used an associative match");
-
 const reply = feed.children[feed.children.length - 1].textContent;
 assert.match(reply,/Музыка — прекрасна/u,"the answer should include the opinion stored in the first memory");
 assert.match(reply,/нравится музыка/u,"the answer should combine the preference from a different memory");
 assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ/u,"the interface should identify the entity-profile retrieval path");
 assert.ok(associationCalls.length > associationCallsBeforeRecall, "co-recalled memory traces should reinforce their associations");
 assert.match(document.getElementById("memory-feedback").textContent,/\d+ СЛЕДОВ АКТИВИРОВАНО/u,"the interface should report associative trace activation");
+
+assert.ok(window.NGMemory.search("телефон").some(item=>item.text==="У меня есть смартфон"),"memory search should retrieve smartphone notes for a phone query through association");
+input.value = "Что ты знаешь о телефоне?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/смартфон/u,"the dialog should find related phone concepts instead of requiring an exact word match");
+assert.match(document.getElementById("memory-feedback").textContent,/АСОЦИАТИВНЫЙ ПОИСК/u,"the interface should disclose when recall used an associative match");
 
 input.value = "Кто ты?";
 document.getElementById("ask-button").dispatch("click");
