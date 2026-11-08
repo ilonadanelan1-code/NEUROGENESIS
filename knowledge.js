@@ -276,6 +276,35 @@
     answer += "\n\nЭто сведения из твоих сохранённых сообщений, а не независимо проверенные факты.";
     return answer;
   }
+  function userProfile(claims) {
+    const relevant = (Array.isArray(claims) ? claims : []).filter(claim => claim && (
+      (claim.kind==="fact" && claim.subject==="user") ||
+      (claim.kind==="preference" && claim.subject==="user") ||
+      (claim.kind==="relationship" && claim.object==="user") ||
+      (claim.kind==="hypothesis" && claim.subject==="user") ||
+      claim.kind==="opinion"
+    ));
+    const unique = [...new Map(relevant.map(claim=>[claim.id||[claim.kind,claim.evidence].join("|"),claim])).values()]
+      .sort((a,b)=>(Number(a.createdAt)||0)-(Number(b.createdAt)||0));
+    if (!unique.length) return "Пока в моей памяти нет конкретных сведений о тебе. Расскажи о себе через «Запомнить», и я смогу использовать эти записи в следующих вопросах.";
+    const visible = unique.slice(-12);
+    const sourceStatus = claim => claim.verification==="subjective" ? "твоя субъективная оценка" :
+      claim.verification==="self_reported" ? "самоописание из твоего сообщения" :
+      claim.verification==="hypothesis" ? "твоя гипотеза" : "сообщение пользователя · не проверено";
+    const label = claim => {
+      if (claim.kind==="relationship" && claim.object==="user") return claim.subject+" — "+(claim.polarity?"твой ":"не твой ")+claim.predicate;
+      if (claim.kind==="opinion") return "Твоя оценка: "+claimLabel(claim);
+      if (claim.kind==="hypothesis") return "Твоё предположение: "+claim.object;
+      return claimLabel(claim);
+    };
+    const lines = visible.map(claim=>"• "+label(claim)+"\n  Источник: «"+String(claim.evidence||"").slice(0,220)+"» · "+sourceStatus(claim));
+    const conflicts = findConflicts(unique);
+    let answer = "Вот что я могу собрать о тебе из сохранённых сообщений ("+unique.length+" утверждений):\n\n"+lines.join("\n\n");
+    if (unique.length>visible.length) answer += "\n\nПоказаны последние "+visible.length+" из "+unique.length+" записей.";
+    if (conflicts.length) answer += "\n\nВнимание: некоторые записи противоречат друг другу или могут конфликтовать. Я не выбираю одну версию автоматически.";
+    answer += "\n\nЭто сведения, которыми ты поделился со мной, а не независимо проверенные факты.";
+    return answer;
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -284,6 +313,11 @@
     const hasAny = words => words.some(word => qWords.has(word));
     if (/^(?:что ты умеешь|что умеешь|что ты можешь|какие у тебя возможности|что может нейрогенезис|как ты устроен)$/u.test(q)) {
       return capabilitiesAnswer();
+    }
+    if (/^(?:что ты знаешь|что ты помнишь|что тебе известно)\s+(?:обо мне|о мне|про меня)$/u.test(q) ||
+        /^(?:расскажи|расскажи мне)\s+(?:обо мне|про меня)$/u.test(q) ||
+        /^каким ты меня знаешь$/u.test(q)) {
+      return userProfile(claims);
     }
     if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
       const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status!=="superseded");
@@ -472,5 +506,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:6,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
+  window.NGKnowledge={version:7,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
 })();
