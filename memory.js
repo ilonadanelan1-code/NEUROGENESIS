@@ -1297,8 +1297,6 @@
     if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
     let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
     answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
-    const evidenceEdges=[...new Map(uniqueReports.flatMap(row=>row.report.edgeStates.map(edge=>[modelDecisionKey(edge.subject,edge.object),{subject:edge.subject,object:edge.object,baselineAt:row.report.meta.createdAt}]))).values()];
-    if(evidenceEdges.length)answer+=evidenceEdges.slice(0,8).map((edge,index)=>observationEvidenceDossierText(edge,index+1)).join("\n\n")+"\n\n";
     const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
     if(inquiryAnswers.length) {
       answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
