@@ -83,6 +83,40 @@ assert.equal(mergedFacts[0].kind, "fact");
 assert.equal(knowledge.summary([relationship, opinion, location]).facts, 1);
 assert.equal(knowledge.summary([relationship, secondBestFriend]).conflicts, 1);
 
+const reverseFriend = knowledge.extractClaims("Мой самый лучший друг — Игорь Головнев")[0];
+assert.equal(reverseFriend.kind, "relationship");
+assert.equal(reverseFriend.subject, "Игорь Головнев");
+assert.equal(reverseFriend.object, "user");
+assert.equal(reverseFriend.predicate, "лучший друг");
+assert.match(knowledge.answerQuestion("Кто мой лучший друг?", [reverseFriend]), /Игорь Головнев — твой лучший друг/u);
+
+const reverseFemale = knowledge.extractClaims("Моя лучшая подруга — Аня")[0];
+assert.equal(reverseFemale.object, "user");
+assert.match(knowledge.answerQuestion("Кто моя лучшая подруга?", [reverseFemale]), /Аня — твоя лучшая подруга/u);
+
+assert.equal(knowledge.sameEntity("Игорь Головнев", "Игоря Головнева"), true);
+const declinedConflict = knowledge.findConflicts([
+  knowledge.extractClaims("Игорь Головнев — мой друг")[0],
+  knowledge.extractClaims("Игоря Головнева не мой друг")[0]
+]);
+assert.equal(declinedConflict.length, 1);
+assert.equal(declinedConflict[0].type, "direct");
+
+const positivePreference = knowledge.extractClaims("Мне нравится музыка")[0];
+const negativePreference = knowledge.extractClaims("Я ненавижу музыку")[0];
+assert.equal(knowledge.findConflicts([positivePreference, negativePreference])[0].type, "direct");
+assert.match(knowledge.answerQuestion("Что мне нравится?", [positivePreference]), /тебе нравится музыка/u);
+
+const intensifiedOpinion = knowledge.extractClaims("Музыка очень прекрасна")[0];
+assert.equal(intensifiedOpinion.kind, "opinion");
+assert.equal(intensifiedOpinion.object, "прекрасна");
+const negativeOpinion = knowledge.extractClaims("Музыка не прекрасна")[0];
+assert.equal(negativeOpinion.polarity, false);
+assert.match(knowledge.answerQuestion("Что ты думаешь о музыке?", [negativeOpinion]), /музыка не прекрасна/u);
+
+const ambiguous = knowledge.answerQuestion("Кто лучший друг?", [relationship, userFriend]);
+assert.match(ambiguous, /относящиеся и ко мне, и к тебе/u);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
-console.log("NEUROGENESIS knowledge tests: structured memory, Russian questions and conflict checks passed.");
+console.log("NEUROGENESIS knowledge tests: Russian morphology, reverse relations, preference and conflict checks passed.");
