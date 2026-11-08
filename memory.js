@@ -337,8 +337,10 @@
       persist();
       say("assistant", structuredAnswer);
       const brain = window.NGBrain;
-      if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...new Set(traceIds)]);
-      setFeedback((isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") + related.length + " ЗАПИСЕЙ");
+      const activated = brain && typeof brain.activateMemoryTraces === "function"
+        ? Number(brain.activateMemoryTraces([...new Set(traceIds)]) || 0) : 0;
+      setFeedback((isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
+        related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
     }
     const ranked = memories.map(item => ({ item, score: scoreMemory(query, item) }))
