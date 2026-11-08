@@ -166,7 +166,11 @@
   function claimLabel(claim) {
     if(!claim)return "";
     if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
-    if(claim.kind==="fact" && claim.subject==="user") return "Пользователь "+claim.predicate+" "+claim.object;
+    if(claim.kind==="fact" && claim.subject==="user") {
+      const predicates = {"живу в":"живёт в","нахожусь в":"находится в","работаю в":"работает в","учусь в":"учится в","работаю":"работает","учусь":"учится","занимаюсь":"занимается"};
+      if (claim.predicate === "имеет") return "У пользователя есть " + claim.object;
+      return "Пользователь " + (predicates[claim.predicate] || claim.predicate) + " " + claim.object;
+    }
     if(claim.kind==="preference") return preferencePhrase(claim,true);
     if(claim.kind==="relationship"){
       const target=claim.object==="assistant"?"ассистент":claim.object==="user"?"пользователь":"общее окружение";
