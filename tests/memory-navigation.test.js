@@ -308,6 +308,12 @@ const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
 input.value = "Построй обновлённую причинную модель";
 document.getElementById("ask-button").dispatch("click");
 assert.equal(JSON.stringify(window.NGMemory.claims()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
+const snapshotCount=tracked.reasoning.modelHistory.length;
+assert.equal(snapshotCount,1,"the first identical model snapshot should be stored once");
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+const repeatedTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
+assert.equal(repeatedTracked.reasoning.modelHistory.length,snapshotCount,"repeating an unchanged review must not create duplicate snapshots");
 
 
 input.value = "Усталость не приводит к снижению концентрации";
@@ -339,6 +345,9 @@ input.value = "Построй обновлённую причинную моде
 document.getElementById("ask-button").dispatch("click");
 const postConflictModel=feed.children[feed.children.length-1].textContent;
 assert.doesNotMatch(postConflictModel,/Обезвоживание → усталости → снижению концентрации/u,"an alternate route must not reuse a shared edge that has since been opposed");
+const latestTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
+assert.ok(latestTracked.reasoning.modelHistory.length>=2,"a materially changed model state should append a new historical snapshot");
+assert.ok(latestTracked.reasoning.modelHistory.at(-1).edges.some(edge=>/усталост/u.test(edge.subject)&&/концентрац/u.test(edge.object)&&edge.status==="challenged"),"the new opposing claim should appear as a changed edge state in model history");
 
 
 

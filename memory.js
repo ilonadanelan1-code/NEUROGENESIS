@@ -249,13 +249,13 @@
     return KNOWLEDGE.sameEntity(edge.subject,claim.subject)&&KNOWLEDGE.sameEntity(edge.object,claim.object);
   }
   function findAlternativeCausalPaths(start,target,allClaims,excludedEdges) {
-    const blocked=new Set((excludedEdges||[]).map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)));
-    const negative=new Set(allClaims.filter(claim=>claim&&
-      ((claim.kind==="causal"&&claim.polarity===false)||(claim.kind==="observation"&&claim.polarity===false)))
-      .map(claim=>normalise(claim.subject)+"|"+normalise(claim.object)));
+    const isExcluded=edge=>(excludedEdges||[]).some(item=>
+      KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object));
+    const isBlocked=edge=>allClaims.some(claim=>claim&&
+      ((claim.kind==="causal"&&claim.polarity===false)||(claim.kind==="observation"&&claim.polarity===false))&&
+      edgeMatchesClaim(edge,claim));
     const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
-      !blocked.has(normalise(claim.subject)+"|"+normalise(claim.object))&&
-      !negative.has(normalise(claim.subject)+"|"+normalise(claim.object)));
+      !isExcluded(claim)&&!isBlocked(claim));
     const paths=[];
     const startKey=KNOWLEDGE.canonicalEntity(start),targetKey=KNOWLEDGE.canonicalEntity(target);
     if(!startKey||!targetKey)return paths;
