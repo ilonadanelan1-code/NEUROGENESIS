@@ -25,6 +25,37 @@ const userFriend = knowledge.extractClaims("Игорь — мой друг")[0];
 assert.equal(userFriend.object, "user");
 assert.match(knowledge.answerQuestion("Кто мой друг?", [userFriend]), /Игорь — твой друг/u);
 
+const assistantIdentity = knowledge.extractClaims("Ты мой оссистент")[0];
+assert.ok(assistantIdentity, "a user-defined assistant role should become a structured identity claim");
+assert.equal(assistantIdentity.kind, "identity");
+assert.equal(assistantIdentity.subject, "assistant");
+assert.equal(assistantIdentity.predicate, "роль");
+assert.equal(assistantIdentity.object, "ассистент");
+assert.equal(assistantIdentity.verification, "self_reported");
+assert.match(knowledge.answerQuestion("Кто ты?", [assistantIdentity]), /я — ассистент/u);
+assert.match(knowledge.answerQuestion("Кто ты?", [assistantIdentity]), /Ты мой оссистент/u);
+assert.equal(knowledge.extractClaims("Ты мой ассистент")[0].object, "ассистент");
+assert.equal(knowledge.extractClaims("Ты мой помощник")[0].object, "помощник");
+assert.equal(knowledge.answerQuestion("Кто ты?", [knowledge.extractClaims("Музыка прекрасна")[0]]), null);
+
+const assistantCreator = knowledge.extractClaims("Твоего создателя зовут Сергей")[0];
+assert.ok(assistantCreator, "the creator statement should be extracted");
+assert.equal(assistantCreator.kind, "fact");
+assert.equal(assistantCreator.subject, "assistant");
+assert.equal(assistantCreator.predicate, "создатель");
+assert.equal(assistantCreator.object, "Сергей");
+assert.equal(assistantCreator.verification, "self_reported");
+assert.match(knowledge.answerQuestion("Кто твой создатель?", [assistantCreator]), /моего создателя зовут Сергей/u);
+assert.match(knowledge.answerQuestion("Кто создал тебя?", [assistantCreator]), /моего создателя зовут Сергей/u);
+assert.match(knowledge.claimLabel(assistantCreator), /Создатель ассистента — Сергей/u);
+assert.equal(knowledge.extractClaims("Твой создатель — Сергей")[0].object, "Сергей");
+
+const identityConflict = knowledge.findConflicts([
+  assistantIdentity,
+  knowledge.extractClaims("Ты мой помощник")[0]
+]);
+assert.equal(identityConflict.length, 1, "conflicting role descriptions should be flagged instead of silently overwritten");
+
 const opinion = knowledge.extractClaims("Музыка прекрасна")[0];
 assert.ok(opinion, "should classify a simple opinion");
 assert.equal(opinion.kind, "opinion");
@@ -149,4 +180,4 @@ assert.match(conflictingMusicProfile, /Я не буду автоматическ
 assert.equal(knowledge.answerQuestion("Что ты знаешь о неизвестном объекте?", [opinion, preference]), null);
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
-console.log("NEUROGENESIS knowledge tests: Russian morphology, entity profiles, evidence and conflict checks passed.");
+console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");
