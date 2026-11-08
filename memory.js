@@ -108,7 +108,25 @@
       };
     }).filter(Boolean):[];
     const status=["current","updated","challenged","revised"].includes(raw.status)?raw.status:"current";
-    return {version:1,type:raw.type,createdAt,status,conclusions,reviews};
+    const modelHistory=Array.isArray(raw.modelHistory)?raw.modelHistory.slice(-8).map(snapshot=>{
+      if(!snapshot||typeof snapshot!=="object")return null;
+      const edges=Array.isArray(snapshot.edges)?snapshot.edges.slice(0,12).map(edge=>{
+        if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
+        return {subject:edge.subject.slice(0,180),object:edge.object.slice(0,180),
+          status:["challenged","observed","unobserved"].includes(edge.status)?edge.status:"unobserved",
+          claimIds:Array.isArray(edge.claimIds)?edge.claimIds.filter(id=>typeof id==="string").slice(0,8):[]};
+      }).filter(Boolean):[];
+      const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
+        if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+        const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>
+          Array.isArray(path)?path.slice(0,3).filter(edge=>edge&&typeof edge.subject==="string"&&typeof edge.object==="string")
+            .map(edge=>({subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)})):[]
+        ).filter(path=>path.length):[];
+        return {subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths};
+      }).filter(Boolean):[];
+      return {at:safeTime(snapshot.at,Date.now()),signature:typeof snapshot.signature==="string"?snapshot.signature.slice(0,600):"",edges,alternatives};
+    }).filter(Boolean):[];
+    return {version:1,type:raw.type,createdAt,status,conclusions,reviews,modelHistory};
   }
   function reviewKindForClaim(claim) {
     if(!claim)return null;
@@ -227,6 +245,127 @@
     }
     return answer;
   }
+  function edgeMatchesClaim(edge,claim) {
+    return KNOWLEDGE.sameEntity(edge.subject,claim.subject)&&KNOWLEDGE.sameEntity(edge.object,claim.object);
+  }
+  function findAlternativeCausalPaths(start,target,allClaims,excludedEdges) {
+    const blocked=new Set((excludedEdges||[]).map(edge=>normalise(edge.subject)+"|"+normalise(edge.object)));
+    const negative=new Set(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity===false)
+      .map(claim=>normalise(claim.subject)+"|"+normalise(claim.object)));
+    const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
+      !blocked.has(normalise(claim.subject)+"|"+normalise(claim.object))&&
+      !negative.has(normalise(claim.subject)+"|"+normalise(claim.object)));
+    const paths=[];
+    const startKey=KNOWLEDGE.canonicalEntity(start),targetKey=KNOWLEDGE.canonicalEntity(target);
+    if(!startKey||!targetKey)return paths;
+    function walk(node,path,visited) {
+      if(paths.length>=4||path.length>=3)return;
+      for(const edge of edges) {
+        if(KNOWLEDGE.canonicalEntity(edge.subject)!==node)continue;
+        const next=KNOWLEDGE.canonicalEntity(edge.object);
+        if(!next||visited.has(next))continue;
+        const nextPath=[...path,edge];
+        if(next===targetKey){paths.push(nextPath);continue;}
+        walk(next,nextPath,new Set([...visited,next]));
+      }
+    }
+    walk(startKey,[],new Set([startKey]));
+    return paths;
+  }
+  function buildCausalModelRevision() {
+    const tracked=dialog.filter(item=>item.role==="assistant"&&item.reasoning).slice(-8);
+    if(!tracked.length)return "Пока нет причинных выводов с сохранёнными ссылками на исходные записи. Сначала попроси меня вывести причинную цепочку или новые гипотезы.";
+    const allClaims=memories.flatMap(item=>item.claims||[]);
+    const reports=[];
+    let changed=false;
+    for(const entry of tracked) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta)continue;
+      const additions=collectReasoningFindings(meta,allClaims);
+      if(additions.length){meta.reviews.push(...additions);meta.reviews=meta.reviews.slice(-24);changed=true;}
+      updateReasoningStatus(meta);
+      const edgeMap=new Map();
+      for(const conclusion of meta.conclusions) {
+        for(const path of conclusion.paths) for(const edge of path) {
+          const key=normalise(edge.subject)+"|"+normalise(edge.object);
+          if(!edgeMap.has(key))edgeMap.set(key,edge);
+        }
+      }
+      const edgeStates=[...edgeMap.values()].map(edge=>{
+        const matched=meta.reviews.filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
+        const challenged=matched.filter(finding=>finding.kind==="counterexample"||finding.kind==="opposing_claim"||finding.kind==="source_revised");
+        const supporting=matched.filter(finding=>finding.kind==="supporting_observation");
+        return {subject:edge.subject,object:edge.object,status:challenged.length?"challenged":supporting.length?"observed":"unobserved",
+          claimIds:matched.map(finding=>finding.claimId).slice(0,8),findings:matched};
+      });
+      const challengedEdges=edgeStates.filter(edge=>edge.status==="challenged");
+      const alternatives=[];
+      for(const conclusion of meta.conclusions) {
+        const relevant=challengedEdges.filter(edge=>conclusion.paths.some(path=>path.some(item=>
+          KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
+        if(!relevant.length)continue;
+        const paths=findAlternativeCausalPaths(conclusion.subject,conclusion.object,allClaims,relevant);
+        if(paths.length)alternatives.push({subject:conclusion.subject,object:conclusion.object,paths});
+      }
+      const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,claimIds:edge.claimIds}));
+      const snapshotAlternatives=alternatives.map(item=>({subject:item.subject,object:item.object,paths:item.paths.map(path=>path.map(edge=>({subject:edge.subject,object:edge.object})))}));
+      const signature=JSON.stringify({edges:snapshotEdges,alternatives:snapshotAlternatives});
+      const last=meta.modelHistory[meta.modelHistory.length-1];
+      if(!last||last.signature!==signature) {
+        meta.modelHistory.push({at:Date.now(),signature,edges:snapshotEdges,alternatives:snapshotAlternatives});
+        meta.modelHistory=meta.modelHistory.slice(-8);
+        changed=true;
+      }
+      entry.reasoning=cleanReasoning(meta);
+      reports.push({entry,meta,edgeStates,challengedEdges,alternatives});
+    }
+    if(changed)persist();
+    const uniqueReports=[...new Map(reports.flatMap(report=>report.meta.conclusions.map(conclusion=>{
+      const pathKey=conclusion.subject+"|"+conclusion.object+"|"+conclusion.paths.map(path=>path.map(edge=>edge.subject+"=>"+edge.object).join(">")).join("|");
+      return [pathKey,{report,conclusion}];
+    }))).values()];
+    if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
+    let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
+    answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
+    for(let index=0;index<uniqueReports.length&&index<8;index++) {
+      const {report,conclusion}=uniqueReports[index];
+      answer+=(index+1)+". "+conclusion.subject+" ⇢ "+conclusion.object+"\n";
+      for(const path of conclusion.paths) {
+        answer+="Маршрут: "+[path[0].subject,...path.map(edge=>edge.object)].join(" → ")+"\n";
+        for(const edge of path) {
+          const state=report.edgeStates.find(item=>KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object));
+          const label=!state?"не оценено":state.status==="challenged"?"ПОД ВОПРОСОМ":state.status==="observed"?"ЕСТЬ СОГЛАСУЮЩЕЕСЯ НАБЛЮДЕНИЕ":"НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ";
+          answer+="  • "+edge.subject+" → "+edge.object+" — "+label+"\n";
+          if(state&&state.status==="challenged") {
+            for(const finding of state.findings.filter(item=>item.kind!=="supporting_observation").slice(0,2)) {
+              answer+="    Основание: «"+finding.evidence+"» ("+(finding.phase==="baseline"?"уже было в памяти":"появилось позже")+")\n";
+            }
+          }
+        }
+      }
+      const relevant=report.alternatives.filter(item=>KNOWLEDGE.sameEntity(item.subject,conclusion.subject)&&KNOWLEDGE.sameEntity(item.object,conclusion.object));
+      if(relevant.length) {
+        for(const item of relevant)for(const path of item.paths)answer+="Возможный обход спорного звена: "+[path[0].subject,...path.map(edge=>edge.object)].join(" → ")+"\n";
+      } else if(report.challengedEdges.some(edge=>conclusion.paths.some(path=>path.some(item=>
+        KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))))) {
+        answer+="Альтернативного маршрута от исходного понятия к этому результату в памяти нет. Подменять слабое звено выдуманной связью нельзя.\n";
+      }
+      answer+="\n";
+    }
+    const target=uniqueReports[0].conclusion.object;
+    const parallel=KNOWLEDGE.findCausalPaths(target,allClaims,{reverse:true,maxDepth:3})
+      .filter(path=>path.length&&uniqueReports.every(row=>!KNOWLEDGE.sameEntity(path[0].subject,row.conclusion.subject)))
+      .slice(0,3);
+    if(parallel.length) {
+      answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\n";
+      for(const path of parallel)answer+="• "+[path[0].subject,...path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\n";
+      answer+="\n";
+    }
+    answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
+    answer+="История пересмотра модели сохранена в метаданных выводов и попадёт в следующую резервную копию. Новый вариант схемы — аналитическое предложение, а не установленный факт.";
+    return answer;
+  }
+
   function previousConclusionsAnswer() {
     const tracked=dialog.filter(item=>item.role==="assistant"&&item.reasoning).slice(-8);
     const older=dialog.filter(item=>item.role==="assistant"&&!item.reasoning&&/(⇢|причинная цепочка)/u.test(item.text)).slice(-4);
@@ -528,6 +667,11 @@
     const lower = normalise(query);
     if (/^(привет|здравствуй|добрый день|доброе утро|добрый вечер)(?:\s|$)/u.test(lower)) {
       say("assistant", "Привет. Я на связи. Можешь рассказать мне факт для памяти или спросить о том, что я уже сохранил.");
+      return;
+    }
+    if (/^(?:построй обновленную причинную модель|обнови причинную модель|как перестроить причинную модель|предложи пересмотр причинной модели|что изменить в причинной модели|покажи модель причинных связей)$/u.test(lower)) {
+      say("assistant",buildCausalModelRevision());
+      setFeedback("ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ · ИСТОРИЯ СОХРАНЕНА");
       return;
     }
     if (/^(?:какие прежние выводы требуют пересмотра|покажи пересмотренные выводы|проверь свои прежние выводы|проверь прежние выводы|что изменилось в прежних выводах)$/u.test(lower)) {
