@@ -31,6 +31,7 @@ jobs:
           node --check knowledge.js
           node --check memory.js
           node tests/knowledge.test.js
+          node tests/memory-migration.test.js
 
       - name: Check app asset references
         run: |
