@@ -494,6 +494,59 @@
     const used=[...new Map([...storedRules,...observations].map(claim=>[claim.id||claim.evidence,claim])).values()];
     return {answer,status,supportCount:support.length,counterexampleCount:counterexamples.length,claimIds:used.map(claim=>claim.id).filter(Boolean)};
   }
+  function designDiscriminatingTest(query,input) {
+    const q=normalise(query),claims=Array.isArray(input)?input:[];
+    const match=q.match(/^(?:как различить|как отличить|как проверить|составь план сравнения|составь план проверки)\s+(?:(?:возможные|альтернативные)\s+)?(?:причины|гипотезы)\s+(.+)$/u);
+    if(!match)return null;
+    const outcome=cleanPart(match[1],180);
+    if(!outcome)return null;
+    const paths=findCausalPaths(outcome,claims,{reverse:true,maxDepth:3});
+    if(!paths.length)return null;
+    const byRoot=new Map();
+    for(const path of paths){
+      const root=path[0]&&path[0].subject;
+      const key=canonicalEntity(root);
+      if(key&&!byRoot.has(key))byRoot.set(key,path);
+    }
+    const candidates=[...byRoot.values()].slice(0,4);
+    const roots=candidates.map(path=>path[0].subject);
+    const used=[...new Map(candidates.flat().map(edge=>[edge.id||edge.evidence,edge])).values()];
+    const observations=claims.filter(claim=>claim&&claim.kind==="observation"&&
+      roots.some(root=>sameEntity(root,claim.subject))&&sameEntity(outcome,claim.object));
+    const related=claims.filter(claim=>claim&&claim.kind==="causal"&&used.some(edge=>
+      sameEntity(edge.subject,claim.subject)&&sameEntity(edge.object,claim.object)));
+    const conflicts=findConflicts(related);
+    const conflictClaims=[...new Map(conflicts.flatMap(item=>[item.left,item.right]).map(claim=>[claim.id||claim.evidence,claim])).values()];
+    const evidenceClaims=[...new Map([...used,...conflictClaims,...observations].map(claim=>[claim.id||claim.evidence,claim])).values()];
+    const lines=candidates.map((path,index)=>(index+1)+". "+path[0].subject+" → "+path.map(edge=>edge.object).join(" → "));
+    let answer="Цель сравнения: понять, какие из сохранённых возможных причин могут быть связаны с явлением «"+outcome+"».\n\n";
+    if(roots.length>1)answer+="В памяти найдены разные гипотезы:\n"+lines.join("\n")+"\n\n";
+    else answer+="В памяти пока найдено только одно возможное объяснение:\n"+lines.join("\n")+"\n\n";
+    if(observations.length){
+      answer+="Уже сохранённые наблюдения:\n"+observations.slice(-8).map(claim=>"• «"+String(claim.evidence||"").slice(0,220)+"»"+(claim.polarity===false?" · потенциальный контрпример":" · наблюдение согласуется с результатом")).join("\n")+"\n\n";
+    }else{
+      answer+="Пока нет отдельных наблюдений, сопоставляющих наличие этих условий с появлением явления.\n\n";
+    }
+    if(roots.length>1){
+      answer+="План различающей проверки:\n";
+      answer+="1. Заранее определить, что именно считается явлением «"+outcome+"», и как его одинаково фиксировать в каждом случае.\n";
+      answer+="2. Для каждого возможного фактора отдельно определить проверяемый признак его наличия и способ записи.\n";
+      answer+="3. Наблюдать естественно возникающие случаи и отмечать для каждого фактора: присутствовал ли он, когда возник результат и как именно он был измерен.\n";
+      answer+="4. Сравнивать случаи, в которых факторы встречались по отдельности, вместе или отсутствовали. Если два фактора всегда появляются одновременно, эти данные не позволяют разделить их вклад.\n";
+      answer+="5. Повторить наблюдения в разных ситуациях и записывать другие обстоятельства, которые могли повлиять на результат.\n\n";
+      answer+="Как интерпретировать:\n";
+      answer+="• Если результат чаще наблюдается вместе с одним фактором, это поддерживает связь, но ещё не доказывает причинность.\n";
+      answer+="• Если оба фактора встречаются вместе, нельзя автоматически приписывать результат только одному из них.\n";
+      answer+="• Если результат появляется без обоих факторов, нужно искать дополнительные объяснения.\n";
+      answer+="• Если фактор присутствует, а ожидаемый результат отсутствует, это может быть контрпримером для слишком общего правила.\n\n";
+      answer+="Не нужно специально создавать вредные условия или подвергать себя риску ради проверки. Используй только безопасные естественные наблюдения.";
+    }else{
+      answer+="Данных пока недостаточно, чтобы сравнить причины: нужно сохранить хотя бы ещё одно независимое объяснение и наблюдения, которые позволяют отличать факторы друг от друга.";
+    }
+    if(conflicts.length)answer+="\n\nВ исходных причинных записях есть противоречия. Их нужно уточнить до сравнения гипотез.";
+    answer+="\n\nЭто план сбора и сравнения наблюдений, а не готовый экспериментальный вывод. Сохранённые сообщения не являются независимо проверенными данными.";
+    return {answer,outcome,alternativeCount:roots.length,paths:candidates,observations,conflicts,claimIds:evidenceClaims.map(claim=>claim.id).filter(Boolean)};
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
@@ -508,6 +561,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const experimentPlan=designDiscriminatingTest(query,claims);
+    if(experimentPlan)return experimentPlan.answer;
     const hypothesisCheck=evaluateConditionalHypothesis(query,claims);
     if(hypothesisCheck)return hypothesisCheck.answer;
     const causal=causalEvidence(query,claims);
@@ -742,5 +797,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:12,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:13,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,findCausalPaths,findConflicts,summary};
 })();

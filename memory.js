@@ -331,6 +331,8 @@
       return;
     }
     const allClaims = memories.flatMap(item => item.claims || []);
+    const experimentPlan = KNOWLEDGE && typeof KNOWLEDGE.designDiscriminatingTest==="function" ? KNOWLEDGE.designDiscriminatingTest(query,allClaims) : null;
+    const experimentClaimIds = new Set(experimentPlan && experimentPlan.claimIds || []);
     const hypothesisRecall = KNOWLEDGE && typeof KNOWLEDGE.evaluateConditionalHypothesis==="function" ? KNOWLEDGE.evaluateConditionalHypothesis(query,allClaims) : null;
     const hypothesisClaimIds = new Set(hypothesisRecall && hypothesisRecall.claimIds || []);
     const causalRecall = KNOWLEDGE && typeof KNOWLEDGE.causalEvidence==="function" ? KNOWLEDGE.causalEvidence(query,allClaims) : null;
@@ -341,6 +343,7 @@
       const isIdentityQuery = /^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(lower);
       const isCausalQuery = !!(causalRecall && causalRecall.answer);
       const isHypothesisCheck = !!(hypothesisRecall && hypothesisRecall.answer);
+      const isExperimentPlan = !!(experimentPlan && experimentPlan.answer);
       const isUserProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|расскажи)(?:\s|$)/u.test(lower) && /\b(?:обо мне|о мне|про меня)\b/u.test(lower);
       const related = memories.map(item => ({ item, ...matchMemory(query,item) }))
         .filter(hit => hit.score > 0.08 ||
@@ -352,8 +355,9 @@
             (claim.kind==="hypothesis"&&claim.subject==="user") ||
             claim.kind==="opinion")) ||
           (isCausalQuery && (hit.item.claims || []).some(claim=>causalClaimIds.has(claim.id))) ||
-          (isHypothesisCheck && (hit.item.claims || []).some(claim=>hypothesisClaimIds.has(claim.id))))
-        .sort((a, b) => b.score - a.score).slice(0, isHypothesisCheck ? 8 : isCausalQuery ? 6 : isUserProfileQuery ? 12 : isEntityProfileQuery ? 6 : 3);
+          (isHypothesisCheck && (hit.item.claims || []).some(claim=>hypothesisClaimIds.has(claim.id))) ||
+          (isExperimentPlan && (hit.item.claims || []).some(claim=>experimentClaimIds.has(claim.id))))
+        .sort((a, b) => b.score - a.score).slice(0, isExperimentPlan ? 8 : isHypothesisCheck ? 8 : isCausalQuery ? 6 : isUserProfileQuery ? 12 : isEntityProfileQuery ? 6 : 3);
       const traceIds = [];
       for (const hit of related) {
         hit.item.recalls = (hit.item.recalls || 0) + 1;
@@ -370,7 +374,8 @@
       const associativeMatches = related.filter(hit=>hit.associativeHits>0).length;
       const causalLabel=isCausalQuery?(causalRecall.alternativeCount>1?"АЛЬТЕРНАТИВНЫЕ ОБЪЯСНЕНИЯ · ":causalRecall.conflicts&&causalRecall.conflicts.length?"ПРОТИВОРЕЧИЕ В ПРИЧИНАХ · ":"ПРИЧИННАЯ ЦЕПОЧКА · "):"";
       const reasoningLabel=isHypothesisCheck?(hypothesisRecall.counterexampleCount>0?"КОНТРПРИМЕР В ПАМЯТИ · ":"ПРОВЕРКА ГИПОТЕЗЫ · "):"";
-      setFeedback((isHypothesisCheck ? reasoningLabel : isCausalQuery ? causalLabel : associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
+      const experimentLabel=isExperimentPlan?(experimentPlan.alternativeCount>1?"ПЛАН СРАВНЕНИЯ ГИПОТЕЗ · ":"НЕДОСТАТОЧНО АЛЬТЕРНАТИВ · "):"";
+      setFeedback((isExperimentPlan ? experimentLabel : isHypothesisCheck ? reasoningLabel : isCausalQuery ? causalLabel : associativeMatches ? "АСОЦИАТИВНЫЙ ПОИСК · " : "") +
         (isEntityProfileQuery ? "ПРОФИЛЬ ПО ПАМЯТИ · " : "СТРУКТУРНЫЙ ПОИСК · ") +
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;

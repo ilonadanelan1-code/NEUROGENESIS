@@ -251,4 +251,12 @@ assert.match(hypothesisCheckReply,/Потенциальные контрприм
 assert.match(hypothesisCheckReply,/При недостатке сна не наблюдалась усталость/u,"the check should cite the exact observation");
 assert.match(hypothesisCheckReply,/Что ещё нужно для проверки/u,"the answer should identify missing evidence");
 assert.match(document.getElementById("memory-feedback").textContent,/КОНТРПРИМЕР В ПАМЯТИ/u,"the interface should identify a counterexample-based hypothesis check");
-console.log("NEUROGENESIS memory navigation, identity, creator, causal alternatives and hypothesis tests: passed.");
+input.value = "Как различить причины усталости?";
+document.getElementById("ask-button").dispatch("click");
+const experimentPlanReply=feed.children[feed.children.length-1].textContent;
+assert.match(experimentPlanReply,/План различающей проверки/u,"the dialog should build a plan for comparing alternative causes");
+assert.match(experimentPlanReply,/Недостаток сна/u);
+assert.match(experimentPlanReply,/Обезвоживание/u);
+assert.match(experimentPlanReply,/Не нужно специально создавать вредные условия/u,"the plan should recommend only safe observations");
+assert.match(document.getElementById("memory-feedback").textContent,/ПЛАН СРАВНЕНИЯ ГИПОТЕЗ/u);
+console.log("NEUROGENESIS memory navigation, identity, creator, causal alternatives, hypothesis checks and experiment planning: passed.");

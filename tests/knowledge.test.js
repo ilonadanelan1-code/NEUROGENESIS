@@ -322,6 +322,19 @@ assert.match(v12NoDataCheck.answer,/Недостаточно данных/u);
 assert.equal(knowledge.summary([v12ConditionalRule,v12SupportingObservation]).rules,1);
 assert.equal(knowledge.summary([v12ConditionalRule,v12SupportingObservation]).observations,1);
 
+const v13ExperimentPlan=knowledge.designDiscriminatingTest("Как различить причины усталости?",altCausalOptions);
+assert.ok(v13ExperimentPlan,"the system should build a comparison plan when multiple explanations exist");
+assert.equal(v13ExperimentPlan.alternativeCount,2);
+assert.match(v13ExperimentPlan.answer,/План различающей проверки/u);
+assert.match(v13ExperimentPlan.answer,/Если два фактора всегда появляются одновременно/u);
+assert.match(v13ExperimentPlan.answer,/не доказывает причинность/u);
+assert.match(v13ExperimentPlan.answer,/Не нужно специально создавать вредные условия/u);
+const v13SinglePlan=knowledge.designDiscriminatingTest("Как различить причины усталости?",[altSleepExplanation]);
+assert.equal(v13SinglePlan.alternativeCount,1);
+assert.match(v13SinglePlan.answer,/только одно возможное объяснение/u);
+const v13NoPlan=knowledge.designDiscriminatingTest("Как различить причины неизвестного явления?",[]);
+assert.equal(v13NoPlan,null);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");
