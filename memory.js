@@ -1,14 +1,19 @@
 (() => {
   "use strict";
+
   const MEMORY_KEY = "neurogenesis.memories.v1";
   const DIALOG_KEY = "neurogenesis.dialog.v1";
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
-  const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня мне тебя тебе ваш вашa мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там где-то туда сюда мой твой его ее их мне тебе").toLowerCase().split(/\s+/));
+  const MAX_TEXT = 1200;
+  const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
   let memories = [];
   let dialog = [];
   let tagTrace = Object.create(null);
+  let libraryOpen = false;
+  let libraryLimit = 20;
+  let libraryFilter = "";
 
   function normalise(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/g, "е")
@@ -18,38 +23,87 @@
     return word.replace(/(иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ов|ев|ей|ом|ем|а|я|ы|и|е|у|ю)$/u, "");
   }
   function tokens(value) {
-    return normalise(value).split(" ").filter(w => w.length >= 3 && !STOP.has(w)).map(stem).filter(w => w.length >= 3);
+    return normalise(value).split(" ").filter(word => word.length >= 3 && !STOP.has(word))
+      .map(stem).filter(word => word.length >= 3);
+  }
+  function safeTime(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+  function cleanMemory(raw) {
+    if (!raw || typeof raw.text !== "string") return null;
+    const text = raw.text.trim().slice(0, MAX_TEXT);
+    if (!text) return null;
+    const tags = Array.isArray(raw.tags)
+      ? [...new Set(raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean))].slice(0, 4)
+      : tokens(text).slice(0, 4);
+    const traceIds = tags.map((_, i) => Array.isArray(raw.traceIds) && typeof raw.traceIds[i] === "string" ? raw.traceIds[i] : null);
+    return {
+      id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 80) : makeId(),
+      text, tags: tags.length ? tags : tokens(text).slice(0, 4), traceIds,
+      createdAt: safeTime(raw.createdAt, Date.now()),
+      updatedAt: safeTime(raw.updatedAt, safeTime(raw.createdAt, Date.now())),
+      strength: Number.isFinite(Number(raw.strength)) ? Math.max(0, Math.min(1, Number(raw.strength))) : 0.65,
+      repetitions: Math.max(1, Math.min(100000, Math.floor(Number(raw.repetitions) || 1))),
+      recalls: Math.max(0, Math.min(100000, Math.floor(Number(raw.recalls) || 0)))
+    };
+  }
+  function makeId() {
+    return "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  function rebuildTagTraceIndex() {
+    tagTrace = Object.create(null);
+    for (const item of memories) {
+      item.tags.forEach((tag, index) => {
+        const id = item.traceIds[index];
+        if (id && !tagTrace[tag]) tagTrace[tag] = id;
+      });
+    }
   }
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
-      memories = Array.isArray(saved) ? saved.filter(x => x && typeof x.text === "string").slice(-MAX_MEMORIES) : [];
-    } catch (_) { memories = []; }
+      memories = Array.isArray(saved) ? saved.map(cleanMemory).filter(Boolean).slice(-MAX_MEMORIES) : [];
+    } catch (error) {
+      memories = [];
+      console.warn("Could not load NEUROGENESIS memories:", error);
+    }
     try {
       const savedDialog = JSON.parse(localStorage.getItem(DIALOG_KEY) || "[]");
-      dialog = Array.isArray(savedDialog) ? savedDialog.filter(x => x && typeof x.text === "string").slice(-MAX_DIALOG) : [];
-    } catch (_) { dialog = []; }
-    for (const item of memories) {
-      if (!Array.isArray(item.tags)) item.tags = tokens(item.text).slice(0, 4);
-      if (!Array.isArray(item.traceIds)) item.traceIds = [];
-      item.tags.forEach((tag, index) => { if (item.traceIds[index] && !tagTrace[tag]) tagTrace[tag] = item.traceIds[index]; });
+      dialog = Array.isArray(savedDialog)
+        ? savedDialog.filter(x => x && typeof x.text === "string")
+          .map(x => ({ role: x.role === "user" ? "user" : "assistant", text: x.text.slice(0, 1800), time: safeTime(x.time, Date.now()) }))
+          .slice(-MAX_DIALOG)
+        : [];
+    } catch (error) {
+      dialog = [];
+      console.warn("Could not load NEUROGENESIS dialogue:", error);
     }
+    rebuildTagTraceIndex();
   }
   function persist() {
+    updateCount();
+    let ok = true;
     try {
       localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
-      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
-      updateCount();
-      return true;
     } catch (error) {
+      ok = false;
       console.warn("NEUROGENESIS memory storage failed", error);
-      setFeedback("Не удалось сохранить: хранилище браузера заполнено или недоступно.");
-      return false;
     }
+    try {
+      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
+    } catch (error) {
+      ok = false;
+      console.warn("NEUROGENESIS dialogue storage failed", error);
+    }
+    if (!ok) setFeedback("Не удалось полностью сохранить данные: хранилище браузера заполнено или недоступно. Сделай экспорт резервной копии.");
+    return ok;
   }
   function updateCount() {
     const el = $("memory-count");
     if (el) el.textContent = memories.length + " / " + MAX_MEMORIES + " ЗАПИСЕЙ";
+    const manage = $("memory-manage");
+    if (manage) manage.textContent = "Записи (" + memories.length + ")";
   }
   function setFeedback(message) {
     const el = $("memory-feedback");
@@ -85,66 +139,97 @@
     if (id) tagTrace[tag] = id;
     return id || null;
   }
+  function releaseUnusedTraces(candidateIds) {
+    const used = new Set(memories.flatMap(item => item.traceIds || []).filter(Boolean));
+    const unused = [...new Set((candidateIds || []).filter(id => id && !used.has(id)))];
+    const brain = window.NGBrain;
+    if (unused.length && brain && typeof brain.removeMemoryTraces === "function") {
+      brain.removeMemoryTraces(unused);
+    }
+    rebuildTagTraceIndex();
+  }
+  function linkMemory(item, related) {
+    const ids = [...(item.traceIds || [])];
+    for (const old of related || []) ids.push(...(old.traceIds || []));
+    const unique = [...new Set(ids.filter(Boolean))];
+    const brain = window.NGBrain;
+    if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(unique);
+    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(item.traceIds || []);
+  }
   function rememberText(raw) {
-    const clean = String(raw || "").trim();
-    if (!clean) { setFeedback("Сначала напиши, что мне нужно запомнить."); return; }
+    const clean = String(raw || "").trim().slice(0, MAX_TEXT);
+    if (!clean) { setFeedback("Сначала напиши, что мне нужно запомнить."); return false; }
     const fragments = clean.split(/\n+|(?<=[.!?])\s+/u).map(x => x.trim()).filter(Boolean).slice(0, 8);
-    let saved = 0;
-    let linked = [];
+    let saved = 0, repeated = 0, skipped = 0;
     for (const fragment of fragments) {
       const compact = normalise(fragment);
       if (compact.length < 3) continue;
-      let item = memories.find(x => normalise(x.text) === compact);
       const tags = [...new Set(tokens(fragment))].slice(0, 4);
+      let item = memories.find(x => normalise(x.text) === compact);
       if (item) {
         item.strength = Math.min(1, (item.strength || 0.6) + 0.12);
         item.updatedAt = Date.now();
         item.repetitions = (item.repetitions || 1) + 1;
+        for (const tag of tags) {
+          if (item.tags.includes(tag) || item.tags.length >= 4) continue;
+          item.tags.push(tag);
+          item.traceIds.push(ensureTrace(tag));
+        }
+        repeated++;
+        const related = memories.filter(old => old.id !== item.id && old.tags.some(tag => tags.includes(tag))).slice(-4);
+        linkMemory(item, related);
       } else {
-        const traceIds = tags.map(ensureTrace).filter(Boolean);
-        const related = memories.filter(old => old.tags.some(t => tags.includes(t))).slice(-4);
-        const relatedIds = related.flatMap(old => old.traceIds || []);
-        linked = linked.concat(traceIds, relatedIds);
+        if (memories.length >= MAX_MEMORIES) { skipped++; continue; }
+        const traceIds = tags.map(ensureTrace);
+        const related = memories.filter(old => old.tags.some(tag => tags.includes(tag))).slice(-4);
         item = {
-          id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          text: fragment.slice(0, 1200),
-          tags,
-          traceIds,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          strength: 0.65,
-          repetitions: 1,
-          recalls: 0
+          id: makeId(), text: fragment.slice(0, MAX_TEXT), tags, traceIds,
+          createdAt: Date.now(), updatedAt: Date.now(), strength: 0.65,
+          repetitions: 1, recalls: 0
         };
         memories.push(item);
         saved++;
+        linkMemory(item, related);
       }
-      linked = linked.concat(item.traceIds || []);
     }
-    memories = memories.slice(-MAX_MEMORIES);
-    const brain = window.NGBrain;
-    if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces([...new Set(linked)]);
-    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...new Set(linked)]);
+    rebuildTagTraceIndex();
     const ok = persist();
-    const response = saved
-      ? "Запомнил " + saved + (saved === 1 ? " фрагмент." : " фрагмента.") + " Выделил ключевые темы и связал их с узлами памяти."
-      : "Эта информация уже была в памяти. Я усилил её след повторным предъявлением.";
-    say("assistant", response + (ok ? "" : " Но локальное сохранение не подтвердилось."));
-    setFeedback("ПАМЯТЬ ОБНОВЛЕНА · " + memories.length + " ЗАПИСЕЙ");
+    if (!saved && !repeated && skipped) {
+      const response = "Память заполнена: лимит — " + MAX_MEMORIES + " записей. Я не стал молча удалять старые воспоминания. Открой «Записи», удали ненужное или сделай экспорт.";
+      say("assistant", response);
+      setFeedback("ЛИМИТ ДОСТИГНУТ · СТАРЫЕ ЗАПИСИ СОХРАНЕНЫ");
+      return false;
+    }
+    if (!saved && !repeated) {
+      say("assistant", "Не получилось выделить отдельный фрагмент для памяти. Попробуй сформулировать мысль полным предложением.");
+      setFeedback("НЕТ СОХРАНЁННЫХ ФРАГМЕНТОВ");
+      return false;
+    }
+    let response = saved ? "Запомнил " + saved + (saved === 1 ? " новый фрагмент" : " новых фрагмента") : "Эта информация уже была в памяти";
+    if (repeated) response += (saved ? "; повторно обработал " : ". Усилил след ") + repeated + (repeated === 1 ? " повтор" : " повтора");
+    if (skipped) response += ". " + skipped + " новых фрагментов не поместились: лимит заполнен";
+    response += ". Выделил темы и связал их с узлами памяти.";
+    if (!ok) response += " Но локальное сохранение не подтвердилось.";
+    say("assistant", response);
+    renderLibrary();
+    setFeedback("ПАМЯТЬ ОБНОВЛЕНА · " + memories.length + " / " + MAX_MEMORIES);
+    return true;
   }
   function scoreMemory(query, item) {
     const q = [...new Set(tokens(query))];
     const words = [...new Set(tokens(item.text))];
     if (!q.length || !words.length) return 0;
     const set = new Set(words);
-    let common = 0;
-    for (const word of q) if (set.has(word) || (item.tags || []).includes(word)) common++;
-    const overlap = common / Math.sqrt(q.length * words.length);
+    const hits = q.filter(word => set.has(word) || (item.tags || []).includes(word)).length;
+    const coverage = hits / q.length;
+    const density = hits / Math.sqrt(q.length * words.length);
     const qNorm = normalise(query);
     const textNorm = normalise(item.text);
-    const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.65 : 0;
-    const tagBoost = q.filter(w => (item.tags || []).includes(w)).length * 0.07;
-    return Math.min(1, overlap + phrase + tagBoost) * (0.75 + (item.strength || 0.6) * 0.25);
+    const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.34 : 0;
+    const tagHits = q.filter(word => (item.tags || []).includes(word)).length;
+    const tagBoost = tagHits / q.length * 0.08;
+    return Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
+      (0.75 + (item.strength || 0.6) * 0.25);
   }
   function askMemory(raw) {
     const query = String(raw || "").trim();
@@ -162,14 +247,14 @@
       say("assistant", text);
       const ids = recent.flatMap(m => m.traceIds || []);
       const brain = window.NGBrain;
-      if (brain && brain.activateMemoryTraces) brain.activateMemoryTraces(ids);
+      if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
       return;
     }
     const ranked = memories.map(item => ({ item, score: scoreMemory(query, item) }))
-      .filter(x => x.score >= 0.105).sort((a, b) => b.score - a.score).slice(0, 4);
+      .filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
     if (!ranked.length) {
-      say("assistant", "Я пока не нашёл в своей памяти достаточно близкой информации.\n\nЯ не буду выдумывать ответ. Расскажи мне об этом через «Запомнить», и я смогу использовать эту информацию в следующих вопросах.");
-      setFeedback("ПОИСК ЗАВЕРШЁН · СОВПАДЕНИЙ НЕТ");
+      say("assistant", "Я пока не нашёл в своей памяти достаточно близкой информации.\n\nЯ не буду выдумывать ответ. Расскажи мне об этом через «Запомнить», и я смогу использовать эти сведения в следующих вопросах.");
+      setFeedback("ПОИСК ЗАВЕРШЁН · НАДЁЖНЫХ СОВПАДЕНИЙ НЕТ");
       return;
     }
     const ids = [];
@@ -181,12 +266,214 @@
     persist();
     const answer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминания:") +
       "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + hit.item.text).join("\n\n") +
-      "\n\nЭто сведения из моей памяти, а не догадка. Пока я умею извлекать и связывать сохранённые факты, но ещё не обладаю полноценным языковым мышлением.";
+      "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением.";
     say("assistant", answer);
     const brain = window.NGBrain;
-    if (brain && brain.activateMemoryTraces) brain.activateMemoryTraces([...new Set(ids)]);
+    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...new Set(ids)]);
     setFeedback("ПОИСК ЗАВЕРШЁН · НАЙДЕНО " + ranked.length);
   }
+
+  function removeMemory(id) {
+    const item = memories.find(entry => entry.id === id);
+    if (!item) return;
+    if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
+    memories = memories.filter(entry => entry.id !== id);
+    releaseUnusedTraces(item.traceIds || []);
+    persist();
+    renderLibrary();
+    say("assistant", "Запись удалена. Общие нейронные следы сохранены, если на них ссылаются другие воспоминания.");
+    setFeedback("ЗАПИСЬ УДАЛЕНА · " + memories.length + " ОСТАЛОСЬ");
+  }
+  function editMemory(id, text) {
+    const item = memories.find(entry => entry.id === id);
+    const value = String(text || "").trim().slice(0, MAX_TEXT);
+    if (!item || !value) { setFeedback("Текст записи не может быть пустым."); return false; }
+    if (memories.some(entry => entry.id !== id && normalise(entry.text) === normalise(value))) {
+      setFeedback("Такая запись уже существует. Отредактируй её вместо создания повтора.");
+      return false;
+    }
+    const oldIds = [...(item.traceIds || [])];
+    const tags = [...new Set(tokens(value))].slice(0, 4);
+    item.text = value;
+    item.tags = tags;
+    item.traceIds = tags.map(ensureTrace);
+    item.updatedAt = Date.now();
+    const related = memories.filter(entry => entry.id !== id && entry.tags.some(tag => tags.includes(tag))).slice(-4);
+    linkMemory(item, related);
+    releaseUnusedTraces(oldIds);
+    persist();
+    renderLibrary();
+    say("assistant", "Запись исправлена. Я обновил её темы и связи в нейронной сети.");
+    setFeedback("ИЗМЕНЕНИЯ СОХРАНЕНЫ");
+    return true;
+  }
+  function clearMemory() {
+    if (!memories.length) { setFeedback("Память уже пуста."); return; }
+    if (!window.confirm("Удалить все " + memories.length + " записей и их уникальные нейронные следы? История диалога останется.")) return;
+    const oldIds = memories.flatMap(item => item.traceIds || []);
+    memories = [];
+    releaseUnusedTraces(oldIds);
+    persist();
+    renderLibrary();
+    say("assistant", "Долговременная память очищена. История этого диалога сохранена.");
+    setFeedback("ПАМЯТЬ ОЧИЩЕНА");
+  }
+  function formatDate(time) {
+    try { return new Date(time).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" }); }
+    catch (_) { return ""; }
+  }
+  function button(label, action, className) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.textContent = label;
+    el.dataset.action = action;
+    el.className = className || "secondary-button";
+    return el;
+  }
+  function renderLibrary() {
+    const panel = $("memory-library");
+    const list = $("memory-library-list");
+    if (!panel || !list) return;
+    panel.hidden = !libraryOpen;
+    if (!libraryOpen) return;
+    const query = normalise(libraryFilter);
+    const filtered = memories.filter(item => !query || normalise(item.text + " " + item.tags.join(" ")).includes(query));
+    const visible = filtered.slice().reverse().slice(0, libraryLimit);
+    list.textContent = "";
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.className = "memory-library-empty";
+      empty.textContent = memories.length ? "По этому запросу ничего не найдено." : "Память пока пуста. Сохрани первый факт выше.";
+      list.appendChild(empty);
+    }
+    for (const item of visible) {
+      const card = document.createElement("article");
+      card.className = "memory-entry";
+      card.dataset.memoryId = item.id;
+      const meta = document.createElement("div");
+      meta.className = "memory-entry-meta";
+      meta.textContent = formatDate(item.createdAt) + " · повторений: " + item.repetitions + " · извлечений: " + item.recalls;
+      const text = document.createElement("div");
+      text.className = "memory-entry-text";
+      text.textContent = item.text;
+      const tags = document.createElement("div");
+      tags.className = "memory-entry-tags";
+      for (const tag of item.tags) {
+        const chip = document.createElement("span");
+        chip.className = "memory-tag";
+        chip.textContent = tag;
+        tags.appendChild(chip);
+      }
+      const actions = document.createElement("div");
+      actions.className = "memory-entry-actions";
+      actions.append(button("Изменить", "edit", "secondary-button memory-mini-button"), button("Забыть", "delete", "secondary-button memory-mini-button memory-delete-button"));
+      const editor = document.createElement("div");
+      editor.className = "memory-edit";
+      editor.hidden = true;
+      const area = document.createElement("textarea");
+      area.className = "text-input memory-edit-input";
+      area.maxLength = MAX_TEXT;
+      area.value = item.text;
+      const editorActions = document.createElement("div");
+      editorActions.className = "memory-entry-actions";
+      editorActions.append(button("Сохранить", "save-edit", "primary-button memory-mini-button"), button("Отмена", "cancel-edit", "secondary-button memory-mini-button"));
+      editor.append(area, editorActions);
+      card.append(meta, text, tags, actions, editor);
+      list.appendChild(card);
+    }
+    const more = $("memory-more");
+    if (more) {
+      more.hidden = filtered.length <= visible.length;
+      more.textContent = "Показать ещё (" + Math.max(0, filtered.length - visible.length) + ")";
+    }
+    updateCount();
+  }
+  function handleLibraryClick(event) {
+    const control = event.target.closest("button[data-action]");
+    if (!control) return;
+    const card = control.closest(".memory-entry");
+    if (!card) return;
+    const id = card.dataset.memoryId;
+    const action = control.dataset.action;
+    if (action === "delete") removeMemory(id);
+    if (action === "edit") {
+      const editor = card.querySelector(".memory-edit");
+      editor.hidden = !editor.hidden;
+      if (!editor.hidden) card.querySelector(".memory-edit-input").focus();
+    }
+    if (action === "cancel-edit") card.querySelector(".memory-edit").hidden = true;
+    if (action === "save-edit") editMemory(id, card.querySelector(".memory-edit-input").value);
+  }
+
+  function exportBackup() {
+    try {
+      const backup = {
+        format: "NEUROGENESIS_MEMORY_BACKUP",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        memories,
+        dialog
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "neurogenesis-memory-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setFeedback("РЕЗЕРВНАЯ КОПИЯ ПОДГОТОВЛЕНА · " + memories.length + " ЗАПИСЕЙ");
+    } catch (error) {
+      console.error("NEUROGENESIS export failed:", error);
+      setFeedback("Экспорт не удался. Браузер не разрешил создать файл.");
+    }
+  }
+  async function importBackup(file) {
+    try {
+      const data = JSON.parse(await file.text());
+      const incoming = Array.isArray(data) ? data : data && data.memories;
+      if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
+      let imported = 0, duplicates = 0, skipped = 0;
+      for (const raw of incoming) {
+        const candidate = cleanMemory(raw);
+        if (!candidate) { skipped++; continue; }
+        const duplicate = memories.find(item => normalise(item.text) === normalise(candidate.text));
+        if (duplicate) {
+          duplicate.strength = Math.min(1, Math.max(duplicate.strength, candidate.strength));
+          duplicate.repetitions += candidate.repetitions;
+          duplicate.updatedAt = Date.now();
+          duplicates++;
+          continue;
+        }
+        if (memories.length >= MAX_MEMORIES) { skipped++; continue; }
+        candidate.id = makeId();
+        candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 4);
+        candidate.traceIds = candidate.tags.map(ensureTrace);
+        candidate.createdAt = safeTime(candidate.createdAt, Date.now());
+        candidate.updatedAt = Date.now();
+        const related = memories.filter(old => old.tags.some(tag => candidate.tags.includes(tag))).slice(-4);
+        memories.push(candidate);
+        linkMemory(candidate, related);
+        imported++;
+      }
+      if (Array.isArray(data.dialog)) {
+        const restored = data.dialog.filter(item => item && typeof item.text === "string")
+          .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, 1800), time: safeTime(item.time, Date.now()) }));
+        dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
+      }
+      rebuildTagTraceIndex();
+      const ok = persist();
+      renderLibrary();
+      renderDialog();
+      say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
+      setFeedback("ИМПОРТ · +" + imported + " · ПОВТОРОВ " + duplicates + " · ПРОПУЩЕНО " + skipped);
+    } catch (error) {
+      console.warn("NEUROGENESIS import failed:", error);
+      setFeedback("Не удалось импортировать файл: " + String(error.message || error).slice(0, 100));
+    }
+  }
+
   function submit(action) {
     const input = $("memory-input");
     const value = input ? input.value.trim() : "";
@@ -198,20 +485,55 @@
     input.focus();
   }
 
-  $("remember-button").addEventListener("click", () => submit("remember"));
-  $("ask-button").addEventListener("click", () => submit("ask"));
-  $("memory-input").addEventListener("keydown", event => {
+  const rememberButton = $("remember-button");
+  const askButton = $("ask-button");
+  const memoryInput = $("memory-input");
+  if (rememberButton) rememberButton.addEventListener("click", () => submit("remember"));
+  if (askButton) askButton.addEventListener("click", () => submit("ask"));
+  if (memoryInput) memoryInput.addEventListener("keydown", event => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       submit("ask");
     }
   });
+  const manageButton = $("memory-manage");
+  if (manageButton) manageButton.addEventListener("click", () => {
+    libraryOpen = !libraryOpen;
+    libraryLimit = 20;
+    renderLibrary();
+    if (libraryOpen) $("memory-library").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+  const filterInput = $("memory-filter");
+  if (filterInput) filterInput.addEventListener("input", event => {
+    libraryFilter = event.target.value;
+    libraryLimit = 20;
+    renderLibrary();
+  });
+  const moreButton = $("memory-more");
+  if (moreButton) moreButton.addEventListener("click", () => { libraryLimit += 20; renderLibrary(); });
+  const libraryList = $("memory-library-list");
+  if (libraryList) libraryList.addEventListener("click", handleLibraryClick);
+  const exportButton = $("memory-export");
+  if (exportButton) exportButton.addEventListener("click", exportBackup);
+  const importButton = $("memory-import");
+  const importInput = $("memory-import-file");
+  if (importButton && importInput) importButton.addEventListener("click", () => importInput.click());
+  if (importInput) importInput.addEventListener("change", async () => {
+    const file = importInput.files && importInput.files[0];
+    if (file) await importBackup(file);
+    importInput.value = "";
+  });
+  const clearButton = $("memory-clear");
+  if (clearButton) clearButton.addEventListener("click", clearMemory);
+
   load();
   updateCount();
   renderDialog();
+  renderLibrary();
   setFeedback("ЛОКАЛЬНАЯ ПАМЯТЬ · ДАННЫЕ ОСТАЮТСЯ В ЭТОМ БРАУЗЕРЕ");
   window.NGMemory = {
     count: () => memories.length,
-    search: query => memories.map(item => ({ text: item.text, score: scoreMemory(query, item) })).sort((a, b) => b.score - a.score).slice(0, 5)
+    search: query => memories.map(item => ({ text: item.text, score: scoreMemory(query, item) }))
+      .sort((a, b) => b.score - a.score).slice(0, 5)
   };
 })();
