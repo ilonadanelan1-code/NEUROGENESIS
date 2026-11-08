@@ -236,7 +236,7 @@
   function findConflicts(input) {
     const list = Array.isArray(input) ? input : [];
     const conflicts = [];
-    const isBestFriend = claim => /лучший друг|лучшая подруга|самый близкий друг/u.test(canonicalEntity(claim.predicate).replace(/ /g, " "));
+    const isBestFriend = claim => /лучший друг|лучшая подруга|самый близкий друг/u.test(normalise(claim.predicate));
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
