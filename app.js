@@ -139,7 +139,7 @@
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: 1, neurons: neurons.map(({id,name,type,x,y,bias,activity,phase}) => ({id,name,type,x,y,bias,activity,phase})),
+        version: 1, neurons: neurons.map(({id,name,type,x,y,bias,activity,phase,memoryTrace,memoryKey}) => ({id,name,type,x,y,bias,activity,phase,memoryTrace:!!memoryTrace,memoryKey:memoryKey||null})),
         synapses: synapses.map(({id,from,to,weight,activity}) => ({id,from,to,weight,activity})), selectedId
       }));
       dirty = false;
@@ -648,6 +648,60 @@
     if(event.key==="Escape")setConnectMode(false);
   });
   window.addEventListener("beforeunload",()=>{if(dirty)saveState();});
+
+  window.NGBrain = {
+    createMemoryTrace(key) {
+      const cleanKey = String(key || "общее").slice(0, 34);
+      const existing = neurons.find(n => n.memoryTrace && n.memoryKey === cleanKey);
+      if (existing) return existing.id;
+      const traces = neurons.filter(n => n.memoryTrace);
+      const anchor = neurons.find(n => n.name === "Долгая память") || neurons.find(n => n.type === "memory") || neurons[0];
+      if (!anchor) return null;
+      if (traces.length >= 32) return anchor.id;
+      const index = traces.length;
+      const angle = index * 2.399963229728653;
+      const radius = 112 + Math.floor(index / 8) * 58;
+      const trace = makeNeuron("Энграмма · " + cleanKey, "memory",
+        anchor.x + Math.cos(angle) * radius,
+        anchor.y + Math.sin(angle) * radius, .62);
+      trace.memoryTrace = true;
+      trace.memoryKey = cleanKey;
+      neurons.push(trace);
+      neuronById.set(trace.id, trace);
+      connect(anchor.id, trace.id);
+      connect(trace.id, anchor.id);
+      connectionsDirty = true;
+      nodesDirty = true;
+      markDirty();
+      return trace.id;
+    },
+    associateMemoryTraces(ids) {
+      const unique = [...new Set((ids || []).filter(id => neuronById.has(id)))].slice(0, 8);
+      let changed = false;
+      for (let i = 0; i < unique.length; i++) {
+        for (let j = i + 1; j < unique.length; j++) {
+          const a = unique[i], b = unique[j];
+          if (a === b) continue;
+          const edge = synapseByKey.get(edgeKey(a, b));
+          if (edge) {
+            edge.weight = Math.min(1, edge.weight + .025);
+            changed = true;
+          } else if (synapses.length < 1200) {
+            connect(a, b);
+            changed = true;
+          }
+        }
+      }
+      if (changed) { connectionsDirty = true; markDirty(); }
+    },
+    activateMemoryTraces(ids) {
+      const unique = [...new Set((ids || []).filter(id => neuronById.has(id)))].slice(0, 8);
+      for (const id of unique) activate(id, .72);
+      const anchor = neurons.find(n => n.name === "Долгая память");
+      if (anchor) activate(anchor.id, .35);
+      visualDirty = true;
+    }
+  };
 
   resize();
   loadState();
