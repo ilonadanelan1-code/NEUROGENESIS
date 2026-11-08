@@ -40,7 +40,7 @@ jobs:
           const fs = require('node:fs');
           const html = fs.readFileSync('index.html', 'utf8');
           for (const file of ['styles.css', 'app.js', 'knowledge.js', 'memory.js']) {
-            if (!html.includes('./' + file + '?v=0.10.0')) {
+            if (!html.includes('./' + file + '?v=0.10.1')) {
               throw new Error('Missing or stale app reference: ' + file);
             }
           }
