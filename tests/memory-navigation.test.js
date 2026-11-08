@@ -68,7 +68,8 @@ database.set("neurogenesis.memories.v1", JSON.stringify([
   {id:"two",text:"Игорь Головнев твой лучший друг",tags:["игор","головнев"],traceIds:[],createdAt:2000,updatedAt:2000,strength:.65,repetitions:1,recalls:0},
   {id:"three",text:"Мне нравится музыка",tags:["нравится","музык"],traceIds:[],createdAt:3000,updatedAt:3000,strength:.65,repetitions:1,recalls:0},
   {id:"four",text:"Ты мой оссистент",tags:["оссистент"],traceIds:[],createdAt:4000,updatedAt:4000,strength:.65,repetitions:1,recalls:0},
-  {id:"five",text:"Твоего создателя зовут Сергей",tags:["создателя","сергей"],traceIds:[],createdAt:5000,updatedAt:5000,strength:.65,repetitions:1,recalls:0}
+  {id:"five",text:"Твоего создателя зовут Сергей",tags:["создателя","сергей"],traceIds:[],createdAt:5000,updatedAt:5000,strength:.65,repetitions:1,recalls:0},
+  {id:"six",text:"У меня есть смартфон",tags:["смартфон"],traceIds:[],createdAt:6000,updatedAt:6000,strength:.65,repetitions:1,recalls:0}
 ]));
 database.set("neurogenesis.dialog.v1", "[]");
 
@@ -122,7 +123,7 @@ manage.dispatch("click");
 assert.equal(history.state.__ngMemoryView,"library","opening the memory library should add a navigation state");
 assert.equal(document.getElementById("memory-library").hidden,false);
 const list = document.getElementById("memory-library-list");
-assert.equal(list.children.length,5);
+assert.equal(list.children.length,6);
 list.scrollTop = 73;
 const firstCard = list.children.find(card => card.dataset.memoryId === "one");
 assert.ok(firstCard);
@@ -159,6 +160,11 @@ document.getElementById("memory-library-back").dispatch("click");
 assert.equal(history.state,null,"back from the library should return to the original view");
 assert.equal(document.getElementById("memory-library").hidden,true);
 assert.equal(sidePanel.scrollTop,147,"the original side-panel position should be restored");
+assert.ok(window.NGMemory.search("телефон").some(item=>item.text==="У меня есть смартфон"),"memory search should retrieve smartphone notes for a phone query through association");
+input.value = "Что ты знаешь о телефоне?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/смартфон/u,"the dialog should find related phone concepts instead of requiring an exact word match");
+assert.match(document.getElementById("memory-feedback").textContent,/АСОЦИАТИВНЫЙ ПОИСК/u,"the interface should disclose when recall used an associative match");
 
 const associationCallsBeforeRecall = associationCalls.length;
 const input = document.getElementById("memory-input");
