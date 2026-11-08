@@ -18,7 +18,7 @@ const chain = activation.spread(
   ],
   {maxDepth:2,maxNodes:8,decay:0.5,threshold:0.1}
 );
-assert.deepEqual(chain.map(item => item.id), ["A","B","C"]);
+assert.deepEqual(Array.from(chain, item => item.id), ["A","B","C"]);
 assert.ok(chain[0].strength > chain[1].strength);
 assert.ok(chain[1].strength > chain[2].strength);
 assert.equal(chain[2].depth, 2);
@@ -28,7 +28,7 @@ const directed = activation.spread(
   [{from:"Y",to:"X",weight:1}],
   {maxDepth:3}
 );
-assert.deepEqual(directed.map(item => item.id), ["X"], "activation must follow directed associations only");
+assert.deepEqual(Array.from(directed, item => item.id), ["X"], "activation must follow directed associations only");
 
 const cycle = activation.spread(
   ["A"],
@@ -61,5 +61,5 @@ const invalid = activation.spread(
   [{from:"Z",to:"Q",weight:NaN},{from:"Z",to:"Z",weight:1}],
   {}
 );
-assert.deepEqual(invalid.map(item => item.id), ["Z"]);
+assert.deepEqual(Array.from(invalid, item => item.id), ["Z"]);
 console.log("NEUROGENESIS spreading activation tests: depth, decay, direction, cycles and node budget passed.");
