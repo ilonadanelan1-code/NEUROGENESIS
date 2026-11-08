@@ -804,21 +804,34 @@
       dateLabel:pad(day)+"."+pad(month)+"."+String(year),timeLabel:timeKey,
       secondsOfDay:hour==null?null:hour*3600+minute*60+second};
   }
+  function eventIsLaterThanRecord(moment,recordedAt) {
+    const recorded=new Date(safeTime(recordedAt,Date.now()));
+    const pad=value=>String(value).padStart(2,"0");
+    const recordedKey=String(recorded.getFullYear()).padStart(4,"0")+"-"+pad(recorded.getMonth()+1)+"-"+pad(recorded.getDate());
+    if(moment.dateKey>recordedKey)return true;
+    if(moment.dateKey<recordedKey||moment.secondsOfDay==null)return false;
+    const recordedSeconds=recorded.getHours()*3600+recorded.getMinutes()*60+recorded.getSeconds();
+    return moment.secondsOfDay>recordedSeconds;
+  }
   function observationTimelineData() {
-    const cases=observationCases(),events=[],unparsed=[];
+    const sourceCases=observationCases(),grouped=uniqueObservationEvents(sourceCases);
+    const cases=grouped.events,events=[],unparsed=[];
     let missingCount=0;
     for(const item of cases) {
       const field=item.details&&item.details.timing;
       if(!field||field.status!=="provided") {missingCount++;continue;}
       const moment=parseObservationMoment(field.value);
       if(!moment) {unparsed.push({id:item.id,subject:item.subject,object:item.object,polarity:item.polarity,value:field.value});continue;}
-      events.push({...item,moment});
+      events.push({...item,moment,futureRelativeToRecord:eventIsLaterThanRecord(moment,item.recordedAt)});
     }
     events.sort((a,b)=>a.moment.dateKey.localeCompare(b.moment.dateKey)||
       (a.moment.secondsOfDay==null?Number.MAX_SAFE_INTEGER:a.moment.secondsOfDay)-
       (b.moment.secondsOfDay==null?Number.MAX_SAFE_INTEGER:b.moment.secondsOfDay)||
       String(a.id).localeCompare(String(b.id)));
-    return {totalCases:cases.length,events,unparsed,missingCount,recognizedCount:events.length,unparsedCount:unparsed.length};
+    return {totalCases:cases.length,rawCardCount:sourceCases.length,duplicateMentions:grouped.duplicateMentions,
+      possibleDuplicateGroups:grouped.possibleDuplicateGroups,events,unparsed,missingCount,
+      futureCount:events.filter(item=>item.futureRelativeToRecord).length,
+      recognizedCount:events.length,unparsedCount:unparsed.length};
   }
   function observationTimelineAnswer() {
     const data=observationTimelineData();
@@ -830,18 +843,21 @@
     for(const item of data.events) { if(!byDay.has(item.moment.dateKey))byDay.set(item.moment.dateKey,[]); byDay.get(item.moment.dateKey).push(item); }
     const fieldText=(field)=>field&&field.status==="provided"?field.value:observationFieldStatusLabel(field&&field.status||"not_stated");
     let answer="ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\n";
-    answer+="Распознано дат/моментов: "+data.recognizedCount+" из "+data.totalCases+"; не удалось разобрать: "+data.unparsedCount+"; время не указано: "+data.missingCount+".\n";
+    answer+="Распознано дат/моментов: "+data.recognizedCount+" из "+data.totalCases+" групп событий; не удалось разобрать: "+data.unparsedCount+"; время не указано: "+data.missingCount+".\n";
+    answer+="Карточек памяти: "+data.rawCardCount+"; возможных повторов/дополнений сгруппировано: "+data.duplicateMentions+".\n";
     answer+="Показываю только время события, явно записанное в карточке. Дата сохранения воспоминания не используется для восстановления хронологии.\n\n";
     for(const [dateKey,items] of byDay) {
       const first=items[0].moment; answer+=first.dateLabel+"\n";
       const timed=items.filter(item=>item.moment.precision!=="date"),dateOnly=items.filter(item=>item.moment.precision==="date");
       for(const item of timed) {
         answer+="  "+item.moment.timeLabel+" · "+(item.polarity?"наблюдалось":"не наблюдалось")+" · "+item.subject+" → "+item.object+"\n";
-        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Карточка: "+item.id+"\n";
+        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Значение: "+fieldText(item.details.outcome)+" · Карточка: "+item.id+"\n";
+        if(item.futureRelativeToRecord)answer+="    ПРЕДУПРЕЖДЕНИЕ: событие указано позже времени сохранения карточки. Проверь дату, часы и часовой пояс.\n";
       }
       for(const item of dateOnly) {
         answer+="  Время суток не указано · "+(item.polarity?"наблюдалось":"не наблюдалось")+" · "+item.subject+" → "+item.object+"\n";
-        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Карточка: "+item.id+"\n";
+        answer+="    Контекст: "+fieldText(item.details.context)+" · Критерий: "+fieldText(item.details.criterion)+" · Значение: "+fieldText(item.details.outcome)+" · Карточка: "+item.id+"\n";
+        if(item.futureRelativeToRecord)answer+="    ПРЕДУПРЕЖДЕНИЕ: событие указано позже времени сохранения карточки. Проверь дату, часы и часовой пояс.\n";
       }
       answer+="\n";
     }
@@ -851,6 +867,7 @@
       answer+="\n";
     }
     if(data.missingCount)answer+="Без явно указанной даты или времени осталось карточек: "+data.missingCount+". Их нельзя достоверно расположить на временной шкале.\n\n";
+    if(data.futureCount)answer+="\nВозможное несоответствие времени: "+data.futureCount+" событие(я) датированы позже момента сохранения карточки. Сравнение использует локальные часы текущего устройства; при переносе копии между часовыми поясами нужна ручная проверка. Это предупреждение, а не автоматическое исправление даты.\n";
     answer+="Распознаются строгие форматы YYYY-MM-DD, YYYY-MM-DD HH:mm[:ss], DD.MM.YYYY и DD.MM.YYYY HH:mm[:ss]. Для даты без времени определяется только день, но не порядок событий внутри него. Часовой пояс не угадывается. Отчёт не подтверждает достоверность самих наблюдений.";
     return answer;
   }
@@ -879,15 +896,8 @@
   function evidenceReconciliationForEdge(subject,object,baselineAt=0) {
     const candidates=observationCases().filter(item=>
       KNOWLEDGE.sameEntity(item.subject,subject)&&KNOWLEDGE.sameEntity(item.object,object));
-    const seen=new Map(),cases=[];
-    let duplicateMentions=0;
-    for(const item of candidates) {
-      const text=normalise(item.evidence||"");
-      const subjectKey=KNOWLEDGE.canonicalEntity(item.subject),objectKey=KNOWLEDGE.canonicalEntity(item.object);
-      const key=[subjectKey,objectKey,item.polarity?"1":"0",text||item.id].join("|");
-      if(seen.has(key)){duplicateMentions++;continue;}
-      seen.set(key,item.id);cases.push(item);
-    }
+    const grouped=uniqueObservationEvents(candidates),cases=grouped.events;
+    const duplicateMentions=grouped.duplicateMentions;
     const supporting=cases.filter(item=>item.polarity),challenging=cases.filter(item=>!item.polarity);
     const oppositePairs=[];
     for(const positive of supporting)for(const negative of challenging) {
@@ -906,11 +916,15 @@
     const contextDifferences=different.filter(pair=>!pair.contextMatch);
     const criterionDifferences=different.filter(pair=>!pair.criterionMatch);
     const timingDifferences=oppositePairs.filter(pair=>pair.timingDiff);
-    const fields=cases.length*3;
-    const known=cases.reduce((sum,item)=>sum+["context","timing","criterion"].filter(key=>
+    const metadataKeys=["context","timing","criterion","outcome"];
+    const fields=cases.length*metadataKeys.length;
+    const known=cases.reduce((sum,item)=>sum+metadataKeys.filter(key=>
       item.details[key]&&item.details[key].status==="provided").length,0);
     const completeCases=cases.filter(item=>["context","timing","criterion"].every(key=>
-      item.details[key]&&item.details[key].status==="provided"));
+      item.details[key]&&item.details[key].status==="provided")&&
+      (!criterionRequiresNumericOutcome(item.details.criterion)||item.details.outcome.status==="provided"));
+    const outcomeMissingCount=cases.filter(item=>criterionRequiresNumericOutcome(item.details.criterion)&&
+      item.details.outcome.status!=="provided").length;
     const independent=cases.filter(item=>item.verification==="independently_verified"||item.verification==="verified");
     const recordIds=[...new Set(cases.map(item=>item.sourceMemoryId).filter(Boolean))];
     const addedAfter=baselineAt?cases.filter(item=>item.recordedAt>baselineAt):[];
@@ -933,7 +947,9 @@
       recommendation="Пока не выбирать объяснение. Заполнять контекст, время и критерий для каждого естественного случая; не делать вывод по простому количеству записей.";
     }
     return {subject,object,cases,supportingCount:supporting.length,challengingCount:challenging.length,
-      duplicateMentions,completeCases:completeCases.length,metadataCoverage:fields?Math.round(known/fields*100):0,
+      duplicateMentions,possibleDuplicateGroups:grouped.possibleDuplicateGroups,
+      explicitDuplicateGroups:grouped.explicitDuplicateGroups,outcomeMissingCount,
+      completeCases:completeCases.length,metadataCoverage:fields?Math.round(known/fields*100):0,
       knownFields:known,fieldCount:fields,alignedPairCount:aligned.length,differentMetadataPairCount:different.length,
       contextDifferencePairCount:contextDifferences.length,criterionDifferencePairCount:criterionDifferences.length,
       timingDifferencePairCount:timingDifferences.length,incompletePairCount:incomplete.length,
@@ -961,9 +977,10 @@
   function observationEvidenceDossierText(row,index=0) {
     const d=evidenceReconciliationForEdge(row.subject,row.object,row.baselineAt);
     let answer=(index?index+". ":"")+"Звено: "+row.subject+" → "+row.object+"\n";
-    answer+="Наблюдения после устранения точных повторов: согласующиеся — "+d.supportingCount+"; противоположные — "+d.challengingCount+
-      "; возможные повторные упоминания — "+d.duplicateMentions+".\n";
-    answer+="Заполненность карточек контекст/время/критерий: "+d.metadataCoverage+"% ("+d.completeCases+" полностью заполненных из "+d.cases.length+").\n";
+    answer+="Наблюдения после группировки возможных повторов/дополнений: согласующиеся — "+d.supportingCount+"; противоположные — "+d.challengingCount+
+      "; сгруппировано повторных карточек — "+d.duplicateMentions+" (возможных групп — "+d.possibleDuplicateGroups+").\n";
+    answer+="Заполненность карточек контекст/время/метод/значение: "+d.metadataCoverage+"% ("+d.completeCases+" полных из "+d.cases.length+").\n";
+    if(d.outcomeMissingCount)answer+="Для числового способа оценки не записано фактическое значение результата в "+d.outcomeMissingCount+" карточке(ах).\n";
     answer+="Отдельных записей памяти: "+d.userRecordCount+"; добавлено в память после сохранения вывода: "+d.addedAfterModelCount+".\n";
     answer+="Независимо подтверждённых источников: "+d.independentVerifiedSources+". Все текущие случаи остаются пользовательскими и непроверенными.\n";
     answer+="Сопоставление: "+d.pattern+".\n";
@@ -984,7 +1001,7 @@
     if(!edges.length)return "СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ\n\nПока нет сохранённых причинных звеньев с историей. Сначала выведи причинную цепочку, чтобы было с чем сопоставить наблюдения.";
     let answer="СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ\n\n";
     for(let i=0;i<Math.min(edges.length,10);i++)answer+=observationEvidenceDossierText(edges[i],i+1)+"\n\n";
-    answer+="КАК ЧИТАТЬ ОТЧЁТ\nСовпадающий текст считается возможным повторным упоминанием и не увеличивает число разных случаев. Совпадение контекста и критерия позволяет лишь осторожно сопоставить пару, но не доказывает причинность. Разные контексты могут быть важны, но сами по себе не объясняют разницу исходов. Время здесь означает заполненное пользователем описание; точность дат и реальный временной порядок независимо не проверены.\n\nРешения рабочей модели остаются прежними. Для явного выбора варианта пересмотра используй отдельную команду после изучения отчёта.";
+    answer+="КАК ЧИТАТЬ ОТЧЁТ\nСовпадающий или дополненный текст без отдельного идентификатора события группируется как возможное повторное упоминание: исходные карточки сохраняются, но не считаются независимыми случаями. Чтобы явно различить два эпизода, добавляй разные метки «событие: ...»; одинаковая метка связывает карточки одного эпизода. Метод оценки («критерий») и полученное значение («результат») записываются отдельно. Совпадение контекста и критерия позволяет лишь осторожно сопоставить пару, но не доказывает причинность. Разные контексты сами по себе не объясняют разницу исходов. Время здесь означает пользовательское описание; точность дат и реальный временной порядок независимо не проверены.\n\nРешения рабочей модели остаются прежними. Для явного выбора варианта пересмотра используй отдельную команду после изучения отчёта.";
     return answer;
   }
   function newObservationModelNote(claims) {
