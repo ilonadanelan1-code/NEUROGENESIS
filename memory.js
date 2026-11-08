@@ -475,6 +475,32 @@
     if(assessAnsweredInquiries())changed=true;
     return changed;
   }
+  function clearLegacyInquiryFragmentClaims() {
+    const responses=inquiries.filter(item=>item.status==="answered"&&item.responseText&&item.answeredAt>0)
+      .map(item=>({
+        at:item.answeredAt,
+        fragments:item.responseText.split(/\\n+|(?<=[.!?])\\s+/u).map(value=>value.trim()).filter(Boolean)
+      })).filter(item=>item.fragments.length);
+    if(!responses.length)return false;
+    let changed=false;
+    for(const memory of memories) {
+      if(!Array.isArray(memory.claims)||!memory.claims.length)continue;
+      let comparable=memory.text;
+      const prefix=comparable.match(/^ответ на вопрос\\s+#?\\s*q\\d+\\s*:\\s*/iu);
+      if(prefix)comparable=comparable.slice(prefix[0].length);
+      const normalized=normalise(comparable);
+      if(!normalized)continue;
+      const createdAt=Number(memory.createdAt)||0;
+      const isAnswerFragment=responses.some(response=>
+        Math.abs(createdAt-response.at)<=60000&&
+        response.fragments.some(fragment=>normalise(fragment)===normalized));
+      if(isAnswerFragment) {
+        memory.claims=[];
+        changed=true;
+      }
+    }
+    return changed;
+  }
   function inquiryEdgeKey(subject,object) {
     const key=value=>KNOWLEDGE&&KNOWLEDGE.canonicalEntity?KNOWLEDGE.canonicalEntity(value):normalise(value);
     return key(subject)+"|"+key(object);
@@ -1181,6 +1207,7 @@
       inquiries=mergeInquiryHistory([],savedInquiries);
       if(reconcileInquiryResponsesFromEntries(dialog))memoryMigrated=true;
       if(assessAnsweredInquiries())memoryMigrated=true;
+      if(clearLegacyInquiryFragmentClaims())memoryMigrated=true;
     } catch(error) {
       inquiries=[];nextInquiryNumber=1;
       console.warn("Could not load NEUROGENESIS inquiry queue:",error);
@@ -1989,6 +2016,7 @@
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
+      clearLegacyInquiryFragmentClaims();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();

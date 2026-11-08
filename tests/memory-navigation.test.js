@@ -601,5 +601,58 @@ const migratedLegacyMemories=JSON.parse(database.get("neurogenesis.memories.v1")
 assert.equal(migratedLegacyMemories[0].claims.length,0,
   "the repaired memory data should be persisted rather than reintroducing the malformed claim on next load");
 
-console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion, inquiry provenance and quoted-claim migration: passed.");
+// Older builds split long research answers into separate memory fragments.
+// Claims extracted from those fragments must be cleared when provenance matches.
+const q1Answer="В сохранённых записях обстоятельства двух наблюдений не указаны. Нет точных дат и времени. Поэтому пока нельзя установить, были ли это разные обстоятельства или действительно противоречащие друг другу наблюдения. Эти записи показывают два противоположных результата.";
+const q1FalseFragment="Поэтому пока нельзя установить, были ли это разные обстоятельства или действительно противоречащие друг другу наблюдения.";
+const falseDefinition={id:"legacy-q1-definition",kind:"definition",subject:"были ли",predicate:"определяется как",
+  object:"разные обстоятельства или действительно противоречащие друг другу наблюдения",holder:"user",
+  polarity:true,source:"user_message",evidence:"были ли это разные обстоятельства или действительно противоречащие друг другу наблюдения",
+  verification:"unverified",extractionConfidence:0.87,traceId:null,createdAt:1000,revision:false,status:"current",modality:"asserted"};
+database.set("neurogenesis.memories.v1",JSON.stringify([
+  {id:"legacy-q1-prefix",text:"Ответ на вопрос Q1: В сохранённых записях обстоятельства двух наблюдений не указаны.",
+   tags:["ответ"],traceIds:[],claims:[],createdAt:1000,updatedAt:1000,strength:.65,repetitions:1,recalls:0},
+  {id:"legacy-q1-fragment",text:q1FalseFragment,tags:["обстоятельств"],traceIds:[],claims:[falseDefinition],
+   createdAt:1001,updatedAt:1001,strength:.65,repetitions:1,recalls:0}
+]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.inquiries.v1",JSON.stringify([
+  {id:"Q1",signature:"legacy-q1",kind:"contrast_observations",edgeSubject:"Недостаток сна",edgeObject:"усталости",
+   question:"Уточни обстоятельства.",reason:"Есть противоречие.",priority:0,status:"answered",
+   sourceClaimIds:[],createdAt:900,updatedAt:1000,lastAskedAt:950,responseText:q1Answer,
+   responseMemoryId:"legacy-q1-prefix",responseClaimIds:[],answeredAt:1000,
+   assessment:"insufficient_context",assessmentReason:"Контекст неизвестен.",assessmentAt:1000}
+]));
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definition"),false,
+  "a structured claim parsed from a legacy inquiry-answer fragment must be removed");
+const cleanedInquiryFragment=JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id==="legacy-q1-fragment");
+assert.ok(cleanedInquiryFragment,"the original memory fragment itself must be preserved");
+assert.equal(cleanedInquiryFragment.text,q1FalseFragment,"migration must preserve the user's original text");
+assert.equal(cleanedInquiryFragment.claims.length,0,"the structured layer should be cleaned and persisted");
+
+// An unrelated memory with the same sentence but far from the inquiry date must be preserved.
+database.set("neurogenesis.memories.v1",JSON.stringify([
+  {id:"unrelated-definition",text:q1FalseFragment,tags:["обстоятельств"],traceIds:[],claims:[falseDefinition],
+   createdAt:900000,updatedAt:900000,strength:.65,repetitions:1,recalls:0}
+]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.inquiries.v1",JSON.stringify([
+  {id:"Q1",signature:"legacy-q1",kind:"contrast_observations",edgeSubject:"Недостаток сна",edgeObject:"усталости",
+   question:"Уточни обстоятельства.",reason:"Есть противоречие.",priority:0,status:"answered",
+   sourceClaimIds:[],createdAt:900,updatedAt:1000,lastAskedAt:950,responseText:q1Answer,
+   responseMemoryId:"",responseClaimIds:[],answeredAt:1000,
+   assessment:"insufficient_context",assessmentReason:"Контекст неизвестен.",assessmentAt:1000}
+]));
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definition"),true,
+  "cleanup must not remove a matching claim from an unrelated memory created outside the inquiry time window");
+
+console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion, inquiry provenance and legacy inquiry-fragment migration: passed.");
 
