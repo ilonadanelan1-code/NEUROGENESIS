@@ -48,6 +48,7 @@ python -m http.server 8080
 - `knowledge.js` — выделение структурированных утверждений и ответы по отношениям.
 - `memory.js` — локальная память, поиск, управление записями и резервные копии.
 - `tests/knowledge.test.js` — проверки русского извлечения, ответов и конфликтов.
+- `tests/memory-migration.test.js` — проверка автоматического обновления резервных копий 0.8.
 - `engine/neuro_core.hpp`, `engine/neuro_core.cpp` — отдельное C++17-ядро.
 - `.github/workflows/pages.yml` — проверка JavaScript, регрессионные тесты и публикация GitHub Pages.
 
