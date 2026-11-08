@@ -211,7 +211,7 @@
   }
   function reviewKindForClaim(claim) {
     if(!claim||claim.status==="superseded")return null;
-    if(claim.kind==="causal")return claim.polarity===false?"opposing_claim":"supporting_claim";
+    if(claim.kind==="causal"&&claim.polarity===false)return "opposing_claim";
     if(claim.kind==="observation")return claim.polarity===false?"counterexample":"supporting_observation";
     return null;
   }
@@ -307,7 +307,8 @@
     const decisions=currentModelDecisions(),additions=[];
     if(!decisions.length)return additions;
     for(const claim of claims||[]) {
-      const kind=reviewKindForClaim(claim);
+      const kind=claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"
+        ?"supporting_claim":reviewKindForClaim(claim);
       if(!kind||isRepeatedEvidenceClaim(claim,previousClaims))continue;
       for(const decision of decisions) {
         if(safeTime(claim.createdAt,Date.now())<=decision.at)continue;
