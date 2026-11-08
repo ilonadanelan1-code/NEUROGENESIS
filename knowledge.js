@@ -60,7 +60,7 @@
     return makeClaim("definition",subject,"определяется как",object,text,"unverified",0.87);
   }
   function extractHypothesis(text) {
-    const match = text.match(/^(?:возможно|вероятно|кажется|я предполагаю(?:\s*,?\s*что)?|я думаю(?:\s*,?\s*что)?)\s+(.+)$/iu);
+    const match = text.match(/^(?:(?:возможно|вероятно|кажется),?\s+|(?:я предполагаю|я думаю)(?:\s*,?\s*что)?\s+)(.+)$/iu);
     if (!match) return null;
     return makeClaim("hypothesis","user","предполагает",cleanPart(match[1],180),text,"hypothesis",0.78);
   }
