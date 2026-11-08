@@ -150,12 +150,70 @@
     const object=claim.object==="assistant"?"я ассистент мой":claim.object==="user"?"ты пользователь твой":claim.object;
     return [claim.subject,claim.predicate,object,claim.evidence].join(" ");
   }
+  function entityProfile(query, claims) {
+    const q = normalise(query);
+    const match = q.match(/^(?:что ты знаешь|что известно|расскажи(?: мне)?|помнишь ли ты)\\s+(?:(?:о|об|обо|про)\\s+)?(.+)$/u) ||
+      q.match(/^(?:кто такой|кто такая|кто такое)\\s+(.+)$/u);
+    if (!match || !Array.isArray(claims) || !claims.length) return null;
+    const queryWords = [...new Set(tokens(match[1]))];
+    if (!queryWords.length) return null;
+
+    const candidates = new Map();
+    for (const claim of claims) {
+      if (!claim) continue;
+      for (const value of [claim.subject, claim.object]) {
+        if (!value || value === "assistant" || value === "user" || value === "shared") continue;
+        const key = canonicalEntity(value);
+        if (!key) continue;
+        const words = [...new Set(tokens(value))];
+        const hits = queryWords.filter(word => words.includes(word)).length;
+        if (!hits) continue;
+        const coverage = hits / queryWords.length;
+        const precision = hits / Math.max(1, words.length);
+        const score = coverage * 0.75 + precision * 0.25;
+        const old = candidates.get(key);
+        if (!old || score > old.score) candidates.set(key, { value, key, score, hits });
+      }
+    }
+    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score || b.hits - a.hits);
+    if (!ranked.length || ranked[0].score < 0.45) return null;
+    const best = ranked[0];
+    const ambiguous = ranked.filter(item => item.key !== best.key && Math.abs(item.score - best.score) < 0.015);
+    if (ambiguous.length) {
+      return "Я нашёл несколько похожих объектов в памяти: " +
+        [best.value, ...ambiguous.slice(0, 3).map(item => item.value)].join(", ") +
+        ". Уточни, о ком или о чём именно ты спрашиваешь.";
+    }
+
+    const related = claims.filter(claim =>
+      claim && (sameEntity(claim.subject, best.value) ||
+        (claim.object !== "assistant" && claim.object !== "user" && claim.object !== "shared" && sameEntity(claim.object, best.value)))
+    );
+    const unique = [...new Map(related.map(claim => [claim.id || [claim.kind, claim.evidence].join("|"), claim])).values()]
+      .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+    if (!unique.length) return null;
+    const visible = unique.slice(0, 6);
+    const status = claim => claim.verification === "subjective" ? "субъективное мнение" :
+      claim.verification === "self_reported" ? "самоописание" :
+      claim.verification === "hypothesis" ? "гипотеза" : "сообщение пользователя · не проверено";
+    const lines = visible.map(claim =>
+      "• " + claimLabel(claim) + "\\n  Источник: «" + String(claim.evidence || "").slice(0, 220) + "» · " + status(claim)
+    );
+    const conflicts = findConflicts(unique);
+    let answer = "Вот что я нашёл в сохранённой памяти о «" + best.value + "» (" + unique.length + " утверждений):\\n\\n" + lines.join("\\n\\n");
+    if (unique.length > visible.length) answer += "\\n\\nПоказаны первые " + visible.length + " из " + unique.length + " связанных утверждений.";
+    if (conflicts.length) answer += "\\n\\nВнимание: среди этих записей есть противоречие или возможное противоречие. Я не буду автоматически выбирать одну версию.";
+    answer += "\\n\\nЭто сведения из твоих сохранённых сообщений, а не независимо проверенные факты.";
+    return answer;
+  }
   function answerQuestion(query, claims) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims) || !claims.length) return null;
     const qWords = new Set(q.split(/\s+/u));
     const queryTokens = new Set(tokens(q));
     const hasAny = words => words.some(word => qWords.has(word));
+    const profile = entityProfile(q, claims);
+    if (profile) return profile;
     const target = hasAny(["твой","твоя","твое","твои","твоего","твоей","твоему","твоим","твою"]) || (qWords.has("у") && qWords.has("тебя")) ? "assistant" :
       hasAny(["мой","моя","мое","мои","моего","моей","моему","моим","мою"]) || (qWords.has("у") && qWords.has("меня")) ? "user" : null;
 
@@ -271,5 +329,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:2,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,findConflicts,summary};
+  window.NGKnowledge={version:2,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,entityProfile,findConflicts,summary};
 })();
