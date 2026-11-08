@@ -405,4 +405,45 @@ assert.ok(latestTracked.reasoning.modelHistory.at(-1).edges.some(edge=>window.NG
 
 
 
+
+// Durable reasoning history survives visible-dialog truncation, and unchanged audits are deterministic.
+for(let i=0;i<7;i++) {
+  input.value = "Привет";
+  document.getElementById("ask-button").dispatch("click");
+}
+assert.ok(window.NGMemory.reasoningHistory().length>=2,"structured conclusions should remain in the durable archive after the dialogue rolls over");
+assert.ok(JSON.parse(database.get("neurogenesis.reasoning-archive.v1")).length>=2,"the durable reasoning archive should be persisted independently");
+input.value = "Какие прежние выводы требуют пересмотра?";
+document.getElementById("ask-button").dispatch("click");
+const stableAuditA=feed.children[feed.children.length-1].textContent;
+input.value = "Какие прежние выводы требуют пересмотра?";
+document.getElementById("ask-button").dispatch("click");
+const stableAuditB=feed.children[feed.children.length-1].textContent;
+assert.equal(stableAuditA,stableAuditB,"repeating an audit against unchanged memory should produce the same report");
+assert.match(stableAuditA,/Недостаток сна ⇢ снижению концентрации/u,"the audit should include older conclusions retained outside the short dialogue");
+
+input.value = "При недостатке сна наблюдалась усталость";
+document.getElementById("remember-button").dispatch("click");
+const positiveObservation=window.NGMemory.claims().find(claim=>claim.kind==="observation"&&claim.polarity!==false&&
+  window.NGKnowledge.sameEntity(claim.subject,"недостатке сна")&&window.NGKnowledge.sameEntity(claim.object,"усталости"));
+assert.ok(positiveObservation,"the new observation should be structurally extracted");
+const evidenceEvents=window.NGMemory.modelEvidence();
+assert.ok(evidenceEvents.some(item=>item.direction==="supporting"&&
+  window.NGKnowledge.sameEntity(item.edgeSubject,"Недостаток сна")&&window.NGKnowledge.sameEntity(item.edgeObject,"усталости")),
+  "new supporting evidence should be matched to the previously revised edge");
+assert.match(feed.children[feed.children.length-1].textContent,/НОВЫЕ СВИДЕТЕЛЬСТВА ДЛЯ ПЕРЕСМОТРА РЕШЕНИЯ/u,
+  "the app should explain that new evidence may justify reviewing an old decision");
+assert.equal(window.NGMemory.modelDecisions().find(item=>window.NGKnowledge.sameEntity(item.edgeSubject,"Недостаток сна")&&
+  window.NGKnowledge.sameEntity(item.edgeObject,"усталости")).strategy,"restore",
+  "new evidence must not silently rewrite the user's selected model decision");
+const evidenceCountBeforeRepeat=window.NGMemory.modelEvidence().length;
+input.value = "При недостатке сна наблюдалась усталость";
+document.getElementById("remember-button").dispatch("click");
+assert.equal(window.NGMemory.modelEvidence().length,evidenceCountBeforeRepeat,
+  "repeating the same observation should not be counted as independent new evidence");
+assert.doesNotMatch(feed.children[feed.children.length-1].textContent,/НОВЫЕ СВИДЕТЕЛЬСТВА ДЛЯ ПЕРЕСМОТРА РЕШЕНИЯ/u,
+  "a repeated observation should not trigger another new-evidence notice");
+assert.ok(JSON.parse(database.get("neurogenesis.model-evidence.v1")).length>=1,
+  "new model-evidence events should persist separately from memories and decisions");
+
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and causal model revision: passed.");
