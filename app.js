@@ -26,6 +26,7 @@
   let saveTimer = 0;
   let width = 0, height = 0, dpr = 1;
   let lastMetricsUpdate = 0;
+  let visualDirty = true;
   let fpsFrames = 0;
   let fpsLast = 0;
   const activeNeuronIds = new Set();
@@ -129,6 +130,7 @@
 
   function markDirty() {
     dirty = true;
+    visualDirty = true;
     $("save-dot").classList.add("unsaved");
     $("save-status").textContent = "Есть несохранённые изменения";
     clearTimeout(saveTimer);
@@ -180,6 +182,7 @@
     backgroundDirty = true;
     connectionsDirty = true;
     nodesDirty = true;
+    visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
   new ResizeObserver(resize).observe(canvas);
@@ -192,7 +195,7 @@
     const before = worldAt({x:px,y:py});
     view.zoom = Math.max(.16, Math.min(5.5, view.zoom * factor));
     view.x = px - before.x * view.zoom; view.y = py - before.y * view.zoom;
-    backgroundDirty = true; connectionsDirty = true; nodesDirty = true;
+    backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
   }
   function fitNetwork() {
@@ -203,7 +206,7 @@
     view.zoom = Math.max(.2, Math.min(1.8, Math.min((width - 80) / Math.max(1,maxX-minX), (height - 100) / Math.max(1,maxY-minY))));
     view.x = width/2 - ((minX+maxX)/2) * view.zoom;
     view.y = height/2 - ((minY+maxY)/2) * view.zoom;
-    backgroundDirty = true; connectionsDirty = true; nodesDirty = true;
+    backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom*100) + "%";
   }
 
@@ -218,6 +221,7 @@
   function selectNeuron(id) {
     selectedId = id;
     nodesDirty = true;
+    visualDirty = true;
     renderInspector(); updateMetrics();
   }
   function addNeuron(x, y, type = "logic") {
@@ -529,6 +533,14 @@
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
     requestAnimationFrame(frame);
+    fpsFrames++;
+    if(!fpsLast)fpsLast=time;
+    if(time-fpsLast>=500){
+      const fps=Math.round(fpsFrames*1000/(time-fpsLast));
+      const fpsEl=$("fps-value");
+      if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
+      fpsFrames=0;fpsLast=time;
+    }
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const id of activeNeuronIds){
@@ -546,16 +558,12 @@
         pulses.splice(i,1);
       }
     }
-    drawBackground();drawConnections();drawNeurons();
-    fpsFrames++;
-    if(!fpsLast)fpsLast=time;
-    if(time-fpsLast>=500){
-      const fps=Math.round(fpsFrames*1000/(time-fpsLast));
-      const fpsEl=$("fps-value");
-      if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
-      fpsFrames=0;fpsLast=time;
+    const animationActive=running||pulses.length>0||activeNeuronIds.size>0;
+    if(visualDirty||animationActive){
+      drawBackground();drawConnections();drawNeurons();
+      visualDirty=false;
     }
-    if(time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
+    if((animationActive||visualDirty)&&time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
   }
 
   canvas.addEventListener("pointerdown", event => {
@@ -586,15 +594,15 @@
       const mid={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
       view.zoom=Math.max(.16,Math.min(5.5,gesture.zoom*(dist/Math.max(1,gesture.distance))));
       view.x=mid.x-gesture.world.x*view.zoom;view.y=mid.y-gesture.world.y*view.zoom;
-      backgroundDirty=true;connectionsDirty=true;nodesDirty=true;
+      backgroundDirty=true;connectionsDirty=true;nodesDirty=true;visualDirty=true;
       $("zoom-value").textContent=Math.round(view.zoom*100)+"%";return;
     }
     if(!drag)return;
     if(drag.kind==="node"){
       const n=getNeuron(drag.id);if(!n)return;
-      const w=worldAt(point);n.x+=w.x-drag.last.x;n.y+=w.y-drag.last.y;drag.last=w;connectionsDirty=true;nodesDirty=true;markDirty();
+      const w=worldAt(point);n.x+=w.x-drag.last.x;n.y+=w.y-drag.last.y;drag.last=w;connectionsDirty=true;nodesDirty=true;visualDirty=true;markDirty();
     }else if(drag.kind==="pan"){
-      view.x+=point.x-drag.last.x;view.y+=point.y-drag.last.y;drag.last=point;backgroundDirty=true;connectionsDirty=true;nodesDirty=true;
+      view.x+=point.x-drag.last.x;view.y+=point.y-drag.last.y;drag.last=point;backgroundDirty=true;connectionsDirty=true;nodesDirty=true;visualDirty=true;
     }
   });
   function endPointer(event){pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;if(pointers.size===0)drag=null;}
@@ -605,6 +613,7 @@
   function setConnectMode(force) {
     connectMode=typeof force==="boolean"?force:!connectMode;
     if(!connectMode)connectFrom=null;
+    nodesDirty=true;visualDirty=true;
     $("connect-button").classList.toggle("active",connectMode);
     $("mode-note").textContent=connectMode?"Выбери два нейрона по очереди.":"Выбери нейрон, чтобы изучить его состояние.";
     if(connectMode)showToast("Режим связей: выбери первый нейрон");
@@ -625,10 +634,10 @@
   $("center-button").addEventListener("click",fitNetwork);
   $("save-button").addEventListener("click",()=>{saveState();showToast("Сеть сохранена на этом устройстве");});
   $("delete-button").addEventListener("click",()=>{if(selectedId&&confirm("Удалить выбранный нейрон и все его связи?"))removeNeuron(selectedId);});
-  $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;markDirty();}});
+  $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;nodesDirty=true;markDirty();}});
   $("neuron-type").addEventListener("change",event=>{const n=currentNeuron();if(n){n.type=event.target.value;nodesDirty=true;markDirty();}});
   $("neuron-bias").addEventListener("input",event=>{const n=currentNeuron();if(n){n.bias=Number(event.target.value)/100;$("bias-value").textContent=event.target.value+"%";markDirty();}});
-  $("search-input").addEventListener("input",event=>{searchTerm=event.target.value.trim().toLowerCase();nodesDirty=true;const found=neurons.find(n=>n.name.toLowerCase().includes(searchTerm));if(searchTerm&&found){selectNeuron(found.id);const p=screenAt(found);zoomAt(1.1,p.x,p.y);}});
+  $("search-input").addEventListener("input",event=>{searchTerm=event.target.value.trim().toLowerCase();nodesDirty=true;visualDirty=true;const found=neurons.find(n=>n.name.toLowerCase().includes(searchTerm));if(searchTerm&&found){selectNeuron(found.id);const p=screenAt(found);zoomAt(1.1,p.x,p.y);}});
   document.addEventListener("keydown",event=>{
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveState();}
     if((event.key==="Delete"||event.key==="Backspace")&&!["INPUT","SELECT","TEXTAREA"].includes(document.activeElement.tagName)&&selectedId){removeNeuron(selectedId);}
