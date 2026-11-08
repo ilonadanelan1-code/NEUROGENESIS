@@ -682,14 +682,16 @@
       for (let i = 0; i < unique.length; i++) {
         for (let j = i + 1; j < unique.length; j++) {
           const a = unique[i], b = unique[j];
-          if (a === b) continue;
-          const edge = synapseByKey.get(edgeKey(a, b));
-          if (edge) {
-            edge.weight = Math.min(1, edge.weight + .025);
-            changed = true;
-          } else if (synapses.length < 1200) {
-            connect(a, b);
-            changed = true;
+          for (const [from, to] of [[a, b], [b, a]]) {
+            const edge = synapseByKey.get(edgeKey(from, to));
+            if (edge) {
+              const previous = edge.weight;
+              edge.weight = Math.min(1, edge.weight + .025);
+              changed = changed || edge.weight !== previous;
+            } else if (synapses.length < 1200) {
+              connect(from, to);
+              changed = true;
+            }
           }
         }
       }
