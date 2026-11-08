@@ -41,9 +41,11 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const html = fs.readFileSync('index.html', 'utf8');
+          const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/)?.[1];
+          if (!version) throw new Error('Could not read the app version from index.html');
           for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'memory.js']) {
-            if (!html.includes('./' + file + '?v=0.26.0')) {
-              throw new Error('Missing or stale app reference: ' + file);
+            if (!html.includes('./' + file + '?v=' + version)) {
+              throw new Error('Missing or stale app reference for ' + version + ': ' + file);
             }
           }
           for (const id of ['memory-feed', 'knowledge-count', 'memory-manage', 'memory-library-back', 'memory-editor-back', 'memory-editor-input', 'memory-editor-preview', 'memory-editor-save', 'memory-editor-cancel', 'memory-export', 'memory-import', 'memory-import-file', 'memory-library', 'memory-library-list', 'memory-filter', 'memory-more', 'memory-clear']) {
