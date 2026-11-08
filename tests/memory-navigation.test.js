@@ -179,6 +179,20 @@ assert.match(identityReply,/я — ассистент/u,"the dialog should answe
 assert.match(identityReply,/Ты мой оссистент/u,"the identity answer should show its original source");
 assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ|СТРУКТУРНЫЙ ПОИСК/u);
 
+input.value = "Теперь ты мой советник";
+document.getElementById("remember-button").dispatch("click");
+const roleClaims = window.NGMemory.claims().filter(claim=>claim.kind==="identity");
+assert.equal(roleClaims.filter(claim=>claim.status==="current").length,1,"only the explicitly updated assistant role should stay current");
+assert.equal(roleClaims.find(claim=>claim.object==="ассистент").status,"superseded","the previous role should remain saved as history");
+input.value = "Кто ты?";
+document.getElementById("ask-button").dispatch("click");
+const updatedIdentityReply = feed.children[feed.children.length - 1].textContent;
+assert.match(updatedIdentityReply,/я — советник/u,"the assistant should answer with the latest explicitly assigned role");
+assert.match(updatedIdentityReply,/Ранее ты называл меня ассистент/u,"the answer should preserve the previous role as history");
+input.value = "Кем ты был раньше?";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length - 1].textContent,/роль «ассистент»/u,"the dialog should retrieve the superseded role");
+
 input.value = "Кто твой создатель?";
 document.getElementById("ask-button").dispatch("click");
 const creatorReply = feed.children[feed.children.length - 1].textContent;
