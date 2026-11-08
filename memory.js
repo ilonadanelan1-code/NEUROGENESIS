@@ -911,6 +911,16 @@
     if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
     let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
     answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
+    const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
+    if(inquiryAnswers.length) {
+      answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
+      for(const item of inquiryAnswers.slice(-8)) {
+        answer+="• "+item.id+" — "+item.edgeSubject+" → "+item.edgeObject+": "+inquiryAssessmentLabel(item)+".\n";
+        answer+="  "+(item.assessmentReason||inquiryAssessmentFor(item).reason)+"\n";
+      }
+      answer+="Ответы уточняют состояние данных, но сами по себе не подтверждают причинность.\n\n";
+    }
+
     for(let index=0;index<uniqueReports.length&&index<8;index++) {
       const {report,conclusion}=uniqueReports[index];
       answer+=(index+1)+". "+conclusion.subject+" ⇢ "+conclusion.object+"\n";
@@ -1003,15 +1013,6 @@
       answer+="ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ\n";
       for(const item of parallelRows.slice(0,3))answer+="• "+[item.path[0].subject,...item.path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\n";
       answer+="\n";
-    }
-    const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
-    if(inquiryAnswers.length) {
-      answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
-      for(const item of inquiryAnswers.slice(-8)) {
-        answer+="• "+item.id+" — "+item.edgeSubject+" → "+item.edgeObject+": "+inquiryAssessmentLabel(item)+".\n";
-        answer+="  "+(item.assessmentReason||inquiryAssessmentFor(item).reason)+"\n";
-      }
-      answer+="Ответы уточняют состояние данных, но сами по себе не подтверждают причинность.\n\n";
     }
     answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
     answer+="Выбранные решения рабочей модели хранятся отдельно от исходных воспоминаний и попадут в резервную копию. Их можно изменить или отменить командой «Верни связь X → Y в рабочую модель». Новый вариант схемы — аналитическое предложение, а не установленный факт.";
