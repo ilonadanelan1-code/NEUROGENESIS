@@ -298,6 +298,54 @@
       if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
     }
   }
+  function inquiryAssessmentFor(item) {
+    const text=normalise(item&&item.responseText||"");
+    if(!text)return {assessment:"unassessed",reason:"Ответ не содержит текста для оценки."};
+    if(item.kind==="contrast_observations"||item.kind==="clarify_counterexample") {
+      const noContext=/не указа|нет точн|неизвестн|не хватает информац|не могу установ|нет сведени|нет информац|не располага|контекст отсутств|условия не сохран/u.test(text);
+      return noContext
+        ?{assessment:"insufficient_context",reason:"В ответе прямо указано, что контекст наблюдений неизвестен или не сохранён. Противоположные записи остаются неразрешёнными."}
+        :{assessment:"context_reported_unverified",reason:"В ответе приведён контекст, но его сопоставимость и временной порядок не проверены. Наблюдения остаются пользовательскими сведениями."};
+    }
+    const noObservations=/(?:нет|не было|отсутств|не располага|не найден|не зафиксир|не сохран).*?(?:наблюден|случа|данн|пример)|(?:наблюден|случа|данн|пример).*?(?:нет|отсутств|не было|не зафиксир)/u.test(text);
+    return noObservations
+      ?{assessment:"gap_confirmed",reason:"Ответ сообщает об отсутствии прямых наблюдений. Звено остаётся непроверенным; отсутствие данных не подтверждает и не опровергает причинную связь."}
+      :{assessment:"observations_reported_unverified",reason:"В ответе упомянуты возможные наблюдения, но они не представлены как отдельные сопоставимые записи. Нужна проверка исходных случаев."};
+  }
+  function applyInquiryAssessment(item) {
+    if(!item||item.status!=="answered")return false;
+    const result=inquiryAssessmentFor(item);
+    const at=safeTime(item.answeredAt,item.updatedAt);
+    const changed=item.assessment!==result.assessment||item.assessmentReason!==result.reason||item.assessmentAt!==at;
+    item.assessment=result.assessment;item.assessmentReason=result.reason;item.assessmentAt=at;
+    return changed;
+  }
+  function assessAnsweredInquiries() {
+    let changed=false;
+    for(const item of inquiries)if(applyInquiryAssessment(item))changed=true;
+    return changed;
+  }
+  function inquiryAssessmentLabel(item) {
+    return ({insufficient_context:"контекст не установлен",gap_confirmed:"отсутствие наблюдений отмечено",
+      context_reported_unverified:"контекст указан, но не проверен",
+      observations_reported_unverified:"наблюдения заявлены, но не проверены",unassessed:"ответ ещё не оценён"})[item&&item.assessment]||"ответ ещё не оценён";
+  }
+  function inquiryAssessmentReport() {
+    refreshInquiryQueue();
+    const answered=inquiries.filter(item=>item.status==="answered").sort((a,b)=>a.createdAt-b.createdAt);
+    const open=openInquiries();
+    if(!answered.length&&!open.length)return "Исследовательская очередь пуста. Сначала сформируй вопросы командой «Найди пробелы в знаниях».";
+    let answer="ОЦЕНКА ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n\n";
+    for(const item of answered.slice(-12)) {
+      answer+=item.id+" · "+item.edgeSubject+" → "+item.edgeObject+"\n";
+      answer+="Статус ответа: "+inquiryAssessmentLabel(item)+"\n";
+      answer+=(item.assessmentReason||inquiryAssessmentFor(item).reason)+"\n";
+      answer+="Ответ: «"+item.responseText.slice(0,700)+"»\n\n";
+    }
+    if(open.length)answer+="ОСТАЮТСЯ ОТКРЫТЫМИ\n"+open.map(item=>"• "+item.id+" — "+item.edgeSubject+" → "+item.edgeObject).join("\n")+"\n\n";
+    answer+="Эта оценка показывает, что сообщил пользователь и чего всё ещё не хватает. Она не проверяет достоверность сообщений и не меняет решения рабочей модели автоматически.";
+    return answer;
+  }
   function cleanInquiry(raw) {
     if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !/^Q\d{1,8}$/u.test(raw.id) ||
         typeof raw.signature !== "string" || typeof raw.question !== "string") return null;
@@ -313,7 +361,10 @@
       lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
       responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
-      answeredAt:safeTime(raw.answeredAt,0)};
+      answeredAt:safeTime(raw.answeredAt,0),
+      assessment:["insufficient_context","gap_confirmed","context_reported_unverified","observations_reported_unverified"].includes(raw.assessment)?raw.assessment:"unassessed",
+      assessmentReason:typeof raw.assessmentReason==="string"?raw.assessmentReason.slice(0,700):"",
+      assessmentAt:safeTime(raw.assessmentAt,0)};
   }
   function mergeInquiryHistory(existing,incoming) {
     const unique=new Map();
@@ -361,6 +412,7 @@
         }
       }
     }
+    if(assessAnsweredInquiries())changed=true;
     return changed;
   }
   function inquiryEdgeKey(subject,object) {
@@ -442,7 +494,7 @@
     if(!inquiries.length)return "Очередь исследовательских вопросов пока пуста. Сохрани причинные выводы, затем попроси «Найди пробелы в знаниях».";
     let answer="ИССЛЕДОВАТЕЛЬСКАЯ ОЧЕРЕДЬ\n\nОткрыто: "+open.length+" · Получили ответ: "+answered.length+" · Пропущено: "+skipped.length+"\n";
     if(open.length)answer+="\nОТКРЫТЫЕ ВОПРОСЫ\n"+open.map(x=>"• "+x.id+" — "+x.edgeSubject+" → "+x.edgeObject+" · "+x.question).join("\n");
-    if(answered.length)answer+="\n\nПОЛУЧЕННЫЕ ОТВЕТЫ\n"+answered.slice(-5).map(x=>"• "+x.id+" — ответ сохранён"+(x.responseClaimIds.length?" · структурированных утверждений: "+x.responseClaimIds.length:" · текст без выделенных утверждений")).join("\n");
+    if(answered.length)answer+="\n\nПОЛУЧЕННЫЕ ОТВЕТЫ\n"+answered.slice(-8).map(x=>"• "+x.id+" — "+inquiryAssessmentLabel(x)).join("\n");
     if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ");
     return answer+"\n\nОтветы остаются пользовательскими сведениями. Они не подтверждают причинную связь автоматически.";
   }
@@ -458,7 +510,7 @@
     item.status="answered";item.responseText=String(response||"").trim().slice(0,MAX_TEXT);
     item.responseMemoryId=memory&&memory.id||"";
     item.responseClaimIds=[...new Set((claims||[]).map(c=>c&&c.id).filter(Boolean))].slice(0,12);
-    item.answeredAt=Date.now();item.updatedAt=item.answeredAt;persist();
+    item.answeredAt=Date.now();item.updatedAt=item.answeredAt;applyInquiryAssessment(item);persist();
     return "ОТВЕТ ПРИВЯЗАН К "+item.id+"\nВ памяти сохранён ответ: «"+item.responseText+"»."+
       (item.responseClaimIds.length?" Выделено структурированных утверждений: "+item.responseClaimIds.length+".":" Структурированное утверждение не выделено, но текст сохранён.")+
       " Рабочая причинная модель не меняется автоматически.";
@@ -952,6 +1004,15 @@
       for(const item of parallelRows.slice(0,3))answer+="• "+[item.path[0].subject,...item.path.map(edge=>edge.object)].join(" → ")+" — отдельная непроверенная гипотеза, а не замена спорной связи.\n";
       answer+="\n";
     }
+    const inquiryAnswers=inquiries.filter(item=>item.status==="answered");
+    if(inquiryAnswers.length) {
+      answer+="УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ\n";
+      for(const item of inquiryAnswers.slice(-8)) {
+        answer+="• "+item.id+" — "+item.edgeSubject+" → "+item.edgeObject+": "+inquiryAssessmentLabel(item)+".\n";
+        answer+="  "+(item.assessmentReason||inquiryAssessmentFor(item).reason)+"\n";
+      }
+      answer+="Ответы уточняют состояние данных, но сами по себе не подтверждают причинность.\n\n";
+    }
     answer+="Предлагаемое изменение модели: спорные рёбра оставить видимыми, но пометить как требующие проверки; непроверенные рёбра не считать подтверждёнными; альтернативные маршруты хранить отдельно. Ни одна исходная запись не удалена и не переписана.\n\n";
     answer+="Выбранные решения рабочей модели хранятся отдельно от исходных воспоминаний и попадут в резервную копию. Их можно изменить или отменить командой «Верни связь X → Y в рабочую модель». Новый вариант схемы — аналитическое предложение, а не установленный факт.";
     return answer;
@@ -1055,6 +1116,7 @@
       const savedInquiries=JSON.parse(localStorage.getItem(INQUIRIES_KEY)||"[]");
       inquiries=mergeInquiryHistory([],savedInquiries);
       if(reconcileInquiryResponsesFromEntries(dialog))memoryMigrated=true;
+      if(assessAnsweredInquiries())memoryMigrated=true;
     } catch(error) {
       inquiries=[];nextInquiryNumber=1;
       console.warn("Could not load NEUROGENESIS inquiry queue:",error);
@@ -1347,6 +1409,9 @@
     }
     if(/^(?:какие вопросы открыты|покажи исследовательские вопросы|что ты хочешь узнать|покажи очередь вопросов)$/u.test(lower)) {
       say("assistant",inquiryOverviewAnswer());setFeedback("ИССЛЕДОВАНИЕ · ОЧЕРЕДЬ ВОПРОСОВ");return;
+    }
+    if(/^(?:оцени ответы на вопросы|что изменилось после ответов|покажи оценку исследовательских ответов|проанализируй ответы на вопросы)$/u.test(lower)) {
+      say("assistant",inquiryAssessmentReport());setFeedback("ИССЛЕДОВАНИЕ · ОЦЕНКА ОТВЕТОВ");return;
     }
     if (/^(привет|здравствуй|добрый день|доброе утро|добрый вечер)(?:\s|$)/u.test(lower)) {
       say("assistant", "Привет. Я на связи. Можешь рассказать мне факт для памяти или спросить о том, что я уже сохранил.");
@@ -1858,6 +1923,7 @@
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
       reconcileInquiryResponsesFromEntries(data.dialog);
+      assessAnsweredInquiries();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();

@@ -465,6 +465,9 @@ document.getElementById("remember-button").dispatch("click");
 const answeredInquiry=window.NGMemory.inquiries().find(item=>item.id===openInquiry.id);
 assert.equal(answeredInquiry.status,"answered","explicitly prefixed answer should attach to the inquiry");
 assert.equal(answeredInquiry.responseText,"Наблюдение было сделано вечером, результат оценивался по самочувствию.");
+assert.ok(["context_reported_unverified","observations_reported_unverified"].includes(answeredInquiry.assessment),
+  "a response with descriptive details should be classified conservatively");
+assert.ok(answeredInquiry.assessmentReason,"an answer assessment should explain its classification");
 assert.ok(answeredInquiry.responseMemoryId,"answer should link to its saved memory");
 assert.ok(JSON.parse(database.get("neurogenesis.inquiries.v1")).some(item=>item.id===openInquiry.id&&item.status==="answered"),
   "inquiry answer provenance should persist");
@@ -476,13 +479,15 @@ assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openIn
 // Long inquiry answers must remain intact and must not turn quoted prior claims into new causal facts.
 const secondOpenInquiry=window.NGMemory.inquiries().find(item=>item.status==="open");
 assert.ok(secondOpenInquiry,"the queue should retain additional unresolved research questions");
-const fullInquiryAnswer="Ответ на вопрос "+secondOpenInquiry.id+": В сохранённых записях нет точных измерений. Есть только сообщение «Усталость приводит к снижению концентрации», но оно не является отдельным наблюдением. Поэтому связь пока остаётся непроверенной.";
+const fullInquiryAnswer="Ответ на вопрос "+secondOpenInquiry.id+": В моей памяти нет конкретных естественных наблюдений, которые непосредственно проверяли бы эту связь. Есть только исходное причинное утверждение.";
 input.value=fullInquiryAnswer;
 document.getElementById("remember-button").dispatch("click");
 const secondAnswered=window.NGMemory.inquiries().find(item=>item.id===secondOpenInquiry.id);
 const answerBody=fullInquiryAnswer.replace(/^Ответ на вопрос Q\d+:\s*/u,"");
 assert.equal(secondAnswered.status,"answered");
 assert.equal(secondAnswered.responseText,answerBody,"the inquiry record should retain every sentence of the user's answer");
+assert.equal(secondAnswered.assessment,"gap_confirmed","a direct answer saying no observations exist should confirm only the data gap");
+assert.match(secondAnswered.assessmentReason,/отсутствии прямых наблюдений/u);
 const savedAnswerMemory=JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id===secondAnswered.responseMemoryId);
 assert.ok(savedAnswerMemory,"the full answer should retain a memory reference");
 assert.equal(savedAnswerMemory.text,fullInquiryAnswer,"a multi-sentence inquiry answer should be stored as one complete memory");
@@ -496,5 +501,15 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify(savedInquiries));
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 const repairedInquiry=window.NGMemory.inquiries().find(item=>item.id===secondOpenInquiry.id);
 assert.equal(repairedInquiry.responseText,answerBody,"legacy partial inquiry answers should be repaired from the retained dialogue transcript");
+assert.equal(repairedInquiry.assessment,"gap_confirmed","legacy assessments should be reconstructed from restored full responses");
+input.value = "Оцени ответы на вопросы";
+document.getElementById("ask-button").dispatch("click");
+const inquiryAssessment=feed.children[feed.children.length-1].textContent;
+assert.match(inquiryAssessment,/ОЦЕНКА ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u);
+assert.match(inquiryAssessment,/отсутствие наблюдений отмечено/u);
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u,
+  "the revised causal model should explicitly account for inquiry assessments");
 
-console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and full-fidelity goal-directed inquiry: passed.");
+console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and evidence-aware inquiry: passed.");
