@@ -694,6 +694,7 @@
       }
       if (changed) { connectionsDirty = true; markDirty(); }
     },
+    hasNeuron(id) { return neuronById.has(id); },
     removeMemoryTraces(ids) {
       const doomed = new Set([...new Set((ids || []).filter(id => {
         const neuron = neuronById.get(id);
