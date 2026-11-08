@@ -1172,6 +1172,109 @@
     return answer;
   }
 
+  function modelEvolutionAnswer() {
+    const refreshNote=buildCausalModelRevision();
+    if(!reasoningArchive.length) return refreshNote;
+    const allClaims=memories.flatMap(item=>item.claims||[]);
+    const claimsById=new Map(allClaims.filter(claim=>claim&&typeof claim.id==="string").map(claim=>[claim.id,claim]));
+    const entityKey=value=>KNOWLEDGE&&typeof KNOWLEDGE.canonicalEntity==="function"
+      ?KNOWLEDGE.canonicalEntity(value):normalise(value);
+    const edgeKey=edge=>entityKey(edge.subject)+"|"+entityKey(edge.object);
+    const statusLabel=status=>({
+      challenged:"ПОД ВОПРОСОМ",
+      observed:"ЕСТЬ СОГЛАСУЮЩЕЕСЯ НАБЛЮДЕНИЕ",
+      unobserved:"НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ"
+    })[status]||"НЕ ОЦЕНЕНО";
+    const decisionLabel=decision=>({
+      conditional:"СВЯЗЬ ОСТАВЛЕНА УСЛОВНОЙ",
+      weaken:"СВЯЗЬ ОСЛАБЛЕНА",
+      suspend:"СВЯЗЬ ВРЕМЕННО ПРИОСТАНОВЛЕНА",
+      restore:"СВЯЗЬ ВОЗВРАЩЕНА В АКТИВНУЮ МОДЕЛЬ"
+    })[decision]||"НЕТ ВЫБРАННОГО РЕШЕНИЯ";
+    const pathRows=snapshot=>(snapshot.alternatives||[]).flatMap(item=>(item.paths||[]).map(path=>{
+      const route=path.length?[path[0].subject,...path.map(edge=>edge.object)].join(" → "):"";
+      const key=entityKey(item.subject)+"|"+entityKey(item.object)+"|"+path.map(edge=>edgeKey(edge)).join(">");
+      return {key,subject:item.subject,object:item.object,route};
+    })).filter(item=>item.route);
+    const reports=[];
+    for(const entry of reasoningArchive.slice().reverse()) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta||meta.modelHistory.length<2)continue;
+      const previous=meta.modelHistory[meta.modelHistory.length-2];
+      const current=meta.modelHistory[meta.modelHistory.length-1];
+      const beforeEdges=new Map((previous.edges||[]).map(edge=>[edgeKey(edge),edge]));
+      const afterEdges=new Map((current.edges||[]).map(edge=>[edgeKey(edge),edge]));
+      const changes=[];
+      for(const [key,edge] of afterEdges) {
+        const old=beforeEdges.get(key);
+        if(!old) {
+          changes.push("В снимке появилась связь: "+edge.subject+" → "+edge.object+" — "+statusLabel(edge.status)+".");
+          continue;
+        }
+        if(old.status!==edge.status) {
+          changes.push("Статус связи "+edge.subject+" → "+edge.object+": "+statusLabel(old.status)+" → "+statusLabel(edge.status)+".");
+        }
+        if((old.decision||null)!==(edge.decision||null)) {
+          changes.push("Решение по связи "+edge.subject+" → "+edge.object+": "+decisionLabel(old.decision)+" → "+decisionLabel(edge.decision)+".");
+        }
+        const oldIds=new Set(old.claimIds||[]);
+        const newIds=(edge.claimIds||[]).filter(id=>!oldIds.has(id));
+        if(newIds.length) {
+          const descriptions=newIds.slice(0,3).map(id=>{
+            const claim=claimsById.get(id);
+            return claim&&claim.evidence?"«"+claim.evidence+"»":"запись "+id;
+          });
+          changes.push("Новые записи, учтённые для "+edge.subject+" → "+edge.object+": "+descriptions.join("; ")+".");
+        }
+        const currentIds=new Set(edge.claimIds||[]);
+        const removedIds=(old.claimIds||[]).filter(id=>!currentIds.has(id));
+        if(removedIds.length) {
+          changes.push("В новом снимке больше нет ссылок на "+removedIds.length+" прежн"+
+            (removedIds.length===1?"ю запись":"ие записи")+" по связи "+edge.subject+" → "+edge.object+
+            ". Это не означает, что сами воспоминания удалены.");
+        }
+      }
+      for(const [key,edge] of beforeEdges) {
+        if(!afterEdges.has(key))changes.push("Связь отсутствует в новом снимке: "+edge.subject+" → "+edge.object+
+          ". Это изменение структуры вывода, а не доказательство ложности исходной записи.");
+      }
+      const beforePaths=new Map(pathRows(previous).map(item=>[item.key,item]));
+      const afterPaths=new Map(pathRows(current).map(item=>[item.key,item]));
+      for(const [key,item] of afterPaths) {
+        if(!beforePaths.has(key))changes.push("Добавился альтернативный маршрут для "+item.subject+" ⇢ "+item.object+
+          ": "+item.route+" (кандидатная цепочка, не подтверждение причинности).");
+      }
+      for(const [key,item] of beforePaths) {
+        if(!afterPaths.has(key))changes.push("Альтернативный маршрут больше не выводится для "+item.subject+" ⇢ "+item.object+
+          ": "+item.route+". Его исчезновение из расчёта само по себе ничего не опровергает.");
+      }
+      if(changes.length)reports.push({entry,previous,current,meta,changes});
+      if(reports.length>=6)break;
+    }
+    if(!reports.length) {
+      const hasSnapshots=reasoningArchive.some(entry=>{
+        const meta=cleanReasoning(entry.reasoning);
+        return meta&&meta.modelHistory.length>0;
+      });
+      if(!hasSnapshots) return "Не удалось сохранить исходный снимок причинной модели. Сначала выведи новую гипотезу, затем построй обновлённую причинную модель.";
+      return "ИСТОРИЯ ИЗМЕНЕНИЙ ПРИЧИННОЙ МОДЕЛИ\n\n"+
+        "Пока есть только исходные снимки либо два последних снимка не различаются по статусам связей, решениям, учтённым записям и альтернативным маршрутам.\n"+
+        "Чтобы история стала содержательной, системе нужны новые естественные наблюдения, ответы на исследовательские вопросы или явно выбранное решение по рабочей модели.\n\n"+
+        "Отсутствие изменений не является подтверждением истинности гипотез.";
+    }
+    let answer="ДИНАМИКА ПРИЧИННОЙ МОДЕЛИ\n\n";
+    answer+="Сравниваются два последних сохранённых снимка каждого вывода. Изменения показывают эволюцию рабочей модели, а не объективное доказательство причинности.\n\n";
+    for(const report of reports) {
+      const title=report.meta.conclusions.map(item=>item.subject+" ⇢ "+item.object).slice(0,3).join("; ");
+      answer+="ВЫВОД: "+(title||"причинная гипотеза")+"\n";
+      answer+="Снимки: "+formatDate(report.previous.at)+" → "+formatDate(report.current.at)+"\n";
+      for(const change of report.changes.slice(0,12))answer+="• "+change+"\n";
+      answer+="\n";
+    }
+    answer+="Исходные воспоминания, наблюдения и контрпримеры не переписываются. Изменение статуса означает лишь, что рабочая модель теперь учитывает другой набор доступных сведений. Новые маршруты остаются гипотезами, пока не появятся независимые данные.";
+    return answer;
+  }
+
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(MEMORY_KEY) || "[]");
@@ -1518,6 +1621,11 @@
     if(restoreAnswer) {
       say("assistant",restoreAnswer);
       setFeedback("СВЯЗЬ ВОЗВРАЩЕНА В РАБОЧУЮ МОДЕЛЬ");
+      return;
+    }
+    if (/^(?:покажи историю изменений модели|покажи изменения рабочей модели|сравни версии причинной модели|что изменилось в причинной модели|что изменилось с прошлого пересмотра)$/u.test(lower)) {
+      say("assistant",modelEvolutionAnswer());
+      setFeedback("ИСТОРИЯ РАБОЧЕЙ МОДЕЛИ · СРАВНЕНИЕ СНИМКОВ");
       return;
     }
     if (/^(?:построй обновленную причинную модель|обнови причинную модель|как перестроить причинную модель|предложи пересмотр причинной модели|предложи варианты пересмотра|какие есть варианты пересмотра|что различит варианты модели|что изменить в причинной модели|покажи модель причинных связей)$/u.test(lower)) {
@@ -2170,6 +2278,7 @@
     claims: () => memories.flatMap(item => item.claims || []),
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
+    modelEvolution: () => modelEvolutionAnswer(),
     reasoningHistory: () => reasoningArchive.map(item=>({time:item.time,type:item.reasoning.type,conclusions:item.reasoning.conclusions,status:item.reasoning.status})),
     inquiries: () => inquiries.map(item=>({...item,sourceClaimIds:item.sourceClaimIds.slice(),responseClaimIds:item.responseClaimIds.slice()})),
     refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },

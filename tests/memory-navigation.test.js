@@ -654,5 +654,53 @@ vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory
 assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definition"),true,
   "cleanup must not remove a matching claim from an unrelated memory created outside the inquiry time window");
 
-console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion, inquiry provenance and legacy inquiry-fragment migration: passed.");
 
+// Model evolution must compare successive snapshots without changing memories or decisions.
+const evolutionMemories=[
+  {id:"evolution-counterexample",text:"При А не наблюдалась Б",createdAt:100},
+  {id:"evolution-route-one",text:"А приводит к В",createdAt:101},
+  {id:"evolution-route-two",text:"В приводит к Б",createdAt:102}
+];
+const evolutionConclusion={
+  version:1,type:"derived_hypotheses",createdAt:90,status:"current",
+  conclusions:[{subject:"А",object:"Б",paths:[[{id:"direct-edge",subject:"А",object:"Б"}]]}],
+  reviews:[],
+  modelHistory:[{
+    at:95,signature:"baseline",
+    edges:[{subject:"А",object:"Б",status:"unobserved",decision:null,claimIds:[],revisionOptions:[]}],
+    alternatives:[]
+  }]
+};
+database.set("neurogenesis.memories.v1",JSON.stringify(evolutionMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+  {role:"assistant",time:90,text:"А ⇢ Б",reasoning:evolutionConclusion}
+]));
+database.set("neurogenesis.model-decisions.v1",JSON.stringify([
+  {edgeSubject:"А",edgeObject:"Б",strategy:"suspend",at:110,claimIds:[]}
+]));
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+input.value="Покажи историю изменений модели";
+document.getElementById("ask-button").dispatch("click");
+const evolutionReply=feed.children[feed.children.length-1].textContent;
+assert.match(evolutionReply,/ДИНАМИКА ПРИЧИННОЙ МОДЕЛИ/u,
+  "the user should receive a dedicated working-model evolution report");
+assert.match(evolutionReply,/НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ → ПОД ВОПРОСОМ/u,
+  "the report should show the edge status transition between snapshots");
+assert.match(evolutionReply,/НЕТ ВЫБРАННОГО РЕШЕНИЯ → СВЯЗЬ ВРЕМЕННО ПРИОСТАНОВЛЕНА/u,
+  "the report should show when a model decision changes");
+assert.match(evolutionReply,/Новые записи, учтённые для А → Б: «При А не наблюдалась Б»/u,
+  "the report should identify newly considered evidence");
+assert.match(evolutionReply,/Добавился альтернативный маршрут для А ⇢ Б: А → В → Б/u,
+  "the report should identify a newly available alternative route");
+assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="А"&&item.edgeObject==="Б").strategy,"suspend",
+  "reporting evolution must not modify the user's selected model decision");
+const evolutionHistory=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))[0].reasoning.modelHistory;
+assert.equal(evolutionHistory.length,2,"the report should persist exactly one new snapshot after the baseline");
+window.NGMemory.ask("Покажи историю изменений модели");
+const repeatedEvolutionHistory=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))[0].reasoning.modelHistory;
+assert.equal(repeatedEvolutionHistory.length,2,"repeating the report without new evidence must not create duplicate snapshots");
+
+console.log("NEUROGENESIS model-evolution snapshot comparison, evidence deltas, alternative routes and idempotency: passed.");
