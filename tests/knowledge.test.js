@@ -132,4 +132,4 @@ assert.match(conflictingMusicProfile, /Я не буду автоматическ
 assert.equal(knowledge.answerQuestion("Что ты знаешь о неизвестном объекте?", [opinion, preference]), null);
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
-console.log("NEUROGENESIS knowledge tests: Russian morphology, reverse relations, preference and conflict checks passed.");
+console.log("NEUROGENESIS knowledge tests: Russian morphology, entity profiles, evidence and conflict checks passed.");
