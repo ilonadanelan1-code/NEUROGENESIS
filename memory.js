@@ -5,6 +5,7 @@
   const DIALOG_KEY = "neurogenesis.dialog.v1";
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
+  const MAX_DIALOG_TEXT = 4200;
   const MAX_TEXT = 1200;
   const KNOWLEDGE = window.NGKnowledge || null;
   let memoryMigrated = false;
@@ -366,10 +367,20 @@
       reports.push({entry,meta,edgeStates,challengedEdges,alternatives});
     }
     if(changed)persist();
-    const uniqueReports=[...new Map(reports.flatMap(report=>report.meta.conclusions.map(conclusion=>{
+    const reportCandidates=[...new Map(reports.flatMap(report=>report.meta.conclusions.map(conclusion=>{
       const pathKey=conclusion.subject+"|"+conclusion.object+"|"+conclusion.paths.map(path=>path.map(edge=>edge.subject+"=>"+edge.object).join(">")).join("|");
       return [pathKey,{report,conclusion}];
     }))).values()];
+    const isSubpath=(shortPath,longPath)=>{
+      if(shortPath.length>=longPath.length)return false;
+      for(let start=0;start+shortPath.length<=longPath.length;start++) {
+        if(shortPath.every((edge,index)=>KNOWLEDGE.sameEntity(edge.subject,longPath[start+index].subject)&&
+          KNOWLEDGE.sameEntity(edge.object,longPath[start+index].object)))return true;
+      }
+      return false;
+    };
+    const uniqueReports=reportCandidates.filter(row=>!reportCandidates.some(other=>other!==row&&
+      other.conclusion.paths.some(longPath=>row.conclusion.paths.some(shortPath=>isSubpath(shortPath,longPath)))));
     if(!uniqueReports.length)return "В истории есть записи, но в них нет пригодных причинных маршрутов для перестройки модели.";
     let answer="ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ\n\n";
     answer+="Я не переписываю исходные воспоминания. Ниже — текущая оценка маршрутов и возможные варианты структуры.\n\n";
@@ -525,7 +536,7 @@
       const savedDialog = JSON.parse(localStorage.getItem(DIALOG_KEY) || "[]");
       dialog = Array.isArray(savedDialog)
         ? savedDialog.filter(x => x && typeof x.text === "string")
-          .map(x => ({ role: x.role === "user" ? "user" : "assistant", text: x.text.slice(0, 1800), time: safeTime(x.time, Date.now()), reasoning: cleanReasoning(x.reasoning) }))
+          .map(x => ({ role: x.role === "user" ? "user" : "assistant", text: x.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(x.time, Date.now()), reasoning: cleanReasoning(x.reasoning) }))
           .slice(-MAX_DIALOG)
         : [];
     } catch (error) {
@@ -605,7 +616,7 @@
     feed.scrollTop = feed.scrollHeight;
   }
   function say(role, text, reasoning) {
-    const entry={ role, text: String(text).slice(0, 1800), time: Date.now() };
+    const entry={ role, text: String(text).slice(0, MAX_DIALOG_TEXT), time: Date.now() };
     const clean=cleanReasoning(reasoning);
     if(clean)entry.reasoning=clean;
     dialog.push(entry);
