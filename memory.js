@@ -96,6 +96,11 @@
           return id && brain.hasNeuron(id) ? id : ensureTrace(tag);
         });
         if (item.traceIds.some((id, index) => id !== oldIds[index])) repaired = true;
+        for (const claim of item.claims || []) {
+          const oldClaimTrace = claim.traceId || null;
+          ensureClaimTrace(claim);
+          if (claim.traceId !== oldClaimTrace) repaired = true;
+        }
       }
       rebuildTagTraceIndex();
       if (repaired) memoryMigrated = true;
@@ -168,8 +173,21 @@
     if (id) tagTrace[tag] = id;
     return id || null;
   }
+  function ensureClaimTrace(claim) {
+    if (!claim) return null;
+    const brain = window.NGBrain;
+    if (claim.traceId && (!brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(claim.traceId))) return claim.traceId;
+    if (!brain || typeof brain.createMemoryTrace !== "function") return null;
+    const key = "claim:" + (claim.id || normalise(claim.subject + " " + claim.predicate + " " + claim.object));
+    const label = (claim.subject + " → " + claim.predicate).slice(0, 42);
+    claim.traceId = brain.createMemoryTrace(key, label) || null;
+    return claim.traceId;
+  }
+  function ensureClaimTraces(claims) {
+    for (const claim of claims || []) ensureClaimTrace(claim);
+  }
   function releaseUnusedTraces(candidateIds) {
-    const used = new Set(memories.flatMap(item => item.traceIds || []).filter(Boolean));
+    const used = new Set(memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]).filter(Boolean));
     const unused = [...new Set((candidateIds || []).filter(id => id && !used.has(id)))];
     const brain = window.NGBrain;
     if (unused.length && brain && typeof brain.removeMemoryTraces === "function") {
@@ -178,8 +196,8 @@
     rebuildTagTraceIndex();
   }
   function linkMemory(item, related) {
-    const ids = [...(item.traceIds || [])];
-    for (const old of related || []) ids.push(...(old.traceIds || []));
+    const ids = [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)];
+    for (const old of related || []) ids.push(...(old.traceIds || []), ...(old.claims || []).map(claim => claim.traceId));
     const unique = [...new Set(ids.filter(Boolean))];
     const brain = window.NGBrain;
     if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(unique);
@@ -206,6 +224,7 @@
           item.traceIds.push(ensureTrace(tag));
         }
         if (KNOWLEDGE) item.claims = KNOWLEDGE.mergeClaims(item.claims, claims);
+        ensureClaimTraces(item.claims);
         repeated++;
         const related = memories.filter(old => old.id !== item.id && old.tags.some(tag => tags.includes(tag))).slice(-4);
         linkMemory(item, related);
@@ -219,6 +238,7 @@
           repetitions: 1, recalls: 0,
           claims
         };
+        ensureClaimTraces(item.claims);
         memories.push(item);
         saved++;
         linkMemory(item, related);
@@ -278,7 +298,7 @@
         ? "Сейчас в долговременной памяти " + memories.length + " записей. Последние из них:\n" + recent.map((m, i) => (i + 1) + ". " + m.text).join("\n")
         : "Моя долговременная память пока пуста. Нажми «Запомнить», чтобы передать мне первый факт.";
       say("assistant", text);
-      const ids = recent.flatMap(m => m.traceIds || []);
+      const ids = recent.flatMap(m => [...(m.traceIds || []), ...(m.claims || []).map(claim => claim.traceId)]);
       const brain = window.NGBrain;
       if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
       return;
@@ -292,7 +312,7 @@
       for (const hit of related) {
         hit.item.recalls = (hit.item.recalls || 0) + 1;
         hit.item.strength = Math.min(1, (hit.item.strength || 0.6) + 0.015);
-        traceIds.push(...(hit.item.traceIds || []));
+        traceIds.push(...(hit.item.traceIds || []), ...(hit.item.claims || []).map(claim => claim.traceId));
       }
       persist();
       say("assistant", structuredAnswer);
@@ -312,7 +332,7 @@
     for (const hit of ranked) {
       hit.item.recalls = (hit.item.recalls || 0) + 1;
       hit.item.strength = Math.min(1, (hit.item.strength || 0.6) + 0.015);
-      ids.push(...(hit.item.traceIds || []));
+      ids.push(...(hit.item.traceIds || []), ...(hit.item.claims || []).map(claim => claim.traceId));
     }
     persist();
     const answer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминания:") +
@@ -329,7 +349,7 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
-    releaseUnusedTraces(item.traceIds || []);
+    releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     persist();
     renderLibrary();
     say("assistant", "Запись удалена. Общие нейронные следы сохранены, если на них ссылаются другие воспоминания.");
@@ -348,6 +368,7 @@
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
     item.claims = claims;
+    ensureClaimTraces(item.claims);
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
     item.updatedAt = Date.now();
@@ -363,7 +384,7 @@
   function clearMemory() {
     if (!memories.length) { setFeedback("Память уже пуста."); return; }
     if (!window.confirm("Удалить все " + memories.length + " записей и их уникальные нейронные следы? История диалога останется.")) return;
-    const oldIds = memories.flatMap(item => item.traceIds || []);
+    const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
     releaseUnusedTraces(oldIds);
     persist();
@@ -524,6 +545,7 @@
           duplicate.repetitions += candidate.repetitions;
           duplicate.updatedAt = Date.now();
           if (KNOWLEDGE) duplicate.claims = KNOWLEDGE.mergeClaims(duplicate.claims, candidate.claims);
+          ensureClaimTraces(duplicate.claims);
           for (const tag of candidate.tags) {
             if (duplicate.tags.includes(tag) || duplicate.tags.length >= 6) continue;
             duplicate.tags.push(tag);
@@ -539,6 +561,7 @@
         candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 6);
         candidate.claims = KNOWLEDGE ? (candidate.claims.length ? candidate.claims : KNOWLEDGE.extractClaims(candidate.text)) : [];
         candidate.traceIds = candidate.tags.map(ensureTrace);
+        ensureClaimTraces(candidate.claims);
         candidate.createdAt = safeTime(candidate.createdAt, Date.now());
         candidate.updatedAt = Date.now();
         const related = memories.filter(old => old.tags.some(tag => candidate.tags.includes(tag))).slice(-4);
