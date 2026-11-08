@@ -511,4 +511,71 @@ document.getElementById("ask-button").dispatch("click");
 const inquiryAssessment=feed.children[feed.children.length-1].textContent;
 assert.match(inquiryAssessment,/ОЦЕНКА ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u);
 assert.match(inquiryAssessment,/отсутствие наблюдений отмечено/u);
-console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and evidence-aware inquiry: passed.");
+// Research-aware hypothesis generation uses inquiry answers and current model decisions,
+// while preserving archived hypotheses instead of calling them disproven.
+const researchFixtureMemories=[
+  {id:"sleep",text:"Недостаток сна может приводить к усталости",createdAt:1},
+  {id:"fatigue",text:"Усталость приводит к снижению концентрации",createdAt:2},
+  {id:"hydration",text:"Обезвоживание может приводить к усталости",createdAt:3},
+  {id:"counter",text:"При недостатке сна не наблюдалась усталость",createdAt:4},
+  {id:"support",text:"При недостатке сна наблюдалась усталость",createdAt:5}
+];
+const archivedResearchConclusion={
+  version:1,type:"derived_hypotheses",createdAt:10,status:"challenged",
+  conclusions:[
+    {subject:"Недостаток сна",object:"снижению концентрации",paths:[[
+      {id:"sleep-edge",subject:"Недостаток сна",object:"усталости"},
+      {id:"fatigue-edge",subject:"Усталость",object:"снижению концентрации"}
+    ]]},
+    {subject:"Обезвоживание",object:"снижению концентрации",paths:[[
+      {id:"hydration-edge",subject:"Обезвоживание",object:"усталости"},
+      {id:"fatigue-edge",subject:"Усталость",object:"снижению концентрации"}
+    ]]}
+  ],reviews:[]
+};
+database.set("neurogenesis.memories.v1",JSON.stringify(researchFixtureMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.model-decisions.v1",JSON.stringify([
+  {edgeSubject:"Недостаток сна",edgeObject:"усталости",strategy:"suspend",at:20,claimIds:["counter"]}
+]));
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+  {role:"assistant",time:10,text:"Архивная гипотеза",reasoning:archivedResearchConclusion}
+]));
+database.set("neurogenesis.inquiries.v1",JSON.stringify([
+  {id:"Q1",signature:"q1",kind:"contrast_observations",edgeSubject:"Недостаток сна",edgeObject:"усталости",
+    question:"Уточни обстоятельства двух наблюдений.",reason:"Есть противоположные наблюдения.",priority:0,status:"answered",
+    sourceClaimIds:["counter","support"],createdAt:15,updatedAt:21,lastAskedAt:16,
+    responseText:"Обстоятельства двух наблюдений неизвестны; контекст не указан.",
+    responseMemoryId:"",responseClaimIds:[],answeredAt:21,assessment:"insufficient_context",
+    assessmentReason:"Контекст наблюдений неизвестен.",assessmentAt:21},
+  {id:"Q2",signature:"q2",kind:"missing_observation",edgeSubject:"Усталость",edgeObject:"снижению концентрации",
+    question:"Есть ли наблюдения?",reason:"Нет наблюдений.",priority:2,status:"answered",
+    sourceClaimIds:["fatigue-edge"],createdAt:15,updatedAt:22,lastAskedAt:17,
+    responseText:"В памяти нет конкретных естественных наблюдений, проверяющих связь.",responseMemoryId:"",
+    responseClaimIds:[],answeredAt:22,assessment:"gap_confirmed",
+    assessmentReason:"Прямых наблюдений нет.",assessmentAt:22},
+  {id:"Q3",signature:"q3",kind:"missing_observation",edgeSubject:"Обезвоживание",edgeObject:"усталости",
+    question:"Есть ли наблюдения?",reason:"Нет наблюдений.",priority:2,status:"open",
+    sourceClaimIds:["hydration-edge"],createdAt:15,updatedAt:15,lastAskedAt:0,
+    responseText:"",responseMemoryId:"",responseClaimIds:[],answeredAt:0}
+]));
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+input.value = "Выведи новые гипотезы из памяти";
+document.getElementById("ask-button").dispatch("click");
+const researchAwareReply=feed.children[feed.children.length-1].textContent;
+assert.match(researchAwareReply,/Обезвоживание ⇢ снижению концентрации/u,
+  "a candidate whose causal route remains active should still be generated");
+assert.match(researchAwareReply,/Q2 — Усталость → снижению концентрации: отсутствие наблюдений отмечено/u,
+  "the active candidate should disclose the confirmed observation gap on a route edge");
+assert.match(researchAwareReply,/Q3 — Обезвоживание → усталости: вопрос остаётся открытым/u,
+  "the active candidate should disclose its still-open inquiry");
+assert.match(researchAwareReply,/Прежняя гипотеза Недостаток сна ⇢ снижению концентрации сейчас не строится/u,
+  "a historical hypothesis excluded by a suspended edge should be explained");
+assert.match(researchAwareReply,/Q1 не установил обстоятельства противоречия/u,
+  "an unanswered context gap must not be treated as falsification");
+assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="Недостаток сна").strategy,"suspend",
+  "research-aware explanation must not change the selected model decision");
+
+console.log("NEUROGENESIS answer-aware hypothesis generation, archived-path exclusion and inquiry provenance: passed.");
+

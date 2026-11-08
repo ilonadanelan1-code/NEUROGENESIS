@@ -101,6 +101,66 @@
     return claims.filter(claim=>!(claim&&claim.kind==="causal"&&suspended.some(item=>
       KNOWLEDGE.sameEntity(item.edgeSubject,claim.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,claim.object))));
   }
+  function researchAwareHypothesisNote(result) {
+    const hypotheses=Array.isArray(result&&result.hypotheses)?result.hypotheses:[];
+    if(!hypotheses.length)return "";
+    const decisions=currentModelDecisions();
+    const pairKey=(subject,object)=>normalise(subject)+"|"+normalise(object);
+    const edges=[...new Map(hypotheses.flatMap(item=>(item.paths||[]).flat())
+      .map(edge=>[pairKey(edge.subject,edge.object),edge])).values()];
+    const lines=["ПЕРЕОЦЕНКА ГИПОТЕЗ С УЧЁТОМ ОТВЕТОВ"];
+    for(const edge of edges) {
+      const inquiry=inquiries.find(item=>
+        KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
+      if(inquiry) {
+        if(inquiry.status==="answered") {
+          lines.push("• "+inquiry.id+" — "+edge.subject+" → "+edge.object+": "+inquiryAssessmentLabel(inquiry)+".");
+          if(inquiry.assessment==="insufficient_context")
+            lines.push("  Это не подтверждает и не опровергает связь: обстоятельства противоположных наблюдений не установлены.");
+          else if(inquiry.assessment==="gap_confirmed")
+            lines.push("  Звено остаётся непроверенным: отсутствие наблюдений не является ни подтверждением, ни контрпримером.");
+          else
+            lines.push("  Ответ содержит пользовательское описание, но его нельзя считать независимо проверенным наблюдением.");
+        } else if(inquiry.status==="open") {
+          lines.push("• "+inquiry.id+" — "+edge.subject+" → "+edge.object+": вопрос остаётся открытым; данных для оценки пока нет.");
+        }
+      } else {
+        const observations=memories.flatMap(item=>item.claims||[]).filter(claim=>
+          claim.kind==="observation"&&KNOWLEDGE.sameEntity(claim.subject,edge.subject)&&KNOWLEDGE.sameEntity(claim.object,edge.object));
+        if(!observations.length)lines.push("• "+edge.subject+" → "+edge.object+": прямых наблюдений пока нет; звено остаётся непроверенным.");
+      }
+    }
+    const activePairs=new Set(hypotheses.map(item=>pairKey(item.subject,item.object)));
+    const excluded=new Map();
+    for(const entry of reasoningArchive) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta||meta.type!=="derived_hypotheses")continue;
+      for(const conclusion of meta.conclusions) {
+        if(activePairs.has(pairKey(conclusion.subject,conclusion.object))||!conclusion.paths.length)continue;
+        const blockedPaths=conclusion.paths.map(path=>path.map(edge=>({
+          edge,decision:decisions.find(item=>item.strategy==="suspend"&&
+            KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object))
+        })).filter(row=>row.decision));
+        if(blockedPaths.every(rows=>rows.length>0)) {
+          const blocked=[...new Map(blockedPaths.flat().map(row=>[pairKey(row.edge.subject,row.edge.object),row.edge])).values()];
+          excluded.set(pairKey(conclusion.subject,conclusion.object),{
+            subject:conclusion.subject,object:conclusion.object,blocked
+          });
+        }
+      }
+    }
+    for(const item of excluded.values()) {
+      lines.push("• Прежняя гипотеза "+item.subject+" ⇢ "+item.object+" сейчас не строится: все её сохранённые маршруты проходят через связь, приостановленную в рабочей модели ("+
+        item.blocked.map(edge=>edge.subject+" → "+edge.object).join("; ")+").");
+      const inquiry=inquiries.find(row=>item.blocked.some(edge=>
+        KNOWLEDGE.sameEntity(row.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(row.edgeObject,edge.object)));
+      if(inquiry&&inquiry.assessment==="insufficient_context")
+        lines.push("  "+inquiry.id+" не установил обстоятельства противоречия. Гипотеза не опровергнута: она просто не используется в новых цепочках до отдельного решения.");
+    }
+    if(lines.length===1)return "";
+    lines.push("Новые гипотезы остаются предположениями по структуре сохранённых связей. Ответы уточняют пробелы и ограничения, но не создают причинные доказательства.");
+    return lines.join("\n");
+  }
   function formatModelDecisionNote() {
     const decisions=currentModelDecisions();
     if(!decisions.length)return "";
@@ -1498,7 +1558,8 @@
         isDerivedHypotheses?makeReasoningMeta("derived_hypotheses",derivedHypotheses,sourceClaims):
         isCausalQuery?makeReasoningMeta("causal_chain",causalRecall,sourceClaims):null;
       const modelNote=(isHypothesisPriority||isDerivedHypotheses||isExperimentPlan||isCausalQuery)?formatModelDecisionNote():"";
-      const conclusionAnswer=structuredAnswer+modelNote+baselineReviewNote(conclusionMeta);
+      const researchNote=(isHypothesisPriority||isDerivedHypotheses)?researchAwareHypothesisNote(isHypothesisPriority?hypothesisPriority:derivedHypotheses):"";
+      const conclusionAnswer=researchNote+(researchNote?"\n\n":"")+structuredAnswer+modelNote+baselineReviewNote(conclusionMeta);
       say("assistant", conclusionAnswer, conclusionMeta);
       const brain = window.NGBrain;
       const activeTraceIds = [...new Set(traceIds)];
