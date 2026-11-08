@@ -112,9 +112,16 @@
       if(!snapshot||typeof snapshot!=="object")return null;
       const edges=Array.isArray(snapshot.edges)?snapshot.edges.slice(0,12).map(edge=>{
         if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
+        const options=Array.isArray(edge.revisionOptions)?edge.revisionOptions.slice(0,3).map(option=>{
+          if(!option||typeof option.id!=="string"||typeof option.title!=="string")return null;
+          return {id:option.id.slice(0,40),title:option.title.slice(0,120),
+            proposal:typeof option.proposal==="string"?option.proposal.slice(0,360):"",
+            discriminators:Array.isArray(option.discriminators)?option.discriminators.filter(x=>typeof x==="string").slice(0,4).map(x=>x.slice(0,240)):[]};
+        }).filter(Boolean):[];
         return {subject:edge.subject.slice(0,180),object:edge.object.slice(0,180),
           status:["challenged","observed","unobserved"].includes(edge.status)?edge.status:"unobserved",
-          claimIds:Array.isArray(edge.claimIds)?edge.claimIds.filter(id=>typeof id==="string").slice(0,8):[]};
+          claimIds:Array.isArray(edge.claimIds)?edge.claimIds.filter(id=>typeof id==="string").slice(0,8):[],
+          revisionOptions:options};
       }).filter(Boolean):[];
       const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
@@ -273,6 +280,39 @@
     walk(startKey,[],new Set([startKey]));
     return paths;
   }
+  function revisionOptionsForEdge(edge) {
+    const subject=edge.subject,object=edge.object;
+    return [
+      {
+        id:"conditional",
+        title:"1. Сохранить связь как условную",
+        proposal:"Связь «"+subject+" → "+object+"» может проявляться только при некоторых условиях. Какие именно условия важны, память пока не показывает.",
+        discriminators:[
+          "Сравнить безопасные естественные случаи с одинаково определёнными условием и результатом, записывая контекст каждого случая.",
+          "Проверить временной порядок: условие должно предшествовать результату, а не просто встречаться рядом с ним.",
+          "Искать повторения как случаев с результатом, так и случаев без него при сопоставимых обстоятельствах."
+        ]
+      },
+      {
+        id:"weaken",
+        title:"2. Ослабить общее утверждение",
+        proposal:"Не считать «"+subject+"» достаточной или обязательной причиной «"+object+"». Оставить её одним из возможных факторов, пока не выяснены другие условия.",
+        discriminators:[
+          "Собирать случаи, когда результат возникает без исходного фактора и когда фактор присутствует без результата.",
+          "Отдельно записывать другие сопутствующие обстоятельства; совпадение факторов не позволяет приписать эффект одному из них."
+        ]
+      },
+      {
+        id:"suspend",
+        title:"3. Временно не использовать связь в прогнозах",
+        proposal:"Пометить звено «"+subject+" → "+object+"» как спорное и не строить на нём уверенные дальнейшие выводы. Исходную запись оставить в памяти и истории.",
+        discriminators:[
+          "Уточнить исходное наблюдение: измерение, время, источник и условия.",
+          "Решать, возвращать ли звено в активную модель, только после повторяемых и независимо проверенных данных."
+        ]
+      }
+    ];
+  }
   function buildCausalModelRevision() {
     const tracked=dialog.filter(item=>item.role==="assistant"&&item.reasoning).slice(-8);
     if(!tracked.length)return "Пока нет причинных выводов с сохранёнными ссылками на исходные записи. Сначала попроси меня вывести причинную цепочку или новые гипотезы.";
@@ -296,8 +336,10 @@
         const matched=meta.reviews.filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
         const challenged=matched.filter(finding=>finding.kind==="counterexample"||finding.kind==="opposing_claim"||finding.kind==="source_revised");
         const supporting=matched.filter(finding=>finding.kind==="supporting_observation");
-        return {subject:edge.subject,object:edge.object,status:challenged.length?"challenged":supporting.length?"observed":"unobserved",
-          claimIds:matched.map(finding=>finding.claimId).slice(0,8),findings:matched};
+        const status=challenged.length?"challenged":supporting.length?"observed":"unobserved";
+        return {subject:edge.subject,object:edge.object,status,
+          claimIds:matched.map(finding=>finding.claimId).slice(0,8),findings:matched,
+          revisionOptions:status==="challenged"?revisionOptionsForEdge(edge):[]};
       });
       const challengedEdges=edgeStates.filter(edge=>edge.status==="challenged");
       const alternatives=[];
@@ -308,7 +350,7 @@
         const paths=findAlternativeCausalPaths(conclusion.subject,conclusion.object,allClaims,relevant);
         if(paths.length)alternatives.push({subject:conclusion.subject,object:conclusion.object,paths});
       }
-      const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,claimIds:edge.claimIds}));
+      const snapshotEdges=edgeStates.map(edge=>({subject:edge.subject,object:edge.object,status:edge.status,claimIds:edge.claimIds,revisionOptions:edge.revisionOptions}));
       const snapshotAlternatives=alternatives.map(item=>({subject:item.subject,object:item.object,paths:item.paths.map(path=>path.map(edge=>({subject:edge.subject,object:edge.object})))}));
       const signatureSource=JSON.stringify({edges:snapshotEdges,alternatives:snapshotAlternatives});
       let signatureHash=2166136261;
@@ -356,9 +398,41 @@
       }
       answer+="\n";
     }
+    const shownRevisionEdges=new Set();
+    const revisionRows=uniqueReports.flatMap(row=>row.report.edgeStates
+      .filter(edge=>edge.status==="challenged")
+      .map(edge=>({edge,conclusion:row.conclusion})));
+    if(revisionRows.length) {
+      answer+="ВАРИАНТЫ ПЕРЕСМОТРА СПОРНЫХ СВЯЗЕЙ\n";
+      for(const row of revisionRows) {
+        const key=normalise(row.edge.subject)+"|"+normalise(row.edge.object);
+        if(shownRevisionEdges.has(key))continue;
+        shownRevisionEdges.add(key);
+        answer+="\nЗвено: "+row.edge.subject+" → "+row.edge.object+"\n";
+        for(const option of row.edge.revisionOptions) {
+          answer+=option.title+"\n";
+          answer+="Предлагаемая модель: "+option.proposal+"\n";
+          answer+="Что поможет различить варианты:\n";
+          for(const discriminator of option.discriminators)answer+="  • "+discriminator+"\n";
+        }
+      }
+      answer+="\nЭто конкурирующие способы обращаться с неопределённостью, а не три новых факта. Система не выбирает один автоматически. Не нужно намеренно создавать вредные условия ради наблюдений.\n\n";
+    }
+    const unobservedRows=[...new Map(uniqueReports.flatMap(row=>row.report.edgeStates
+      .filter(edge=>edge.status==="unobserved")
+      .map(edge=>[normalise(edge.subject)+"|"+normalise(edge.object),edge]))).values()];
+    if(unobservedRows.length) {
+      answer+="НЕПРОВЕРЕННЫЕ ЗВЕНЬЯ\n";
+      for(const edge of unobservedRows.slice(0,6)) {
+        answer+="• "+edge.subject+" → "+edge.object+": в памяти пока нет отдельных наблюдений. Нужны естественные записи о наличии условия, измеренном результате, времени и сопутствующих обстоятельствах.\n";
+      }
+      answer+="\n";
+    }
     const parallelRows=[];
+    const alreadyListedRoots=new Set(uniqueReports.map(row=>KNOWLEDGE.canonicalEntity(row.conclusion.subject)));
     const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded")
-      .map(claim=>[KNOWLEDGE.canonicalEntity(claim.subject),claim.subject])).values()];
+      .map(claim=>[KNOWLEDGE.canonicalEntity(claim.subject),claim.subject])).values()]
+      .filter(root=>!alreadyListedRoots.has(KNOWLEDGE.canonicalEntity(root)));
     for(const row of uniqueReports) {
       const affected=row.report.challengedEdges.some(edge=>row.conclusion.paths.some(path=>path.some(item=>
         KNOWLEDGE.sameEntity(item.subject,edge.subject)&&KNOWLEDGE.sameEntity(item.object,edge.object))));
@@ -688,7 +762,7 @@
       say("assistant", "Привет. Я на связи. Можешь рассказать мне факт для памяти или спросить о том, что я уже сохранил.");
       return;
     }
-    if (/^(?:построй обновленную причинную модель|обнови причинную модель|как перестроить причинную модель|предложи пересмотр причинной модели|что изменить в причинной модели|покажи модель причинных связей)$/u.test(lower)) {
+    if (/^(?:построй обновленную причинную модель|обнови причинную модель|как перестроить причинную модель|предложи пересмотр причинной модели|предложи варианты пересмотра|какие есть варианты пересмотра|что различит варианты модели|что изменить в причинной модели|покажи модель причинных связей)$/u.test(lower)) {
       say("assistant",buildCausalModelRevision());
       setFeedback("ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ · ИСТОРИЯ СОХРАНЕНА");
       return;

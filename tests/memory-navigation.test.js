@@ -296,15 +296,22 @@ assert.match(modelReply,/ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОД�
 assert.match(modelReply,/Недостаток сна → усталости — ПОД ВОПРОСОМ/u,"the model should mark the specific contradicted edge");
 assert.match(modelReply,/Усталость → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,"the model should preserve uncertainty for unobserved edges");
 assert.match(modelReply,/Альтернативного маршрута от исходного понятия/u,"the model must not invent a substitute route when no route exists");
-assert.match(modelReply,/Обезвоживание → усталости → снижению концентрации/u,"a separate route to the outcome should remain a parallel hypothesis, not a replacement");
-const parallelModelSection=modelReply.split("ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ")[1]||"";
-assert.doesNotMatch(parallelModelSection,/Усталость → снижению концентрации/u,"an intermediate mediator should not be mislabeled as a separate alternative cause");
+assert.match(modelReply,/Обезвоживание ⇢ снижению концентрации/u,"the second candidate remains visible as a competing hypothesis");
+assert.doesNotMatch(modelReply,/ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ/u,"already listed hypotheses must not be repeated as new parallel routes");
+assert.match(modelReply,/ВАРИАНТЫ ПЕРЕСМОТРА СПОРНЫХ СВЯЗЕЙ/u,"the model should propose multiple revision strategies");
+assert.match(modelReply,/Сохранить связь как условную/u,"one strategy should retain the edge as conditional");
+assert.match(modelReply,/Ослабить общее утверждение/u,"one strategy should weaken an overgeneralized claim");
+assert.match(modelReply,/Временно не использовать связь в прогнозах/u,"one strategy should suspend a disputed edge without deleting it");
+assert.match(modelReply,/Что поможет различить варианты/u,"each strategy should identify discriminating information");
+assert.match(modelReply,/НЕПРОВЕРЕННЫЕ ЗВЕНЬЯ/u,"unobserved edges should be shown separately");
+assert.match(modelReply,/Не нужно намеренно создавать вредные условия/u,"the strategy should not encourage harmful experiments");
 assert.match(document.getElementById("memory-feedback").textContent,/ПЕРЕСТРОЙКА ПРИЧИННОЙ МОДЕЛИ/u);
 const modelDialog=JSON.parse(database.get("neurogenesis.dialog.v1"));
 const modelEntry=modelDialog.filter(item=>item.role==="assistant"&&item.text.includes("ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ")).slice(-1)[0];
 const tracked=modelDialog.filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
 assert.ok(tracked.reasoning.modelHistory.length>0,"model revision snapshots should be stored in the reasoning history");
 assert.ok(tracked.reasoning.modelHistory[0].edges.some(edge=>edge.status==="challenged"),"model history should preserve the challenged edge state");
+assert.equal(tracked.reasoning.modelHistory[0].edges.find(edge=>edge.status==="challenged").revisionOptions.length,3,"three bounded revision options should be stored with the challenged edge");
 assert.ok(modelEntry,"the model revision answer should be part of the exported dialogue");
 const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
 input.value = "Построй обновлённую причинную модель";
@@ -317,6 +324,15 @@ document.getElementById("ask-button").dispatch("click");
 const repeatedTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
 assert.equal(repeatedTracked.reasoning.modelHistory.length,snapshotCount,"repeating an unchanged review must not create duplicate snapshots");
 
+
+input.value = "Перегрузка приводит к снижению концентрации";
+document.getElementById("remember-button").dispatch("click");
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+const modelWithThirdCause=feed.children[feed.children.length-1].textContent;
+const thirdRouteSection=modelWithThirdCause.split("ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ")[1]||"";
+assert.match(thirdRouteSection,/Перегрузка → снижению концентрации/u,"a genuinely new source should still be reported as a separate parallel route");
+assert.doesNotMatch(thirdRouteSection,/Обезвоживание → усталости → снижению концентрации/u,"an existing tracked hypothesis must not be echoed as a new route");
 
 input.value = "Усталость не приводит к снижению концентрации";
 document.getElementById("remember-button").dispatch("click");
