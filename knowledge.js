@@ -148,7 +148,7 @@
   function extractObservation(text) {
     const match=String(text||"").match(/^(?:при|во время|в условиях)\s+(.+?)\s+(?:(не)\s+)?(наблюдалось|наблюдалась|наблюдался|наблюдались|было|была|были)\s+(.+)$/iu);
     if(!match)return null;
-    const condition=cleanPart(match[1],180),result=cleanPart(match[5],180);
+    const condition=cleanPart(match[1],180),result=cleanPart(match[4],180);
     if(!condition||!result||condition.split(" ").length>10||result.split(" ").length>10||sameEntity(condition,result))return null;
     return makeClaim("observation",condition,"наблюдение",result,text,"unverified",0.86,!match[2]);
   }
