@@ -146,12 +146,66 @@
     if(!condition||!result||condition.split(" ").length>10||result.split(" ").length>10||sameEntity(condition,result))return null;
     return makeClaim("rule",condition,"если-то",result,text,"unverified",0.9);
   }
+  function observationFieldFromValue(rawValue, source) {
+    const value=cleanPart(rawValue,240),normalized=normalise(value);
+    if(!value)return {status:"not_stated",value:"",source:source||""};
+    if(/(?:неизвестно|не знаю|невозможно установить|не удалось установить)/u.test(normalized))return {status:"unknown",value:"",source:source||""};
+    if(/(?:не записан|не фиксировал|не сохранял|нет записи|нет данных|нет сведений|не указан|не описан|не установлен|не определен|не измерял|не оценивал)/u.test(normalized))return {status:"not_recorded",value:"",source:source||""};
+    if(/^(?:нет|не было|отсутствует|отсутствовали|не проводилось|не применялось|не существовало)$/u.test(normalized))return {status:"none_reported",value:"",source:source||""};
+    return {status:"provided",value,source:source||""};
+  }
+  function sanitizeObservationField(raw, source) {
+    if(!raw||typeof raw!=="object")return {status:"not_stated",value:"",source:source||""};
+    const allowed=["provided","not_stated","not_recorded","unknown","none_reported"];
+    const status=allowed.includes(raw.status)?raw.status:"not_stated";
+    return {status,value:status==="provided"?cleanPart(raw.value,240):"",
+      source:["direct_observation","inquiry_response","user_reported"].includes(raw.source)?raw.source:(source||"")};
+  }
+  function sanitizeObservationDetails(raw, fallbackSource="user_reported") {
+    const source=raw&&["direct_observation","inquiry_response","user_reported"].includes(raw.source)?raw.source:fallbackSource;
+    return {schema:1,context:sanitizeObservationField(raw&&raw.context,source),
+      timing:sanitizeObservationField(raw&&raw.timing,source),
+      criterion:sanitizeObservationField(raw&&raw.criterion,source),
+      source,sourceRef:raw&&typeof raw.sourceRef==="string"?raw.sourceRef.slice(0,100):""};
+  }
+  function parseObservationDetails(input, source="user_reported") {
+    const text=String(input||"").slice(0,1200);
+    const result={schema:1,context:{status:"not_stated",value:"",source},
+      timing:{status:"not_stated",value:"",source},criterion:{status:"not_stated",value:"",source},source,sourceRef:""};
+    const labels=[
+      {key:"context",pattern:/^(?:контекст|обстоятельства|условия|сопутствующие условия)\s*[:—-]\s*(.*)$/iu},
+      {key:"timing",pattern:/^(?:время|дата|временной порядок|момент наблюдения)\s*[:—-]\s*(.*)$/iu},
+      {key:"criterion",pattern:/^(?:критерий(?: результата)?|метод|способ оценки|измерение|оценка результата)\s*[:—-]\s*(.*)$/iu}
+    ];
+    for(const segment of text.split(/[;|\n]+/u)) {
+      const part=segment.trim();
+      for(const label of labels) {
+        const match=part.match(label.pattern);
+        if(match)result[label.key]=observationFieldFromValue(match[1],source);
+      }
+    }
+    const normalized=normalise(text);
+    const missingPatterns={
+      context:/(?:контекст|обстоятельств|услови|сопутствующ).{0,90}(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств)|(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств).{0,90}(?:контекст|обстоятельств|услови|сопутствующ)/u,
+      timing:/(?:время|дата|временн|момент наблюдения|временной порядок).{0,90}(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств)|(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств).{0,90}(?:время|дата|временн|момент наблюдения|временной порядок)/u,
+      criterion:/(?:критери|метод|способ оценки|измерени|оценка результата|показател).{0,90}(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств)|(?:не указан|не описан|неизвест|не записан|не сохран|не установлен|нет |отсутств).{0,90}(?:критери|метод|способ оценки|измерени|оценка результата|показател)/u
+    };
+    for(const key of Object.keys(missingPatterns))if(result[key].status==="not_stated"&&missingPatterns[key].test(normalized)) {
+      const unknown=/(?:неизвест|не знаю|невозможно установить|не удалось установить)/u.test(normalized);
+      result[key]={status:unknown?"unknown":"not_recorded",value:"",source};
+    }
+    return result;
+  }
   function extractObservation(text) {
-    const match=String(text||"").match(/^(?:при|во время|в условиях)\s+(.+?)\s+(?:(не)\s+)?(наблюдалось|наблюдалась|наблюдался|наблюдались|было|была|были)\s+(.+)$/iu);
+    const raw=String(text||""),parts=raw.split(/[;|]/u);
+    const statement=parts.shift().trim().replace(/^наблюдение\s*:\s*/iu,"");
+    const match=statement.match(/^(?:при|во время|в условиях)\s+(.+?)\s+(?:(не)\s+)?(наблюдалось|наблюдалась|наблюдался|наблюдались|было|была|были)\s+(.+)$/iu);
     if(!match)return null;
     const condition=cleanPart(match[1],180),result=cleanPart(match[4],180);
     if(!condition||!result||condition.split(" ").length>10||result.split(" ").length>10||sameEntity(condition,result))return null;
-    return makeClaim("observation",condition,"наблюдение",result,text,"unverified",0.86,!match[2]);
+    const claim=makeClaim("observation",condition,"наблюдение",result,raw,"unverified",0.86,!match[2]);
+    if(claim)claim.observationCase=parseObservationDetails(parts.join("; "),"direct_observation");
+    return claim;
   }
   function extractCausal(text) {
     const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
@@ -224,6 +278,7 @@
     // Research answers describe or quote claims; they are not fresh assertions.
     if (/^ответ на вопрос\s+#?\s*q\d+\s*:/iu.test(text)) return [];
     const direct = extractSingleClaim(text);
+    if(direct&&direct.kind==="observation"&&direct.observationCase&&["context","timing","criterion"].some(key=>direct.observationCase[key].status!=="not_stated"))return [direct];
     const clauses = text.split(/\s*[,;]\s*/u)
       .map(part => part.replace(/^(?:и|а|но|однако)\s+/iu,"").trim())
       .filter(Boolean).slice(0,8);
@@ -250,7 +305,7 @@
           /(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(subject))) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
-      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted"};
+      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
     }).filter(Boolean);
   }
   function mergeClaims(existing,incoming) {
@@ -259,7 +314,17 @@
     for(const claim of merged){
       const key=[claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
       const prior=result.find(item=>[item.kind,canonicalEntity(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
-      if(prior){if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;continue;}
+      if(prior){
+        if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;
+        if(prior.kind==="observation"&&claim.observationCase) {
+          const rank={not_stated:0,unknown:1,not_recorded:2,none_reported:3,provided:4};
+          for(const field of ["context","timing","criterion"])
+            if((rank[claim.observationCase[field].status]||0)>(rank[prior.observationCase[field].status]||0))
+              prior.observationCase[field]=claim.observationCase[field];
+          if(!prior.sourceMemoryId&&claim.sourceMemoryId)prior.sourceMemoryId=claim.sourceMemoryId;
+        }
+        continue;
+      }
       if(!seen.has(key)){seen.add(key);result.push(claim);}
     }
     return result.slice(0,12);
@@ -947,5 +1012,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:20,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:21,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();
