@@ -39,7 +39,8 @@
         // Preserve common surname endings in nominative; normalize genitive forms to the same base.
         if (word.length >= 7 && /(ева|ова)$/u.test(word)) return word.slice(0, -1);
         if (word.length >= 6 && /(ев|ов)$/u.test(word)) return word;
-        return word.replace(/(ениями|ениях|ению|ения|ение|ением|ений|иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ей|ом|ем|а|я|ы|и|е|у|ю|ь)$/u, "");
+        const stem=word.replace(/(ениями|ениях|ению|ения|ение|ением|ений|иями|ями|ами|ого|его|ому|ему|ыми|ими|ая|яя|ое|ее|ые|ие|ый|ий|ой|ую|юю|ам|ям|ах|ях|ей|ом|ем|а|я|ы|и|е|у|ю|ь)$/u, "");
+        return stem.replace(/([ое])к$/u,"к");
       }).filter(word => word.length >= 3);
   }
   function semanticMatch(query, candidate) {
