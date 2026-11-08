@@ -75,6 +75,7 @@ const secondBestFriend = knowledge.extractClaims("Сергей твой лучш
 const possibleConflict = knowledge.findConflicts([relationship, secondBestFriend]);
 assert.equal(possibleConflict.length, 1);
 assert.equal(possibleConflict[0].type, "possible");
+assert.match(knowledge.answerQuestion("Кто твой лучший друг?", [relationship, secondBestFriend]), /не стану выбирать наугад/u);
 
 const mergedFacts = knowledge.mergeClaims([], [location]);
 assert.equal(mergedFacts[0].kind, "fact");
