@@ -479,6 +479,25 @@ document.getElementById("ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/ПОЛУЧЕННЫЕ ОТВЕТЫ/u);
 assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openInquiry.id));
 
+// A research strategy selects a useful open question, explains its evidence value and keeps decisions unchanged.
+const strategyMemoryCountBefore=window.NGMemory.count();
+const strategyDecisionsBefore=JSON.stringify(window.NGMemory.modelDecisions());
+input.value="Составь план исследования";
+document.getElementById("ask-button").dispatch("click");
+const strategyReply=feed.children[feed.children.length-1].textContent;
+assert.match(strategyReply,/ПЛАН ИССЛЕДОВАНИЯ/u,"the system should provide a distinct research strategy report");
+assert.match(strategyReply,/Эвристический приоритет/u,"the plan should disclose that ranking is heuristic, not a truth probability");
+assert.match(strategyReply,/КАК Я РАЗБЕРУ ОТВЕТ/u,"the plan should explain how different answers will be interpreted");
+assert.match(strategyReply,/не будет автоматически превращён в доказанный факт/u,"a plan must not promote an attributed answer into verified evidence");
+assert.match(strategyReply,/Не нужно намеренно создавать какие-либо условия/u,"the plan should rely on natural observations, not induced tests");
+const plannedQuestion=strategyReply.match(/СЛЕДУЮЩИЙ ВОПРОС · (Q\d+)/u);
+assert.ok(plannedQuestion,"the selected next step should retain its inquiry ID");
+const plannedInquiry=window.NGMemory.inquiries().find(item=>item.id===plannedQuestion[1]);
+assert.ok(plannedInquiry&&plannedInquiry.status==="open","planning should not answer or close the selected inquiry");
+assert.ok(strategyReply.includes(plannedInquiry.question),"the plan should show the exact stored question");
+assert.equal(window.NGMemory.count(),strategyMemoryCountBefore,"planning should not create memories");
+assert.equal(JSON.stringify(window.NGMemory.modelDecisions()),strategyDecisionsBefore,"planning should not change working-model decisions");
+
 // Long inquiry answers must remain intact and must not turn quoted prior claims into new causal facts.
 const secondOpenInquiry=window.NGMemory.inquiries().find(item=>item.status==="open");
 assert.ok(secondOpenInquiry,"the queue should retain additional unresolved research questions");

@@ -569,6 +569,58 @@
       "\n\nЗАЧЕМ Я СПРАШИВАЮ\n"+item.reason+
       "\n\nОТВЕТ\nНажми «Запомнить» и начни ответ точно так:\nОтвет на вопрос "+item.id+": [твой ответ]\n\nОтвет будет сохранён как твоё сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом.";
   }
+  function researchImpactForInquiry(item) {
+    const affected=new Set();
+    for(const entry of reasoningArchive) {
+      const meta=cleanReasoning(entry.reasoning);
+      if(!meta)continue;
+      for(const conclusion of meta.conclusions) {
+        const usesEdge=conclusion.paths.some(path=>path.some(edge=>
+          KNOWLEDGE.sameEntity(edge.subject,item.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,item.edgeObject)));
+        if(usesEdge)affected.add(inquiryEdgeKey(conclusion.subject,conclusion.object));
+      }
+    }
+    return affected.size;
+  }
+  function researchStrategyAnswer() {
+    const refreshed=refreshInquiryQueue();
+    if(!refreshed.open.length) {
+      return "ПЛАН ИССЛЕДОВАНИЯ\n\nСейчас нет открытых исследовательских вопросов. Если в памяти появились новые наблюдения, сначала обнови очередь командой «Найди пробелы в знаниях». Полученные ответы можно посмотреть командой «Оцени ответы на вопросы».";
+    }
+    const baseWeight={contrast_observations:90,clarify_counterexample:72,missing_observation:54};
+    const candidates=refreshed.open.map(item=>{
+      const impact=researchImpactForInquiry(item);
+      const impactBonus=Math.min(3,Math.max(0,impact-1))*8;
+      return {item,impact,score:(baseWeight[item.kind]||40)+impactBonus};
+    }).sort((a,b)=>b.score-a.score||a.item.priority-b.item.priority||a.item.createdAt-b.item.createdAt);
+    const selected=candidates[0],item=selected.item;
+    const kindReason={
+      contrast_observations:"Для одного и того же звена сохранены наблюдения с разными результатами. Сначала нужно проверить, были ли случаи сопоставимы.",
+      clarify_counterexample:"Есть потенциальный контрпример. До пересмотра связи важно уточнить, присутствовало ли исходное условие и как именно определялся результат.",
+      missing_observation:"Причинное звено есть в выводах, но прямых наблюдений для его проверки пока не найдено."
+    }[item.kind]||"Этот вопрос связан с незакрытым пробелом в сохранённых данных.";
+    let answer="ПЛАН ИССЛЕДОВАНИЯ\n\n";
+    answer+="ЦЕЛЬ\nУточнить звено «"+item.edgeSubject+" → "+item.edgeObject+"», не выдавая рабочую гипотезу за установленный факт.\n\n";
+    answer+="ПОЧЕМУ ВЫБРАН ИМЕННО ЭТОТ ШАГ\n"+kindReason+"\n";
+    answer+="Затрагивает разных сохранённых выводов: "+selected.impact+". ";
+    answer+="Эвристический приоритет: "+selected.score+" баллов (тип вопроса и охват выводов; это не вероятность истинности связи).\n\n";
+    answer+="СЛЕДУЮЩИЙ ВОПРОС · "+item.id+"\n"+item.question+"\n\n";
+    answer+="КАК Я РАЗБЕРУ ОТВЕТ\n";
+    if(item.kind==="contrast_observations") {
+      answer+="• Если время, условия или критерий результата различались, зафиксирую это как возможное объяснение расхождения; само звено автоматически не подтверждается.\n";
+      answer+="• Если случаи были сопоставимы, противоречие останется видимым: ни одно наблюдение не будет удалено.\n";
+      answer+="• Если контекст восстановить нельзя, неопределённость сохранится.\n";
+    } else if(item.kind==="clarify_counterexample") {
+      answer+="• Если исходное условие действительно присутствовало, а результат не наступил по тому же критерию, наблюдение останется потенциальным контрпримером.\n";
+      answer+="• Если условие, время или критерий неясны, контрпример нельзя считать разрешённым.\n";
+    } else {
+      answer+="• Конкретные естественные наблюдения с контекстом, временем и критерием результата дадут материал для повторной оценки.\n";
+      answer+="• Если таких записей нет, я отмечу подтверждённый пробел данных — это не поддержка и не опровержение связи.\n";
+    }
+    answer+="\nЧТО ИЗМЕНИТСЯ И ЧТО НЕТ\nОтвет уточнит полноту и сопоставимость данных, но не будет автоматически превращён в доказанный факт и сам по себе не сменит решение рабочей модели. Пользовательские сведения останутся непроверенными извне. Не нужно намеренно создавать какие-либо условия ради наблюдений.\n\n";
+    answer+="ФОРМАТ ОТВЕТА\nНачни сообщение точно так: «Ответ на вопрос "+item.id+": ...». Тогда ответ будет связан с этим вопросом и сохранит своё происхождение.";
+    return answer;
+  }
   function researchGapsAnswer() {
     const r=refreshInquiryQueue();
     if(!r.open.length)return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых открытых вопросов не получилось сформировать. Возможно, в архиве пока нет подходящих причинных выводов или найденные вопросы уже получили ответы.\n\nОчередь доступна командой «Какие вопросы открыты?».";
@@ -1595,6 +1647,9 @@
     const lower = normalise(query);
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    if(/^(?:составь план исследования|покажи план исследования|выбери следующий исследовательский шаг|какой следующий шаг исследования|определи стратегию исследования)$/u.test(lower)) {
+      say("assistant",researchStrategyAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПЛАН ИССЛЕДОВАНИЯ");return;
+    }
     if(/^(?:найди пробелы в знаниях|исследуй пробелы в памяти|сформируй вопросы для проверки|обнови исследовательские вопросы)$/u.test(lower)) {
       say("assistant",researchGapsAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПОИСК ПРОБЕЛОВ");return;
     }
@@ -2282,6 +2337,7 @@
     reasoningHistory: () => reasoningArchive.map(item=>({time:item.time,type:item.reasoning.type,conclusions:item.reasoning.conclusions,status:item.reasoning.status})),
     inquiries: () => inquiries.map(item=>({...item,sourceClaimIds:item.sourceClaimIds.slice(),responseClaimIds:item.responseClaimIds.slice()})),
     refreshInquiries: () => { const r=refreshInquiryQueue(); return {added:r.added,open:r.open.length,answered:r.answered.length}; },
+    researchStrategy: () => researchStrategyAnswer(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0}
 
   };
