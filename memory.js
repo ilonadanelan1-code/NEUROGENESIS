@@ -616,6 +616,18 @@
       }
     }
     const candidates=[];
+    const possibleDuplicates=uniqueObservationEvents(observationCases()).possibleGroups;
+    for(const group of possibleDuplicates) {
+      const claimIds=[...new Set(group.claimIds||[])].slice(0,12);
+      if(claimIds.length<2)continue;
+      const signature="duplicate_observation|"+claimIds.slice().sort().join("|");
+      const examples=(group.members||[]).slice(0,6).map(item=>
+        "• "+item.id+": «"+String(item.evidence||"").slice(0,150)+"»").join("\n");
+      candidates.push({signature,kind:"duplicate_observation",edgeSubject:group.subject,edgeObject:group.object,
+        priority:-1,sourceClaimIds:claimIds,
+        question:"Карточки "+claimIds.join(", ")+" могут описывать один эпизод. Это одно и то же событие или разные самостоятельные эпизоды? Если записи частично совпадают, опиши группы карточек отдельно.\n"+examples,
+        reason:"Автоматическая проверка нашла повтор или дополнение формулировки для одного и того же причинного звена. Похожий текст, контекст или время не доказывают идентичность события; перед подсчётом независимых случаев нужно уточнить это у тебя."});
+    }
     for(const edge of edges.values()) {
       const obs=claims.filter(c=>c.kind==="observation"&&KNOWLEDGE.sameEntity(c.subject,edge.subject)&&KNOWLEDGE.sameEntity(c.object,edge.object));
       const positive=obs.filter(c=>c.polarity!==false),negative=obs.filter(c=>c.polarity===false);
@@ -667,7 +679,10 @@
     item.lastAskedAt=Date.now();item.updatedAt=Date.now();persist();
     return "ВОПРОС ДЛЯ УТОЧНЕНИЯ · "+item.id+"\n\n"+item.question+
       "\n\nЗАЧЕМ Я СПРАШИВАЮ\n"+item.reason+
-      "\n\nОТВЕТ\nНажми «Запомнить» и начни ответ точно так:\nОтвет на вопрос "+item.id+": [твой ответ]\n\nОтвет будет сохранён как твоё сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом.";
+      "\n\nОТВЕТ\nНажми «Запомнить» и начни ответ точно так:\nОтвет на вопрос "+item.id+": [твой ответ]\n\n"+
+      (item.kind==="duplicate_observation"
+        ?"Для однозначного ответа напиши «один эпизод» или «разные эпизоды». Если часть карточек относится к одному событию, а часть — к другому, перечисли группы явно. При неоднозначном ответе я не буду менять группировку."
+        :"Ответ будет сохранён как твоё сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом.");
   }
   function researchImpactForInquiry(item) {
     const affected=new Set();
