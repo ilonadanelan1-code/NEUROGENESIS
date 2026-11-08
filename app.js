@@ -658,7 +658,7 @@
       const traces = neurons.filter(n => n.memoryTrace);
       const anchor = neurons.find(n => n.name === "Долгая память") || neurons.find(n => n.type === "memory") || neurons[0];
       if (!anchor) return null;
-      if (traces.length >= 64) return anchor.id;
+      if (traces.length >= 64) return null;
       const index = traces.length;
       const angle = index * 2.399963229728653;
       const radius = 112 + Math.floor(index / 12) * 46;
