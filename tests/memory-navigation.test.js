@@ -90,6 +90,7 @@ const history = {
 };
 
 let confirms = 0;
+const associationCalls = [];
 const neurons = new Set();
 let traceNumber = 1;
 const window = {
@@ -100,8 +101,8 @@ const window = {
     hasNeuron(id) { return neurons.has(id); },
     hasMemoryTrace(id) { return neurons.has(id); },
     createMemoryTrace() { const id = "trace" + traceNumber++; neurons.add(id); return id; },
-    associateMemoryTraces() {},
-    activateMemoryTraces() {},
+    associateMemoryTraces(ids) { associationCalls.push(Array.from(ids || [])); },
+    activateMemoryTraces(ids) { return (ids || []).length; },
     removeMemoryTraces(ids) { for (const id of ids) neurons.delete(id); }
   }
 };
@@ -157,6 +158,7 @@ assert.equal(history.state,null,"back from the library should return to the orig
 assert.equal(document.getElementById("memory-library").hidden,true);
 assert.equal(sidePanel.scrollTop,147,"the original side-panel position should be restored");
 
+const associationCallsBeforeRecall = associationCalls.length;
 const input = document.getElementById("memory-input");
 input.value = "Что ты знаешь о музыке?";
 document.getElementById("ask-button").dispatch("click");
@@ -165,4 +167,6 @@ const reply = feed.children[feed.children.length - 1].textContent;
 assert.match(reply,/Музыка — прекрасна/u,"the answer should include the opinion stored in the first memory");
 assert.match(reply,/нравится музыка/u,"the answer should combine the preference from a different memory");
 assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ/u,"the interface should identify the entity-profile retrieval path");
+assert.ok(associationCalls.length > associationCallsBeforeRecall, "co-recalled memory traces should reinforce their associations");
+assert.match(document.getElementById("memory-feedback").textContent,/\\d+ СЛЕДОВ АКТИВИРОВАНО/u,"the interface should report associative trace activation");
 console.log("NEUROGENESIS memory navigation and profile test: back, safe editing, cross-record answer and source status passed.");
