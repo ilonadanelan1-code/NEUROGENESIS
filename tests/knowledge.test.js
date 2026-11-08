@@ -77,6 +77,7 @@ assert.equal(location.subject, "user");
 assert.equal(location.predicate, "живу в");
 assert.equal(location.object, "Сочи");
 assert.match(knowledge.answerQuestion("Где я живу?", [location]), /живёшь в Сочи/u);
+assert.match(knowledge.answerQuestion("Что ты знаешь о Сочи?", [location]), /Пользователь живёт в Сочи/u);
 
 const directConflict = knowledge.findConflicts([userFriend, negative]);
 assert.equal(directConflict.length, 1);
