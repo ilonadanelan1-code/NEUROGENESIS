@@ -692,7 +692,7 @@ assert.match(evolutionReply,/НЕТ ВЫБРАННОГО РЕШЕНИЯ → СВ
   "the report should show when a model decision changes");
 assert.match(evolutionReply,/Новые записи, учтённые для Фактор Альфа → Результат Бета: «При факторе Альфа не наблюдался результат Бета»/u,
   "the report should identify newly considered evidence");
-assert.match(evolutionReply,/Добавился альтернативный маршрут для Фактор Альфа ⇢ Результат Бета: Фактор Альфа → Фактор Гамма → Результат Бета/u,
+assert.match(evolutionReply,/Добавился альтернативный маршрут для Фактор Альфа ⇢ Результат Бета: Фактор Альфа → фактору Гамма → результату Бета/u,
   "the report should identify a newly available alternative route");
 assert.equal(window.NGMemory.modelDecisions().find(item=>item.edgeSubject==="Фактор Альфа"&&item.edgeObject==="Результат Бета").strategy,"suspend",
   "reporting evolution must not modify the user's selected model decision");
