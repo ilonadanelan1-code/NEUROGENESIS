@@ -160,17 +160,18 @@ document.getElementById("memory-library-back").dispatch("click");
 assert.equal(history.state,null,"back from the library should return to the original view");
 assert.equal(document.getElementById("memory-library").hidden,true);
 assert.equal(sidePanel.scrollTop,147,"the original side-panel position should be restored");
+const associationCallsBeforeRecall = associationCalls.length;
+const input = document.getElementById("memory-input");
+input.value = "Что ты знаешь о музыке?";
+document.getElementById("ask-button").dispatch("click");
+const feed = document.getElementById("memory-feed");
+
 assert.ok(window.NGMemory.search("телефон").some(item=>item.text==="У меня есть смартфон"),"memory search should retrieve smartphone notes for a phone query through association");
 input.value = "Что ты знаешь о телефоне?";
 document.getElementById("ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/смартфон/u,"the dialog should find related phone concepts instead of requiring an exact word match");
 assert.match(document.getElementById("memory-feedback").textContent,/АСОЦИАТИВНЫЙ ПОИСК/u,"the interface should disclose when recall used an associative match");
 
-const associationCallsBeforeRecall = associationCalls.length;
-const input = document.getElementById("memory-input");
-input.value = "Что ты знаешь о музыке?";
-document.getElementById("ask-button").dispatch("click");
-const feed = document.getElementById("memory-feed");
 const reply = feed.children[feed.children.length - 1].textContent;
 assert.match(reply,/Музыка — прекрасна/u,"the answer should include the opinion stored in the first memory");
 assert.match(reply,/нравится музыка/u,"the answer should combine the preference from a different memory");
