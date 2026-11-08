@@ -1942,7 +1942,7 @@
     const tags = [...new Set(tokens(value))].slice(0, 6);
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
-    item.claims = claims;
+    item.claims = claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:item.id}:claim);
     ensureClaimTraces(item.claims);
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
@@ -2264,6 +2264,7 @@
           duplicate.repetitions += candidate.repetitions;
           duplicate.updatedAt = Date.now();
           if (KNOWLEDGE) duplicate.claims = KNOWLEDGE.mergeClaims(duplicate.claims, candidate.claims);
+          duplicate.claims=duplicate.claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:duplicate.id}:claim);
           ensureClaimTraces(duplicate.claims);
           for (const tag of candidate.tags) {
             if (duplicate.tags.includes(tag) || duplicate.tags.length >= 6) continue;
@@ -2279,6 +2280,7 @@
         candidate.id = makeId();
         candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 6);
         candidate.claims = KNOWLEDGE ? (candidate.claims.length ? candidate.claims : KNOWLEDGE.extractClaims(candidate.text)) : [];
+        candidate.claims=candidate.claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:candidate.id}:claim);
         candidate.traceIds = candidate.tags.map(ensureTrace);
         ensureClaimTraces(candidate.claims);
         candidate.createdAt = safeTime(candidate.createdAt, Date.now());
