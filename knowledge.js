@@ -150,11 +150,24 @@
     }
     return result.slice(0,12);
   }
+  function preferencePhrase(claim, profileLabel = false) {
+    const predicate = claim.predicate;
+    if (predicate === "нравится") {
+      return (profileLabel ? "Пользователю " : "тебе ") +
+        (claim.polarity ? "нравится " : "не нравится ") + claim.object;
+    }
+    const verbs = profileLabel
+      ? { "люблю":"любит", "обожаю":"обожает", "предпочитаю":"предпочитает", "ненавижу":"любит" }
+      : { "люблю":"любишь", "обожаю":"обожаешь", "предпочитаю":"предпочитаешь", "ненавижу":"любишь" };
+    const negative = !claim.polarity || predicate === "ненавижу";
+    return (profileLabel ? "Пользователь " : "ты ") +
+      (negative ? "не " : "") + (verbs[predicate] || predicate) + " " + claim.object;
+  }
   function claimLabel(claim) {
     if(!claim)return "";
     if(claim.kind==="opinion") return claim.subject+" — "+(claim.polarity?"":"не ")+claim.object;
     if(claim.kind==="fact" && claim.subject==="user") return "Пользователь "+claim.predicate+" "+claim.object;
-    if(claim.kind==="preference") return "Пользователь "+(claim.polarity?"":"не ")+claim.predicate+" "+claim.object;
+    if(claim.kind==="preference") return preferencePhrase(claim,true);
     if(claim.kind==="relationship"){
       const target=claim.object==="assistant"?"ассистент":claim.object==="user"?"пользователь":"общее окружение";
       return claim.subject+" — "+(claim.polarity?"":"не ")+claim.predicate+" ("+target+")";
@@ -281,7 +294,7 @@
       }).filter(row => row.score > 0 || queryTokens.size <= 2).sort((a,b) => b.score - a.score);
       if (relevantPreferences.length) {
         const claim = relevantPreferences[0].claim;
-        return "Ты сообщал мне, что " + (claim.polarity ? "тебе " : "тебе не ") + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание.";
+        return "Ты сообщал мне, что " + preferencePhrase(claim,false) + ". Я храню это как твоё самоописание.";
       }
     }
 
@@ -299,7 +312,7 @@
       return "В моей памяти сохранена твоя оценка: «" + claim.subject + " " + (claim.polarity ? "" : "не ") + claim.object + "». Это субъективное мнение, записанное с твоих слов, а не объективно установленный факт.";
     }
     if (claim.kind === "preference") {
-      return "Ты сообщал мне, что " + (claim.polarity ? "тебе " : "тебе не ") + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание.";
+      return "Ты сообщал мне, что " + preferencePhrase(claim,false) + ". Я храню это как твоё самоописание.";
     }
     if (claim.kind === "fact") {
       return "Ты сообщал мне: " + claim.predicate + " " + claim.object + ". Я храню это как твоё самоописание, а не как независимо проверенный факт.";
