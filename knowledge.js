@@ -125,7 +125,12 @@
     if(who&&relationAsked){
       const target=hasAny(["твой","твоя","твое","твои"]) || (qWords.has("у")&&qWords.has("тебя")) ? "assistant" :
         hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня")) ? "user" : null;
-      const matches=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target)&&claim.polarity);
+      const relatedClaims=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target));
+      const directConflict=findConflicts(relatedClaims).find(conflict=>conflict.type==="direct");
+      if(directConflict) {
+        return "В памяти есть противоречащие утверждения: «"+directConflict.left.evidence+"» и «"+directConflict.right.evidence+"». Я не буду угадывать, какое из них верно — нужно уточнение.";
+      }
+      const matches=relatedClaims.filter(claim=>claim.polarity);
       if(matches.length){
         const uniqueSubjects=[...new Set(matches.map(claim=>normalise(claim.subject)))];
         if(uniqueSubjects.length>1 && matches.some(claim=>/лучший друг|лучшая подруга/u.test(claim.predicate))) {
