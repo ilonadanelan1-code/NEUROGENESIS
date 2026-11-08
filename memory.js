@@ -579,6 +579,12 @@
     if (manage) manage.focus();
   }
   function closeMemoryLibrary() {
+    if (editingMemoryId) {
+      const item = memories.find(entry => entry.id === editingMemoryId);
+      const input = $("memory-editor-input");
+      if (item && input && input.value.trim() !== item.text &&
+          !window.confirm("Есть несохранённые изменения. Закрыть библиотеку и отказаться от них?")) return;
+    }
     try {
       const state = window.history && window.history.state;
       if (state && state.__ngMemoryView === "editor") {
@@ -783,6 +789,15 @@
   if (typeof window.addEventListener === "function") {
     window.addEventListener("popstate", event => {
       const state = event.state;
+      if (state && state.__ngMemoryView === "library" && editingMemoryId) {
+        const item = memories.find(entry => entry.id === editingMemoryId);
+        const input = $("memory-editor-input");
+        if (item && input && input.value.trim() !== item.text &&
+            !window.confirm("Есть несохранённые изменения. Вернуться к списку без сохранения?")) {
+          window.history && window.history.pushState({ __ngMemoryView: "editor", id: editingMemoryId }, "", "#ng-memory-entry");
+          return;
+        }
+      }
       if (state && state.__ngMemoryView === "editor") {
         libraryOpen = true;
         editingMemoryId = state.id;
