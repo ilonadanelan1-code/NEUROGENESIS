@@ -292,6 +292,7 @@ assert.match(document.getElementById("memory-feedback").textContent,/ПРИОР�
 input.value = "Построй обновлённую причинную модель";
 document.getElementById("ask-button").dispatch("click");
 const modelReply=feed.children[feed.children.length-1].textContent;
+console.log("MODEL OUTPUT DEBUG",modelReply);
 assert.match(modelReply,/ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ/u,"the app should build a revised causal model from tracked conclusions");
 assert.match(modelReply,/Недостаток сна → усталости — ПОД ВОПРОСОМ/u,"the model should mark the specific contradicted edge");
 assert.match(modelReply,/Усталость → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,"the model should preserve uncertainty for unobserved edges");
