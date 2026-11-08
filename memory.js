@@ -154,7 +154,6 @@
           meta.reviews.push(finding);
           known.add(claim.id);
           findings.push({entry,conclusion,finding});
-          break;
         }
       }
       const hasChallenge=meta.reviews.some(item=>item.kind==="counterexample"||item.kind==="opposing_claim"||item.kind==="source_revised");
@@ -197,7 +196,10 @@
     if(flagged.length){
       answer+="Выводы, требующие пересмотра:\n";
       for(const item of flagged){
-        const titles=item.reasoning.conclusions.map(row=>row.subject+" ⇢ "+row.object).join("; ");
+        const impacted=item.reasoning.conclusions.filter(row=>item.reasoning.reviews.some(finding=>
+          finding.kind!=="supporting_observation"&&row.paths.some(path=>path.some(edge=>
+            KNOWLEDGE.sameEntity(edge.subject,finding.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,finding.edgeObject)))));
+        const titles=impacted.map(row=>row.subject+" ⇢ "+row.object).join("; ");
         answer+="• "+titles+"\n";
         for(const finding of item.reasoning.reviews.filter(row=>row.kind!=="supporting_observation").slice(-4)){
           answer+="  Новые данные: «"+finding.evidence+"» · звено "+finding.edgeSubject+" → "+finding.edgeObject+"\n";

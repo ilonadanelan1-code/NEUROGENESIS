@@ -293,7 +293,8 @@ document.getElementById("ask-button").dispatch("click");
 const auditReply=feed.children[feed.children.length-1].textContent;
 assert.match(auditReply,/ПРОВЕРКА ИСТОРИИ ВЫВОДОВ/u);
 assert.match(auditReply,/Выводы, требующие пересмотра/u);
-assert.match(auditReply,/Усталость ⇢ снижению концентрации/u);
+assert.match(auditReply,/Недостаток сна ⇢ снижению концентрации/u);
+assert.match(auditReply,/Обезвоживание ⇢ снижению концентрации/u,"a contradiction in a shared causal link should mark every dependent hypothesis for review");
 assert.match(document.getElementById("memory-feedback").textContent,/САМОПРОВЕРКА/u);
 
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and derived hypotheses: passed.");
