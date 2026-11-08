@@ -36,10 +36,12 @@
     if (!raw || typeof raw.text !== "string") return null;
     const text = raw.text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
-    const tags = Array.isArray(raw.tags)
-      ? [...new Set(raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean))].slice(0, 6)
-      : tokens(text).slice(0, 6);
-    const traceIds = tags.map((_, i) => Array.isArray(raw.traceIds) && typeof raw.traceIds[i] === "string" ? raw.traceIds[i] : null);
+    const legacyTags = Array.isArray(raw.tags) ? raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean) : [];
+    const tags = [...new Set([...legacyTags, ...tokens(text)])].slice(0, 6);
+    const traceIds = tags.map(tag => {
+      const index = legacyTags.indexOf(tag);
+      return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
+    });
     return {
       id: typeof raw.id === "string" && raw.id ? raw.id.slice(0, 80) : makeId(),
       text, tags: tags.length ? tags : tokens(text).slice(0, 6), traceIds,
@@ -199,7 +201,7 @@
         item.updatedAt = Date.now();
         item.repetitions = (item.repetitions || 1) + 1;
         for (const tag of tags) {
-          if (item.tags.includes(tag) || item.tags.length >= 4) continue;
+          if (item.tags.includes(tag) || item.tags.length >= 6) continue;
           item.tags.push(tag);
           item.traceIds.push(ensureTrace(tag));
         }
@@ -423,7 +425,9 @@
           line.append(kind, label, source);
           structured.appendChild(line);
         }
-        card.appendChild(structured);
+        card.append(meta, text, structured);
+      } else {
+        card.append(meta, text);
       }
       const tags = document.createElement("div");
       tags.className = "memory-entry-tags";
@@ -447,7 +451,7 @@
       editorActions.className = "memory-entry-actions";
       editorActions.append(button("Сохранить", "save-edit", "primary-button memory-mini-button"), button("Отмена", "cancel-edit", "secondary-button memory-mini-button"));
       editor.append(area, editorActions);
-      card.append(meta, text, tags, actions, editor);
+      card.append(tags, actions, editor);
       list.appendChild(card);
     }
     const more = $("memory-more");
