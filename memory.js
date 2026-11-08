@@ -201,7 +201,7 @@
     const unique = [...new Set(ids.filter(Boolean))];
     const brain = window.NGBrain;
     if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(unique);
-    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(item.traceIds || []);
+    if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...item.traceIds || [], ...(item.claims || []).map(claim => claim.traceId)]);
   }
   function rememberText(raw) {
     const clean = String(raw || "").trim().slice(0, MAX_TEXT);
@@ -363,7 +363,7 @@
       setFeedback("Такая запись уже существует. Отредактируй её вместо создания повтора.");
       return false;
     }
-    const oldIds = [...(item.traceIds || [])];
+    const oldIds = [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)];
     const tags = [...new Set(tokens(value))].slice(0, 6);
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
