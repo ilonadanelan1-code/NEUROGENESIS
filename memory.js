@@ -128,7 +128,7 @@
     const knowledgeCount = $("knowledge-count");
     if (knowledgeCount && KNOWLEDGE) {
       const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
-      knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ СВЯЗЕЙ";
+      knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
     }
   }
   function setFeedback(message) {
@@ -410,6 +410,7 @@
       text.className = "memory-entry-text";
       text.textContent = item.text;
       if (KNOWLEDGE && item.claims && item.claims.length) {
+        const conflictIds = new Set(KNOWLEDGE.findConflicts(memories.flatMap(entry => entry.claims || [])).flatMap(conflict => [conflict.left.id, conflict.right.id]));
         const structured = document.createElement("div");
         structured.className = "memory-entry-claims";
         for (const claim of item.claims) {
@@ -417,11 +418,12 @@
           line.className = "memory-entry-claim";
           const kind = document.createElement("span");
           kind.className = "memory-claim-kind";
-          kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
+          kind.textContent = ({relationship:"СВЯЗЬ",opinion:"МНЕНИЕ",preference:"ПРЕДПОЧТЕНИЕ",fact:"САМООПИСАНИЕ",definition:"ОПРЕДЕЛЕНИЕ",hypothesis:"ГИПОТЕЗА"})[claim.kind] || "ЗАПИСЬ";
           const label = document.createElement("span");
           label.textContent = KNOWLEDGE.claimLabel(claim);
           const source = document.createElement("small");
-          source.textContent = claim.verification === "subjective" ? "Субъективная оценка" : claim.verification === "self_reported" ? "Самоописание" : claim.verification === "hypothesis" ? "Предположение" : "Источник: сообщение пользователя · не проверено";
+          source.textContent = claim.verification === "subjective" ? "Субъективная оценка" : claim.verification === "self_reported" ? "Самоописание · источник: сообщение пользователя" : claim.verification === "hypothesis" ? "Предположение" : "Источник: сообщение пользователя · не проверено";
+          if (conflictIds.has(claim.id)) source.textContent += " · возможное противоречие";
           line.append(kind, label, source);
           structured.appendChild(line);
         }
