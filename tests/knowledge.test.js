@@ -60,6 +60,27 @@ assert.equal(summary.total, 2);
 assert.equal(summary.relationships, 1);
 assert.equal(summary.opinions, 1);
 
+const location = knowledge.extractClaims("Я живу в Сочи")[0];
+assert.equal(location.kind, "fact");
+assert.equal(location.subject, "user");
+assert.equal(location.predicate, "живу в");
+assert.equal(location.object, "Сочи");
+assert.match(knowledge.answerQuestion("Где я живу?", [location]), /живёшь в Сочи/u);
+
+const directConflict = knowledge.findConflicts([userFriend, negative]);
+assert.equal(directConflict.length, 1);
+assert.equal(directConflict[0].type, "direct");
+
+const secondBestFriend = knowledge.extractClaims("Сергей твой лучший друг")[0];
+const possibleConflict = knowledge.findConflicts([relationship, secondBestFriend]);
+assert.equal(possibleConflict.length, 1);
+assert.equal(possibleConflict[0].type, "possible");
+
+const mergedFacts = knowledge.mergeClaims([], [location]);
+assert.equal(mergedFacts[0].kind, "fact");
+assert.equal(knowledge.summary([relationship, opinion, location]).facts, 1);
+assert.equal(knowledge.summary([relationship, secondBestFriend]).conflicts, 1);
+
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
-console.log("NEUROGENESIS knowledge tests: 16 assertions passed.");
+console.log("NEUROGENESIS knowledge tests: structured memory, Russian questions and conflict checks passed.");
