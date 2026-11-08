@@ -1171,7 +1171,8 @@
         const signature=evidenceClaimSignature(claim);
         const event={edgeSubject:decision.edgeSubject,edgeObject:decision.edgeObject,claimId:claim.id,
           kind,strategy:decision.strategy,signature,at:safeTime(claim.createdAt,Date.now()),
-          evidence:String(claim.evidence||"").slice(0,240)};
+          evidence:String(claim.evidence||"").slice(0,240),
+          eventRef:claim.kind==="observation"?String(claim.observationCase&&claim.observationCase.eventRef||""):""};
         if(modelEvidence.some(item=>modelEvidenceKey(item)===modelEvidenceKey(event))||
            additions.some(item=>modelEvidenceKey(item)===modelEvidenceKey(event)))continue;
         additions.push(event);
