@@ -65,7 +65,8 @@ const document = {
 const database = new Map();
 database.set("neurogenesis.memories.v1", JSON.stringify([
   {id:"one",text:"Музыка прекрасна",tags:["музык","прекрасн"],traceIds:[],createdAt:1000,updatedAt:1000,strength:.65,repetitions:1,recalls:0},
-  {id:"two",text:"Игорь Головнев твой лучший друг",tags:["игор","головнев"],traceIds:[],createdAt:2000,updatedAt:2000,strength:.65,repetitions:1,recalls:0}
+  {id:"two",text:"Игорь Головнев твой лучший друг",tags:["игор","головнев"],traceIds:[],createdAt:2000,updatedAt:2000,strength:.65,repetitions:1,recalls:0},
+  {id:"three",text:"Мне нравится музыка",tags:["нравится","музык"],traceIds:[],createdAt:3000,updatedAt:3000,strength:.65,repetitions:1,recalls:0}
 ]));
 database.set("neurogenesis.dialog.v1", "[]");
 
@@ -118,7 +119,7 @@ manage.dispatch("click");
 assert.equal(history.state.__ngMemoryView,"library","opening the memory library should add a navigation state");
 assert.equal(document.getElementById("memory-library").hidden,false);
 const list = document.getElementById("memory-library-list");
-assert.equal(list.children.length,2);
+assert.equal(list.children.length,3);
 list.scrollTop = 73;
 const firstCard = list.children.find(card => card.dataset.memoryId === "one");
 assert.ok(firstCard);
@@ -155,4 +156,13 @@ document.getElementById("memory-library-back").dispatch("click");
 assert.equal(history.state,null,"back from the library should return to the original view");
 assert.equal(document.getElementById("memory-library").hidden,true);
 assert.equal(sidePanel.scrollTop,147,"the original side-panel position should be restored");
-console.log("NEUROGENESIS memory navigation test: back, unsaved-change guard, save and scroll restoration passed.");
+
+const input = document.getElementById("memory-input");
+input.value = "Что ты знаешь о музыке?";
+document.getElementById("ask-button").dispatch("click");
+const feed = document.getElementById("memory-feed");
+const reply = feed.children[feed.children.length - 1].textContent;
+assert.match(reply,/Музыка — прекрасна/u,"the answer should include the opinion stored in the first memory");
+assert.match(reply,/нравится музыка/u,"the answer should combine the preference from a different memory");
+assert.match(document.getElementById("memory-feedback").textContent,/ПРОФИЛЬ ПО ПАМЯТИ/u,"the interface should identify the entity-profile retrieval path");
+console.log("NEUROGENESIS memory navigation and profile test: back, safe editing, cross-record answer and source status passed.");
