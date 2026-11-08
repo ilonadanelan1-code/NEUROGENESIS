@@ -49,7 +49,7 @@
   function extractRelationship(text) {
     const roles = RELATIONS.join("|");
     const owners = "твой|твоя|твоё|твое|твои|мой|моя|моё|мое|мои|наш|наша|наше|наши";
-    const prefixPattern = new RegExp("^(.+?)\\s+(?:[—–-]\\s*)?(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")$", "iu");
+    const prefixPattern = new RegExp("^(.+?)\s+(?:[—–-]\s*)?(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")$", "iu");
     let match = text.match(prefixPattern);
     let subject, owner, relation, polarity = true;
     if (match) {
@@ -58,7 +58,7 @@
       owner = OWNER[match[3].toLowerCase()];
       relation = match[4].toLowerCase().replace(/ё/g, "е");
     } else {
-      const suffixPattern = new RegExp("^(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")\\s*(?:[—–-]\\s*|\\s+)(.+)$", "iu");
+      const suffixPattern = new RegExp("^(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")\s*(?:[—–-]\s*|\s+)(.+)$", "iu");
       match = text.match(suffixPattern);
       if (!match) return null;
       polarity = !match[1];
@@ -152,8 +152,8 @@
   }
   function entityProfile(query, claims) {
     const q = normalise(query);
-    const match = q.match(/^(?:что ты знаешь|что известно|расскажи(?: мне)?|помнишь ли ты)\\s+(?:(?:о|об|обо|про)\\s+)?(.+)$/u) ||
-      q.match(/^(?:кто такой|кто такая|кто такое)\\s+(.+)$/u);
+    const match = q.match(/^(?:что ты знаешь|что известно|расскажи(?: мне)?|помнишь ли ты)\s+(?:(?:о|об|обо|про)\s+)?(.+)$/u) ||
+      q.match(/^(?:кто такой|кто такая|кто такое)\s+(.+)$/u);
     if (!match || !Array.isArray(claims) || !claims.length) return null;
     const queryWords = [...new Set(tokens(match[1]))];
     if (!queryWords.length) return null;
@@ -197,13 +197,13 @@
       claim.verification === "self_reported" ? "самоописание" :
       claim.verification === "hypothesis" ? "гипотеза" : "сообщение пользователя · не проверено";
     const lines = visible.map(claim =>
-      "• " + claimLabel(claim) + "\\n  Источник: «" + String(claim.evidence || "").slice(0, 220) + "» · " + status(claim)
+      "• " + claimLabel(claim) + "\n  Источник: «" + String(claim.evidence || "").slice(0, 220) + "» · " + status(claim)
     );
     const conflicts = findConflicts(unique);
-    let answer = "Вот что я нашёл в сохранённой памяти о «" + best.value + "» (" + unique.length + " утверждений):\\n\\n" + lines.join("\\n\\n");
-    if (unique.length > visible.length) answer += "\\n\\nПоказаны первые " + visible.length + " из " + unique.length + " связанных утверждений.";
-    if (conflicts.length) answer += "\\n\\nВнимание: среди этих записей есть противоречие или возможное противоречие. Я не буду автоматически выбирать одну версию.";
-    answer += "\\n\\nЭто сведения из твоих сохранённых сообщений, а не независимо проверенные факты.";
+    let answer = "Вот что я нашёл в сохранённой памяти о «" + best.value + "» (" + unique.length + " утверждений):\n\n" + lines.join("\n\n");
+    if (unique.length > visible.length) answer += "\n\nПоказаны первые " + visible.length + " из " + unique.length + " связанных утверждений.";
+    if (conflicts.length) answer += "\n\nВнимание: среди этих записей есть противоречие или возможное противоречие. Я не буду автоматически выбирать одну версию.";
+    answer += "\n\nЭто сведения из твоих сохранённых сообщений, а не независимо проверенные факты.";
     return answer;
   }
   function answerQuestion(query, claims) {
