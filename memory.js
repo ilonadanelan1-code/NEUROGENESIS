@@ -598,7 +598,10 @@
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
     const sourceText=distinct.map(claim=>claim.evidence||"").concat(relatedAnswers.map(item=>item.responseText||"")).join(" ");
     const context=/услови|обстоятельств|контекст|различа|отлича|на фоне|после|до события|в помещении|нагрузк|режим|сопутств/u.test(normalise(sourceText));
-    const timing=/(?:\b(?:утром|днем|днём|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад)\b|\b\d{1,2}[.:]\d{2}\b|\b\d{1,2}\s+(?:январ|феврал|март|апрел|ма|июн|июл|август|сентябр|октябр|ноябр|декабр))/u.test(normalise(sourceText));
+    const normalizedSource=normalise(sourceText);
+    const timing=/(?:^|\\s)(?:утром|днем|днём|вечером|ночью|сегодня|вчера|позавчера|неделю назад|месяц назад)(?:\\s|$)/u.test(normalizedSource)||
+      /(?:^|\\s)(?:в|около)\\s+\\d{1,2}(?::\\d{2})?(?:\\s|$)/iu.test(sourceText)||
+      /(?:^|\\s)\\d{1,2}\\s+(?:январ|феврал|март|апрел|ма|июн|июл|август|сентябр|октябр|ноябр|декабр)/u.test(normalizedSource);
     const criterion=/оцен|измер|критери|шкал|самочувств|балл|тестир|фиксир|показател|результат определ|результат счит/u.test(normalise(sourceText));
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
