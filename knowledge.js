@@ -99,6 +99,7 @@
   }
   function claimLabel(claim) {
     if(!claim)return "";
+    if(claim.kind==="fact" && claim.subject==="user") return "Пользователь "+claim.predicate+" "+claim.object;
     if(claim.kind==="relationship"){
       const target=claim.object==="assistant"?"ассистент":claim.object==="user"?"пользователь":"общее окружение";
       return claim.subject+" — "+(claim.polarity?"":"не ")+claim.predicate+" ("+target+")";
@@ -126,6 +127,11 @@
         hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня"))?"user":null;
       const matches=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target)&&claim.polarity);
       if(matches.length){
+        const uniqueSubjects=[...new Set(matches.map(claim=>normalise(claim.subject)))];
+        if(uniqueSubjects.length>1 && matches.some(claim=>/лучший друг|лучшая подруга/u.test(claim.predicate))) {
+          const names=[...new Set(matches.map(claim=>claim.subject))];
+          return "В памяти есть несколько записей о лучшем друге: "+names.join(", ")+". Они могут противоречить друг другу. Я не стану выбирать наугад — уточни, какая запись верна.";
+        }
         const claim=matches[matches.length-1];
         if(claim.object==="assistant")return "По твоему сообщению, "+claim.subject+" — мой "+claim.predicate+". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
         if(claim.object==="user")return "По твоему сообщению, "+claim.subject+" — твой "+claim.predicate+". Я сохранил это как твоё утверждение; независимо проверить его я не могу.";
