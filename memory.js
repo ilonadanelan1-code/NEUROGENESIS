@@ -93,7 +93,7 @@
         const oldIds = item.traceIds.slice();
         item.traceIds = item.tags.map((tag, index) => {
           const id = oldIds[index];
-          return id && brain.hasNeuron(id) ? id : ensureTrace(tag);
+          return id && (typeof brain.hasMemoryTrace === "function" ? brain.hasMemoryTrace(id, tag) : brain.hasNeuron(id)) ? id : ensureTrace(tag);
         });
         if (item.traceIds.some((id, index) => id !== oldIds[index])) repaired = true;
         for (const claim of item.claims || []) {
@@ -165,7 +165,10 @@
   function ensureTrace(tag) {
     const brain = window.NGBrain;
     if (tagTrace[tag]) {
-      if (!brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(tagTrace[tag])) return tagTrace[tag];
+      const valid = brain && typeof brain.hasMemoryTrace === "function"
+        ? brain.hasMemoryTrace(tagTrace[tag], tag)
+        : !brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(tagTrace[tag]);
+      if (valid) return tagTrace[tag];
       delete tagTrace[tag];
     }
     if (!brain || typeof brain.createMemoryTrace !== "function") return null;
@@ -176,9 +179,14 @@
   function ensureClaimTrace(claim) {
     if (!claim) return null;
     const brain = window.NGBrain;
-    if (claim.traceId && (!brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(claim.traceId))) return claim.traceId;
-    if (!brain || typeof brain.createMemoryTrace !== "function") return null;
     const key = "claim:" + (claim.id || normalise(claim.subject + " " + claim.predicate + " " + claim.object));
+    if (claim.traceId) {
+      const valid = brain && typeof brain.hasMemoryTrace === "function"
+        ? brain.hasMemoryTrace(claim.traceId, key)
+        : !brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(claim.traceId);
+      if (valid) return claim.traceId;
+    }
+    if (!brain || typeof brain.createMemoryTrace !== "function") return null;
     const label = (claim.subject + " → " + claim.predicate).slice(0, 42);
     claim.traceId = brain.createMemoryTrace(key, label) || null;
     return claim.traceId;
