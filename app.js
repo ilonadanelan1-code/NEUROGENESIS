@@ -650,8 +650,9 @@
   window.addEventListener("beforeunload",()=>{if(dirty)saveState();});
 
   window.NGBrain = {
-    createMemoryTrace(key) {
+    createMemoryTrace(key, displayName) {
       const cleanKey = String(key || "общее").slice(0, 34);
+      const cleanName = String(displayName || cleanKey).replace(/\s+/g, " ").trim().slice(0, 42);
       const existing = neurons.find(n => n.memoryTrace && n.memoryKey === cleanKey);
       if (existing) return existing.id;
       const traces = neurons.filter(n => n.memoryTrace);
@@ -661,7 +662,7 @@
       const index = traces.length;
       const angle = index * 2.399963229728653;
       const radius = 112 + Math.floor(index / 8) * 58;
-      const trace = makeNeuron("Энграмма · " + cleanKey, "memory",
+      const trace = makeNeuron("Энграмма · " + cleanName, "memory",
         anchor.x + Math.cos(angle) * radius,
         anchor.y + Math.sin(angle) * radius, .62);
       trace.memoryTrace = true;
