@@ -679,20 +679,18 @@
     associateMemoryTraces(ids) {
       const unique = [...new Set((ids || []).filter(id => neuronById.has(id)))].slice(0, 8);
       let changed = false;
-      for (let i = 0; i < unique.length; i++) {
-        for (let j = i + 1; j < unique.length; j++) {
-          const a = unique[i], b = unique[j];
-          for (const [from, to] of [[a, b], [b, a]]) {
-            const edge = synapseByKey.get(edgeKey(from, to));
-            if (edge) {
-              const previous = edge.weight;
-              edge.weight = Math.min(1, edge.weight + .025);
-              changed = changed || edge.weight !== previous;
-            } else if (synapses.length < 1200) {
-              connect(from, to);
-              changed = true;
-            }
-          }
+      const pairs = window.NGActivation && typeof window.NGActivation.bidirectionalPairs === "function"
+        ? window.NGActivation.bidirectionalPairs(unique, 8)
+        : unique.flatMap((from, index) => unique.slice(index + 1).flatMap(to => [[from, to], [to, from]]));
+      for (const [from, to] of pairs) {
+        const edge = synapseByKey.get(edgeKey(from, to));
+        if (edge) {
+          const previous = edge.weight;
+          edge.weight = Math.min(1, edge.weight + .025);
+          changed = changed || edge.weight !== previous;
+        } else if (synapses.length < 1200) {
+          connect(from, to);
+          changed = true;
         }
       }
       if (changed) { connectionsDirty = true; markDirty(); }
