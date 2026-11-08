@@ -816,6 +816,7 @@ database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+console.log("RECON_DEBUG",JSON.stringify(window.NGMemory.observationCases().map(item=>({id:item.id,source:item.sourceMemoryId,evidence:item.evidence,polarity:item.polarity}))));
 const reconciliation=window.NGMemory.reconcileEdgeEvidence("Недостаток сна","Усталости",200);
 assert.equal(reconciliation.supportingCount,2,"the dossier should count distinct supporting observations");
 assert.equal(reconciliation.challengingCount,1,"the dossier should count the separate counter-observation");
