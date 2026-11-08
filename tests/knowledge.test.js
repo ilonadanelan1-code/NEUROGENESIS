@@ -36,6 +36,23 @@ assert.match(knowledge.answerQuestion("Кто ты?", [assistantIdentity]), /я 
 assert.match(knowledge.answerQuestion("Кто ты?", [assistantIdentity]), /Ты мой оссистент/u);
 assert.equal(knowledge.extractClaims("Ты мой ассистент")[0].object, "ассистент");
 assert.equal(knowledge.extractClaims("Ты мой помощник")[0].object, "помощник");
+const updatedIdentity = knowledge.extractClaims("Теперь ты мой советник")[0];
+assert.equal(updatedIdentity.kind, "identity");
+assert.equal(updatedIdentity.object, "советник");
+assert.equal(updatedIdentity.revision, true, "explicit temporal wording should mark a role update");
+assert.equal(knowledge.extractClaims("С этого момента ты мой собеседник")[0].revision, true);
+assert.equal(knowledge.extractClaims("Ты мой друг")[0].object, "друг");
+const originalIdentityForTimeline = knowledge.sanitizeClaims([assistantIdentity])[0];
+const identityTimeline = [originalIdentityForTimeline, updatedIdentity];
+assert.equal(knowledge.reconcileIdentityHistory(identityTimeline), true);
+assert.equal(originalIdentityForTimeline.status, "superseded");
+assert.equal(originalIdentityForTimeline.supersededBy, updatedIdentity.id);
+assert.equal(updatedIdentity.status, "current");
+assert.equal(knowledge.findConflicts(identityTimeline).length, 0, "a clear role update should not remain a conflict");
+assert.match(knowledge.answerQuestion("Кто ты?", identityTimeline), /я — советник/u);
+assert.match(knowledge.answerQuestion("Кто ты?", identityTimeline), /Ранее ты называл меня ассистент/u);
+assert.match(knowledge.answerQuestion("Кем ты был раньше?", identityTimeline), /роль «ассистент»/u);
+assert.equal(knowledge.summary(identityTimeline).activeIdentities, 1);
 assert.equal(knowledge.answerQuestion("Кто ты?", [knowledge.extractClaims("Музыка прекрасна")[0]]), null);
 
 const assistantCreator = knowledge.extractClaims("Твоего создателя зовут Сергей")[0];
@@ -55,6 +72,9 @@ const identityConflict = knowledge.findConflicts([
   knowledge.extractClaims("Ты мой помощник")[0]
 ]);
 assert.equal(identityConflict.length, 1, "conflicting role descriptions should be flagged instead of silently overwritten");
+const unresolvedIdentityTimeline = [assistantIdentity, knowledge.extractClaims("Ты мой помощник")[0]];
+knowledge.reconcileIdentityHistory(unresolvedIdentityTimeline);
+assert.equal(knowledge.findConflicts(unresolvedIdentityTimeline).length, 1, "a new role without explicit update wording should remain an unresolved conflict");
 
 const opinion = knowledge.extractClaims("Музыка прекрасна")[0];
 assert.ok(opinion, "should classify a simple opinion");
