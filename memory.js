@@ -1346,9 +1346,15 @@
   function buildCausalModelRevision() {
     const tracked=reasoningArchive.slice();
     if(!tracked.length)return "Пока нет причинных выводов с сохранёнными ссылками на исходные записи. Сначала попроси меня вывести причинную цепочку или новые гипотезы.";
-    const excludedRows=[...new Map(tracked.flatMap(entry=>(cleanReasoning(entry.reasoning)?.excludedPaths||[]).map(item=>[
-      item.origin+"|"+item.subject+"|"+item.object+"|"+item.route.map(edge=>edge.subject+">"+edge.object).join(">"),item
-    ])).values()].slice(0,12);
+    const excludedMap=new Map();
+    for(const entry of tracked) {
+      const meta=cleanReasoning(entry.reasoning);
+      for(const item of meta&&meta.excludedPaths||[]) {
+        const key=item.origin+"|"+item.subject+"|"+item.object+"|"+item.route.map(edge=>edge.subject+">"+edge.object).join(">");
+        excludedMap.set(key,item);
+      }
+    }
+    const excludedRows=[...excludedMap.values()].slice(0,12);
     const excludedSection=()=>{
       if(!excludedRows.length)return "";
       let section="АРХИВНЫЕ МАРШРУТЫ, ИСКЛЮЧЁННЫЕ ПРИ ПРОВЕРКЕ ФОРМЫ\n";
