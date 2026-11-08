@@ -547,7 +547,7 @@
       const n=neuronById.get(id);
       if(!n){activeNeuronIds.delete(id);continue;}
       n.activity=Math.max(0,n.activity-dt*.00048);
-      if(n.activity<=.04)activeNeuronIds.delete(id);
+      if(n.activity<=.04){activeNeuronIds.delete(id);visualDirty=true;}
     }
     for(let i=pulses.length-1;i>=0;i--){
       const p=pulses[i];
