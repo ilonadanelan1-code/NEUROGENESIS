@@ -104,7 +104,7 @@
   function extractRelationship(text) {
     const roles = RELATIONS.join("|");
     const owners = "твой|твоя|твоё|твое|твои|мой|моя|моё|мое|мои|наш|наша|наше|наши";
-    const prefixPattern = new RegExp("^(.+?)\s+(?:[—–-]\s*)?(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")$", "iu");
+    const prefixPattern = new RegExp("^(.+?)\\s+(?:[—–-]\\s*)?(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")$", "iu");
     let match = text.match(prefixPattern);
     let subject, owner, relation, polarity = true;
     if (match) {
@@ -113,7 +113,7 @@
       owner = OWNER[match[3].toLowerCase()];
       relation = match[4].toLowerCase().replace(/ё/g, "е");
     } else {
-      const suffixPattern = new RegExp("^(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")\s*(?:[—–-]\s*|\s+)(.+)$", "iu");
+      const suffixPattern = new RegExp("^(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")\\s*(?:[—–-]\\s*|\\s+)(.+)$", "iu");
       match = text.match(suffixPattern);
       if (!match) return null;
       polarity = !match[1];
