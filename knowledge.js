@@ -106,10 +106,13 @@
   function answerQuestion(query,claims) {
     const q=normalise(query);
     if(!q||!Array.isArray(claims)||!claims.length)return null;
-    const who=/\b(кто|кого|кому|чей|чья|чье|чьи)\b/u.test(q);
-    const relationAsked=/\b(друг|подруга|коллега|наставник|учитель|партнер|товарищ|брат|сестра|враг|знакомый|знакомая)\b/u.test(q);
+    const qWords=new Set(q.split(/\s+/u));
+    const hasAny=words=>words.some(word=>qWords.has(word));
+    const who=hasAny(["кто","кого","кому","чей","чья","чье","чьи"]);
+    const relationAsked=hasAny(["друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"]);
     if(who&&relationAsked){
-      const target=/\b(твой|твоя|твое|твои|у тебя)\b/u.test(q)?"assistant":/\b(мой|моя|мое|мои|у меня)\b/u.test(q)?"user":null;
+      const target=hasAny(["твой","твоя","твое","твои","у"]) && qWords.has("тебя")?"assistant":
+        hasAny(["мой","моя","мое","мои"]) || (qWords.has("у")&&qWords.has("меня"))?"user":null;
       const matches=claims.filter(claim=>claim.kind==="relationship"&&(!target||claim.object===target)&&claim.polarity);
       if(matches.length){
         const claim=matches[matches.length-1];
