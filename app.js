@@ -167,8 +167,10 @@
     const rect = canvas.getBoundingClientRect();
     width = Math.max(1, rect.width);
     height = Math.max(1, rect.height);
-    const maxDpr = window.innerWidth <= 700 ? 1 : 1.25;
+    const previousDpr = dpr;
+    const maxDpr = window.innerWidth <= 700 ? 2 : 2.25;
     dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+    if (Math.abs(dpr - previousDpr) > 0.01) neuronSprites.clear();
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -428,8 +430,10 @@
     if(sprite) return sprite;
     const size=184,center=92,r=19;
     sprite=document.createElement("canvas");
-    sprite.width=size;sprite.height=size;
+    sprite.width=Math.round(size*dpr);
+    sprite.height=Math.round(size*dpr);
     const c=sprite.getContext("2d");
+    c.setTransform(dpr,0,0,dpr,0,0);
     const aura=c.createRadialGradient(center,center,2,center,center,84);
     aura.addColorStop(0,colorFor(type,.24));
     aura.addColorStop(.38,colorFor(type,.075));
@@ -475,7 +479,7 @@
         if(n.x<left||n.x>right||n.y<top||n.y>bottom) continue;
         const searching=!!searchTerm&&n.name.toLowerCase().includes(searchTerm);
         nodeCtx.globalAlpha=(searchTerm&&!searching)?0.18:1;
-        nodeCtx.drawImage(getNeuronSprite(n.type),n.x-92,n.y-92);
+        nodeCtx.drawImage(getNeuronSprite(n.type),n.x-92,n.y-92,184,184);
         if(n.id===selectedId||connectFrom===n.id){
           nodeCtx.beginPath();nodeCtx.arc(n.x,n.y,41,0,Math.PI*2);
           nodeCtx.strokeStyle=connectFrom===n.id?"rgba(255,207,126,.95)":"rgba(230,255,249,.84)";
