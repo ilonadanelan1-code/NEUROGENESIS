@@ -111,8 +111,8 @@
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
-    const clauses = text.split(/\\s*[,;]\\s*/u)
-      .map(part => part.replace(/^(?:и|а|но|однако)\\s+/iu,"").trim())
+    const clauses = text.split(/\s*[,;]\s*/u)
+      .map(part => part.replace(/^(?:и|а|но|однако)\s+/iu,"").trim())
       .filter(Boolean).slice(0,8);
     if (clauses.length > 1) {
       const extracted = clauses.map(extractSingleClaim).filter(Boolean);
