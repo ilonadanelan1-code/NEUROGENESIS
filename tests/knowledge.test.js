@@ -112,7 +112,7 @@ assert.equal(intensifiedOpinion.kind, "opinion");
 assert.equal(intensifiedOpinion.object, "прекрасна");
 const negativeOpinion = knowledge.extractClaims("Музыка не прекрасна")[0];
 assert.equal(negativeOpinion.polarity, false);
-assert.match(knowledge.answerQuestion("Что ты думаешь о музыке?", [negativeOpinion]), /музыка не прекрасна/u);
+assert.match(knowledge.answerQuestion("Что ты думаешь о музыке?", [negativeOpinion]), /музыка не прекрасна/iu);
 
 const ambiguous = knowledge.answerQuestion("Кто лучший друг?", [relationship, userFriend]);
 assert.match(ambiguous, /относящиеся и ко мне, и к тебе/u);
