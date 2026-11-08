@@ -244,6 +244,12 @@ input.value = "Если недостаток сна, то усталость";
 document.getElementById("remember-button").dispatch("click");
 input.value = "При недостатке сна не наблюдалась усталость";
 document.getElementById("remember-button").dispatch("click");
+
+const storedDialogAfterFirstReview=JSON.parse(database.get("neurogenesis.dialog.v1"));
+assert.ok(storedDialogAfterFirstReview.some(item=>item.reasoning&&item.reasoning.type==="causal_chain"),"causal conclusions should persist their structured source links");
+assert.match(feed.children[feed.children.length-1].textContent,/ПЕРЕСМОТР ПРЕЖНЕГО ВЫВОДА/u,"a newly stored counterexample should automatically trigger review of an earlier causal conclusion");
+assert.match(feed.children[feed.children.length-1].textContent,/При недостатке сна не наблюдалась усталость/u,"the review should cite the exact new observation");
+
 input.value = "Проверь гипотезу: если недостаток сна, то усталость";
 document.getElementById("ask-button").dispatch("click");
 const hypothesisCheckReply=feed.children[feed.children.length-1].textContent;
@@ -275,5 +281,19 @@ assert.match(priorityReply,/При недостатке сна не наблюд
 assert.match(priorityReply,/Обезвоживание ⇢ снижению концентрации/u,"the other derived hypothesis should remain visible for comparison");
 assert.match(priorityReply,/Общее звено между несколькими гипотезами/u,"the dialog should disclose shared evidence instead of counting it twice");
 assert.match(document.getElementById("memory-feedback").textContent,/ПРИОРИТЕТ · ЕСТЬ КОНТРПРИМЕР/u,"the interface should label a hypothesis-prioritization answer");
+
+
+input.value = "Усталость не приводит к снижению концентрации";
+document.getElementById("remember-button").dispatch("click");
+const lateRevisionReply=feed.children[feed.children.length-1].textContent;
+assert.match(lateRevisionReply,/ПЕРЕСМОТР ПРЕЖНЕГО ВЫВОДА/u,"a new explicit negative causal claim should mark a previous derived hypothesis as challenged");
+assert.match(lateRevisionReply,/Усталость не приводит к снижению концентрации/u,"the revision notice should quote the new opposing claim");
+input.value = "Какие прежние выводы требуют пересмотра?";
+document.getElementById("ask-button").dispatch("click");
+const auditReply=feed.children[feed.children.length-1].textContent;
+assert.match(auditReply,/ПРОВЕРКА ИСТОРИИ ВЫВОДОВ/u);
+assert.match(auditReply,/Выводы, требующие пересмотра/u);
+assert.match(auditReply,/Усталость ⇢ снижению концентрации/u);
+assert.match(document.getElementById("memory-feedback").textContent,/САМОПРОВЕРКА/u);
 
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning and derived hypotheses: passed.");
