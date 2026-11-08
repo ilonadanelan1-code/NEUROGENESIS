@@ -80,6 +80,20 @@
       console.warn("Could not load NEUROGENESIS dialogue:", error);
     }
     rebuildTagTraceIndex();
+    const brain = window.NGBrain;
+    if (brain && typeof brain.hasNeuron === "function" && typeof brain.createMemoryTrace === "function") {
+      let repaired = false;
+      for (const item of memories) {
+        const oldIds = item.traceIds.slice();
+        item.traceIds = item.tags.map((tag, index) => {
+          const id = oldIds[index];
+          return id && brain.hasNeuron(id) ? id : ensureTrace(tag);
+        });
+        if (item.traceIds.some((id, index) => id !== oldIds[index])) repaired = true;
+      }
+      rebuildTagTraceIndex();
+      if (repaired) persist();
+    }
   }
   function persist() {
     updateCount();
@@ -132,8 +146,11 @@
     renderDialog();
   }
   function ensureTrace(tag) {
-    if (tagTrace[tag]) return tagTrace[tag];
     const brain = window.NGBrain;
+    if (tagTrace[tag]) {
+      if (!brain || typeof brain.hasNeuron !== "function" || brain.hasNeuron(tagTrace[tag])) return tagTrace[tag];
+      delete tagTrace[tag];
+    }
     if (!brain || typeof brain.createMemoryTrace !== "function") return null;
     const id = brain.createMemoryTrace(tag);
     if (id) tagTrace[tag] = id;
