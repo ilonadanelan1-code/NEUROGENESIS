@@ -104,10 +104,21 @@
     if (!match) return null;
     return makeClaim("hypothesis","user","предполагает",cleanPart(match[1],180),text,"hypothesis",0.78);
   }
+  function extractSingleClaim(text) {
+    return extractRelationship(text) || extractPreference(text) || extractSelfReport(text) ||
+      extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
+  }
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
-    const claim = extractRelationship(text) || extractPreference(text) || extractSelfReport(text) || extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
+    const clauses = text.split(/\\s*[,;]\\s*/u)
+      .map(part => part.replace(/^(?:и|а|но|однако)\\s+/iu,"").trim())
+      .filter(Boolean).slice(0,8);
+    if (clauses.length > 1) {
+      const extracted = clauses.map(extractSingleClaim).filter(Boolean);
+      if (extracted.length) return extracted.slice(0,12);
+    }
+    const claim = extractSingleClaim(text);
     return claim ? [claim] : [];
   }
   function sanitizeClaims(input, evidenceFallback = "") {
