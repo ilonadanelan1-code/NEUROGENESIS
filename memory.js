@@ -639,7 +639,7 @@
     const seen=new Set(),result=[];
     for(const memory of memories)for(const claim of memory.claims||[]) {
       if(!claim||claim.kind!=="observation"||claim.status==="superseded")continue;
-      const key=memory.id+"|"+claim.id;
+      const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
       if(seen.has(key))continue;
       seen.add(key);
       result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
@@ -678,7 +678,8 @@
     let duplicateMentions=0;
     for(const item of candidates) {
       const text=normalise(item.evidence||"");
-      const key=[normalise(item.subject),normalise(item.object),item.polarity?"1":"0",text||item.id].join("|");
+      const subjectKey=KNOWLEDGE.canonicalEntity(item.subject),objectKey=KNOWLEDGE.canonicalEntity(item.object);
+      const key=[subjectKey,objectKey,item.polarity?"1":"0",text||item.id].join("|");
       if(seen.has(key)){duplicateMentions++;continue;}
       seen.set(key,item.id);cases.push(item);
     }
