@@ -247,3 +247,6 @@ select.text-input{color-scheme:dark}
   .memory-editor-actions{gap:6px}
   .memory-editor-cancel,.memory-editor-save{height:36px;min-height:36px;font-size:8px}
 }
+
+
+/* NEUROGENESIS 0.11.0 — bounded associative activation uses existing feedback styles. */
