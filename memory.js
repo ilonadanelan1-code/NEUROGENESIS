@@ -116,7 +116,7 @@
       rebuildTagTraceIndex();
       if (repaired) memoryMigrated = true;
     }
-    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory && KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(item=>item.claims||[]))) memoryMigrated = true;
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory && KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]))) memoryMigrated = true;
     if (memoryMigrated) { memoryMigrated = false; persist(); }
   }
   function persist() {
@@ -265,7 +265,7 @@
       }
     }
     rebuildTagTraceIndex();
-    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(item=>item.claims||[]));
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]));
     const ok = persist();
     if (!saved && !repeated && skipped) {
       const response = "Память заполнена: лимит — " + MAX_MEMORIES + " записей. Я не стал молча удалять старые воспоминания. Открой «Записи», удали ненужное или сделай экспорт.";
@@ -396,7 +396,7 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
-    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     persist();
     renderLibrary();
@@ -420,7 +420,7 @@
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
     item.updatedAt = Date.now();
-    if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     const related = memories.filter(entry => entry.id !== id && entry.tags.some(tag => tags.includes(tag))).slice(-4);
     linkMemory(item, related);
     releaseUnusedTraces(oldIds);
@@ -560,8 +560,10 @@
           label.textContent = KNOWLEDGE.claimLabel(claim);
           const source = document.createElement("small");
           source.textContent = claim.verification === "subjective" ? "Субъективная оценка" : claim.verification === "self_reported" ? "Самоописание · источник: сообщение пользователя" : claim.verification === "hypothesis" ? "Предположение" : "Источник: сообщение пользователя · не проверено";
-          if (claim.kind==="identity" && claim.status==="superseded") source.textContent = "Прежняя роль · сохранена в истории";
-          else if (claim.revision) source.textContent = "Текущая роль · установлена последним уточнением";
+          if (claim.status==="superseded" && claim.kind==="identity") source.textContent = "Прежняя роль · сохранена в истории";
+          else if (claim.status==="superseded") source.textContent = "Историческое сведение · позже уточнено";
+          else if (claim.revision && claim.kind==="identity") source.textContent = "Текущая роль · установлена последним уточнением";
+          else if (claim.revision) source.textContent = "Текущее сведение · установлено последним уточнением";
           if (conflictIds.has(claim.id)) source.textContent += " · возможное противоречие";
           line.append(kind, label, source);
           structured.appendChild(line);
@@ -757,7 +759,7 @@
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
       }
       rebuildTagTraceIndex();
-      if (KNOWLEDGE && KNOWLEDGE.reconcileIdentityHistory) KNOWLEDGE.reconcileIdentityHistory(memories.flatMap(entry=>entry.claims||[]));
+      if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       const ok = persist();
       renderLibrary();
       renderDialog();
