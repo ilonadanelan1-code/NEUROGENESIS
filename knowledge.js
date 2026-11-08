@@ -234,22 +234,29 @@
     return "В памяти есть запись: " + claimLabel(claim) + ". Источник — твоё сообщение.";
   }
   function findConflicts(input) {
-    const list=Array.isArray(input)?input:[];
-    const conflicts=[];
-    for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) {
-      const a=list[i], b=list[j];
-      if(!a||!b||a.kind!==b.kind)continue;
-      if(a.kind==="relationship") {
-        const sameSubject=normalise(a.subject)===normalise(b.subject);
-        const sameObject=a.object===b.object;
-        const samePredicate=normalise(a.predicate)===normalise(b.predicate);
-        if(sameSubject&&sameObject&&samePredicate&&a.polarity!==b.polarity) {
-          conflicts.push({type:"direct",left:a,right:b,reason:"Одно и то же отношение одновременно утверждается и отрицается."});
-        } else if(!sameSubject&&sameObject&&samePredicate&&a.polarity&&b.polarity&&/лучший друг|лучшая подруга|единственн/u.test(a.predicate)) {
-          conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
+    const list = Array.isArray(input) ? input : [];
+    const conflicts = [];
+    const isBestFriend = claim => /лучший друг|лучшая подруга|самый близкий друг/u.test(canonicalEntity(claim.predicate).replace(/ /g, " "));
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (!a || !b || a.kind !== b.kind) continue;
+        if (a.kind === "relationship") {
+          const sameSubject = sameEntity(a.subject, b.subject);
+          const sameObject = a.object === b.object;
+          const samePredicate = canonicalEntity(a.predicate) === canonicalEntity(b.predicate);
+          if (sameSubject && sameObject && samePredicate && a.polarity !== b.polarity) {
+            conflicts.push({type:"direct",left:a,right:b,reason:"Одно и то же отношение одновременно утверждается и отрицается."});
+          } else if (!sameSubject && sameObject && a.polarity && b.polarity && isBestFriend(a) && isBestFriend(b)) {
+            conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
+          }
+        } else if (a.kind === "fact" && sameEntity(a.subject,b.subject) &&
+          relationFamily(a.predicate) === relationFamily(b.predicate) && !sameEntity(a.object,b.object)) {
+          conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
+        } else if (a.kind === "preference" && sameEntity(a.subject,b.subject) &&
+          sameEntity(a.object,b.object) && a.polarity !== b.polarity) {
+          conflicts.push({type:"direct",left:a,right:b,reason:"Одно предпочтение одновременно утверждается и отрицается."});
         }
-      } else if(a.kind==="fact"&&normalise(a.subject)===normalise(b.subject)&&normalise(a.predicate)===normalise(b.predicate)&&normalise(a.object)!==normalise(b.object)) {
-        conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
       }
     }
     return conflicts;
@@ -259,5 +266,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:1,normalise,tokens,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,findConflicts,summary};
+  window.NGKnowledge={version:2,normalise,tokens,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,claimLabel,claimSearchText,answerQuestion,findConflicts,summary};
 })();
