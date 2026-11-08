@@ -342,7 +342,10 @@ assert.equal(storedDecisions.at(-1).strategy,"suspend","the selected third optio
 input.value = "Выведи новые гипотезы из памяти";
 document.getElementById("ask-button").dispatch("click");
 const suspendedHypotheses=feed.children[feed.children.length-1].textContent;
-assert.doesNotMatch(suspendedHypotheses,/Недостаток сна ⇢ снижению концентрации/u,"a suspended causal edge must not be used in new derived hypotheses");
+assert.match(suspendedHypotheses,/Прежняя гипотеза Недостаток сна ⇢ снижению концентрации сейчас не строится/u,
+  "a suspended historical hypothesis should be explicitly identified as excluded from the active model");
+assert.doesNotMatch(suspendedHypotheses,/Возможный путь: Недостаток сна → Усталость → снижению концентрации/u,
+  "a suspended causal edge must not be used as an active route in new derived hypotheses");
 assert.match(suspendedHypotheses,/Обезвоживание ⇢ снижению концентрации/u,"other available paths should remain usable");
 assert.match(suspendedHypotheses,/РЕШЕНИЯ РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ/u,"derived answers should disclose the active model decision");
 input.value = "Построй обновлённую причинную модель";
