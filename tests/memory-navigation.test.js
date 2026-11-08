@@ -492,6 +492,10 @@ const savedAnswerMemory=JSON.parse(database.get("neurogenesis.memories.v1")).fin
 assert.ok(savedAnswerMemory,"the full answer should retain a memory reference");
 assert.equal(savedAnswerMemory.text,fullInquiryAnswer,"a multi-sentence inquiry answer should be stored as one complete memory");
 assert.equal(savedAnswerMemory.claims.length,0,"quoted or discussed claims inside an inquiry answer must not become asserted facts");
+input.value = "Построй обновлённую причинную модель";
+document.getElementById("ask-button").dispatch("click");
+assert.match(feed.children[feed.children.length-1].textContent,/УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u,
+  "the revised causal model should explicitly account for inquiry assessments");
 
 // Legacy 0.29 backups can recover the full answer from their user transcript.
 const savedInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
@@ -507,9 +511,4 @@ document.getElementById("ask-button").dispatch("click");
 const inquiryAssessment=feed.children[feed.children.length-1].textContent;
 assert.match(inquiryAssessment,/ОЦЕНКА ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u);
 assert.match(inquiryAssessment,/отсутствие наблюдений отмечено/u);
-input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
-assert.match(feed.children[feed.children.length-1].textContent,/УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u,
-  "the revised causal model should explicitly account for inquiry assessments");
-
 console.log("NEUROGENESIS memory navigation, identity, causal alternatives, hypothesis checks, experiment planning, causal model revision and evidence-aware inquiry: passed.");
