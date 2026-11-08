@@ -134,7 +134,7 @@
     const el = $("memory-count");
     if (el) el.textContent = memories.length + " / " + MAX_MEMORIES + " ЗАПИСЕЙ";
     const manage = $("memory-manage");
-    if (manage) manage.textContent = "Записи (" + memories.length + ")";
+    if (manage) manage.textContent = libraryOpen ? "Закрыть записи" : "Записи (" + memories.length + ")";
     const knowledgeCount = $("knowledge-count");
     if (knowledgeCount && KNOWLEDGE) {
       const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
@@ -745,17 +745,82 @@
       submit("ask");
     }
   });
+  function openMemoryLibrary() {
+    const side = document.querySelector(".side-panel");
+    libraryReturnScrollTop = side ? side.scrollTop : 0;
+    libraryOpen = true;
+    editingMemoryId = null;
+    libraryLimit = 20;
+    try {
+      const state = window.history && window.history.state;
+      if (!state || state.__ngMemoryView !== "library") {
+        window.history && window.history.pushState({ __ngMemoryView: "library" }, "", "#ng-memory");
+      }
+    } catch (_) {}
+    renderLibrary();
+  }
   const manageButton = $("memory-manage");
   if (manageButton) manageButton.addEventListener("click", () => {
-    libraryOpen = !libraryOpen;
-    libraryLimit = 20;
-    renderLibrary();
-    if (libraryOpen) $("memory-library").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (libraryOpen) closeMemoryLibrary();
+    else openMemoryLibrary();
   });
+  const libraryBackButton = $("memory-library-back");
+  if (libraryBackButton) libraryBackButton.addEventListener("click", closeMemoryLibrary);
+  const editorBackButton = $("memory-editor-back");
+  if (editorBackButton) editorBackButton.addEventListener("click", () => backToMemoryList(false));
+  const editorCancelButton = $("memory-editor-cancel");
+  if (editorCancelButton) editorCancelButton.addEventListener("click", () => backToMemoryList(false));
+  const editorSaveButton = $("memory-editor-save");
+  if (editorSaveButton) editorSaveButton.addEventListener("click", saveMemoryEditor);
+  const editorInput = $("memory-editor-input");
+  if (editorInput) editorInput.addEventListener("input", () => {
+    renderClaimPreview(editorInput.value);
+    const save = $("memory-editor-save");
+    if (save) save.disabled = !editorInput.value.trim();
+    const feedback = $("memory-editor-feedback");
+    if (feedback) feedback.textContent = "Есть несохранённые изменения";
+  });
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("popstate", event => {
+      const state = event.state;
+      if (state && state.__ngMemoryView === "editor") {
+        libraryOpen = true;
+        editingMemoryId = state.id;
+        renderLibrary();
+        return;
+      }
+      if (state && state.__ngMemoryView === "library") {
+        libraryOpen = true;
+        editingMemoryId = null;
+        const input = $("memory-editor-input");
+        if (input) input.dataset.memoryId = "";
+        renderLibrary();
+        const list = $("memory-library-list");
+        if (list) list.scrollTop = libraryListScrollTop;
+        return;
+      }
+      const wasOpen = libraryOpen;
+      libraryOpen = false;
+      editingMemoryId = null;
+      const input = $("memory-editor-input");
+      if (input) input.dataset.memoryId = "";
+      renderLibrary();
+      if (wasOpen) restoreLibraryOrigin();
+    });
+    window.addEventListener("keydown", event => {
+      if (event.key !== "Escape" || !libraryOpen) return;
+      event.preventDefault();
+      if (editingMemoryId) backToMemoryList(false);
+      else closeMemoryLibrary();
+    });
+  }
   const filterInput = $("memory-filter");
   if (filterInput) filterInput.addEventListener("input", event => {
     libraryFilter = event.target.value;
     libraryLimit = 20;
+    libraryListScrollTop = 0;
+    const list = $("memory-library-list");
+    if (list) list.scrollTop = 0;
     renderLibrary();
   });
   const moreButton = $("memory-more");
