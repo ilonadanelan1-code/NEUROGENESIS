@@ -104,7 +104,7 @@
   function extractRelationship(text) {
     const roles = RELATIONS.join("|");
     const owners = "твой|твоя|твоё|твое|твои|мой|моя|моё|мое|мои|наш|наша|наше|наши";
-    const prefixPattern = new RegExp("^(.+?)\\s+(?:[—–-]\\s*)?(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")$", "iu");
+    const prefixPattern = new RegExp("^(.+?)\s+(?:[—–-]\s*)?(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")$", "iu");
     let match = text.match(prefixPattern);
     let subject, owner, relation, polarity = true;
     if (match) {
@@ -113,7 +113,7 @@
       owner = OWNER[match[3].toLowerCase()];
       relation = match[4].toLowerCase().replace(/ё/g, "е");
     } else {
-      const suffixPattern = new RegExp("^(не\\s+)?(" + owners + ")\\s+(?:(?:самый|самая|самое)\\s+)?(" + roles + ")\\s*(?:[—–-]\\s*|\\s+)(.+)$", "iu");
+      const suffixPattern = new RegExp("^(не\s+)?(" + owners + ")\s+(?:(?:самый|самая|самое)\s+)?(" + roles + ")\s*(?:[—–-]\s*|\s+)(.+)$", "iu");
       match = text.match(suffixPattern);
       if (!match) return null;
       polarity = !match[1];
@@ -157,8 +157,8 @@
     const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
     if(!match)return null;
     const cause=cleanPart(match[1],180),effect=cleanPart(match[6],180);
-    if (/^(?:что|то\\s+что)\\s+/iu.test(cause) ||
-        /\\b(?:утверждение|сообщение|формулировка|цитата)\\s+(?:о\\s+том,\\s*)?что\\b/iu.test(cause)) return null;
+    if (/^(?:что|то\s+что)\s+/iu.test(cause) ||
+        /\b(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что\b/iu.test(cause)) return null;
     if(!cause||!effect||cause.split(" ").length>10||effect.split(" ").length>10||sameEntity(cause,effect))return null;
     const relation=match[5];
     const predicate=/вызыв|вызва/u.test(relation)?"вызывает":"приводит к";
@@ -222,7 +222,7 @@
     const text = cleanPart(input,1200);
     if (!text) return [];
     // Research answers describe or quote claims; they are not fresh assertions.
-    if (/^ответ на вопрос\\s+#?\\s*q\\d+\\s*:/iu.test(text)) return [];
+    if (/^ответ на вопрос\s+#?\s*q\d+\s*:/iu.test(text)) return [];
     const direct = extractSingleClaim(text);
     const clauses = text.split(/\s*[,;]\s*/u)
       .map(part => part.replace(/^(?:и|а|но|однако)\s+/iu,"").trim())
@@ -246,8 +246,8 @@
       const kind = kinds.has(raw.kind) ? raw.kind : null;
       const subject = cleanPart(raw.subject), predicate = cleanPart(raw.predicate,80), object = cleanPart(raw.object,180);
       if (!kind || !subject || !predicate || !object) return null;
-      if (kind === "causal" && (/^(?:что|то\\s+что)\\s+/iu.test(subject) ||
-          /\\b(?:утверждение|сообщение|формулировка|цитата)\\s+(?:о\\s+том,\\s*)?что\\b/iu.test(subject))) return null;
+      if (kind === "causal" && (/^(?:что|то\s+что)\s+/iu.test(subject) ||
+          /\b(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что\b/iu.test(subject))) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
       return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted"};
