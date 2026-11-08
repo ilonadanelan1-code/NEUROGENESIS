@@ -19,6 +19,7 @@
   let editingMemoryId = null;
   let libraryReturnScrollTop = 0;
   let libraryListScrollTop = 0;
+  let allowDiscardOnMemoryBack = false;
 
   function normalise(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/g, "е")
@@ -609,6 +610,7 @@
     try {
       const state = window.history && window.history.state;
       if (state && state.__ngMemoryView === "editor") {
+        allowDiscardOnMemoryBack = true;
         window.history.back();
         return;
       }
@@ -789,7 +791,7 @@
   if (typeof window.addEventListener === "function") {
     window.addEventListener("popstate", event => {
       const state = event.state;
-      if (state && state.__ngMemoryView === "library" && editingMemoryId) {
+      if (state && state.__ngMemoryView === "library" && editingMemoryId && !allowDiscardOnMemoryBack) {
         const item = memories.find(entry => entry.id === editingMemoryId);
         const input = $("memory-editor-input");
         if (item && input && input.value.trim() !== item.text &&
@@ -798,6 +800,7 @@
           return;
         }
       }
+      allowDiscardOnMemoryBack = false;
       if (state && state.__ngMemoryView === "editor") {
         libraryOpen = true;
         editingMemoryId = state.id;
