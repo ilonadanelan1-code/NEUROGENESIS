@@ -79,6 +79,13 @@
     if (role.includes("брат") || role.includes("сестр")) return "sibling";
     return role;
   }
+  function factFamily(value) {
+    const predicate = normalise(value);
+    if (/^(?:живу в|нахожусь в)/u.test(predicate)) return "location";
+    if (/^работаю(?: в)?$/u.test(predicate)) return "work";
+    if (/^учусь(?: в)?$/u.test(predicate)) return "study";
+    return canonicalEntity(value);
+  }
   function cleanPart(value, max = 100) {
     return String(value || "").replace(/\s+/g, " ").trim().replace(/^[,.;:—–-]+|[,.;:—–-]+$/g, "").slice(0, max);
   }
@@ -132,11 +139,13 @@
     return makeClaim("fact","assistant","создатель",name,text,"self_reported",0.97);
   }
   function extractPreference(text) {
-    const match = text.match(/^(?:я\s+(люблю|обожаю|предпочитаю|ненавижу)|мне\s+(нравится|не\s+нравится))\s+(.+)$/iu);
+    const match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?(?:я\s+(люблю|обожаю|предпочитаю|ненавижу)|мне\s+(нравится|не\s+нравится))\s+(.+)$/iu);
     if (!match) return null;
-    const predicate = (match[1] || match[2]).toLowerCase();
+    const predicate = (match[2] || match[3]).toLowerCase();
     const polarity = !/ненавижу|не\s+нравится/u.test(predicate);
-    return makeClaim("preference","user",predicate.replace(/^не\s+/u,""),cleanPart(match[3]),text,"self_reported",0.94,polarity);
+    const claim = makeClaim("preference","user",predicate.replace(/^не\s+/u,""),cleanPart(match[4]),text,"self_reported",0.94,polarity);
+    if (claim) { claim.revision = !!match[1]; claim.status = "current"; }
+    return claim;
   }
   function extractOpinion(text) {
     const match = text.match(/^(.+?)\s+(?:не\s+)?(?:(?:очень|довольно|невероятно|действительно)\s+)?([а-яё]+)$/iu);
@@ -155,10 +164,18 @@
     return makeClaim("definition",subject,"определяется как",object,text,"unverified",0.87);
   }
   function extractSelfReport(text) {
-    let match = text.match(/^я\s+(живу в|нахожусь в|работаю в|учусь в|работаю|учусь|занимаюсь)\s+(.+)$/iu);
-    if (match) return makeClaim("fact","user",match[1].toLowerCase(),cleanPart(match[2],180),text,"self_reported",0.93);
-    match = text.match(/^у меня есть\s+(.+)$/iu);
-    if (match) return makeClaim("fact","user","имеет",cleanPart(match[1],180),text,"self_reported",0.93);
+    let match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?я\s+(живу в|нахожусь в|работаю в|учусь в|работаю|учусь|занимаюсь)\s+(.+)$/iu);
+    if (match) {
+      const claim = makeClaim("fact","user",match[2].toLowerCase(),cleanPart(match[3],180),text,"self_reported",0.93);
+      if (claim) { claim.revision = !!match[1]; claim.status = "current"; }
+      return claim;
+    }
+    match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?у меня есть\s+(.+)$/iu);
+    if (match) {
+      const claim = makeClaim("fact","user","имеет",cleanPart(match[2],180),text,"self_reported",0.93);
+      if (claim) { claim.revision = !!match[1]; claim.status = "current"; }
+      return claim;
+    }
     return null;
   }
   function extractHypothesis(text) {
@@ -293,7 +310,8 @@
       .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
     if (!unique.length) return null;
     const visible = unique.slice(0, 6);
-    const status = claim => claim.verification === "subjective" ? "субъективное мнение" :
+    const status = claim => claim.status === "superseded" ? "историческое сведение · позднее уточнено" :
+      claim.verification === "subjective" ? "субъективное мнение" :
       claim.verification === "self_reported" ? "самоописание" :
       claim.verification === "hypothesis" ? "гипотеза" : "сообщение пользователя · не проверено";
     const lines = visible.map(claim =>
@@ -318,7 +336,8 @@
       .sort((a,b)=>(Number(a.createdAt)||0)-(Number(b.createdAt)||0));
     if (!unique.length) return "Пока в моей памяти нет конкретных сведений о тебе. Расскажи о себе через «Запомнить», и я смогу использовать эти записи в следующих вопросах.";
     const visible = unique.slice(-12);
-    const sourceStatus = claim => claim.verification==="subjective" ? "твоя субъективная оценка" :
+    const sourceStatus = claim => claim.status==="superseded" ? "историческое самоописание · позже уточнено" :
+      claim.verification==="subjective" ? "твоя субъективная оценка" :
       claim.verification==="self_reported" ? "самоописание из твоего сообщения" :
       claim.verification==="hypothesis" ? "твоя гипотеза" : "сообщение пользователя · не проверено";
     const label = claim => {
@@ -399,7 +418,7 @@
     if (profile) return profile;
 
     if (qWords.has("где") && (qWords.has("я") || qWords.has("мне") || qWords.has("меня"))) {
-      const location = claims.filter(claim => claim.kind === "fact" && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
+      const location = claims.filter(claim => claim.kind === "fact" && claim.subject === "user" && claim.status !== "superseded" && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
       if (location) return "Ты сообщал мне, что живёшь в " + location.object + ". Я храню это как твоё самоописание, а не как независимо проверенные данные.";
     }
 
@@ -438,7 +457,7 @@
 
     const asksPreference = hasAny(["люблю","любишь","любит","нравится","нравятся","предпочитаю","предпочитаешь","обожаю","обожаешь"]);
     if (asksPreference) {
-      const preferences = claims.filter(claim => claim.kind === "preference" && claim.subject === "user");
+      const preferences = claims.filter(claim => claim.kind === "preference" && claim.subject === "user" && claim.status !== "superseded");
       const relevantPreferences = preferences.map(claim => {
         const objectTokens = new Set(tokens(claim.object));
         const hits = [...queryTokens].filter(token => objectTokens.has(token)).length;
@@ -452,7 +471,7 @@
 
     const qTokens = new Set(tokens(q));
     if (!qTokens.size) return null;
-    const relevant = claims.map(claim => {
+    const relevant = claims.filter(claim=>claim.status!=="superseded").map(claim => {
       const cTokens = new Set(tokens(claimSearchText(claim)));
       let hits = 0;
       for (const token of qTokens) if (cTokens.has(token)) hits++;
@@ -497,11 +516,11 @@
         } else if (a.kind === "identity" && a.status !== "superseded" && b.status !== "superseded" &&
           sameEntity(a.subject,b.subject) && (a.polarity !== b.polarity || !sameEntity(a.object,b.object))) {
           conflicts.push({type:"possible",left:a,right:b,reason:"Для ассистента сохранены разные описания роли."});
-        } else if (a.kind === "fact" && sameEntity(a.subject,b.subject) &&
-          relationFamily(a.predicate) === relationFamily(b.predicate) && !sameEntity(a.object,b.object)) {
+        } else if (a.kind === "fact" && a.status !== "superseded" && b.status !== "superseded" &&
+          sameEntity(a.subject,b.subject) && factFamily(a.predicate) === factFamily(b.predicate) && !sameEntity(a.object,b.object)) {
           conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
-        } else if (a.kind === "preference" && sameEntity(a.subject,b.subject) &&
-          sameEntity(a.object,b.object) && a.polarity !== b.polarity) {
+        } else if (a.kind === "preference" && a.status !== "superseded" && b.status !== "superseded" &&
+          sameEntity(a.subject,b.subject) && sameEntity(a.object,b.object) && a.polarity !== b.polarity) {
           conflicts.push({type:"direct",left:a,right:b,reason:"Одно предпочтение одновременно утверждается и отрицается."});
         }
       }
@@ -531,10 +550,52 @@
     const after = identities.map(claim=>[claim.id,claim.status,claim.supersededBy||null].join("|")).join(";");
     return before !== after;
   }
+  function reconcileMutableHistory(input) {
+    const claims = Array.isArray(input) ? input : [];
+    const slotFor = claim => {
+      if (!claim) return null;
+      if (claim.kind==="fact" && claim.subject==="user") {
+        const family = factFamily(claim.predicate);
+        return ["location","work","study"].includes(family) ? "fact:user:"+family : null;
+      }
+      if (claim.kind==="preference" && claim.subject==="user") {
+        return "preference:user:"+normalise(claim.predicate)+":"+canonicalEntity(claim.object);
+      }
+      return null;
+    };
+    const rows = claims.map((claim,index)=>({claim,index,slot:slotFor(claim)}))
+      .filter(row=>row.slot)
+      .sort((a,b)=>(Number(a.claim.createdAt)||0)-(Number(b.claim.createdAt)||0)||a.index-b.index);
+    const before = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null].join("|")).join(";");
+    for (const row of rows) { row.claim.status="current"; delete row.claim.supersededBy; }
+    const activeBySlot = new Map();
+    for (const row of rows) {
+      const claim = row.claim;
+      const active = activeBySlot.get(row.slot) || [];
+      if (claim.revision) {
+        const keep = [];
+        for (const prior of active) {
+          const sameValue = sameEntity(prior.object,claim.object) && prior.polarity===claim.polarity;
+          if (sameValue) keep.push(prior);
+          else { prior.status="superseded"; prior.supersededBy=claim.id; }
+        }
+        activeBySlot.set(row.slot,[...keep,claim]);
+      } else {
+        activeBySlot.set(row.slot,[...active,claim]);
+      }
+    }
+    const after = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null].join("|")).join(";");
+    return before !== after;
+  }
+  function reconcileKnowledgeHistory(input) {
+    const identityChanged = reconcileIdentityHistory(input);
+    const mutableChanged = reconcileMutableHistory(input);
+    return identityChanged || mutableChanged;
+  }
   function summary(claims) {
     const list=Array.isArray(claims)?claims:[];
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:8,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
+  window.NGKnowledge={version:9,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,findConflicts,summary};
 })();
