@@ -968,6 +968,14 @@ assert.equal(backupReadiness.numericOutcomeRequired,true,"the scale method requi
 assert.equal(backupReadiness.ready,false,"a scale without a recorded score must not pass review readiness");
 assert.ok(backupReadiness.blockers.some(item=>/фактическое числовое значение/u.test(item)));
 const backupDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости",0);
+console.log("DEBUG_OBSERVATION_CASES",JSON.stringify(window.NGMemory.observationCases().map(item=>({
+  id:item.id,sourceMemoryId:item.sourceMemoryId,eventRef:item.details&&item.details.eventRef,
+  evidence:item.evidence,polarity:item.polarity
+}))));
+console.log("DEBUG_DOSSIER",JSON.stringify({supportingCount:backupDossier.supportingCount,
+  duplicateMentions:backupDossier.duplicateMentions,possibleDuplicateGroups:backupDossier.possibleDuplicateGroups,
+  cases:backupDossier.cases.map(item=>({id:item.id,duplicateConfidence:item.duplicateConfidence,
+    eventRef:item.eventRef,memberIds:item.memberIds,evidence:item.evidence}))}));
 assert.equal(backupDossier.supportingCount,1);
 assert.equal(backupDossier.possibleDuplicateGroups,1);
 const backupTimeline=window.NGMemory.observationTimeline();
