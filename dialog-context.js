@@ -372,9 +372,12 @@
         thread.lastAssistantText = text;
         thread.updatedAt = time;
         const questions = extractQuestions(text);
+        const questionKey = value => normalise(clean(value, 260)
+          .replace(/^(?:(?:и|а|но|тогда|также|ещё|еще)\s+)+/iu, ""));
         for (const question of questions) {
+          const key = questionKey(question);
           const duplicate = thread.pendingQuestions.some(row =>
-            !row.answered && normalise(row.text) === normalise(question));
+            !row.answered && questionKey(row.text) === key);
           if (!duplicate) thread.pendingQuestions.push({ text: question, askedAt: time, answered: false });
         }
         thread.pendingQuestions = thread.pendingQuestions.slice(-MAX_PENDING_QUESTIONS);
