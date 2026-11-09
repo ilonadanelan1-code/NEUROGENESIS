@@ -40,6 +40,13 @@ export default {
 
     if (origin && (!allowedOrigin || origin !== allowedOrigin)) return json({ error: "origin_not_allowed" }, 403, cors);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    if (url.pathname === "/" && request.method === "GET") {
+      return json({
+        ok: true,
+        service: "NEUROGENESIS LLM proxy",
+        endpoints: { health: "GET /api/health", chat: "POST /api/chat" }
+      }, 200, cors);
+    }
     if (url.pathname === "/api/health" && request.method === "GET") {
       if (!env.APP_TOKEN || request.headers.get("Authorization") !== "Bearer " + env.APP_TOKEN) {
         return json({ error: "unauthorized" }, 401, cors);
