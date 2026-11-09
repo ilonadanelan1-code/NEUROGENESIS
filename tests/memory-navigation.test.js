@@ -855,7 +855,7 @@ assert.equal(reconciliation.contextDifferencePairCount,1,"different contexts sho
 assert.equal(reconciliation.independentVerifiedSources,0,"multiple user memories must not be misrepresented as independent verification");
 assert.equal(reconciliation.addedAfterModelCount,3,"the dossier should identify unique records saved after the archived conclusion");
 assert.match(window.NGMemory.reconcileExperience(),/СОПОСТАВЛЕНИЕ ОПЫТА С ПРИЧИННОЙ МОДЕЛЬЮ/u);
-assert.match(window.NGMemory.reconcileExperience(),/Независимо подтверждённых источников: 0/u);
+assert.match(window.NGMemory.reconcileExperience(),/уникальных независимо подтверждённых ссылок: 0/u);
 assert.equal(window.NGMemory.modelDecisions().length,0,"evidence reconciliation must not change model decisions");
 
 
