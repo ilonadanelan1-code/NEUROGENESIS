@@ -52,7 +52,7 @@
     };
   }
   function createHttpAdapter(config = {}, fetchImpl) {
-    const endpoint = clean(config.endpoint, 320).replace(/\\/+$/u, "");
+    const endpoint = clean(config.endpoint, 320).replace(/\/+$/u, "");
     const token = clean(config.clientToken, 400);
     const requestFetch = fetchImpl || (typeof fetch === "function" ? fetch : null);
     if (!endpoint || !token) throw new Error("Укажи адрес серверного шлюза и ключ доступа к нему.");
