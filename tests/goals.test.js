@@ -400,4 +400,37 @@ resumedGoal = resumedGoalWindow.NGGoals.list().find(row=>row.inquiryId==="Q11");
 assert.equal(resumedGoal.status,"waiting_user",
   "after it is presented again, the resumed inquiry must wait for the user");
 
+// The goal store must retain the full supported inquiry queue, not silently
+// discard half of its history when all 48 question slots are occupied.
+const capacityWindow = {};
+const capacityDatabase = new Map();
+const capacityStorage = {
+  getItem(key) { return capacityDatabase.has(key) ? capacityDatabase.get(key) : null; },
+  setItem(key, value) { capacityDatabase.set(key, String(value)); },
+  removeItem(key) { capacityDatabase.delete(key); }
+};
+const capacitySandbox = {
+  window:capacityWindow,localStorage:capacityStorage,console,Date,Math,Set,Map,JSON
+};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),capacitySandbox,{
+  filename:"goals-capacity.test.js"
+});
+const capacityNow=now+1500000;
+const fullInquiryQueue=Array.from({length:48},(_,index)=>({
+  id:"Q"+(100+index),kind:"missing_observation",
+  edgeSubject:"условие "+index,edgeObject:"результат "+index,
+  question:"Нужно ли прямое наблюдение "+index+"?",status:"open",
+  sourceClaimIds:[],createdAt:capacityNow+index,updatedAt:capacityNow+index,lastAskedAt:0
+}));
+const capacitySnapshot=capacityWindow.NGGoals.reconcile({
+  inquiries:fullInquiryQueue,memories:[],now:capacityNow+100
+});
+const capacityGoals=capacityWindow.NGGoals.list();
+assert.equal(capacitySnapshot.total,48,
+  "the goal store must match all 48 inquiry slots");
+assert.equal(capacityGoals[0].inquiryId,"Q100",
+  "the oldest retained inquiry must remain available to the goal manager");
+assert.equal(capacityGoals.at(-1).inquiryId,"Q147",
+  "the newest inquiry must also remain available at full capacity");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");
