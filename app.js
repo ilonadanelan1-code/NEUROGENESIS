@@ -7,8 +7,28 @@
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
   const $ = (id) => document.getElementById(id);
   const canvas = $("brain-canvas");
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-  if (!ctx) { $("system-status").textContent = "CANVAS НЕ ПОДДЕРЖИВАЕТСЯ"; return; }
+  const systemStatus = $("system-status");
+  function reportCanvasStartupFailure(message, error) {
+    if (systemStatus) systemStatus.textContent = message;
+    if (error && typeof console !== "undefined" && typeof console.error === "function") {
+      console.error("NEUROGENESIS canvas startup failed:", error);
+    }
+  }
+  if (!canvas || typeof canvas.getContext !== "function") {
+    reportCanvasStartupFailure("CANVAS НЕ НАЙДЕН");
+    return;
+  }
+  let ctx = null;
+  try {
+    ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+  } catch (error) {
+    reportCanvasStartupFailure("CANVAS НЕ УДАЛОСЬ ИНИЦИАЛИЗИРОВАТЬ", error);
+    return;
+  }
+  if (!ctx) {
+    reportCanvasStartupFailure("CANVAS НЕ ПОДДЕРЖИВАЕТСЯ");
+    return;
+  }
 
   let neurons = [];
   let synapses = [];
@@ -43,9 +63,21 @@
   const backgroundLayer = document.createElement("canvas");
   const connectionLayer = document.createElement("canvas");
   const nodeLayer = document.createElement("canvas");
-  const backgroundCtx = backgroundLayer.getContext("2d", {alpha:false});
-  const connectionCtx = connectionLayer.getContext("2d", {alpha:true});
-  const nodeCtx = nodeLayer.getContext("2d", {alpha:true});
+  let backgroundCtx = null;
+  let connectionCtx = null;
+  let nodeCtx = null;
+  try {
+    backgroundCtx = backgroundLayer.getContext("2d", {alpha:false});
+    connectionCtx = connectionLayer.getContext("2d", {alpha:true});
+    nodeCtx = nodeLayer.getContext("2d", {alpha:true});
+  } catch (error) {
+    reportCanvasStartupFailure("ГРАФИЧЕСКИЕ СЛОИ НЕ УДАЛОСЬ СОЗДАТЬ", error);
+    return;
+  }
+  if (!backgroundCtx || !connectionCtx || !nodeCtx) {
+    reportCanvasStartupFailure("НЕ УДАЛОСЬ СОЗДАТЬ ВСЕ ГРАФИЧЕСКИЕ СЛОИ");
+    return;
+  }
   const neuronSprites = new Map();
   let backgroundDirty = true;
   let connectionsDirty = true;
