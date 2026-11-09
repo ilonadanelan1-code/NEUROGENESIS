@@ -881,6 +881,62 @@ const backupTimelineReport=window.NGMemory.observationTimelineReport();
 assert.match(backupTimelineReport,/позже времени сохранения карточки/u);
 assert.match(backupTimelineReport,/часовой пояс/u);
 
+// A targeted inquiry resolves possible duplicate mentions only after an explicit user answer.
+const duplicateQueue=window.NGMemory.refreshInquiries();
+const duplicateInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
+assert.ok(duplicateInquiry,"a possible duplicate group should create its own research question even without a causal archive");
+assert.equal(duplicateInquiry.status,"open");
+assert.match(duplicateInquiry.question,/одно и то же событие или разные самостоятельные эпизоды/u);
+const duplicateInquiryCount=window.NGMemory.inquiries().length;
+window.NGMemory.remember("Ответ на вопрос "+duplicateInquiry.id+": Не уверен, возможно, это похожие записи.");
+const pendingDuplicate=window.NGMemory.inquiries().find(item=>item.id===duplicateInquiry.id);
+assert.equal(pendingDuplicate.status,"open","an ambiguous answer must not close the duplicate question");
+assert.match(pendingDuplicate.clarificationNote,/Не уверен/u);
+assert.equal(window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости").possibleDuplicateGroups,1,
+  "an ambiguous answer must leave the event grouping untouched");
+window.NGMemory.remember("Ответ на вопрос "+duplicateInquiry.id+": Это один и тот же эпизод.");
+const sameEventInquiry=window.NGMemory.inquiries().find(item=>item.id===duplicateInquiry.id);
+assert.equal(sameEventInquiry.status,"answered");
+assert.equal(sameEventInquiry.resolution,"same_event");
+assert.equal(sameEventInquiry.assessment,"duplicate_same_event");
+const sameEventCases=window.NGMemory.observationCases().filter(item=>item.polarity&&
+  item.subject==="Недостатке сна"&&item.object==="усталости");
+assert.equal(sameEventCases.length,2);
+assert.equal(sameEventCases[0].details.eventRef,sameEventCases[1].details.eventRef,
+  "a same-event answer must write one shared eventRef to both source observation claims");
+const sameEventDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
+assert.equal(sameEventDossier.supportingCount,1);
+assert.equal(sameEventDossier.possibleDuplicateGroups,0);
+assert.equal(sameEventDossier.explicitDuplicateGroups,1);
+assert.equal(window.NGMemory.refreshInquiries().added,0,
+  "a resolved same-event group must not generate the same clarification question again");
+assert.equal(window.NGMemory.inquiries().length,duplicateInquiryCount);
+
+// The alternative answer assigns different event IDs and keeps both observations independent.
+const separateEpisodeMemories=[
+  eventMemory("separate-a","separate-a-claim","Фактор Гамма сопровождался результатом Дельта",backupTime,true,null),
+  eventMemory("separate-b","separate-b-claim","Фактор Гамма сопровождался результатом Дельта; контекст: рабочий день; время: 2026-11-08 10:30",backupTime+1000,true,
+    {subject:"Фактор Гамма",object:"результатом Дельта",context:"рабочий день",timing:"2026-11-08 10:30",criterion:"обычное наблюдение"})
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(separateEpisodeMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+window.NGMemory.refreshInquiries();
+const separateInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
+assert.ok(separateInquiry,"a second possible duplicate group should generate a new question");
+window.NGMemory.remember("Ответ на вопрос "+separateInquiry.id+": Это разные самостоятельные эпизоды.");
+const separateAnswered=window.NGMemory.inquiries().find(item=>item.id===separateInquiry.id);
+assert.equal(separateAnswered.resolution,"separate_events");
+const separateCases=window.NGMemory.observationCases();
+assert.notEqual(separateCases[0].details.eventRef,separateCases[1].details.eventRef,
+  "a different-episode answer must assign distinct event IDs");
+assert.equal(window.NGMemory.reconcileEdgeEvidence("Фактор Гамма","результатом Дельта").supportingCount,2,
+  "separate episodes must be counted independently after clarification");
+
 // Different explicit IDs protect two truly separate episodes from automatic merging.
 const explicitEventMemories=[
   eventMemory("event-a","event-a-claim","При факторе Альфа наблюдался результат Бета",500,true,
