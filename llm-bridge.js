@@ -189,6 +189,10 @@
           upstream_unreachable: "Сервер не смог связаться с провайдером языковой модели.",
           upstream_timeout: "Провайдер не ответил за отведённое время. Запрос завершён; повтори попытку позже.",
           upstream_error: "Провайдер отклонил запрос. HTTP " + (data && data.upstream_status || response.status) + ".",
+          invalid_upstream_configuration: "На сервере некорректно задан URL провайдера (UPSTREAM_BASE_URL).",
+          invalid_json: "Шлюз не смог разобрать запрос. Обнови страницу и повтори попытку.",
+          invalid_upstream_response: "Провайдер вернул ответ в неподдерживаемом формате.",
+          empty_model_response: "Провайдер ответил, но не прислал текст сообщения.",
           invalid_messages: "Шлюз отклонил структуру диалога.",
           request_too_large: "Контекст беседы слишком большой."
         };
