@@ -25,6 +25,8 @@
   const HYPOTHESIS_LIFECYCLE = window.NGHypothesisLifecycle || null;
   const DIALOG_CONTEXT = window.NGDialogContext && typeof window.NGDialogContext.create === "function"
     ? window.NGDialogContext.create(KNOWLEDGE) : null;
+  const DIALOG_MANAGER = window.NGDialogManager && typeof window.NGDialogManager.create === "function"
+    ? window.NGDialogManager.create() : null;
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
@@ -2837,6 +2839,15 @@
     const dialogueResolution = DIALOG_CONTEXT
       ? DIALOG_CONTEXT.resolve(dialogContext, query)
       : { applied:false, query, title:"", reason:"dialog_context_unavailable" };
+    const dialogueReport = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
+    const dialoguePlan = DIALOG_MANAGER
+      ? DIALOG_MANAGER.plan(query, { context:dialogueReport, resolution:dialogueResolution })
+      : null;
+    if (dialoguePlan && dialoguePlan.needsClarification) {
+      say("assistant", dialoguePlan.clarification);
+      setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
+      return;
+    }
     if (dialogueResolution.applied && dialogueResolution.query) query = dialogueResolution.query;
     const sourceClaims = memories.flatMap(item => item.claims || []);
     const allClaims = claimsForWorkingModel(sourceClaims);
@@ -3512,6 +3523,12 @@
     dialogContext: () => DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null,
     dialogHistory: (threadId, limit=12) => DIALOG_CONTEXT ? DIALOG_CONTEXT.history(dialogContext,threadId,limit) : [],
     resolveDialogReference: query => DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query},
+    planDialog: query => {
+      if (!DIALOG_MANAGER) return null;
+      const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
+      const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query};
+      return DIALOG_MANAGER.plan(query,{context:report,resolution});
+    },
     llmStatus: () => LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]},
     prepareLLMRequest: query => {
       if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
