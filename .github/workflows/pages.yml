@@ -51,6 +51,7 @@ jobs:
         run: |
           node tests/startup-contract.test.js
           node tests/startup-failure.test.js
+          node tests/wasm-shadow-mode.test.js
 
       - name: Check mobile layout and canvas lifecycle
         run: |
