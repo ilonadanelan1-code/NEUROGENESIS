@@ -109,7 +109,8 @@ assert.ok(restored.meta.conclusions[0].lifecycle.events.filter(item=>item.kind==
 
 const changedRoutes={...restored.meta,conclusions:[{...restored.meta.conclusions[0],
  paths:[[causal("c1","Недостаток сна","Усталость"),causal("c2","Стресс","Усталость")]]}]};
-const revised=engine.reconcile(changedRoutes,[],[],[],13000);
+const restoredDecision=[{edgeSubject:"Недостаток сна",edgeObject:"Усталость",strategy:"restore",at:11000}];
+const revised=engine.reconcile(changedRoutes,[],restoredDecision,[],13000);
 assert.equal(revised.meta.conclusions[0].lifecycle.revision,2);
 assert.ok(revised.meta.conclusions[0].lifecycle.events.some(item=>item.kind==="routes_changed"));
 
@@ -132,7 +133,7 @@ const oneRestored=engine.reconcile(multiSuspended.meta,[],[
 assert.equal(oneRestored.meta.conclusions[0].lifecycle.state,"conditional",
   "restoring the suspended edge should reveal the remaining conditional decision");
 
-const same=engine.reconcile(revised.meta,[],[],[],13000);
+const same=engine.reconcile(revised.meta,[],restoredDecision,[],13000);
 assert.equal(same.changed,false,"reconciling an unchanged hypothesis must not add duplicate events");
 assert.equal(same.meta.conclusions[0].lifecycle.events.length,revised.meta.conclusions[0].lifecycle.events.length);
 
