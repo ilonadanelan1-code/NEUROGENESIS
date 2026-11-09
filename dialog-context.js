@@ -26,6 +26,16 @@
     };
     const hasReference = text => /\b(это|этот|эта|эти|тот|та|те|такой|такая|такое|такие|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|предыдущ|выше|сказан|упомянут)\b|^(?:а\s+)?(?:почему|зачем|как|и\s+что|а\s+если|а\s+что)\b/iu.test(clean(text, 500));
     const isShortFollowUp = text => tokens(text).length <= 4 || hasReference(text);
+    const isStandaloneRequest = text =>
+      /(?:^|[^\p{L}])(?:объясни|объяснить|расскажи|рассказать|покажи|показать|задай|задать|составь|составить|напиши|написать|помоги|помочь|сделай|сделать|создай|создать|найди|найти|проверь|проверить|оцени|оценить|сравни|сравнить|рассчитай|рассчитать|перечисли|перечислить|подскажи|подсказать|научи|научить|разбери|разобрать|проанализируй|проанализировать)(?=$|[^\p{L}])/iu.test(text) ||
+      /^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу узнать|хочу разобраться|я хочу понять)(?=$|\s)/iu.test(text);
+    const isLikelyAnswer = (text, pendingQuestion) => {
+      const value = clean(text, 500);
+      const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
+      return !!pendingQuestion && wordCount > 0 && wordCount <= 14 &&
+        !/[?？]/u.test(value) && !/[.!?]\s+\S/u.test(value) &&
+        !isStandaloneRequest(value);
+    };
     const isExplicitSwitch = text => /^(?:другая тема|сменим тему|перейдем к|перейдём к|теперь поговорим о|кстати,?\s|отдельный вопрос|новая тема)\b/iu.test(clean(text, 500));
     const returnTarget = text => {
       const match = clean(text, 500).match(/^(?:вернемся|вернёмся|возвращаемся|вернись|назад)\s+(?:к|ко)\s+(.+?)[.!?]?$/iu);
@@ -156,8 +166,8 @@
         } else {
           const similarity = overlap(text, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText);
           const words = tokens(text).length;
-          const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered && words <= 28 &&
-            !/[?？]/u.test(text) && !/^(?:а\s+)?(?:почему|зачем|как|что|кто|где|когда|сколько|какой|какая|какие|можно ли|правда ли)\b/iu.test(clean(text, 500)));
+          const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered &&
+            isLikelyAnswer(text, thread.pendingQuestion.text));
           if (likelyAnswer) {
             relation = "answer_to_question";
             thread.pendingQuestion.answered = true;
