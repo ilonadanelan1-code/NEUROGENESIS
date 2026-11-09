@@ -515,8 +515,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     item.comparisonEdges.some(edge=>edge.subject==="Стресс")),
     "the existing research queue must offer a targeted comparison of the two alternative routes");
   const routeResearchPlan=window.NGMemory.researchStrategy();
-  assert.match(routeResearchPlan,/два возможных маршрута/u,
-    "the research planner must select a discriminating question for the surviving alternative");
+  assert.match(routeResearchPlan,/ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА/u,
+    "the planner must prioritize an older goal that has received new direct evidence");
+  assert.match(routeResearchPlan,/G-Q1/u,
+    "the reassessment plan must identify the exact earlier goal before opening a second investigation");
   const discriminatingInquiry=routeQuestions.find(item=>item.kind==="discriminating_observations"&&
     item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
     item.comparisonEdges.some(edge=>edge.subject==="Стресс"));
