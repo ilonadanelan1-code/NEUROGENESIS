@@ -46,6 +46,21 @@ assert.equal(questionAfterQuestion.threads.find(row => row.id === pendingBase.ac
 const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");
+const unrelatedRequest = engine.track(pendingBase, {
+  role: "user",
+  text: "Я изучаю устройство нейросетей. Объясни в двух предложениях, что такое контекст диалога, а затем задай мне один уточняющий вопрос.",
+  time: 64
+});
+assert.notEqual(unrelatedRequest.activeThreadId, pendingBase.activeThreadId,
+  "a long standalone request must open a new thread instead of answering an unrelated pending question");
+assert.equal(unrelatedRequest.messages[unrelatedRequest.messages.length - 1].relation, "new_topic");
+assert.equal(unrelatedRequest.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
+  "a standalone request must not close the previous thread's pending question");
+const commandAfterQuestion = engine.track(pendingBase, {
+  role: "user", text: "Объясни, как работает RAG", time: 65
+});
+assert.notEqual(commandAfterQuestion.messages[commandAfterQuestion.messages.length - 1].relation, "answer_to_question",
+  "an imperative request must not be mistaken for an answer");
 const resumed = engine.track(unresolved, { role: "user", text: "Музыка и инструменты мне интересны", time: 9 });
 assert.equal(resumed.lastDecision, null, "an unresolved-reference flag must not poison later turns");
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));
