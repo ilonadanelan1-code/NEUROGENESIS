@@ -506,6 +506,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   };
   importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
   await importInput.dispatch("change");
+  assert.match(window.NGMemory.cognitiveCycleReport(5),/В краткий список включено 2 из 20 изменений/u,
+    "the cycle report must disclose truncation while the imported cycle is still among the latest entries");
   const storedLifecycleAfterImport = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
     .find(item=>item.time===importTime).reasoning.conclusions
     .find(item=>item.subject==="Недосып").lifecycle;
@@ -739,8 +741,6 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(restoredGoalDeltaCycle,"backup import must retain the cycle with detailed goal changes");
   assert.equal(restoredGoalDeltaCycle.goalChanges.available,true);
   assert.equal(restoredGoalDeltaCycle.goalChanges.total,20);
-  assert.match(window.NGMemory.cognitiveCycleReport(5),/В краткий список включено 2 из 20 изменений/u,
-    "the cycle report must disclose when only the most recent goal changes are listed");
   const restoredReviewDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q77");
   assert.ok(restoredReviewDelta);
   assert.equal(restoredReviewDelta.kind,"status_changed");
