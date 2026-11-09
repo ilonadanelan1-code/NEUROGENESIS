@@ -190,7 +190,7 @@ int main() {
     require(contrastive_brain.set_synapse_eligibility(contrastive_input, positive_output, 0.4f),
             "invalid-argument fixture must restore one trace");
     const float invalid_trace = contrastive_brain.synapses()[0].eligibility;
-    require(contrastive_brain.learn_contrastive_reward(nan, positive_output, negative_output) == 0 &&
+    require(contrastive_brain.learn_contrastive_reward(nan, contrastive_input, positive_output, negative_output) == 0 &&
             contrastive_brain.synapses()[0].eligibility == invalid_trace,
             "non-finite contrastive rate must reject the event without consuming traces");
     require(contrastive_brain.learn_contrastive_reward(0.5f, contrastive_input, positive_output, positive_output) == 0 &&
