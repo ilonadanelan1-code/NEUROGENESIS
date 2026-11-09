@@ -116,7 +116,7 @@ try {
   assert.deepEqual(shadow.learnedWeights(), [{
     from: "n-source",
     to: "n-output",
-    baseWeight: Math.fround(0.6),
+    baseWeight: 0.6,
     weight: learnedWeight
   }]);
   assert.equal(shadow.diagnostics().learningUpdates, 1);
