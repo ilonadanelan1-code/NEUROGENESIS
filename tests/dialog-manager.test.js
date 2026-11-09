@@ -27,6 +27,17 @@ assert.equal(manager.classify("Примерно четыре часа", {
   ...active,
   activeThread: { ...active.activeThread, pendingQuestion: "Сколько часов ты спал?" }
 }).intent, "answer", "short reply to an open question should be recognized as an answer");
+const pending = {
+  ...active,
+  activeThread: { ...active.activeThread, pendingQuestion: "Какой аспект контекста тебя интересует?" }
+};
+assert.notEqual(manager.classify(
+  "Я изучаю устройство нейросетей. Объясни в двух предложениях, что такое контекст диалога, а затем задай мне один уточняющий вопрос.",
+  pending
+).intent, "answer", "a standalone multi-part request must not be attached to an unrelated pending question");
+assert.notEqual(manager.classify("Объясни, как работает RAG", pending).intent, "answer",
+  "an imperative request must not be treated as an answer");
+
 assert.equal(manager.classify("Примерно четыре часа", {
   ...active,
   recentMessages: [{ role: "user", text: "Примерно четыре часа", relation: "answer_to_question" }]
