@@ -47,7 +47,7 @@ const frameStart = app.indexOf("  function frame(time) {");
 const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);
 assert.ok(frameStart >= 0 && frameEnd > frameStart);
 const frame = app.slice(frameStart, frameEnd);
-assert.match(frame, /wasmShadow\.step\(dt \/ 1000\)/u);
+assert.match(frame, /stepWasmShadow\(dt\)/u);
 assert.doesNotMatch(frame, /localStorage\.setItem/u,
   "the shadow compute loop must not persist C++ state over the JS network");
 
