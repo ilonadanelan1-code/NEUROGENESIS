@@ -137,12 +137,12 @@ assert.equal(timingOnly.timingOnlyPairCount,1);
 assert.equal(timingOnly.timingDifferencePairCount,1);
 assert.equal(timingOnly.alignedPairCount,1,
   "context and criterion alignment should remain visible while time is separately flagged");
-assert.deepEqual(timingOnly.oppositePairs[0].changedDimensions,["timing"]);
+assert.equal(JSON.stringify(timingOnly.oppositePairs[0].changedDimensions),JSON.stringify(["timing"]));
 
 // Multiple dimensions changing together must not be attributed to one factor.
 const mixedParameters=engine.evidenceReconciliationForEdge([
-  card("mixed-positive",true,"mixed-a",{context:field("после тренировки"),timing:field("2026-11-09 08:00"),criterion:field("по шкале 1–10")}),
-  card("mixed-negative",false,"mixed-b",{context:field("день отдыха"),timing:field("2026-11-09 20:00"),criterion:field("по самооценке")})
+  card("mixed-positive",true,"mixed-a",{context:field("после тренировки"),timing:field("2026-11-09 08:00"),criterion:field("по описанию")}),
+  card("mixed-negative",false,"mixed-b",{context:field("день отдыха"),timing:field("2026-11-09 20:00"),criterion:field("по записи")})
 ],"Фактор А","Результат Б");
 assert.equal(mixedParameters.multiDimensionDifferencePairCount,1);
 assert.equal(mixedParameters.contextTimingDifferencePairCount,1);
