@@ -156,7 +156,7 @@ const pendingLifecycle = pending.meta.conclusions[0].lifecycle;
 assert.equal(pendingLifecycle.state, "under_review",
   "a supporting observation must not silently close an unanswered research inquiry");
 assert.equal(pendingLifecycle.routeReviews[0].state, "under_review");
-assert.deepEqual(pendingLifecycle.supportingClaimIds, [supporting.id]);
+assert.deepEqual(Array.from(pendingLifecycle.supportingClaimIds), [supporting.id]);
 
 const answeredInquiry = {
   ...openInquiry,
@@ -187,7 +187,7 @@ const challenged = lifecycleEngine.reconcile(
 const challengedLifecycle = challenged.meta.conclusions[0].lifecycle;
 assert.equal(challengedLifecycle.state, "challenged",
   "a matched negative observation must challenge the route rather than be absorbed as support");
-assert.deepEqual(challengedLifecycle.challengingClaimIds, [counter.id]);
+assert.deepEqual(Array.from(challengedLifecycle.challengingClaimIds), [counter.id]);
 assert.equal(challengedLifecycle.routeReviews[0].state, "challenged");
 assert.ok(challengedLifecycle.events.some(event =>
   event.kind === "evidence_added" && event.claimId === counter.id));
