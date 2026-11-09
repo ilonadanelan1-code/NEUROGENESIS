@@ -220,6 +220,12 @@
     const memoryIds = new Set();
     const claimRecordedAt = new Map();
     const memoryRows = Array.isArray(memories) ? memories : [];
+    const comparisonEdges = inquiry.kind === "discriminating_observations" &&
+      Array.isArray(inquiry.comparisonEdges)
+      ? inquiry.comparisonEdges.filter(edge => edge && typeof edge.subject === "string" &&
+        typeof edge.object === "string")
+      : [];
+    const evidenceEdges = comparisonEdges.length ? comparisonEdges : [inquiry];
     if (inquiry.responseMemoryId) memoryIds.add(inquiry.responseMemoryId);
     for (const memory of memoryRows) {
       if (!memory || typeof memory.id !== "string") continue;
@@ -228,8 +234,8 @@
         const linkedById = wanted.has(claim.id);
         // Duplicate checks compare only the cards named by the inquiry.
         const matchingObservation = inquiry.kind !== "duplicate_observation" &&
-          claim.kind === "observation" &&
-          sameEntity(claim.subject, inquiry.edgeSubject) && sameEntity(claim.object, inquiry.edgeObject);
+          claim.kind === "observation" && evidenceEdges.some(edge =>
+            sameEntity(claim.subject, edge.subject) && sameEntity(claim.object, edge.object));
         if (!linkedById && !matchingObservation) continue;
         evidence.set(claim.id, claim);
         const recordedAt = safeTime(claim.createdAt, safeTime(memory.createdAt, 0));
