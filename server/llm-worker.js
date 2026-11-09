@@ -16,7 +16,7 @@ function cleanMessages(value) {
   const messages = [];
   for (const row of value) {
     if (!row || !["system", "user", "assistant"].includes(row.role) || typeof row.content !== "string") return null;
-    const content = row.content.replace(/\\u0000/gu, "").trim().slice(0, MAX_MESSAGE_CHARS);
+    const content = row.content.replace(/\u0000/gu, "").trim().slice(0, MAX_MESSAGE_CHARS);
     if (!content) continue;
     messages.push({ role: row.role, content });
   }
@@ -27,14 +27,14 @@ function safeBaseUrl(value) {
     const url = new URL(String(value || ""));
     if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname))) return null;
     if (url.username || url.password || url.search || url.hash) return null;
-    return url.toString().replace(/\\/+$/u, "");
+    return url.toString().replace(/\/+$/u, "");
   } catch (_) { return null; }
 }
 
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
-    const allowedOrigin = String(env.APP_ORIGIN || "").replace(/\\/+$/u, "");
+    const allowedOrigin = String(env.APP_ORIGIN || "").replace(/\/+$/u, "");
     const cors = corsHeaders(origin, allowedOrigin);
     const url = new URL(request.url);
 
