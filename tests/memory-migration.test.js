@@ -1105,6 +1105,49 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
     "closing the memory library must not rebuild an unchanged graph");
 
+  // An import may alter existing claims even when it brings no new memories.
+  const cleanupText = "Недостаток сна вызывает усталость при контрольной проверке";
+  window.NGMemory.remember(cleanupText);
+  const cleanupMemory = JSON.parse(database.get("neurogenesis.memories.v1"))
+    .find(item => item.text === cleanupText);
+  assert.ok(cleanupMemory && cleanupMemory.claims.length > 0,
+    "the cleanup fixture must have a structured source claim");
+  const cleanupClaimIds = cleanupMemory.claims.map(item => item.id);
+  const claimsBeforeCleanup = window.NGMemory.claims().length;
+  const buildsBeforeInquiryOnlyImport = knowledgeGraphBuildCount;
+  const cleanupAnsweredAt = Math.max(Date.now(), cleanupMemory.createdAt) + 100;
+  importInput.files=[{async text(){return JSON.stringify({
+    format:"NEUROGENESIS_MEMORY_BACKUP",
+    version:2,
+    memories:[],
+    inquiries:[{
+      id:"Q998",
+      signature:"graph-cache-cleanup-import",
+      kind:"missing_observation",
+      edgeSubject:"Недостаток сна",
+      edgeObject:"усталости",
+      question:"Уточнить источник этой записи",
+      reason:"Проверка очистки устаревшего фрагмента ответа.",
+      priority:1,
+      status:"answered",
+      assessment:"observations_reported_unverified",
+      assessmentReason:"Текст совпадает с архивным ответом.",
+      sourceClaimIds:cleanupClaimIds,
+      responseText:cleanupText,
+      createdAt:cleanupMemory.createdAt,
+      updatedAt:cleanupAnsweredAt,
+      answeredAt:cleanupAnsweredAt
+    }]
+  });}}];
+  await importInput.dispatch("change");
+  const cleanupMemoryAfterImport=JSON.parse(database.get("neurogenesis.memories.v1"))
+    .find(item=>item.id===cleanupMemory.id);
+  assert.deepEqual(cleanupMemoryAfterImport.claims,[],
+    "an inquiry-only import must clear the matching legacy answer fragment from the existing memory");
+  assert.equal(window.NGMemory.claims().length,claimsBeforeCleanup-cleanupClaimIds.length,
+    "the in-memory structured claim list must reflect the fragment cleanup");
+  assert.equal(knowledgeGraphBuildCount,buildsBeforeInquiryOnlyImport+1,
+    "clearing claims during an import with zero new/duplicate memories must invalidate and rebuild graph statistics");
 
   const beforeReload = {
     memoryCount:window.NGMemory.count(),
