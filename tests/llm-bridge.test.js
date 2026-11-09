@@ -24,12 +24,14 @@ assert.match(request.messages[0].content, /не изменяешь эти сло
 assert.equal(request.messages[request.messages.length - 1].content.startsWith("А почему?"), true);
 assert.equal(request.metadata.historyMessages, 2, "the current user message should not be duplicated in history");
 assert.match(request.messages[request.messages.length - 1].content, /пользовательским данным/u);
-const gateway = bridge.create();
-assert.equal(gateway.status().connected, false);
-await assert.rejects(() => gateway.generate(request), /пока не подключена/u);
-gateway.register("test-provider", { async generate(payload) { return "Связный ответ"; } });
-assert.equal(gateway.status().connected, true);
-assert.equal(await gateway.generate(request), "Связный ответ");
-gateway.unregister("test-provider");
-assert.equal(gateway.status().connected, false);
-console.log("NEUROGENESIS language-model bridge: passed.");
+(async () => {
+  const gateway = bridge.create();
+  assert.equal(gateway.status().connected, false);
+  await assert.rejects(() => gateway.generate(request), /пока не подключена/u);
+  gateway.register("test-provider", { async generate(payload) { return "Связный ответ"; } });
+  assert.equal(gateway.status().connected, true);
+  assert.equal(await gateway.generate(request), "Связный ответ");
+  gateway.unregister("test-provider");
+  assert.equal(gateway.status().connected, false);
+  console.log("NEUROGENESIS language-model bridge: passed.");
+})().catch(error => { console.error(error); process.exitCode = 1; });
