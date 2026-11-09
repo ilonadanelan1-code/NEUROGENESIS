@@ -115,16 +115,16 @@
         if(!routes.length)return rawConclusion;
         const lifecycleKey=hash([safeTime(meta.createdAt,1),entityKey(rawConclusion.subject),entityKey(rawConclusion.object)].join("|"));
         const prior=sanitize(rawConclusion.lifecycle);
+        const at=safeTime(now,Date.now());
+        const currentSignature=routeSignature(routes);
+        const originIds=uniqueIds(routes.flat().map(edge=>edge.id).filter(Boolean));
         const record=prior||{
           id:"H-"+lifecycleKey,subject:rawConclusion.subject.slice(0,180),object:rawConclusion.object.slice(0,180),
-          state:"new",revision:1,routeSignature:"",routes:[],originClaimIds:[],supportingClaimIds:[],
+          state:"new",revision:1,routeSignature:"",routes:[],originClaimIds:originIds.slice(),supportingClaimIds:[],
           challengingClaimIds:[],decisionRefs:[],decision:null,createdAt:safeTime(meta.createdAt,now),
           updatedAt:safeTime(meta.createdAt,now),events:[]
         };
         const before=JSON.stringify(record);
-        const at=safeTime(now,Date.now());
-        const currentSignature=routeSignature(routes);
-        const originIds=uniqueIds(routes.flat().map(edge=>edge.id).filter(Boolean));
         if(!prior)append(record,makeEvent("created",record.createdAt,{
           toState:"new",routeSignature:currentSignature,originClaimIds:originIds,
           reason:"Гипотеза впервые внесена в структурированный архив."
@@ -136,7 +136,7 @@
             originClaimIds:originIds,reason:"Структура сохранённых причинных маршрутов изменилась."
           }));
         }
-        const newOrigins=originIds.filter(id=>!record.originClaimIds.includes(id));
+        const newOrigins=prior?originIds.filter(id=>!record.originClaimIds.includes(id)):[];
         if(newOrigins.length) {
           append(record,makeEvent("origin_extended",at,{originClaimIds:newOrigins,
             reason:"В основание гипотезы добавлены новые ссылки на причинные записи."}));
@@ -173,7 +173,9 @@
           }));
         }
         record.decisionRefs=uniqueIds(record.decisionRefs);
-        const latestDecision=routeDecisions.length?routeDecisions[routeDecisions.length-1]:null;
+        const latestDecision=routeDecisions.length?routeDecisions[routeDecisions.length-1]:
+          record.decision&&routeEdges.some(edge=>knowledge.sameEntity(edge.subject,record.decision.edgeSubject)&&
+            knowledge.sameEntity(edge.object,record.decision.edgeObject))?record.decision:null;
         record.decision=latestDecision?{strategy:latestDecision.strategy,edgeSubject:latestDecision.edgeSubject,
           edgeObject:latestDecision.edgeObject,at:safeTime(latestDecision.at,at)}:null;
         const pendingInquiry=allInquiries.some(item=>item&&item.status==="open"&&
