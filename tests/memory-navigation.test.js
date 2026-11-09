@@ -26,6 +26,11 @@ class ElementStub {
   dispatch(type, event = {}) {
     for (const fn of this.listeners[type] || []) fn({ target: this, preventDefault() {}, ...event });
   }
+  dispatchLast(type, event = {}) {
+    const handlers = this.listeners[type] || [];
+    const fn = handlers[handlers.length - 1];
+    if (fn) fn({ target: this, preventDefault() {}, ...event });
+  }
   appendChild(child) {
     child.parentNode = this;
     this.children.push(child);
@@ -1261,29 +1266,26 @@ assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
 // Backup export must produce a downloadable v2 archive with all durable stores.
 const exportedBlobsBefore=exportedBlobs.length;
 const downloadLinksBefore=downloadLinks.length;
-document.getElementById("memory-export").dispatch("click");
+document.getElementById("memory-export").dispatchLast("click");
 const createdBlobs=exportedBlobs.slice(exportedBlobsBefore);
 const createdLinks=downloadLinks.slice(downloadLinksBefore);
-assert.ok(createdBlobs.length>=1,"the export control should create a new backup blob");
-assert.equal(createdLinks.length,createdBlobs.length,
-  "every generated backup blob should have a corresponding download link");
-for(const exportedBlob of createdBlobs) {
-  assert.equal(exportedBlob.type,"application/json;charset=utf-8");
-  const exportedBackup=JSON.parse(exportedBlob.source);
-  assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
-  assert.equal(exportedBackup.version,2);
-  assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
-    "the export must include every current durable memory");
-  for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","inquiries","goals"])
-    assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
-      "the backup must include the " + key + " store");
-}
-for(const downloadLink of createdLinks) {
-  assert.equal(downloadLink.clicked,true,"every generated download link should be activated");
-  assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
-  assert.ok(downloadLink.download.endsWith(".json"));
-  assert.equal(downloadLink.download.length,"neurogenesis-memory-".length+10+".json".length);
-  assert.equal(downloadLink.parentNode,null,"temporary download links should be removed after activation");
-}
+assert.equal(createdBlobs.length,1,"the active export handler should create one backup blob");
+assert.equal(createdLinks.length,1,"the active export handler should create one download link");
+const exportedBlob=createdBlobs[0];
+const downloadLink=createdLinks[0];
+assert.equal(exportedBlob.type,"application/json;charset=utf-8");
+const exportedBackup=JSON.parse(exportedBlob.source);
+assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
+assert.equal(exportedBackup.version,2);
+assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
+  "the export must include every current durable memory");
+for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","inquiries","goals"])
+  assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
+    "the backup must include the " + key + " store");
+assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
+assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
+assert.ok(downloadLink.download.endsWith(".json"));
+assert.equal(downloadLink.download.length,"neurogenesis-memory-".length+10+".json".length);
+assert.equal(downloadLink.parentNode,null,"the temporary download link should be removed after activation");
 
 console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");
