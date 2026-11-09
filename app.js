@@ -970,14 +970,23 @@
     if(reportElement)reportElement.textContent="Проверяю эффект подкрепления, сохранение двух ассоциаций и перекрёстное обучение в плотной сети.";
     try{
       const report=await window.NGExperienceBenchmark.run();
+      const contrastive=window.NGContrastiveBenchmark
+        ? await window.NGContrastiveBenchmark.run()
+        : {passed:false,aThenB:null,bThenA:null};
       const passedChecks=Object.values(report.checks).filter(Boolean).length;
+      const contrastiveChecks=contrastive.aThenB
+        ? Object.values(contrastive.aThenB.checks).filter(Boolean).length+
+          Object.values(contrastive.bThenA.checks).filter(Boolean).length+
+          Object.values(contrastive.checks).filter(Boolean).length
+        : 0;
       const p=report.positive,n=report.negative,z=report.neutral;
       const ab=report.multiPattern.orders.AB;
       const ba=report.multiPattern.orders.BA;
       const dense=report.sharedPathInterference.orders.AB;
       if(reportElement){
-        reportElement.textContent=(report.passed?"ТЕСТ ПРОЙДЕН":"ТЕСТ НЕ ПРОЙДЕН")+
-          " · проверок "+passedChecks+"/"+Object.keys(report.checks).length+
+        reportElement.textContent=(report.passed&&contrastive.passed?"БАЗОВЫЕ И КОНТРАСТНЫЕ ТЕСТЫ ПРОЙДЕНЫ":"ЕСТЬ НЕПРОЙДЕННЫЕ ПРОВЕРКИ")+
+          " · базовых проверок "+passedChecks+"/"+Object.keys(report.checks).length+
+          ", контрастных "+contrastiveChecks+
           ". Одиночная связь: до "+p.responseBefore.toFixed(4)+
           ", после +reward "+p.responseAfter.toFixed(4)+
           ", после −reward "+n.responseAfter.toFixed(4)+
@@ -989,7 +998,13 @@
           ". Диагностика плотной сети обнаружила побочное обучение: вес A→Y изменился на "+
           dense.patterns.A.crossWeightDelta.toFixed(3)+
           ", конкурирующий выход Y на вход A отвечает "+dense.patterns.A.incorrectResponseAfter.toFixed(3)+
-          ". Это выявленная граница текущего правила, а не успешное решение классификации.";
+          ". Это выявленная граница старого правила. Контрастное обучение: "+
+          (contrastive.passed?"пройдено":"НЕ ПРОЙДЕНО")+
+          (contrastive.aThenB
+            ? "; порядок AB, отрыв A="+contrastive.aThenB.after.A.margin.toFixed(3)+
+              ", B="+contrastive.aThenB.after.B.margin.toFixed(3)
+            : "")+
+          ". Оно меняет только связи текущего входа; основная JS-сеть не изменяется.";
       }
     }catch(error){
       if(reportElement)reportElement.textContent="Контрольный тест завершился ошибкой: "+error.message;
