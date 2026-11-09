@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.31">
+  <link rel="stylesheet" href="./styles.css?v=0.58.32">
 </head>
 <body>
   <div class="app-shell">
@@ -64,7 +64,7 @@
           <details class="llm-settings" id="wasm-learning-panel">
             <summary><span>ЭКСПЕРИМЕНТАЛЬНОЕ ОБУЧЕНИЕ</span><span id="wasm-learning-state" data-state="loading">ЗАГРУЗКА WASM</span></summary>
             <div class="llm-settings-body">
-              <p class="llm-security-note">Обучается только отдельная WASM-копия. Основная сеть и её локальные сохранения не меняются. Перед обучением подай импульс или запусти симуляцию.</p>
+              <p class="llm-security-note">Обучается только отдельная WASM-копия. Основная сеть и её локальные сохранения не меняются. По ходу симуляции накапливаются затухающие следы активности; после серии действий можно оценить результат и подкрепить более ранние связи.</p>
               <div class="range-heading">
                 <label class="field-label" for="wasm-learning-rate">СКОРОСТЬ ОБУЧЕНИЯ</label>
                 <strong id="wasm-learning-rate-value">5%</strong>
@@ -82,7 +82,8 @@
                 <option value="-1">Отрицательный · −1</option>
               </select>
               <div class="llm-settings-actions">
-                <button class="primary-button llm-config-save" id="wasm-learn-button" type="button">Применить обучение</button>
+                <button class="primary-button llm-config-save" id="wasm-learn-button" type="button">Укрепить текущую активность</button>
+                <button class="secondary-button llm-config-clear" id="wasm-sequence-learn-button" type="button">Оценить опыт и подкрепить последовательность</button>
                 <button class="secondary-button llm-config-clear" id="wasm-learning-export" type="button">Экспорт весов</button>
                 <button class="secondary-button llm-config-clear" id="wasm-learning-import" type="button">Импорт весов</button>
               </div>
