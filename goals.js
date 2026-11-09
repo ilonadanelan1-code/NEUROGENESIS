@@ -161,6 +161,7 @@
       evidenceClaimIds: uniqueStrings(raw.evidenceClaimIds),
       evidenceMemoryIds: uniqueStrings(raw.evidenceMemoryIds),
       observationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.observationCount) || 0))),
+      observationsAfterAssessment: Math.max(0, Math.min(500, Math.floor(Number(raw.observationsAfterAssessment) || 0))),
       eventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.eventCount) || 0))),
       unknownEventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.unknownEventCount) || 0))),
       completeObservationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.completeObservationCount) || 0))),
@@ -201,11 +202,13 @@
       return false;
     }
   }
-  function statusFor(inquiry, now, lastProgressAt) {
+  function statusFor(inquiry, now, lastProgressAt, evidence) {
     if (inquiry.status === "skipped") return "paused";
     if (inquiry.status === "answered") {
       if (["duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events"].includes(inquiry.assessment)) return "completed";
-      if (["insufficient_context","gap_confirmed"].includes(inquiry.assessment)) return "blocked";
+      if (["insufficient_context","gap_confirmed"].includes(inquiry.assessment)) {
+        return evidence && evidence.observationsAfterAssessment > 0 ? "review" : "blocked";
+      }
       return "review";
     }
     if (lastProgressAt > 0 && now - lastProgressAt > STALE_AFTER) return "stale";
@@ -215,6 +218,7 @@
     const wanted = new Set([...(inquiry.sourceClaimIds || []),...(inquiry.responseClaimIds || [])]);
     const evidence = new Map();
     const memoryIds = new Set();
+    const claimRecordedAt = new Map();
     const memoryRows = Array.isArray(memories) ? memories : [];
     if (inquiry.responseMemoryId) memoryIds.add(inquiry.responseMemoryId);
     for (const memory of memoryRows) {
@@ -228,11 +232,17 @@
           sameEntity(claim.subject, inquiry.edgeSubject) && sameEntity(claim.object, inquiry.edgeObject);
         if (!linkedById && !matchingObservation) continue;
         evidence.set(claim.id, claim);
+        const recordedAt = safeTime(claim.createdAt, safeTime(memory.createdAt, 0));
+        claimRecordedAt.set(claim.id, Math.max(claimRecordedAt.get(claim.id) || 0, recordedAt));
         memoryIds.add(memory.id);
       }
     }
     const rows = [...evidence.values()];
     const observations = rows.filter(claim => claim.kind === "observation");
+    const assessmentAt = safeTime(inquiry.assessmentAt, safeTime(inquiry.answeredAt, 0));
+    const observationsAfterAssessment = assessmentAt
+      ? observations.filter(claim => (claimRecordedAt.get(claim.id) || 0) > assessmentAt).length
+      : 0;
     const explicitEventRefs = observations.map(claim => {
       const details = claim.observationCase && typeof claim.observationCase === "object"
         ? claim.observationCase : {};
@@ -262,6 +272,7 @@
       claimIds: [...evidence.keys()].slice(0, 12),
       memoryIds: [...memoryIds].slice(0, 12),
       observationCount: observations.length,
+      observationsAfterAssessment,
       eventCount: events.size,
       unknownEventCount: observations.length - explicitEventRefs.length,
       completeObservationCount: quality.filter(item=>item.complete).length,
@@ -282,6 +293,7 @@
     if (inquiry.assessment==="duplicate_partitioned_events")
       milestones.push("карточки распределены по группам эпизодов");
     if (evidence.observationCount > 0) milestones.push("привязаны прямые наблюдения");
+    if (evidence.observationsAfterAssessment > 0) milestones.push("после оценки добавлены новые наблюдения");
     const workSteps = [
       sourceClaimIds.length > 0,
       inquiry.lastAskedAt > 0,
@@ -293,9 +305,12 @@
     const selected = focusId === inquiry.id;
     const focusScore = selected ? Math.round(Math.max(0, Math.min(1, Number(focus.score) || 0)) * 100) : 0;
     const blockers = [];
-    if (inquiry.assessment === "insufficient_context") {
+    const needsReassessment = inquiry.status === "answered" &&
+      ["insufficient_context","gap_confirmed"].includes(inquiry.assessment) &&
+      evidence.observationsAfterAssessment > 0;
+    if (inquiry.assessment === "insufficient_context" && !needsReassessment) {
       blockers.push(inquiry.assessmentReason || "Ответ не позволил восстановить контекст сравниваемых случаев.");
-    } else if (inquiry.assessment === "gap_confirmed") {
+    } else if (inquiry.assessment === "gap_confirmed" && !needsReassessment) {
       blockers.push(inquiry.assessmentReason || "В ответе подтверждено отсутствие нужных наблюдений.");
     } else if (evidence.observationCount === 0) {
       blockers.push("В привязанных записях пока нет прямой карточки наблюдения для этого звена.");
@@ -308,6 +323,9 @@
     let nextAction = "Задать исследовательский вопрос " + inquiry.id + " и уточнить недостающие сведения.";
     if (inquiry.status === "open" && inquiry.lastAskedAt > 0) {
       nextAction = "Ожидается содержательный ответ на " + inquiry.id + ".";
+    } else if (needsReassessment) {
+      nextAction = "После предыдущей оценки появились " + evidence.observationsAfterAssessment +
+        " новых прямых наблюдений. Повторно сопоставить их контекст, время и критерий; прежний ответ и его оценка сохраняются как история.";
     } else if (inquiry.status === "answered" && inquiry.assessment === "insufficient_context") {
       nextAction = "Уточнить обстоятельства, время и критерий результата; до этого причинная связь остаётся непроверенной.";
     } else if (inquiry.status === "answered" && inquiry.assessment === "gap_confirmed") {
@@ -322,12 +340,13 @@
       nextAction = "Сопоставить связанные карточки наблюдений, не считая их автоматически доказательством.";
     }
     const previousProgress = previous ? previous.lastProgressAt : safeTime(inquiry.updatedAt, inquiry.createdAt);
-    const status = statusFor(inquiry, now, previousProgress);
+    const status = statusFor(inquiry, now, previousProgress, evidence);
     const candidate = {
       id: "G-" + inquiry.id, inquiryId: inquiry.id, kind: inquiry.kind,
       title: "Уточнить связь «" + cleanText(inquiry.edgeSubject, 100) + " → " + cleanText(inquiry.edgeObject, 100) + "»",
       status, nextAction, blockers, sourceClaimIds, evidenceClaimIds: evidence.claimIds,
       evidenceMemoryIds: evidence.memoryIds, observationCount: evidence.observationCount,
+      observationsAfterAssessment: evidence.observationsAfterAssessment,
       eventCount: evidence.eventCount, unknownEventCount: evidence.unknownEventCount,
       completeObservationCount:evidence.completeObservationCount,
       incompleteObservationCount:evidence.incompleteObservationCount,
@@ -423,6 +442,7 @@
         lines.push("• " + item.id + " · " + (labels[item.status] || item.status) + " · " + item.title);
         lines.push("  Основание: вопрос " + item.inquiryId + "; исходных утверждений: " + item.sourceClaimIds.length +
           "; связанных записей: " + item.evidenceMemoryIds.length + "; прямых наблюдений: " + item.observationCount +
+          " · после последней оценки: " + item.observationsAfterAssessment +
           " · явных eventRef: " + item.eventCount + " · без eventRef: " + item.unknownEventCount + ".");
         lines.push("  Прогресс выполнения работы: " + item.progress + "/100 · " +
           (item.milestones.length ? item.milestones.join("; ") : "этапы пока не начаты") + ".");
