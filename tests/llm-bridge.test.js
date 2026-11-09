@@ -36,12 +36,36 @@ assert.match(request.messages[request.messages.length - 1].content,/хочет �
 assert.equal(request.metadata.contextSummaryCharacters,context.activeThread.contextSummary.length,
   "the request metadata should describe the attached topic-summary size");
 assert.equal(request.metadata.historyMessages, 4, "the current user message should be removed while earlier turns from the active topic remain in history");
+assert.equal(request.metadata.pendingQuestionCount, 0,
+  "the request should report no open clarification questions when none are present");
 assert.equal(request.messages.some(row => row.content.includes("В музыке важна гармония")), false,
   "messages from another topic must never reach the language model");
 assert.equal(request.messages.some(row => row.content.includes("tool output")), false,
   "non-dialogue roles must never enter the language model history");
 assert.ok(request.messages.some(row => row.content.includes("Сколько часов ты спал?")),
   "the active thread's previous assistant question must remain in context");
+
+// Open clarification questions must be forwarded as unresolved context, not silently dropped.
+const pendingRequest = bridge.buildRequest("Примерно четыре часа", {
+  activeThread: {
+    id: "T-sleep", title: "Недостаток сна и усталость",
+    pendingQuestions: ["Почему ты связываешь короткий сон с усталостью?", "Как часто это повторяется?"]
+  },
+  recentMessages: [{ threadId: "T-sleep", role: "user", text: "Я плохо спал" }]
+}, []);
+assert.match(pendingRequest.messages[pendingRequest.messages.length - 1].content,
+  /НЕЗАКРЫТЫЕ УТОЧНЯЮЩИЕ ВОПРОСЫ/u);
+assert.match(pendingRequest.messages[pendingRequest.messages.length - 1].content,
+  /Почему ты связываешь короткий сон с усталостью/u);
+assert.match(pendingRequest.messages[pendingRequest.messages.length - 1].content,
+  /Как часто это повторяется/u);
+assert.equal(pendingRequest.metadata.pendingQuestionCount, 2);
+const unscopedPending = bridge.buildRequest("Новый вопрос", {
+  activeThread: { title: "Без ID", pendingQuestions: ["Не передавать этот вопрос"] },
+  recentMessages: []
+}, []);
+assert.equal(unscopedPending.metadata.pendingQuestionCount, 0,
+  "pending questions must not be forwarded without a confirmed active topic ID");
 
 // Without an active thread ID, the bridge must not forward an unscoped transcript.
 const unscopedRequest = bridge.buildRequest("Продолжим?", {
