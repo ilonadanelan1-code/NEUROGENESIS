@@ -15,18 +15,20 @@ const runtime = {
     createdBrains++;
     activeBrains++;
     let disposed = false;
-    return new Proxy(brain, {
-      get(target, property) {
+    // Proxy an extensible facade, not the frozen brain itself: replacing a
+    // non-configurable dispose property on a frozen target violates Proxy invariants.
+    return new Proxy({}, {
+      get(_target, property) {
         if (property === "dispose") {
           return () => {
             if (disposed) return;
             disposed = true;
-            target.dispose();
+            brain.dispose();
             activeBrains--;
           };
         }
-        const value = Reflect.get(target, property, target);
-        return typeof value === "function" ? value.bind(target) : value;
+        const value = Reflect.get(brain, property, brain);
+        return typeof value === "function" ? value.bind(brain) : value;
       }
     });
   }
