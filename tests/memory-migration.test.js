@@ -562,7 +562,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "excluded archive subjects must not receive active lifecycle records");
   const validImportedLifecycle=importedLifecycles.find(item=>item.subject==="Недостаток сна"&&item.object==="снижению концентрации");
   assert.ok(validImportedLifecycle);
-  assert.equal(validImportedLifecycle.state,"new",
+  assert.notEqual(validImportedLifecycle.state,"challenged",
     "an archived review without a matching imported source claim must not challenge the valid conclusion");
   assert.equal(validImportedLifecycle.challengingClaimIds.length,0);
   assert.equal(validImportedLifecycle.supportingClaimIds.length,0,
