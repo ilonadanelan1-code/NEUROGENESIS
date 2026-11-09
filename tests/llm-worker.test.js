@@ -2,6 +2,10 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const { ReadableStream } = require("node:stream/web");
+const { TextEncoder, TextDecoder } = require("node:util");
+
+const encoder = new TextEncoder();
 
 class TestURL {
   constructor(value) {
@@ -46,9 +50,23 @@ class TestRequest {
     this.url = String(url);
     this.method = options.method || "GET";
     this.headers = new TestHeaders(options.headers || {});
-    this.body = options.body == null ? "" : String(options.body);
+    if (options.body && typeof options.body.getReader === "function") {
+      this.body = options.body;
+    } else if (options.body == null) {
+      this.body = null;
+    } else {
+      const bytes = encoder.encode(String(options.body));
+      const chunkSize = Math.max(1, Number(options.chunkSize) || bytes.byteLength || 1);
+      this.body = new ReadableStream({
+        start(controller) {
+          for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+            controller.enqueue(bytes.slice(offset, offset + chunkSize));
+          }
+          controller.close();
+        }
+      });
+    }
   }
-  async text() { return this.body; }
 }
 
 const source = fs.readFileSync("server/llm-worker.js", "utf8").replace("export default", "globalThis.NGWorker =");
@@ -57,6 +75,7 @@ let forceTimeout = false;
 const sandbox = {
   URL: TestURL,
   Response: TestResponse,
+  TextDecoder,
   AbortController,
   setTimeout(callback, delay) {
     if (forceTimeout) { callback(); return 1; }
@@ -111,9 +130,11 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(response.status, 401);
 
   response = await worker.fetch(request("/api/chat", {
-    method: "POST", headers: { Authorization: "Bearer client-test-token" }, body: JSON.stringify({ messages: [{ role: "user", content: "Привет" }] })
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Привет" }] }), chunkSize: 3
   }), env);
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200,
+    "UTF-8 characters split across incoming stream chunks must be decoded correctly");
   const data = await response.json();
   assert.equal(data.reply, "Связный тестовый ответ");
   assert.equal(data.usage.total_tokens, 20);
@@ -121,6 +142,31 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(upstreamCalls[0].options.headers.Authorization, "Bearer provider-secret",
     "the provider key must be added only by the server worker");
   assert.equal(upstreamCalls[0].options.body.includes("provider-secret"), false);
+
+  const multibytePayload = JSON.stringify({
+    messages: [{ role: "user", content: "я".repeat(16001) }]
+  });
+  assert.ok(multibytePayload.length < 32000,
+    "the UTF-16 string length should remain below the limit in this regression case");
+  assert.ok(Buffer.byteLength(multibytePayload, "utf8") > 32000,
+    "the UTF-8 byte length should exceed the limit in this regression case");
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" }, body: multibytePayload
+  }), env);
+  assert.equal(response.status, 413,
+    "the request limit must count UTF-8 bytes rather than JavaScript string characters");
+
+  let oversizedStreamCancelled = false;
+  const oversizedStream = new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(32001)); },
+    cancel() { oversizedStreamCancelled = true; }
+  });
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" }, body: oversizedStream
+  }), env);
+  assert.equal(response.status, 413, "the stream must stop once the byte limit is crossed");
+  assert.equal(oversizedStreamCancelled, true,
+    "the Worker must cancel an oversized incoming body instead of buffering the remainder");
 
   forceTimeout = true;
   let timedOutSignal = null;
