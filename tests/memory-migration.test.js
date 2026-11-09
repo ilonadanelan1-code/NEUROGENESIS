@@ -362,9 +362,12 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const rememberInput = document.getElementById("memory-input");
   const rememberButton = document.getElementById("remember-button");
   const beforeRememberCount = window.NGMemory.count();
+  const graphBuildsBeforeDialogueSave = knowledgeGraphBuildCount;
   const filler = "Как дела?";
   rememberInput.value = filler;
   await rememberButton.dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, graphBuildsBeforeDialogueSave,
+    "saving a dialogue-only turn must not rebuild the unchanged knowledge graph");
   assert.equal(window.NGMemory.count(), beforeRememberCount,
     "small talk submitted through the UI must not create a durable memory");
   const durableAfterFiller = JSON.parse(database.get("neurogenesis.memories.v1"));
