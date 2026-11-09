@@ -19,6 +19,7 @@
   const MAX_TEXT = 1200;
   const KNOWLEDGE = window.NGKnowledge || null;
   const KNOWLEDGE_GRAPH = window.NGKnowledgeGraph || null;
+  const REASONING_AUDIT = window.NGReasoningAudit || null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
@@ -2548,6 +2549,18 @@
       return {queryTokens:[],anchors:[],matches:[]};
     }
   }
+  function buildCausalReasoningAudit(paths) {
+    if(!REASONING_AUDIT||!KNOWLEDGE||!Array.isArray(paths)||!paths.length)return null;
+    const allClaims=memories.flatMap(item=>item.claims||[]);
+    const sourceMemoryByClaim=Object.create(null);
+    for(const item of memories)for(const claim of item.claims||[])if(claim&&claim.id)sourceMemoryByClaim[claim.id]=item.id;
+    try {
+      return REASONING_AUDIT.create(KNOWLEDGE).analyze(paths,allClaims,sourceMemoryByClaim);
+    } catch(error) {
+      console.warn("Causal reasoning audit failed:",error);
+      return null;
+    }
+  }
   function graphEvidenceNote(recall) {
     const matches=Array.isArray(recall&&recall.matches)?recall.matches:[];
     if(!matches.length)return "";
@@ -2663,6 +2676,8 @@
     const hypothesisRecall = KNOWLEDGE && typeof KNOWLEDGE.evaluateConditionalHypothesis==="function" ? KNOWLEDGE.evaluateConditionalHypothesis(query,allClaims) : null;
     const hypothesisClaimIds = new Set(hypothesisRecall && hypothesisRecall.claimIds || []);
     const causalRecall = KNOWLEDGE && typeof KNOWLEDGE.causalEvidence==="function" ? KNOWLEDGE.causalEvidence(query,allClaims) : null;
+    const causalAudit=causalRecall&&causalRecall.paths?buildCausalReasoningAudit(causalRecall.paths):null;
+    const causalAuditText=causalAudit&&REASONING_AUDIT?REASONING_AUDIT.create(KNOWLEDGE).format(causalAudit):"";
     const causalClaimIds = new Set(causalRecall && causalRecall.claimIds || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
     const graphRecall=buildGraphRecall(query,16);
@@ -2714,6 +2729,7 @@
       const modelNote=(isHypothesisPriority||isDerivedHypotheses||isExperimentPlan||isCausalQuery)?formatModelDecisionNote():"";
       const researchNote=(isHypothesisPriority||isDerivedHypotheses)?researchAwareHypothesisNote(isHypothesisPriority?hypothesisPriority:derivedHypotheses):"";
       const conclusionAnswer=researchNote+(researchNote?"\n\n":"")+structuredAnswer+
+        (isCausalQuery&&causalAuditText?"\n\n"+causalAuditText:"")+
         (graphNote?"\n\n"+graphNote:"")+modelNote+baselineReviewNote(conclusionMeta);
       say("assistant", conclusionAnswer, conclusionMeta);
       const brain = window.NGBrain;
@@ -3332,6 +3348,12 @@
       return graph ? {...graph.stats} : null;
     },
     knowledgeGraphSearch: query => buildGraphRecall(query,16),
+    auditCausalPaths: query => {
+      const claims=memories.flatMap(item=>item.claims||[]);
+      const result=KNOWLEDGE&&typeof KNOWLEDGE.causalEvidence==="function"
+        ?KNOWLEDGE.causalEvidence(query,claimsForWorkingModel(claims)):null;
+      return result&&result.paths?buildCausalReasoningAudit(result.paths):null;
+    },
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
     cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
     attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),

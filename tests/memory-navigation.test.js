@@ -123,6 +123,9 @@ function loadMemory() {
   if (!window.NGKnowledgeGraph) {
     vm.runInNewContext(fs.readFileSync("knowledge-graph.js","utf8"),sandbox,{filename:"knowledge-graph.js"});
   }
+  if (!window.NGReasoningAudit) {
+    vm.runInNewContext(fs.readFileSync("reasoning-audit.js","utf8"),sandbox,{filename:"reasoning-audit.js"});
+  }
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
 loadMemory();
@@ -132,6 +135,8 @@ assert.ok(initialGraph,"memory API should expose the derived knowledge graph");
 assert.equal(initialGraph.stats.memories,6,"the graph should preserve every source memory record");
 assert.ok(initialGraph.stats.claims >= 6,"the graph should contain the structured claims extracted from memory");
 assert.ok(initialGraph.edges.some(edge=>edge.type==="contains"),"memory-to-claim provenance should be represented as an edge");
+assert.equal(typeof window.NGMemory.auditCausalPaths,"function",
+  "the memory API should expose the causal route auditor");
 const graphSearch=window.NGMemory.knowledgeGraphSearch("музыка");
 assert.ok(graphSearch.matches.some(item=>item.memoryId==="one"),
   "memory question retrieval should use the graph to locate a relevant source record");
