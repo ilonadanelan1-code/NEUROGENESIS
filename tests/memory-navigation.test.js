@@ -910,6 +910,42 @@ const eventMemory=(id,claimId,text,createdAt,polarity,details)=>({
       outcome:{status:details.outcome?"provided":"not_stated",value:details.outcome||"",source:"direct_observation"},
       eventRef:details.eventRef||""}}:{})}]
 });
+const sameSourceRecord = eventMemory(
+  "single-memory-two-events", "single-memory-event-a",
+  "Архивная запись с двумя отдельными событиями", backupTime, true,
+  {subject:"Недостатке сна",object:"усталости",context:"после тренировки",timing:"2026-11-08 18:00",
+   criterion:"по шкале 1–10",outcome:"6/10",eventRef:"single-memory-event-a"}
+);
+sameSourceRecord.claims[0].evidence =
+  "При недостатке сна наблюдалась усталость; событие A и B имеют разные явные идентификаторы";
+sameSourceRecord.claims.push({
+  ...sameSourceRecord.claims[0],
+  id:"single-memory-event-b",
+  observationCase:{
+    ...sameSourceRecord.claims[0].observationCase,
+    eventRef:"single-memory-event-b"
+  }
+});
+database.set("neurogenesis.memories.v1",JSON.stringify([sameSourceRecord]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+loadMemory();
+assert.equal(window.NGMemory.observationCases().length,2,
+  "observation extraction must preserve distinct event IDs even when both claims belong to one memory record");
+const sameMemoryDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
+assert.equal(sameMemoryDossier.supportingCount,2,
+  "two separately identified events inside one memory must be counted independently");
+assert.equal(sameMemoryDossier.duplicateMentions,0,
+  "different explicit event IDs must not be flagged as duplicate mentions");
+assert.deepEqual(
+  [...window.NGMemory.observationCases()].map(item=>item.details.eventRef).sort().join("|"),
+  "single-memory-event-a|single-memory-event-b",
+  "the event references must survive memory loading and observation extraction"
+);
+
 const backupDefectMemories=[
   eventMemory("old-short","old-positive","При недостатке сна наблюдалась усталость",backupTime,true,null),
   eventMemory("new-enriched","new-positive","При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 07:15; критерий: по шкале 1–10",backupTime+1000,true,
