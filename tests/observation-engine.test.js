@@ -55,6 +55,7 @@ const engine=window.NGObservationEngine.create({
 const field=(value,status="provided")=>({status,value,source:"direct_observation"});
 const card=(id,polarity,eventRef,details={},evidence=id)=>({
   id,subject:"Фактор А",object:"Результат Б",polarity,evidence,recordedAt:1000,
+  source:"user_message",verification:"unverified",
   details:{eventRef,context:field("обычный день"),timing:field("2026-11-09 08:00"),
     criterion:field("фиксировался результат"),outcome:field("есть"),...details}
 });
@@ -119,4 +120,62 @@ assert.equal(dossier.identityUnresolvedCount,1);
 assert.equal(dossier.alignedPairCount,0);
 assert.equal(dossier.incompletePairCount,1);
 
-console.log("NEUROGENESIS observation engine tests: grouping, explicit enrichment, conflicts, inquiry isolation and evidence readiness passed.");
+// Different explicit event references must never be merged, even when the text is identical.
+const separateIds=engine.uniqueObservationEvents([
+  card("ref-a",true,"episode-a",{},"identical text"),
+  card("ref-b",true,"episode-b",{},"identical text")
+]);
+assert.equal(separateIds.events.length,2);
+assert.equal(separateIds.possibleDuplicateGroups,0);
+
+// Timing-only differences are surfaced separately from context/method mismatches.
+const timingOnly=engine.evidenceReconciliationForEdge([
+  card("time-positive",true,"time-a",{context:field("обычный день"),timing:field("2026-11-09 08:00")}),
+  card("time-negative",false,"time-b",{context:field("обычный день"),timing:field("2026-11-09 20:00")})
+],"Фактор А","Результат Б");
+assert.equal(timingOnly.timingOnlyPairCount,1);
+assert.equal(timingOnly.timingDifferencePairCount,1);
+assert.equal(timingOnly.alignedPairCount,1,
+  "context and criterion alignment should remain visible while time is separately flagged");
+assert.deepEqual(timingOnly.oppositePairs[0].changedDimensions,["timing"]);
+
+// Multiple dimensions changing together must not be attributed to one factor.
+const mixedParameters=engine.evidenceReconciliationForEdge([
+  card("mixed-positive",true,"mixed-a",{context:field("после тренировки"),timing:field("2026-11-09 08:00"),criterion:field("по шкале 1–10")}),
+  card("mixed-negative",false,"mixed-b",{context:field("день отдыха"),timing:field("2026-11-09 20:00"),criterion:field("по самооценке")})
+],"Фактор А","Результат Б");
+assert.equal(mixedParameters.multiDimensionDifferencePairCount,1);
+assert.equal(mixedParameters.contextTimingDifferencePairCount,1);
+assert.match(mixedParameters.pattern,/нескольких параметров/u);
+assert.match(mixedParameters.recommendation,/нельзя выделить роль отдельного фактора/u);
+
+// Missing, unknown, unrecorded and explicitly absent values remain distinct.
+const fieldStatuses=engine.evidenceReconciliationForEdge([
+  card("field-status",true,"field-status",{context:field("","not_recorded"),timing:field("","unknown"),
+    criterion:field("","none_reported"),outcome:field("","not_stated")})
+],"Фактор А","Результат Б");
+assert.equal(fieldStatuses.fieldStatusCounts.context.not_recorded,1);
+assert.equal(fieldStatuses.fieldStatusCounts.timing.unknown,1);
+assert.equal(fieldStatuses.fieldStatusCounts.criterion.none_reported,1);
+assert.equal(fieldStatuses.fieldStatusCounts.outcome.not_stated,1);
+
+// Memory rows are not independent sources: only distinct, explicit, verified source references count.
+const provenance=engine.evidenceReconciliationForEdge([
+  {...card("source-a",true,"source-event-a",{sourceRef:"paper-1"}),verification:"verified"},
+  {...card("source-b",false,"source-event-b",{sourceRef:"paper-1"}),verification:"verified"},
+  {...card("source-c",true,"source-event-c",{sourceRef:"paper-2"}),verification:"verified"},
+  {...card("source-d",false,"source-event-d",{}),verification:"verified"}
+],"Фактор А","Результат Б");
+assert.equal(provenance.sourceReferenceCount,2);
+assert.equal(provenance.independentVerifiedSources,2,
+  "the same verified source reference must count once even when it appears in multiple memory records");
+assert.equal(provenance.verifiedWithoutSourceRef,1,
+  "a verified flag without a traceable source reference must not count as an independent source");
+
+// The default user-message source remains visibly unverified.
+const userProvenance=engine.evidenceReconciliationForEdge([
+  card("user-a",true,"user-event-a"),card("user-b",false,"user-event-b")
+],"Фактор А","Результат Б");
+assert.equal(userProvenance.userReportedUnverifiedCount,2);
+
+console.log("NEUROGENESIS observation engine tests: grouping, explicit enrichment, conflicts, inquiry isolation, evidence provenance, status breakdown and mixed-parameter analysis passed.");
