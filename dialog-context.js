@@ -142,10 +142,22 @@
       if (/^(?:не знаю|не помню|не могу сказать|затрудняюсь(?: ответить)?|без понятия)$/u.test(answer)) {
         return matches.slice().sort((a, b) => b.askedAt - a.askedAt)[0];
       }
-      const ranked = matches.map(question => ({
-        question,
-        score: overlap(text, question.text)
-      })).sort((a, b) => b.score - a.score || a.question.askedAt - b.question.askedAt);
+      const answerText = normalise(text);
+      const affinities = [
+        { answer: /(?:час|часа|часов)/u, question: /(?:час|часа|часов)/u },
+        { answer: /(?:минут|минута|минуты)/u, question: /(?:минут)/u },
+        { answer: /(?:секунд|секунда|секунды)/u, question: /(?:секунд)/u },
+        { answer: /(?:шкал|балл|оцен)/u, question: /(?:шкал|балл|оцен)/u },
+        { answer: /(?:килограмм|кг|вес)/u, question: /(?:килограмм|кг|вес)/u },
+        { answer: /(?:сантиметр|см|рост)/u, question: /(?:сантиметр|см|рост)/u },
+        { answer: /(?:процент|%)/u, question: /(?:процент|%)/u }
+      ];
+      const ranked = matches.map(question => {
+        const questionText = normalise(question.text);
+        const affinity = affinities.reduce((score, pair) =>
+          score + (pair.answer.test(answerText) && pair.question.test(questionText) ? 0.42 : 0), 0);
+        return { question, score: overlap(text, question.text) + affinity };
+      }).sort((a, b) => b.score - a.score || a.question.askedAt - b.question.askedAt);
       if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08) return null;
       return ranked[0].question;
     }
