@@ -36,6 +36,7 @@
       stimulate: wrap("ng_brain_stimulate", "number", ["number", "number", "number"]),
       learn: wrap("ng_brain_learn", "number", ["number", "number", "number", "number"]),
       learnFromReward: wrap("ng_brain_learn_from_reward", "number", ["number", "number", "number", "number"]),
+      learnContrastiveReward: wrap("ng_brain_learn_contrastive_reward", "number", ["number", "number", "number", "number", "number"]),
       step: wrap("ng_brain_step", null, ["number", "number", "number"]),
       neuronCount: wrap("ng_brain_neuron_count", "number", ["number"]),
       synapseCount: wrap("ng_brain_synapse_count", "number", ["number"]),
@@ -170,6 +171,17 @@
           );
         },
 
+        learnContrastiveReward(learningRate = 0.05, inputNeuronId, positiveNeuronId, negativeNeuronId) {
+          live();
+          return api.learnContrastiveReward(
+            handle,
+            finite(learningRate, "learningRate"),
+            Math.floor(finite(inputNeuronId, "inputNeuronId")),
+            Math.floor(finite(positiveNeuronId, "positiveNeuronId")),
+            Math.floor(finite(negativeNeuronId, "negativeNeuronId"))
+          );
+        },
+
         stimulate(neuronId, strength = 1) {
           live();
           return api.stimulate(
@@ -295,6 +307,13 @@
           },
           learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
             return coreBrain.learnFromReward(learningRate, reward, weightDecay);
+          },
+          learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
+            const input = sourceToCore.get(String(inputSourceId));
+            const positive = sourceToCore.get(String(positiveSourceId));
+            const negative = sourceToCore.get(String(negativeSourceId));
+            if (input == null || positive == null || negative == null) return 0;
+            return coreBrain.learnContrastiveReward(learningRate, input, positive, negative);
           },
           snapshot() {
             const state = coreBrain.snapshot();
@@ -536,6 +555,20 @@
       }
     }
 
+    function learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnContrastiveReward(
+          finite(learningRate, "learningRate"), inputSourceId, positiveSourceId, negativeSourceId
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly contrastive reward failed");
+        return 0;
+      }
+    }
+
     function resetEligibility() {
       if (disposed || state !== "ready" || !brain) return false;
       try {
@@ -605,7 +638,7 @@
     }
 
     return Object.freeze({
-      start, rebuild, stimulate, step, learn, learnFromReward, resetEligibility,
+      start, rebuild, stimulate, step, learn, learnFromReward, learnContrastiveReward, resetEligibility,
       snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
     });
   }
