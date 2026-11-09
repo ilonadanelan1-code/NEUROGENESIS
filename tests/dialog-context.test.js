@@ -11,7 +11,7 @@ const engine = window.NGDialogContext.create({
   tokens: value => String(value || "").toLowerCase().replace(/ё/g, "е").split(/[^a-zа-я0-9]+/giu).filter(x => x.length > 2)
 });
 let state = engine.empty();
-state = engine.track(state, { role: "user", text: "Я плохо спал сегодня и чувствую усталость", time: 1 });
+state = engine.track(state, { role: "user", text: "Недостаток сна сегодня вызвал у меня усталость", time: 1 });
 const firstThread = state.activeThreadId;
 state = engine.track(state, { role: "assistant", text: "Сколько часов ты спал? И как определяешь усталость?", time: 2 });
 assert.match(engine.report(state).activeThread.pendingQuestion, /сколько часов/u);
@@ -24,7 +24,7 @@ assert.match(resolved.query, /усталость/u);
 state = engine.track(state, { role: "user", text: "Теперь поговорим о музыке и музыкальных инструментах", time: 4 });
 const musicThread = state.activeThreadId;
 assert.notEqual(musicThread, firstThread, "clear topic change should create a separate thread");
-state = engine.track(state, { role: "user", text: "Вернёмся к недостатку сна", time: 5 });
+state = engine.track(state, { role: "user", text: "Вернёмся к недостаток сна", time: 5 });
 assert.equal(state.activeThreadId, firstThread, "explicit return should restore the matching prior thread");
 assert.equal(state.threads.find(row => row.id === musicThread).status, "paused");
 const history = engine.history(state, firstThread);
