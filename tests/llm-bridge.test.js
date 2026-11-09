@@ -9,7 +9,10 @@ const sandbox = { window, Date, Math, Map, Set, JSON, URL };
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 const bridge = window.NGLLMBridge;
 const context = {
-  activeThread: { id: "T-sleep", title: "Недостаток сна и усталость" },
+  activeThread: {
+    id: "T-sleep", title: "Недостаток сна и усталость",
+    contextSummary: "1. Пользователь сообщил о коротком сне и усталости.\\n2. Пользователь уточнил, что хочет сохранить контекст темы."
+  },
   recentMessages: [
     { threadId: "T-sleep", role: "user", text: "Я плохо спал и чувствую усталость" },
     { threadId: "T-sleep", role: "assistant", text: "Сколько часов ты спал?" },
@@ -28,6 +31,10 @@ assert.equal(request.schema, "NEUROGENESIS_LLM_REQUEST_V1");
 assert.equal(request.messages[0].role, "system");
 assert.match(request.messages[0].content, /не изменяешь эти слои/u);
 assert.equal(request.messages[request.messages.length - 1].content.startsWith("А почему?"), true);
+assert.match(request.messages[request.messages.length - 1].content,/КРАТКИЕ ВЫДЕРЖКИ ИЗ ПРЕДЫДУЩИХ РЕПЛИК ПОЛЬЗОВАТЕЛЯ/u);
+assert.match(request.messages[request.messages.length - 1].content,/хочет сохранить контекст темы/u);
+assert.equal(request.metadata.contextSummaryCharacters,context.activeThread.contextSummary.length,
+  "the request metadata should describe the attached topic-summary size");
 assert.equal(request.metadata.historyMessages, 4, "the current user message should be removed while earlier turns from the active topic remain in history");
 assert.equal(request.messages.some(row => row.content.includes("В музыке важна гармония")), false,
   "messages from another topic must never reach the language model");
@@ -38,7 +45,7 @@ assert.ok(request.messages.some(row => row.content.includes("Сколько ча
 
 // Without an active thread ID, the bridge must not forward an unscoped transcript.
 const unscopedRequest = bridge.buildRequest("Продолжим?", {
-  activeThread: { title: "Тема без идентификатора" },
+  activeThread: { title: "Тема без идентификатора", contextSummary: "Сводка без подтверждённого ID темы" },
   recentMessages: [
     { threadId: "T-sleep", role: "user", text: "Сведения из другой темы" },
     { role: "assistant", text: "Реплика без ID темы" }
@@ -49,8 +56,8 @@ assert.equal(unscopedRequest.metadata.historyMessages, 0,
 assert.equal(unscopedRequest.messages.length, 2,
   "an unscoped request should contain only system policy and the current user message");
 assert.doesNotMatch(unscopedRequest.messages.map(row => row.content).join("\n"),
-  /Сведения из другой темы|Реплика без ID темы/u,
-  "messages without a confirmed active thread must not reach the model");
+  /Сведения из другой темы|Реплика без ID темы|Сводка без подтверждённого ID темы/u,
+  "history and summaries without a confirmed active thread must not reach the model");
 
 const extendedRows = Array.from({ length:20 }, (_, index) => ({
   threadId:"T-long", role:index % 2 ? "assistant" : "user",

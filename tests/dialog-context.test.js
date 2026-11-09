@@ -195,6 +195,68 @@ const inferredActive = engine.sanitize({
 assert.equal(inferredActive.activeThreadId,"T41-indicated",
   "when the active ID is missing, an explicitly active thread should be preferred over the last list row");
 
+// A topic keeps compact, extractive user-originated notes across turns and serialization.
+let summaryState = engine.empty();
+summaryState = engine.track(summaryState, {
+  role:"user", text:"Я развиваю NEUROGENESIS и хочу, чтобы система сохраняла контекст длительных обсуждений.", time:300
+});
+const summaryThreadId = summaryState.activeThreadId;
+summaryState = engine.track(summaryState, {
+  role:"assistant", text:"Я предлагаю полностью заменить историю одной сгенерированной фразой.", time:301
+});
+summaryState = engine.track(summaryState, {
+  role:"user", text:"Важно сохранять исходные реплики, не смешивать темы и переносить заметки через резервную копию.", time:302
+});
+summaryState = engine.track(summaryState, {
+  role:"assistant", text:"Что важнее всего сохранить в этой системе?", time:303
+});
+summaryState = engine.track(summaryState, {
+  role:"user", text:"Сохранить исходные реплики.", time:304
+});
+const summaryReport = engine.report(summaryState);
+assert.equal(summaryReport.activeThread.id, summaryThreadId);
+assert.match(summaryReport.activeThread.contextSummary,/NEUROGENESIS/u,
+  "the topic summary should retain the user's original topic statement");
+assert.match(summaryReport.activeThread.contextSummary,/не смешивать темы/u,
+  "the topic summary should retain a later user-provided requirement");
+assert.match(summaryReport.activeThread.contextSummary,/Сохранить исходные реплики/u,
+  "a concise answer should be stored together with the question it answered");
+assert.doesNotMatch(summaryReport.activeThread.contextSummary,/полностью заменить историю/u,
+  "assistant-authored text must not be promoted into the user-originated topic summary");
+assert.ok(summaryReport.activeThread.summaryParts <= 4,
+  "topic summaries must remain bounded to four extractive notes");
+const summaryFollowUp = engine.resolve(summaryState, "И почему это важно?");
+assert.match(summaryFollowUp.query,/РАНЕЕ СОХРАНЁННЫЕ ВЫДЕРЖКИ/u,
+  "short follow-ups should carry the extractive topic summary");
+const summaryRoundTrip = engine.sanitize(JSON.parse(JSON.stringify(summaryState)));
+assert.equal(engine.report(summaryRoundTrip).activeThread.contextSummary,summaryReport.activeThread.contextSummary,
+  "topic summaries must survive serialization and sanitization");
+const summaryLegacy = engine.sanitize({
+  activeThreadId:"T80-legacy",
+  threads:[{id:"T80-legacy",title:"Старая тема",status:"active",updatedAt:402,
+    lastUserText:"Старый диалог должен сохранить главную мысль"}],
+  messages:[
+    {id:"M80",threadId:"T80-legacy",role:"user",text:"Старый диалог должен сохранить главную мысль",time:401},
+    {id:"M81",threadId:"T80-legacy",role:"assistant",text:"Служебный ответ помощника",time:402}
+  ]
+});
+assert.match(engine.report(summaryLegacy).activeThread.contextSummary,/Старый диалог должен сохранить главную мысль/u,
+  "legacy thread data without summary fields should be upgraded from its own user messages");
+const leftSummary = engine.sanitize({
+  activeThreadId:"T90-merge",
+  threads:[{id:"T90-merge",title:"Объединяемая тема",status:"active",updatedAt:500,
+    summaryParts:[{text:"Ранее пользователь обсуждал сохранение контекста",at:490}]}],messages:[]
+});
+const rightSummary = engine.sanitize({
+  activeThreadId:"T90-merge",
+  threads:[{id:"T90-merge",title:"Объединяемая тема",status:"active",updatedAt:510,
+    summaryParts:[{text:"Позже пользователь потребовал изоляцию тем",at:510}]}],messages:[]
+});
+const mergedSummary = engine.report(engine.merge(leftSummary,rightSummary)).activeThread.contextSummary;
+assert.match(mergedSummary,/сохранение контекста/u);
+assert.match(mergedSummary,/изоляцию тем/u,
+  "merging two copies of the same thread must preserve summary notes from both sides");
+
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));
 assert.equal(roundTrip.activeThreadId, firstThread);
 assert.equal(engine.report(roundTrip).topics.length, 2);

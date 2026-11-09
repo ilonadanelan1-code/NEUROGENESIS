@@ -70,6 +70,41 @@
       const candidates = lines.filter(line => /\?\s*$/u.test(line) || /ВОПРОС ДЛЯ УТОЧНЕНИЯ/iu.test(line));
       return candidates.length ? clean(candidates[0], 260) : "";
     };
+    const MAX_SUMMARY_PARTS = 4;
+    const MAX_SUMMARY_PART_CHARS = 180;
+    function mergeSummaryParts(existing, incoming = []) {
+      const rows = [];
+      for (const raw of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+        if (!raw || typeof raw.text !== "string") continue;
+        const text = clean(raw.text, MAX_SUMMARY_PART_CHARS);
+        if (!text) continue;
+        const at = Math.max(0, Number(raw.at) || 0);
+        const duplicate = rows.findIndex(row =>
+          normalise(row.text) === normalise(text) || overlap(row.text, text) >= 0.84);
+        if (duplicate < 0) rows.push({ text, at });
+        else if (text.length > rows[duplicate].text.length) {
+          rows[duplicate] = { text, at: Math.max(at, rows[duplicate].at) };
+        }
+      }
+      rows.sort((a, b) => a.at - b.at);
+      return rows.length > MAX_SUMMARY_PARTS
+        ? [rows[0], ...rows.slice(-(MAX_SUMMARY_PARTS - 1))]
+        : rows;
+    }
+    function summaryCandidate(message, threadMessages) {
+      if (!message || message.role !== "user" || typeof message.text !== "string") return "";
+      if (message.relation === "answer_to_question") {
+        const prior = (Array.isArray(threadMessages) ? threadMessages : [])
+          .filter(row => row.role === "assistant" && row.time <= message.time).slice().reverse();
+        const question = prior.map(row => sentenceEndQuestion(row.text)).find(Boolean);
+        if (question) return clean("Ответ на вопрос «" + clean(question, 72) + "»: " + message.text, MAX_SUMMARY_PART_CHARS);
+      }
+      return clean(message.text, MAX_SUMMARY_PART_CHARS);
+    }
+    function summaryText(parts) {
+      return (Array.isArray(parts) ? parts : []).map((row, index) =>
+        (index + 1) + ". " + clean(row && row.text, MAX_SUMMARY_PART_CHARS)).filter(Boolean).join("\n");
+    }
     function empty() {
       return { version: 1, activeThreadId: "", nextSequence: 1, threads: [], messages: [], lastDecision: null };
     }
@@ -89,6 +124,7 @@
           keywords: Array.isArray(row.keywords) ? [...new Set(row.keywords.filter(x => typeof x === "string").map(x => clean(x, 40)))].slice(0, 16) : [],
           lastUserText: clean(row.lastUserText),
           lastAssistantText: clean(row.lastAssistantText),
+          summaryParts: Array.isArray(row.summaryParts) ? row.summaryParts : [],
           pendingQuestion: row.pendingQuestion && typeof row.pendingQuestion.text === "string" ? {
             text: clean(row.pendingQuestion.text, 260),
             askedAt: Math.max(0, Number(row.pendingQuestion.askedAt) || 0),
@@ -110,9 +146,21 @@
         const indicated = result.threads.slice().reverse().find(row => row.status === "active");
         result.activeThreadId = (indicated || result.threads[result.threads.length - 1]).id;
       }
-      result.threads = result.threads.map(row => ({
-        ...row, status:row.id === result.activeThreadId ? "active" : "paused"
-      }));
+      result.threads = result.threads.map(row => {
+        const threadMessages = result.messages.filter(message => message.threadId === row.id);
+        const candidates = threadMessages.filter(message => message.role === "user").map(message => ({
+          text: summaryCandidate(message, threadMessages), at: message.time
+        })).filter(item => item.text);
+        if (row.lastUserText && !threadMessages.some(message =>
+          message.role === "user" && message.text === row.lastUserText)) {
+          candidates.push({ text: row.lastUserText, at: row.updatedAt });
+        }
+        return {
+          ...row,
+          status: row.id === result.activeThreadId ? "active" : "paused",
+          summaryParts: mergeSummaryParts(row.summaryParts, candidates)
+        };
+      });
       const seq = result.threads.map(row => Number((row.id.match(/^T(\d+)/u) || [])[1]) || 0);
       result.nextSequence = Math.max(result.nextSequence, 1, ...seq.map(n => n + 1));
       if (source.lastDecision && typeof source.lastDecision.kind === "string") {
@@ -134,7 +182,8 @@
       const title = clean(message, MAX_TITLE).replace(/[.!?]+$/u, "") || "Новая тема";
       const row = {
         id, title, status: "active", createdAt: now, updatedAt: now, turnCount: 0,
-        keywords: tokens(message).slice(0, 16), lastUserText: "", lastAssistantText: "", pendingQuestion: null
+        keywords: tokens(message).slice(0, 16), lastUserText: "", lastAssistantText: "",
+        summaryParts: [], pendingQuestion: null
       };
       for (const old of state.threads) if (old.status === "active") old.status = "paused";
       state.threads.push(row);
@@ -171,6 +220,7 @@
           state.lastDecision.kind === "unresolved_return") state.lastDecision = null;
       let thread = activeThread(state);
       let relation = role === "assistant" ? "assistant_reply" : "continuation";
+      let summaryCandidateText = text;
       let resolvedAmbiguousReturn = false;
       if (role === "user" && !returnTarget(text) &&
           state.lastDecision && state.lastDecision.kind === "ambiguous_return") {
@@ -229,6 +279,7 @@
           const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
           if (likelyAnswer) {
             relation = "answer_to_question";
+            summaryCandidateText = "Ответ на вопрос «" + clean(thread.pendingQuestion.text, 72) + "»: " + text;
             thread.pendingQuestion.answered = true;
           } else if (independentTopic || independentStatement) {
             thread = createThread(state, text, time);
@@ -260,6 +311,9 @@
         id: "M" + time.toString(36) + "-" + state.messages.length.toString(36),
         threadId: thread.id, role, text, time, relation
       });
+      if (role === "user") {
+        thread.summaryParts = mergeSummaryParts(thread.summaryParts, [{ text: summaryCandidateText, at: time }]);
+      }
       state.messages = state.messages.slice(-MAX_MESSAGES);
       state.threads.sort((a, b) => a.updatedAt - b.updatedAt);
       state.threads = state.threads.slice(-MAX_THREADS);
@@ -276,7 +330,14 @@
       const threads = new Map();
       for (const row of [...a.threads, ...b.threads]) {
         const prior = threads.get(row.id);
-        if (!prior || row.updatedAt >= prior.updatedAt) threads.set(row.id, row);
+        if (!prior) threads.set(row.id, row);
+        else {
+          const preferred = row.updatedAt >= prior.updatedAt ? row : prior;
+          threads.set(row.id, {
+            ...preferred,
+            summaryParts: mergeSummaryParts(prior.summaryParts, row.summaryParts)
+          });
+        }
       }
       const messages = new Map();
       for (const row of [...a.messages, ...b.messages]) {
@@ -314,11 +375,13 @@
       const priorAssistant = [...previous].reverse().find(row => row.role === "assistant");
       const context = {
         title: thread.title,
+        contextSummary: summaryText(thread.summaryParts),
         lastUserText: priorUser ? priorUser.text : thread.lastUserText,
         lastAssistantText: priorAssistant ? priorAssistant.text : thread.lastAssistantText,
         pendingQuestion: thread.pendingQuestion && !thread.pendingQuestion.answered ? thread.pendingQuestion.text : ""
       };
       const pieces = [raw, "ТЕМА: " + context.title];
+      if (context.contextSummary) pieces.push("РАНЕЕ СОХРАНЁННЫЕ ВЫДЕРЖКИ ИЗ РЕПЛИК ПОЛЬЗОВАТЕЛЯ: " + context.contextSummary);
       if (context.lastUserText) pieces.push("ПРЕДЫДУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: " + clean(context.lastUserText, 260));
       if (context.lastAssistantText) pieces.push("ПРЕДЫДУЩИЙ ОТВЕТ АССИСТЕНТА: " + clean(context.lastAssistantText, 260));
       if (context.pendingQuestion) pieces.push("ОТКРЫТЫЙ ВОПРОС: " + clean(context.pendingQuestion, 220));
@@ -334,10 +397,12 @@
         version: 1,
         activeThread: active ? {
           id: active.id, title: active.title, status: active.status, turnCount: active.turnCount,
+          contextSummary: summaryText(active.summaryParts), summaryParts: active.summaryParts.length,
           pendingQuestion: active.pendingQuestion && !active.pendingQuestion.answered ? active.pendingQuestion.text : ""
         } : null,
         topics: state.threads.slice().reverse().map(row => ({
-          id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, turnCount: row.turnCount
+          id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, turnCount: row.turnCount,
+          contextSummary: summaryText(row.summaryParts)
         })),
         recentMessages: state.messages.slice(-8).map(row => ({
           threadId: row.threadId, role: row.role, text: row.text, time: row.time, relation: row.relation
