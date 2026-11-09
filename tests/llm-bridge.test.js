@@ -212,6 +212,27 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
     );
   }
 
+  const workerSource = fs.readFileSync("server/llm-worker.js", "utf8");
+  const workerErrorCodes = [...new Set(
+    [...workerSource.matchAll(/\\berror\\s*:\\s*"([a-z_]+)"/gu)].map(match => match[1])
+  )];
+  assert.ok(workerErrorCodes.length > 0, "the Worker must expose identifiable error codes");
+  for (const code of workerErrorCodes) {
+    const codeAdapter = bridge.createHttpAdapter(
+      { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+      async () => ({
+        ok: false,
+        status: 502,
+        async json() { return { error: code }; }
+      })
+    );
+    await assert.rejects(
+      () => codeAdapter.generate(request),
+      error => error instanceof Error && !/^Ошибка серверного шлюза/u.test(error.message),
+      "the client must provide a specific explanation for Worker error: " + code
+    );
+  }
+
   let neverResolvingSignal = null;
   const hangingAdapter = bridge.createHttpAdapter(
     { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token", requestTimeoutMs: 25 },
