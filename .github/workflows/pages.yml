@@ -36,6 +36,8 @@ jobs:
           node --check reasoning-audit.js
           node --check discriminating-observations.js
           node --check hypothesis-lifecycle.js
+          node --check dialog-context.js
+          node --check llm-bridge.js
           node --check memory.js
           node tests/activation.test.js
           node tests/knowledge.test.js
@@ -46,6 +48,8 @@ jobs:
           node tests/reasoning-audit.test.js
           node tests/discriminating-observations.test.js
           node tests/hypothesis-lifecycle.test.js
+          node tests/dialog-context.test.js
+          node tests/llm-bridge.test.js
           node tests/memory-navigation.test.js
 
       - name: Check app asset references
@@ -55,7 +59,7 @@ jobs:
           const html = fs.readFileSync('index.html', 'utf8');
           const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/)?.[1];
           if (!version) throw new Error('Could not read the app version from index.html');
-          for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'goals.js', 'observation-engine.js', 'knowledge-graph.js', 'reasoning-audit.js', 'discriminating-observations.js', 'hypothesis-lifecycle.js', 'memory.js']) {
+          for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'goals.js', 'observation-engine.js', 'knowledge-graph.js', 'reasoning-audit.js', 'discriminating-observations.js', 'hypothesis-lifecycle.js', 'dialog-context.js', 'llm-bridge.js', 'memory.js']) {
             if (!html.includes('./' + file + '?v=' + version)) {
               throw new Error('Missing or stale app reference for ' + version + ': ' + file);
             }
