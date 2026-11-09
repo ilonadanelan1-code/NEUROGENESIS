@@ -123,7 +123,6 @@
           stepsWithEligibleTraces: 0,
           peakEligibleSynapses: 0,
           peakTraceMass: 0,
-          baselineWeights: weightMap(initial),
           latestMetrics: metrics
         };
         return { ok: true, code: "episode-started", episode: publicEpisode(current) };
@@ -152,7 +151,12 @@
 
     function closeWithoutReward(code, message) {
       const episode = current;
-      try { settings.resetEligibility(); } catch (_) {}
+      let resetSucceeded = false;
+      let remainingMetrics = null;
+      try {
+        resetSucceeded = settings.resetEligibility() === true;
+        remainingMetrics = measure(readSnapshot(settings.getSnapshot), epsilon);
+      } catch (_) {}
       const report = {
         id: episode.id,
         label: episode.label,
@@ -173,7 +177,10 @@
         maxAbsoluteWeightDelta: 0,
         totalAbsoluteWeightDelta: 0,
         applicationReportedUpdates: 0,
-        traceConsumed: true
+        remainingEligibleSynapses: remainingMetrics ? remainingMetrics.eligibleSynapses : null,
+        remainingTraceMass: remainingMetrics ? remainingMetrics.traceMass : null,
+        traceConsumed: resetSucceeded && !!remainingMetrics &&
+          remainingMetrics.eligibleSynapses === 0 && remainingMetrics.traceMass <= epsilon
       };
       current = null;
       pushHistory(report);
