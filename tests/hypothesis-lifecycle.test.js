@@ -62,6 +62,25 @@ const revised=engine.reconcile(changedRoutes,[],[],[],13000);
 assert.equal(revised.meta.conclusions[0].lifecycle.revision,2);
 assert.ok(revised.meta.conclusions[0].lifecycle.events.some(item=>item.kind==="routes_changed"));
 
+// A later, weaker decision on another route must not hide an active suspension.
+const multiBase={version:1,type:"derived_hypotheses",createdAt:15000,conclusions:[{
+  subject:"Факторы",object:"Результат",paths:[
+    [causal("m1","Фактор А","Результат")],[causal("m2","Фактор Б","Результат")]
+  ]}],reviews:[],modelHistory:[]};
+const multiCreated=engine.reconcile(multiBase,[],[],[],15000);
+const multiSuspended=engine.reconcile(multiCreated.meta,[],[
+  {edgeSubject:"Фактор А",edgeObject:"Результат",strategy:"suspend",at:16000},
+  {edgeSubject:"Фактор Б",edgeObject:"Результат",strategy:"conditional",at:17000}
+],[],18000);
+assert.equal(multiSuspended.meta.conclusions[0].lifecycle.state,"suspended",
+  "an active suspended edge must not be hidden by a newer conditional decision on another edge");
+const oneRestored=engine.reconcile(multiSuspended.meta,[],[
+  {edgeSubject:"Фактор А",edgeObject:"Результат",strategy:"restore",at:19000},
+  {edgeSubject:"Фактор Б",edgeObject:"Результат",strategy:"conditional",at:17000}
+],[],20000);
+assert.equal(oneRestored.meta.conclusions[0].lifecycle.state,"conditional",
+  "restoring the suspended edge should reveal the remaining conditional decision");
+
 const same=engine.reconcile(revised.meta,[],[],[],13000);
 assert.equal(same.changed,false,"reconciling an unchanged hypothesis must not add duplicate events");
 assert.equal(same.meta.conclusions[0].lifecycle.events.length,revised.meta.conclusions[0].lifecycle.events.length);
