@@ -214,7 +214,7 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
 
   const workerSource = fs.readFileSync("server/llm-worker.js", "utf8");
   const workerErrorCodes = [...new Set(
-    [...workerSource.matchAll(/\\berror\\s*:\\s*"([a-z_]+)"/gu)].map(match => match[1])
+    [...workerSource.matchAll(/\berror\s*:\s*"([a-z_]+)"/gu)].map(match => match[1])
   )];
   assert.ok(workerErrorCodes.length > 0, "the Worker must expose identifiable error codes");
   for (const code of workerErrorCodes) {
@@ -228,7 +228,7 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
     );
     await assert.rejects(
       () => codeAdapter.generate(request),
-      error => error instanceof Error && !/^Ошибка серверного шлюза/u.test(error.message),
+      error => Boolean(error && typeof error.message === "string" && !/^Ошибка серверного шлюза/u.test(error.message)),
       "the client must provide a specific explanation for Worker error: " + code
     );
   }
