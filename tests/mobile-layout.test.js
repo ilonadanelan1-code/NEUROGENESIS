@@ -13,8 +13,8 @@ assert.match(viewport[1], /viewport-fit=cover/u);
 assert.doesNotMatch(viewport[1], /user-scalable=no/u,
   "mobile users must retain browser zoom accessibility");
 
-assert.ok(css.includes(".app-shell{height:100dvh;min-height:440px;"),
-  "the app must size its main shell to the dynamic viewport");
+assert.ok(css.includes(".app-shell{height:100vh;height:100dvh;min-height:440px;"),
+  "the app must use classic and dynamic viewport heights in supporting browsers");
 assert.ok(css.includes("@media(max-width:640px){\n  .topbar{height:57px;"),
   "the portrait layout must have a compact phone breakpoint");
 assert.ok(css.includes(".workspace{display:flex;flex-direction:column;overflow:hidden}"),
@@ -42,6 +42,10 @@ assert.ok(html.includes("./styles.css?v=" + version),
 
 assert.ok(app.includes("function scheduleFrame()"),
   "the canvas must have a single guarded frame scheduler");
+assert.ok(app.includes('if (typeof ResizeObserver === "function") {'),
+  "the canvas must detect ResizeObserver before using it");
+assert.ok(app.includes("window.addEventListener(\"resize\", handleCanvasResize);"),
+  "older browsers must retain a window-resize fallback when ResizeObserver is unavailable");
 assert.ok(app.includes('document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});'),
   "user input must wake the renderer from its idle state");
 const frameStart = app.indexOf("  function frame(time) {");
