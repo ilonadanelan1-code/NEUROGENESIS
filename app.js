@@ -413,7 +413,6 @@
     outgoingById.get(a).push(edge);
     connectionsDirty = true;
     markDirty(); updateMetrics(); showToast("Связь сформирована");
-    syncWasmShadow();
     return true;
   }
   function removeNeuron(id) {
@@ -457,6 +456,7 @@
       const other = neurons.filter(n => n.id !== parent.id && n.id !== child.id).sort((a,b) => Math.hypot(a.x-child.x,a.y-child.y)-Math.hypot(b.x-child.x,b.y-child.y))[0];
       if (other) connect(child.id, other.id);
     }
+    syncWasmShadow();
     activate(parent.id, .6); showToast("Организм сформировал новую ветвь");
   }
 
@@ -771,7 +771,7 @@
       if(hit){
         if(!connectFrom){connectFrom=hit.id;selectNeuron(hit.id);$("mode-note").textContent="Теперь нажми на второй нейрон.";}
         else if(connectFrom===hit.id){connectFrom=null;$("mode-note").textContent="Выбери первый нейрон для связи.";}
-        else {connect(connectFrom,hit.id);connectFrom=null;setConnectMode(false);}
+        else {if(connect(connectFrom,hit.id))syncWasmShadow();connectFrom=null;setConnectMode(false);}
       }
       return;
     }
@@ -871,6 +871,7 @@
       neuronById.set(trace.id, trace);
       connect(anchor.id, trace.id);
       connect(trace.id, anchor.id);
+      syncWasmShadow();
       connectionsDirty = true;
       nodesDirty = true;
       markDirty();
