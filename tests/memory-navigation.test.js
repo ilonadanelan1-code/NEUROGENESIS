@@ -1296,9 +1296,11 @@ const summaryBeforeImport=window.NGMemory.dialogContext().activeThread.contextSu
 assert.ok(summaryBeforeImport.length>0);
 const importInput=document.getElementById("memory-import-file");
 importInput.files=[{async text(){return JSON.stringify({...exportedBackup,memories:[],dialog:[]});}}];
-await importInput.dispatch("change");
-assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
-  "importing a v2 backup must restore and preserve the active topic summary");
+void (async () => {
+  await importInput.dispatch("change");
+  assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
+    "importing a v2 backup must restore and preserve the active topic summary");
+})().catch(error=>{console.error(error);process.exitCode=1;});
 assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
 assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
 assert.ok(downloadLink.download.endsWith(".json"));
