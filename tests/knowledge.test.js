@@ -43,6 +43,11 @@ for (const subject of [
   assert.equal(knowledge.sanitizeClaims([raw]).length, 0,
     "reporting clauses must not survive archived-claim sanitization: " + subject);
 }
+const sourceAttributedCausal="По данным исследования, усталость приводит к снижению концентрации";
+assert.equal(knowledge.extractClaims(sourceAttributedCausal).length,0,
+  "a comma-separated source preamble must not be dropped before causal extraction");
+assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim,subject:"усталость",evidence:sourceAttributedCausal}]).length,0,
+  "a legacy claim whose evidence is source-attributed must not re-enter active knowledge");
 const validCausalSubject = "Недостаток сна после тренировки";
 assert.equal(knowledge.extractClaims(validCausalSubject + " приводит к усталости").length, 1,
   "a descriptive causal subject must remain valid");
