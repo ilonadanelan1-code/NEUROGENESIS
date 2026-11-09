@@ -77,7 +77,13 @@ const legacyMemories = [
 database.set("neurogenesis.memories.v1", JSON.stringify(legacyMemories));
 database.set("neurogenesis.dialog.v1", JSON.stringify([
   {role:"user",text:"Недостаток сна сегодня вызвал у меня усталость",time:1794158201000},
-  {role:"assistant",text:"Сколько часов ты спал?",time:1794158202000},
+  {role:"assistant",text:"Сколько часов ты спал?",time:1794158202000,
+  sourceReasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158202000,status:"current",
+    conclusions:[{subject:"В отчёте говорится, что усталость",object:"снижению концентрации",
+      paths:[[{id:"dialog-source-only-edge",subject:"В отчёте говорится, что усталость",object:"снижению концентрации"}]]}],
+    reviews:[],modelHistory:[]
+  }},
   {role:"user",text:"А почему?",time:1794158203000}
 ]));
 database.set("neurogenesis.inquiries.v1", JSON.stringify([{
@@ -100,6 +106,12 @@ database.set("neurogenesis.reasoning-archive.v1", JSON.stringify([
     conclusions:[],reviews:[],modelHistory:[],
     excludedPaths:[{origin:"conclusion",subject:"что усталость",object:"снижению концентрации",
       route:[{subject:"что усталость",object:"снижению концентрации"}],reason:"malformed_causal_subject"}]
+  }},
+  {role:"assistant",time:1794158600000,text:"Только исходный снимок",sourceReasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158600000,status:"current",
+    conclusions:[{subject:"что усталость",object:"снижению концентрации",
+      paths:[[{id:"archive-source-only-edge",subject:"что усталость",object:"снижению концентрации"}]]}],
+    reviews:[],modelHistory:[]
   }}
 ]));
 
@@ -203,7 +215,7 @@ assert.equal(preparedRequest.metadata.historyMessages, 2, "the current user turn
 assert.equal(window.NGMemory.hypothesisLifecycle().length, 0, "legacy backups without causal archives should load an empty lifecycle safely");
 assert.match(window.NGMemory.hypothesisLifecycleReport(), /Пока нет архивных причинных выводов/u);
 const loadedReasoningHistory=window.NGMemory.reasoningHistory();
-assert.equal(loadedReasoningHistory.length,2,"archive records with excluded paths must survive local-storage loading");
+assert.equal(loadedReasoningHistory.length,4,"archive records from saved reasoning and dialogue source snapshots must survive local-storage loading");
 const loadedMalformed=loadedReasoningHistory.find(item=>item.time===1794158400000);
 assert.ok(loadedMalformed);
 assert.equal(loadedMalformed.conclusions.length,0,
@@ -214,6 +226,24 @@ const loadedExcludedOnly=loadedReasoningHistory.find(item=>item.time===179415850
 assert.ok(loadedExcludedOnly&&loadedExcludedOnly.conclusions.length===0,
   "an excludedPaths-only archive object must not be promoted to a hypothesis");
 assert.ok(loadedExcludedOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+const loadedArchiveSourceOnly=loadedReasoningHistory.find(item=>item.time===1794158600000);
+assert.ok(loadedArchiveSourceOnly&&loadedArchiveSourceOnly.conclusions.length===0,
+  "a raw sourceReasoning archive snapshot must pass through the same active-projection guard");
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+const loadedDialogSourceOnly=loadedReasoningHistory.find(item=>item.time===1794158202000);
+assert.ok(loadedDialogSourceOnly&&loadedDialogSourceOnly.conclusions.length===0,
+  "reasoning restored from a dialogue sourceReasoning snapshot must not reactivate a malformed route");
+assert.ok(loadedDialogSourceOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+const persistedArchiveAfterLoad=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"));
+const preservedRawArchive=persistedArchiveAfterLoad.find(item=>item.time===1794158600000);
+assert.equal(preservedRawArchive.sourceReasoning.conclusions[0].subject,"что усталость",
+  "the immutable source snapshot must remain intact for historical inspection");
+assert.equal(preservedRawArchive.reasoning.conclusions.length,0,
+  "the active archive projection must keep the malformed source conclusion excluded");
+assert.equal(window.NGMemory.refreshInquiries().added,0,
+  "excludedPaths-only and malformed source snapshots must not seed active research inquiries");
+assert.doesNotMatch(window.NGMemory.modelReviewReadiness(),/что усталость/u,
+  "excluded archive paths must not become tracked causal edges for model review readiness");
 const migratedGraph = window.NGMemory.knowledgeGraph();
 assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
 assert.ok(migratedGraph.stats.claims >= 6,"legacy claims should be projected without rewriting the backup format");
@@ -333,7 +363,9 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
         subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
         edgeObject:"снижению концентрации",at:importTime+20,evidence:"Архивный текст, не совпадающий с исходной запись"}
     ],
-    modelHistory:[{at:importTime,edges:[],alternatives:[
+    modelHistory:[{at:importTime,edges:[
+      {subject:"что усталость",object:"снижению концентрации",status:"challenged",decision:"restore",claimIds:["bad-import-claim"]}
+    ],alternatives:[
       {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
       {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
     ]}]
@@ -355,12 +387,28 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       claims:[{id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
         object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"}]
     }],
-    reasoningArchive:[{role:"assistant",time:importTime,text:"Импортированный архив",reasoning:importedReasoning}],
+    reasoningArchive:[
+      {role:"assistant",time:importTime,text:"Импортированный архив",reasoning:importedReasoning},
+      {role:"assistant",time:importTime+3000,text:"Архив с исходным снимком",sourceReasoning:{
+        version:1,type:"derived_hypotheses",createdAt:importTime+3000,status:"current",
+        conclusions:[{subject:"что усталость",object:"снижению концентрации",paths:[[
+          {id:"import-source-only-edge",subject:"что усталость",object:"снижению концентрации"}
+        ]]}],reviews:[],modelHistory:[]
+      }}
+    ],
     modelDecisions:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",strategy:"restore",
       at:importTime+30,claimIds:["bad-import-claim"]}],
     modelEvidence:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",claimId:"bad-import-claim",
       kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
-    dialog:[{role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning}]
+    dialog:[
+      {role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning},
+      {role:"assistant",time:importTime+2000,text:"Диалог с исходным снимком",sourceReasoning:{
+        version:1,type:"derived_hypotheses",createdAt:importTime+2000,status:"current",
+        conclusions:[{subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[
+          {id:"dialog-import-source-edge",subject:"В отчёте говорится, что усталость",object:"снижению концентрации"}
+        ]]}],reviews:[],modelHistory:[]
+      }}
+    ]
   };
   importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
   await importInput.dispatch("change");
@@ -371,6 +419,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "backup import must preserve valid conclusions while excluding malformed conclusion subjects");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="conclusion"&&item.subject==="В отчёте говорится, что усталость"),
     "the malformed conclusion must be retained as an excluded archive path");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_edge"&&item.subject==="что усталость"),
+    "malformed model-history edges must remain excluded from active snapshots");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_alternative"),
     "malformed snapshot alternatives must also remain excluded rather than becoming routes");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.reason==="reported_causal_statement"&&item.subject==="Усталость"),
@@ -383,6 +433,18 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(importedDialogRow&&importedDialogRow.conclusions.length===0,
     "reasoning embedded in imported dialogue must pass through the same archive guard");
   assert.ok(importedDialogRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const importedSourceArchiveRow=importedRows.find(item=>item.time===importTime+3000);
+  assert.ok(importedSourceArchiveRow&&importedSourceArchiveRow.conclusions.length===0,
+    "backup reasoningArchive sourceReasoning must be sanitized before it can be reused");
+  assert.ok(importedSourceArchiveRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const importedSourceDialogRow=importedRows.find(item=>item.time===importTime+2000);
+  assert.ok(importedSourceDialogRow&&importedSourceDialogRow.conclusions.length===0,
+    "backup dialogue sourceReasoning must be sanitized before it can be reused");
+  assert.ok(importedSourceDialogRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const persistedImportedSource=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime+3000);
+  assert.equal(persistedImportedSource.sourceReasoning.conclusions[0].subject,"что усталость",
+    "backup import must preserve the original malformed source snapshot without activating it");
   assert.ok(!window.NGMemory.claims().some(claim=>claim.subject==="что усталость"||claim.subject==="В отчёте говорится, что усталость"),
     "malformed claims from imported memories must not enter active knowledge");
   const importedGraph=window.NGMemory.knowledgeGraph();
