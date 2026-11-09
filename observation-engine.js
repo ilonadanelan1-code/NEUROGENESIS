@@ -198,21 +198,29 @@
     const supporting=cases.filter(item=>item.polarity),challenging=cases.filter(item=>!item.polarity);
     const oppositePairs=[];
     for(const positive of supporting)for(const negative of challenging) {
-      const pc=observationValue(positive,"context"),nc=observationValue(negative,"context");
-      const pm=observationValue(positive,"criterion"),nm=observationValue(negative,"criterion");
-      const pt=observationValue(positive,"timing"),nt=observationValue(negative,"timing");
+      const values={context:[observationValue(positive,"context"),observationValue(negative,"context")],
+        timing:[observationValue(positive,"timing"),observationValue(negative,"timing")],
+        criterion:[observationValue(positive,"criterion"),observationValue(negative,"criterion")]};
+      const comparedDimensions=Object.entries(values).filter(([,pair])=>pair[0]&&pair[1]).map(([key])=>key);
+      const changedDimensions=comparedDimensions.filter(key=>values[key][0]!==values[key][1]);
+      const sameContext=!!values.context[0]&&values.context[0]===values.context[1];
+      const sameCriterion=!!values.criterion[0]&&values.criterion[0]===values.criterion[1];
       const complete=observationEventQuality(positive).complete&&observationEventQuality(negative).complete;
-      const sameContext=!!pc&&pc===nc,sameCriterion=!!pm&&pm===nm;
       oppositePairs.push({supportingId:positive.id,challengingId:negative.id,contextMatch:sameContext,
-        criterionMatch:sameCriterion,timingKnown:!!pt&&!!nt,timingDiff:!!pt&&!!nt&&pt!==nt,
-        status:!complete?"incomplete":sameContext&&sameCriterion?"aligned":"different_metadata"});
+        criterionMatch:sameCriterion,timingKnown:!!values.timing[0]&&!!values.timing[1],
+        timingDiff:changedDimensions.includes("timing"),comparedDimensions,changedDimensions,
+        status:!complete?"incomplete":!sameContext||!sameCriterion?"different_metadata":"aligned"});
     }
     const aligned=oppositePairs.filter(pair=>pair.status==="aligned");
     const different=oppositePairs.filter(pair=>pair.status==="different_metadata");
     const incomplete=oppositePairs.filter(pair=>pair.status==="incomplete");
-    const contextDifferences=different.filter(pair=>!pair.contextMatch);
-    const criterionDifferences=different.filter(pair=>!pair.criterionMatch);
+    const contextDifferences=different.filter(pair=>pair.changedDimensions.includes("context"));
+    const criterionDifferences=different.filter(pair=>pair.changedDimensions.includes("criterion"));
     const timingDifferences=oppositePairs.filter(pair=>pair.timingDiff);
+    const timingOnlyPairs=oppositePairs.filter(pair=>pair.status!=="incomplete"&&pair.changedDimensions.length===1&&pair.changedDimensions[0]==="timing");
+    const contextOnlyPairs=oppositePairs.filter(pair=>pair.status!=="incomplete"&&pair.changedDimensions.length===1&&pair.changedDimensions[0]==="context");
+    const multiDimensionPairs=oppositePairs.filter(pair=>pair.status!=="incomplete"&&pair.changedDimensions.length>1);
+    const contextTimingPairs=oppositePairs.filter(pair=>pair.status!=="incomplete"&&pair.changedDimensions.includes("context")&&pair.changedDimensions.includes("timing"));
     const metadataKeys=["context","timing","criterion","outcome"];
     const fields=cases.length*metadataKeys.length;
     const known=cases.reduce((sum,item)=>sum+metadataKeys.filter(key=>
@@ -223,7 +231,18 @@
     const outcomeMissingCount=checks.filter(item=>item.numericOutcomeRequired&&item.missingFields.includes("outcome")).length;
     const metadataConflictCount=checks.reduce((sum,item)=>sum+item.metadataConflicts.length,0);
     const identityUnresolvedCount=checks.filter(item=>item.identityUnresolved).length;
-    const independent=candidates.filter(item=>item.verification==="independently_verified"||item.verification==="verified");
+    const fieldStatuses=["provided","not_stated","not_recorded","unknown","none_reported","conflict"];
+    const fieldStatusCounts=Object.fromEntries(metadataKeys.map(key=>[key,Object.fromEntries(fieldStatuses.map(status=>
+      [status,cases.filter(item=>(item.details&&item.details[key]&&item.details[key].status||"not_stated")===status).length]))]));
+    const provenanceRows=candidates.map(item=>({sourceRef:String(item.sourceRef||item.details&&item.details.sourceRef||"").trim(),
+      verification:String(item.verification||"unverified"),source:String(item.source||"unknown")}));
+    const sourceReferenceCount=new Set(provenanceRows.map(item=>item.sourceRef).filter(Boolean)).size;
+    const independentVerifiedSources=new Set(provenanceRows.filter(item=>
+      item.sourceRef&&["independently_verified","verified"].includes(item.verification)).map(item=>item.sourceRef)).size;
+    const verifiedWithoutSourceRef=provenanceRows.filter(item=>
+      !item.sourceRef&&["independently_verified","verified"].includes(item.verification)).length;
+    const userReportedUnverifiedCount=cases.filter(item=>
+      item.source==="user_message"&&(!item.verification||item.verification==="unverified")).length;
     const recordIds=[...new Set(candidates.map(item=>item.sourceMemoryId).filter(Boolean))];
     const addedAfter=cases.filter(item=>(item.memberRecordedAt||[item.recordedAt]).some(at=>baselineAt&&at>baselineAt));
     let pattern="нет прямых наблюдений";
@@ -231,15 +250,24 @@
     if(cases.length&&(!supporting.length||!challenging.length)) {
       pattern="односторонний материал";
       recommendation="Не менять общее причинное утверждение по односторонним данным. Нужны естественные случаи противоположного исхода, записанные тем же способом.";
+    } else if(supporting.length&&challenging.length&&multiDimensionPairs.length) {
+      pattern="противоположные исходы при одновременных различиях нескольких параметров";
+      recommendation="Нельзя выделить роль отдельного фактора: в сопоставляемых случаях одновременно меняются несколько параметров. Сохранять связь как спорную и не приписывать расхождение одному из них без случаев, где параметры различаются по отдельности.";
+    } else if(supporting.length&&challenging.length&&criterionDifferences.length) {
+      pattern="противоположные исходы записаны с разными критериями или методами оценки";
+      recommendation="Сначала согласовать критерий результата. При разных способах измерения исходы нельзя напрямую сопоставлять; различие метода само по себе не объясняет причинность.";
     } else if(supporting.length&&challenging.length&&aligned.length&&different.length) {
-      pattern="смешанная картина: есть сопоставимые пары и пары с разными параметрами";
-      recommendation="Не считать связь универсальной. Сохранить её как спорную; отдельно проверить, меняется ли результат при различиях контекста или критерия, не объявляя эти различия причиной.";
+      pattern="смешанная картина: есть сопоставимые пары и пары с различиями контекста";
+      recommendation="Не считать связь универсальной. Сохранить её как спорную; отдельно проверить, меняется ли результат при различиях контекста, не объявляя совпадение причиной.";
     } else if(supporting.length&&challenging.length&&aligned.length) {
       pattern="есть разнонаправленные наблюдения с совпадающими контекстом и критерием";
       recommendation="Общее правило пока не подтверждается однозначно: при зафиксированных одинаковых контексте и критерии исходы расходятся. Повторять только естественные наблюдения и искать независимое подтверждение.";
     } else if(supporting.length&&challenging.length&&contextDifferences.length) {
       pattern="противоположные исходы записаны при разных контекстах";
       recommendation="Рассматривать условную связь только как рабочую гипотезу. Различие контекста может быть важно, но само по себе не доказывает, что именно оно объясняет расхождение.";
+    } else if(supporting.length&&challenging.length&&timingDifferences.length) {
+      pattern="противоположные исходы записаны в разное время";
+      recommendation="Временное различие может быть важным параметром, но само по себе не показывает причину расхождения. Не смешивать время регистрации с временем самого события и не делать вывод без контекста.";
     } else if(supporting.length&&challenging.length) {
       pattern="противоположные исходы есть, но сопоставимость случаев не установлена";
       recommendation="Пока не выбирать объяснение. Заполнять контекст, время и критерий для каждого естественного случая; не делать вывод по простому количеству записей.";
@@ -250,12 +278,14 @@
       duplicateMentions,possibleDuplicateGroups:grouped.possibleDuplicateGroups,
       explicitDuplicateGroups:grouped.explicitDuplicateGroups,outcomeMissingCount,
       numericOutcomeRequired,completeCases,metadataCoverage:fields?Math.round(known/fields*100):0,
-      knownFields:known,fieldCount:fields,metadataConflictCount,identityUnresolvedCount,
+      knownFields:known,fieldCount:fields,metadataConflictCount,identityUnresolvedCount,fieldStatusCounts,
       alignedPairCount:aligned.length,differentMetadataPairCount:different.length,
       contextDifferencePairCount:contextDifferences.length,criterionDifferencePairCount:criterionDifferences.length,
-      timingDifferencePairCount:timingDifferences.length,incompletePairCount:incomplete.length,
-      oppositePairCount:oppositePairs.length,independentVerifiedCount:independent.length,
-      independentVerifiedSources:new Set(independent.map(item=>item.sourceMemoryId).filter(Boolean)).size,
+      timingDifferencePairCount:timingDifferences.length,timingOnlyPairCount:timingOnlyPairs.length,
+      contextOnlyPairCount:contextOnlyPairs.length,multiDimensionDifferencePairCount:multiDimensionPairs.length,
+      contextTimingDifferencePairCount:contextTimingPairs.length,incompletePairCount:incomplete.length,
+      oppositePairCount:oppositePairs.length,independentVerifiedSources,sourceReferenceCount,
+      verifiedWithoutSourceRef,userReportedUnverifiedCount,
       userRecordCount:recordIds.length,addedAfterModelCount:addedAfter.length,addedAfterModelIds:addedAfter.map(item=>item.id),
       eventChecks:checks,pattern,recommendation,oppositePairs:oppositePairs.slice(0,6)};
   }
