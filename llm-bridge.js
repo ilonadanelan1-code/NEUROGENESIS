@@ -51,6 +51,63 @@
       metadata: { topic, historyMessages: history.length, evidenceItems: facts.length }
     };
   }
+  function createHttpAdapter(config = {}, fetchImpl) {
+    const endpoint = clean(config.endpoint, 320).replace(/\\/+$/u, "");
+    const token = clean(config.clientToken, 400);
+    const requestFetch = fetchImpl || (typeof fetch === "function" ? fetch.bind(window) : null);
+    if (!endpoint || !token) throw new Error("Укажи адрес серверного шлюза и ключ доступа к нему.");
+    if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
+    let parsed;
+    try { parsed = new URL(endpoint); } catch (_) { throw new Error("Адрес шлюза указан неверно."); }
+    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
+      throw new Error("Адрес шлюза должен использовать HTTPS.");
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Адрес шлюза не должен содержать логин, пароль, параметры или фрагмент.");
+
+    async function call(path, body) {
+      let response;
+      try {
+        response = await requestFetch(endpoint + path, {
+          method: body ? "POST" : "GET",
+          headers: {
+            "Authorization": "Bearer " + token,
+            ...(body ? { "Content-Type": "application/json" } : {})
+          },
+          ...(body ? { body: JSON.stringify(body) } : {})
+        });
+      } catch (_) {
+        throw new Error("Не удалось связаться с серверным шлюзом. Проверь адрес и интернет-соединение.");
+      }
+      let data = null;
+      try { data = await response.json(); } catch (_) {}
+      if (!response.ok) {
+        const errors = {
+          unauthorized: "Шлюз отклонил ключ доступа. Проверь APP_TOKEN.",
+          origin_not_allowed: "Домен NEUROGENESIS не разрешён в настройках шлюза.",
+          provider_not_configured: "На сервере ещё не настроены провайдер, модель или API-ключ.",
+          upstream_unreachable: "Сервер не смог связаться с провайдером языковой модели.",
+          upstream_error: "Провайдер отклонил запрос. HTTP " + (data && data.upstream_status || response.status) + ".",
+          invalid_messages: "Шлюз отклонил структуру диалога.",
+          request_too_large: "Контекст беседы слишком большой."
+        };
+        throw new Error(errors[data && data.error] || "Ошибка серверного шлюза. HTTP " + response.status + ".");
+      }
+      return data || {};
+    }
+    return Object.freeze({
+      async generate(request) {
+        const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} });
+        if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
+        return result.reply.trim();
+      },
+      async health() {
+        const result = await call("/api/health");
+        if (!result.configured) throw new Error("Шлюз доступен, но провайдер ещё не настроен.");
+        return { ok: true, model: result.model || null, provider: result.provider || "openai-compatible" };
+      }
+    });
+  }
+
   function create() {
     const providers = new Map();
     let activeProvider = "";
@@ -89,5 +146,5 @@
     return { register, select, unregister, status, generate, buildRequest };
   }
 
-  window.NGLLMBridge = Object.freeze({ version: 1, buildRequest, safeHistory, safeEvidence, create });
+  window.NGLLMBridge = Object.freeze({ version: 1, buildRequest, safeHistory, safeEvidence, createHttpAdapter, create });
 })();
