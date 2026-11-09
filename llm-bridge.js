@@ -98,6 +98,9 @@
     if (authority.includes("@") || /[?#]/u.test(suffix)) {
       throw new Error("Адрес шлюза не должен содержать логин, пароль, параметры или фрагмент.");
     }
+    if (suffix) {
+      throw new Error("Укажи корневой адрес Worker без дополнительного пути: не добавляй /api/health или /api/chat.");
+    }
     if (protocol !== "https" && !(protocol === "http" && ["localhost", "127.0.0.1"].includes(hostname))) {
       throw new Error("Адрес шлюза должен использовать HTTPS.");
     }
@@ -123,6 +126,7 @@
       if (!response.ok) {
         const errors = {
           unauthorized: "Шлюз отклонил ключ доступа. Проверь APP_TOKEN.",
+          not_found: "Шлюз вернул 404: проверь, что указан корневой URL Worker без дополнительного пути.",
           origin_not_allowed: "Домен NEUROGENESIS не разрешён в настройках шлюза.",
           provider_not_configured: "На сервере ещё не настроены провайдер, модель или API-ключ.",
           upstream_unreachable: "Сервер не смог связаться с провайдером языковой модели.",
