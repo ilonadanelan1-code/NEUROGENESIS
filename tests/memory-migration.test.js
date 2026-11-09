@@ -250,6 +250,14 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   window.NGMemory.configureLLM({
     endpoint:"https://neurogenesis-test.workers.dev",
     clientToken:"integration-client-token"
+  }, async (url, options) => {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      return { ok:true, status:200, async json() { return { ok:true, reply:"Интеграционный ответ языковой модели" }; } };
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
   });
   const health = await window.NGMemory.testLLMConnection();
   assert.equal(health.model, "integration-test-model");
