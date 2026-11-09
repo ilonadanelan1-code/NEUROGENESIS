@@ -40,11 +40,12 @@
       const returned = decision && decision.kind === "returned";
       const ambiguous = decision && decision.kind === "ambiguous_return";
       const unresolved = decision && decision.kind === "unresolved_return";
+      const candidates = decision && Array.isArray(decision.candidates) ? decision.candidates : [];
       return result("topic_return",
         returned ? "resume_topic" : ambiguous ? "choose_topic" : unresolved ? "clarify_topic" : "verify_topic_return",
         returned || ambiguous || unresolved ? 0.98 : 0.78,
         returned ? "explicit_topic_return_resolved" : ambiguous ? "multiple_topic_candidates" :
-          unresolved ? "topic_not_found" : "explicit_topic_return", { target });
+          unresolved ? "topic_not_found" : "explicit_topic_return", { target, candidates });
     }
     if (isTopicSwitch(text)) {
       return result("topic_change", "open_topic", 0.95, "explicit_or_detected_topic_change");
