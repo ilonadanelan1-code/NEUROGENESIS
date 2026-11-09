@@ -178,6 +178,40 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   await assert.rejects(() => notFoundAdapter.health(), /Шлюз вернул 404/u,
     "a missing Worker route should explain that the gateway base URL or path is wrong");
 
+  const providerErrorCases = [
+    {
+      code: "invalid_upstream_configuration", status: 500,
+      message: /UPSTREAM_BASE_URL/u
+    },
+    {
+      code: "invalid_json", status: 400,
+      message: /Шлюз не смог разобрать запрос/u
+    },
+    {
+      code: "invalid_upstream_response", status: 502,
+      message: /неподдерживаемом формате/u
+    },
+    {
+      code: "empty_model_response", status: 502,
+      message: /не прислал текст сообщения/u
+    }
+  ];
+  for (const failure of providerErrorCases) {
+    const failingAdapter = bridge.createHttpAdapter(
+      { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+      async () => ({
+        ok: false,
+        status: failure.status,
+        async json() { return { error: failure.code }; }
+      })
+    );
+    await assert.rejects(
+      () => failingAdapter.generate(request),
+      failure.message,
+      "the client must explain the provider error code: " + failure.code
+    );
+  }
+
   let neverResolvingSignal = null;
   const hangingAdapter = bridge.createHttpAdapter(
     { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token", requestTimeoutMs: 25 },
