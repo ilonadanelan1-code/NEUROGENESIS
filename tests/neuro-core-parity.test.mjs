@@ -221,7 +221,8 @@ try {
         from: "stress-" + i,
         to: "stress-" + target,
         weight,
-        signal: 0
+        signal: 0,
+        eligibility: 0
       });
     }
   }
