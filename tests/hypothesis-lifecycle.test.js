@@ -20,6 +20,22 @@ assert.equal(JSON.stringify(base),original,"reconciliation must not mutate the o
 
 const lifecycle=first.meta.conclusions[0].lifecycle;
 
+const forgedReviewMeta={...first.meta,reviews:[{
+  claimId:"missing-source",kind:"counterexample",phase:"subsequent",
+  subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",
+  edgeObject:"Усталость",at:1500,evidence:"Архивная запись без исходной карточки"
+}]};
+const forgedReview=engine.reconcile(forgedReviewMeta,[],[],[],1600);
+assert.equal(forgedReview.meta.conclusions[0].lifecycle.state,"new",
+  "an archived review without a matching source claim must not challenge an active hypothesis");
+assert.equal(forgedReview.meta.conclusions[0].lifecycle.challengingClaimIds.length,0);
+const forgedPriorMeta={...first.meta,conclusions:[{...first.meta.conclusions[0],lifecycle:{
+  ...lifecycle,state:"challenged",challengingClaimIds:["missing-source"]
+}}]};
+const forgedPrior=engine.reconcile(forgedPriorMeta,[],[],[],1700);
+assert.equal(forgedPrior.meta.conclusions[0].lifecycle.state,"new",
+  "unresolved archived evidence IDs must remain historical references, not active support");
+
 const malformedArchivedEdge=causal("bad-report","В отчёте говорится, что усталость","Снижение концентрации");
 assert.equal(engine.sanitize({...lifecycle,subject:"что усталость"}),null,
   "a malformed archived conclusion must not produce an active lifecycle record");
@@ -42,15 +58,21 @@ const withSupport=engine.reconcile(support.meta,[causal("o1","Недостато
 // Reviews are the only evidence input: a causal claim is not silently upgraded to an observation.
 assert.equal(withSupport.meta.conclusions[0].lifecycle.state,"new",
   "a causal claim alone must not count as review evidence or keep an inquiry open");
+const supportingObservation={id:"o1",kind:"observation",subject:"Недостаток сна",object:"Усталость",
+  polarity:true,status:"current",evidence:"Наблюдалась усталость"};
+const counterObservation={id:"o2",kind:"observation",subject:"Недостаток сна",object:"Усталость",
+  polarity:false,status:"current",evidence:"Результат не наблюдался"};
 const reviewed={...support.meta,reviews:[{claimId:"o1",kind:"supporting_observation",phase:"subsequent",
-  edgeSubject:"Недостаток сна",edgeObject:"Усталость",at:4500,evidence:"Наблюдалась усталость"}]};
-const provisionally=engine.reconcile(reviewed,[],[],[],5000);
+  subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
+  at:4500,evidence:"Наблюдалась усталость"}]};
+const provisionally=engine.reconcile(reviewed,[supportingObservation],[],[],5000);
 assert.equal(provisionally.meta.conclusions[0].lifecycle.state,"provisionally_supported");
 assert.ok(provisionally.meta.conclusions[0].lifecycle.events.some(item=>item.kind==="evidence_added"&&item.claimId==="o1"));
 
 const challenged={...provisionally.meta,reviews:[...reviewed.reviews,{claimId:"o2",kind:"counterexample",phase:"subsequent",
-  edgeSubject:"Недостаток сна",edgeObject:"Усталость",at:5500,evidence:"Результат не наблюдался"}]};
-const disputed=engine.reconcile(challenged,[],[],[],6000);
+  subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
+  at:5500,evidence:"Результат не наблюдался"}]};
+const disputed=engine.reconcile(challenged,[supportingObservation,counterObservation],[],[],6000);
 assert.equal(disputed.meta.conclusions[0].lifecycle.state,"challenged");
 assert.ok(disputed.meta.conclusions[0].lifecycle.challengingClaimIds.includes("o2"));
 
