@@ -2,6 +2,13 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const { Blob } = require("node:buffer");
+
+let exportedBackupBlob = null;
+class ExportTestURL extends URL {
+  static createObjectURL(blob) { exportedBackupBlob = blob; return "blob:neurogenesis-export-test"; }
+  static revokeObjectURL() {}
+}
 
 const database = new Map();
 const legacyMemories = [
@@ -159,6 +166,7 @@ class ElementStub {
   remove() {}
   focus() {}
   scrollIntoView() {}
+  click() { this.clicked = true; }
 }
 const elements = new Map();
 const document = {
@@ -195,7 +203,8 @@ const localStorage = {
   setItem(key, value) { database.set(key, String(value)); }
 };
 const sandbox = {
-  window, document, localStorage, console, Date, Math, Set, Map, JSON, URL, AbortController, setTimeout, clearTimeout,
+  window, document, localStorage, console, Date, Math, Set, Map, JSON,
+  URL:ExportTestURL, Blob, AbortController, setTimeout, clearTimeout,
   async fetch(url, options) {
     if (String(url).endsWith("/api/health")) {
       return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
@@ -759,6 +768,20 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "merged cognitive cycles must have unique IDs");
   assert.equal(new Set(importedCycles.map(item=>item.sequence)).size,importedCycles.length,
     "merged cognitive cycles must have unique sequence numbers");
+
+  await document.getElementById("memory-export").dispatch("click");
+  assert.ok(exportedBackupBlob,"the actual export button must create a backup blob");
+  const exportedBackup=JSON.parse(await exportedBackupBlob.text());
+  assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
+  const exportedReassessmentCycle=exportedBackup.cognitiveCycles.find(item=>item.id===reassessmentCycle.id);
+  assert.ok(exportedReassessmentCycle,
+    "the actual backup export must include the cognitive cycle that reopened the comparison goal");
+  assert.ok(exportedReassessmentCycle.goalChanges.items.some(item=>
+    item.goalId===initialComparisonGoal.id&&item.evidenceClaimIds.includes(alternativeObservation.id)),
+    "the exported JSON must preserve the exact observation-to-goal provenance");
+  assert.ok(exportedBackup.goals.some(item=>item.id===initialComparisonGoal.id&&item.status==="review"),
+    "the same backup must include the matching reviewed research goal");
+
   const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
   assert.ok(storedCycles.some(item=>item.at===importTime+5000),
     "restored cognitive cycles must be persisted in local storage");
