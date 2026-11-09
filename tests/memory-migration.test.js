@@ -473,6 +473,46 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.match(importedRevision,/Недостаток сна → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,
     "the route should remain unobserved until a matching source claim is available");
 
+  // The archive guard must remain safe even if NGKnowledge did not load.
+  const fallbackDatabase=new Map();
+  const fallbackArchiveTime=1794159100000;
+  const fallbackRawReasoning={
+    version:1,type:"derived_hypotheses",createdAt:fallbackArchiveTime,status:"current",
+    conclusions:[
+      {subject:"Исследование показало, что усталость",object:"снижению концентрации",
+        paths:[[{id:"fallback-reported-subject",subject:"Исследование показало, что усталость",
+          object:"снижению концентрации"}]]},
+      {subject:"Усталость",object:"снижению концентрации",
+        paths:[[{id:"fallback-reported-evidence",subject:"Усталость",object:"снижению концентрации",
+          evidence:"Исследование показало, что усталость приводит к снижению концентрации"}]]}
+    ],
+    reviews:[],modelHistory:[]
+  };
+  fallbackDatabase.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+    {role:"assistant",time:fallbackArchiveTime,text:"Fallback archive",sourceReasoning:fallbackRawReasoning}
+  ]));
+  const fallbackLocalStorage={
+    getItem(key){return fallbackDatabase.has(key)?fallbackDatabase.get(key):null;},
+    setItem(key,value){fallbackDatabase.set(key,String(value));},
+    removeItem(key){fallbackDatabase.delete(key);}
+  };
+  const fallbackWindow={...window};
+  delete fallbackWindow.NGKnowledge;
+  const fallbackSandbox={...sandbox,window:fallbackWindow,localStorage:fallbackLocalStorage};
+  vm.runInNewContext(fs.readFileSync("memory.js","utf8"),fallbackSandbox,{filename:"memory-fallback.js"});
+  const fallbackHistory=fallbackWindow.NGMemory.reasoningHistory();
+  assert.equal(fallbackHistory.length,1);
+  assert.equal(fallbackHistory[0].conclusions.length,0,
+    "reported causal summaries must not become active when the main knowledge validator is unavailable");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Исследование показало, что усталость"),
+    "the fallback archive guard must retain the reporting subject as an excluded historical path");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Усталость"),
+    "the fallback archive guard must reject a valid-looking subject whose evidence is only a research report");
+  const fallbackPersisted=JSON.parse(fallbackDatabase.get("neurogenesis.reasoning-archive.v1"))[0];
+  assert.equal(fallbackPersisted.sourceReasoning.conclusions[0].subject,"Исследование показало, что усталость",
+    "the raw source snapshot must remain available for historical inspection");
   const beforeCount = window.NGMemory.count();
   const beforeClaims = window.NGMemory.claims().length;
   window.NGMemory.configureLLM({

@@ -312,11 +312,20 @@
       });
     }
   }
+  function isReportedArchivedCausalStatement(value) {
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function")
+      return KNOWLEDGE.isReportedCausalStatement(value);
+    const normalized=normalise(value);
+    return /^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено)|(?:в|по)\s+(?:исследовани[ея]|отчет[еа]|стать[ея]|публикаци[ия]|документ[еа]|источник[еа]|сообщени[ие]|текст[еа])\s+(?:говор[а-я]*|сообща[а-я]*|указыва[а-я]*|отмеча[а-я]*|утвержда[а-я]*|показыва[а-я]*|свидетельству[а-я]*|сказан[а-я]*|указан[а-я]*|отмечен[а-я]*)\s+что|(?:исследовани[ея]|исследовател[ьи]|эксперимент[аы]?|работ[аы]|автор[ыа]|учен(?:ый|ые)|отчет[ыа])\s+(?:показал[аио]?|выявил[аио]?|установил[аио]?|подтвердил[аио]?|обнаружил[аио]?|сообщил[аио]?|отметил[аио]?|указал[аио]?|описал[аио]?|доказал[аио]?)\s+что)(?:\s|$)/u.test(normalized);
+  }
   function archivedCausalExclusionReason(edge) {
+    const subject=String(edge&&edge.subject||"");
+    const evidence=String(edge&&edge.evidence||"");
     if(KNOWLEDGE&&typeof KNOWLEDGE.isValidCausalSubject==="function"&&
-       !KNOWLEDGE.isValidCausalSubject(edge&&edge.subject))return "malformed_causal_subject";
-    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function"&&
-       KNOWLEDGE.isReportedCausalStatement(edge&&edge.evidence||""))return "reported_causal_statement";
+       !KNOWLEDGE.isValidCausalSubject(subject))return "malformed_causal_subject";
+    if(!KNOWLEDGE&&/^(?:что|то\s+что)\s+/iu.test(normalise(subject)))return "malformed_causal_subject";
+    if(isReportedArchivedCausalStatement(subject)||isReportedArchivedCausalStatement(evidence))
+      return "reported_causal_statement";
     return "invalid_causal_edge";
   }
   function isValidArchivedCausalEdge(edge) {
@@ -326,9 +335,10 @@
       return KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edge.subject,predicate:"приводит к",
         object:edge.object,evidence}]).length===1;
     }
-    return !/^(?:что|то\s+что)\s+/iu.test(edge.subject.trim())&&
-      !/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(edge.subject.trim())&&
-      !/^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено))/iu.test(normalise(evidence));
+    const subject=normalise(edge.subject);
+    if(/^(?:что|то что)\s+/u.test(subject))return false;
+    if(/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том\s*)?что(?:\s|$)/u.test(subject))return false;
+    return !isReportedArchivedCausalStatement(subject)&&!isReportedArchivedCausalStatement(evidence);
   }
   function cleanReasoning(raw) {
     if (!raw || typeof raw !== "object" || raw.version !== 1 ||
