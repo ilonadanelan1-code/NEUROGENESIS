@@ -36,14 +36,27 @@ class TestHeaders {
   constructor(values = {}) { this.values = new Map(Object.entries(values).map(([k,v]) => [k.toLowerCase(), String(v)])); }
   get(name) { return this.values.get(String(name).toLowerCase()) || null; }
 }
+function textStream(value, chunkSize = 0) {
+  const bytes = encoder.encode(String(value));
+  const size = Math.max(1, Number(chunkSize) || bytes.byteLength || 1);
+  return new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.byteLength; offset += size) {
+        controller.enqueue(bytes.slice(offset, offset + size));
+      }
+      controller.close();
+    }
+  });
+}
 class TestResponse {
   constructor(body, options = {}) {
-    this.body = body;
+    this.payload = body;
+    this.body = options.bodyStream || textStream(typeof body === "string" ? body : JSON.stringify(body), options.chunkSize);
     this.status = options.status || 200;
     this.ok = this.status >= 200 && this.status < 300;
     this.headers = new TestHeaders(options.headers || {});
   }
-  async json() { return typeof this.body === "string" ? JSON.parse(this.body) : this.body; }
+  async json() { return typeof this.payload === "string" ? JSON.parse(this.payload) : this.payload; }
 }
 class TestRequest {
   constructor(url, options = {}) {
@@ -183,7 +196,8 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(timedOutSignal.aborted, true, "the Worker must abort the upstream request when its deadline expires");
 
   sandbox.fetch = async () => ({
-    ok: true, status: 200, async json() { return new Promise(() => {}); }
+    ok: true, status: 200, headers: new TestHeaders(),
+    body: new ReadableStream({ pull() { return new Promise(() => {}); } })
   });
   response = await worker.fetch(request("/api/chat", {
     method: "POST", headers: { Authorization: "Bearer client-test-token" },
@@ -193,6 +207,24 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
     "the upstream response-body parsing phase must share the same timeout, not just the initial fetch");
 
   forceTimeout = false;
+  let oversizedUpstreamCancelled = false;
+  sandbox.fetch = async () => ({
+    ok: true, status: 200, headers: new TestHeaders(),
+    body: new ReadableStream({
+      start(controller) { controller.enqueue(encoder.encode("я".repeat(64001))); },
+      cancel() { oversizedUpstreamCancelled = true; }
+    })
+  });
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Проверка лимита ответа" }] })
+  }), env);
+  assert.equal(response.status, 502,
+    "an upstream response above the byte limit must be rejected");
+  assert.equal((await response.json()).error, "invalid_upstream_response");
+  assert.equal(oversizedUpstreamCancelled, true,
+    "the Worker must cancel an oversized provider response before buffering the remainder");
+
   response = await worker.fetch(request("/api/chat", {
     method: "POST", headers: { Authorization: "Bearer client-test-token" }, body: JSON.stringify({ messages: [{ role: "tool", content: "no" }] })
   }), env);
