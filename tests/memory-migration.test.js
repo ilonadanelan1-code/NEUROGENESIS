@@ -502,10 +502,6 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "a resumed inquiry can be skipped again without losing its prior history");
   assert.equal(window.NGMemory.goals().find(item=>item.inquiryId==="Q810").status,"paused",
     "skipping the resumed inquiry again must pause the same goal");
-  const skippedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
-  assert.ok(skippedResearchGoal,"the skipped inquiry must retain its linked research goal");
-  assert.equal(skippedResearchGoal.status,"paused",
-    "skipping a question must pause its goal without deleting its history");
   const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
   const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
   assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
