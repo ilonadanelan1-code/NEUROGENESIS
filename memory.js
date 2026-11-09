@@ -513,6 +513,22 @@
     if(claim.kind==="observation")return claim.polarity===false?"counterexample":"supporting_observation";
     return null;
   }
+  function reasoningReviewMatchesClaim(finding,claim) {
+    if(!finding||!claim||typeof claim.id!=="string"||finding.claimId!==claim.id||!KNOWLEDGE)return false;
+    if(!finding.subject||!finding.object||!finding.edgeSubject||!finding.edgeObject||
+       !KNOWLEDGE.sameEntity(finding.subject,claim.subject)||!KNOWLEDGE.sameEntity(finding.object,claim.object)||
+       !KNOWLEDGE.sameEntity(finding.edgeSubject,claim.subject)||!KNOWLEDGE.sameEntity(finding.edgeObject,claim.object))return false;
+    if(claim.status==="superseded")return finding.kind==="source_revised"&&claim.kind==="causal";
+    const expected=reviewKindForClaim(claim);
+    return finding.kind===expected||
+      (finding.kind==="supporting_claim"&&claim.kind==="causal"&&claim.polarity!==false);
+  }
+  function activeReasoningReviews(meta,claims=memories.flatMap(item=>item.claims||[])) {
+    const byId=new Map((Array.isArray(claims)?claims:[]).filter(claim=>claim&&typeof claim.id==="string")
+      .map(claim=>[claim.id,claim]));
+    return (meta&&Array.isArray(meta.reviews)?meta.reviews:[])
+      .filter(finding=>reasoningReviewMatchesClaim(finding,byId.get(finding&&finding.claimId)));
+  }
   function claimSemanticKey(claim) {
     const canonical=value=>KNOWLEDGE&&typeof KNOWLEDGE.canonicalEntity==="function"
       ?KNOWLEDGE.canonicalEntity(value):normalise(value);
@@ -1444,7 +1460,8 @@
       }
       for(const edge of matchedEdges.values()){
         const alreadyRecorded=meta.reviews.some(item=>item.claimId===claim.id&&
-          KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
+          KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)&&
+          reasoningReviewMatchesClaim(item,claim));
         const alreadyAdded=additions.some(item=>item.claimId===claim.id&&
           KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
         if(alreadyRecorded||alreadyAdded)continue;
@@ -1459,9 +1476,10 @@
     }
     return additions;
   }
-  function updateReasoningStatus(meta) {
-    const challenged=meta.reviews.some(item=>item.kind==="counterexample"||item.kind==="opposing_claim"||item.kind==="source_revised");
-    meta.status=challenged?"challenged":meta.reviews.length?"updated":"current";
+  function updateReasoningStatus(meta,claims=memories.flatMap(item=>item.claims||[])) {
+    const reviews=activeReasoningReviews(meta,claims);
+    const challenged=reviews.some(item=>item.kind==="counterexample"||item.kind==="opposing_claim"||item.kind==="source_revised");
+    meta.status=challenged?"challenged":reviews.length?"updated":"current";
     return meta;
   }
   function makeReasoningMeta(type,result,claims) {
