@@ -36,5 +36,30 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   assert.equal(await gateway.generate(request), "Связный ответ");
   gateway.unregister("test-provider");
   assert.equal(gateway.status().connected, false);
-  console.log("NEUROGENESIS language-model bridge: passed.");
+
+  const httpCalls = [];
+  const adapter = bridge.createHttpAdapter(
+    { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+    async (url, options) => {
+      httpCalls.push({ url, options });
+      if (url.endsWith("/api/health")) {
+        return { ok: true, status: 200, async json() { return { ok: true, configured: true, model: "test-model" }; } };
+      }
+      return { ok: true, status: 200, async json() { return { ok: true, reply: "Ответ через защищённый шлюз" }; } };
+    }
+  );
+  const health = await adapter.health();
+  assert.equal(health.ok, true);
+  assert.equal(health.model, "test-model");
+  assert.equal(await adapter.generate(request), "Ответ через защищённый шлюз");
+  assert.equal(httpCalls[0].url, "https://neurogenesis-test.workers.dev/api/health");
+  assert.equal(httpCalls[1].url, "https://neurogenesis-test.workers.dev/api/chat");
+  assert.equal(httpCalls[1].options.headers.Authorization, "Bearer private-app-token");
+  assert.equal(httpCalls[1].options.body.includes("private-app-token"), false,
+    "the app access token must be sent only as an authorization header");
+  assert.throws(() => bridge.createHttpAdapter({ endpoint: "http://example.com", clientToken: "x" }),
+    /HTTPS/u, "public gateways must require HTTPS");
+  assert.throws(() => bridge.createHttpAdapter({ endpoint: "https://example.com" }),
+    /ключ доступа/u, "the adapter must not connect without an app access token");
+  console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
