@@ -29,6 +29,8 @@
   let visualDirty = true;
   let fpsFrames = 0;
   let fpsLast = 0;
+  let frameScheduled = false;
+  let animationWasActive = false;
   const activeNeuronIds = new Set();
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
@@ -47,6 +49,11 @@
   let connectionsDirty = true;
   let nodesDirty = true;
   const curveByKey = new Map();
+  function scheduleFrame() {
+    if (frameScheduled) return;
+    frameScheduled = true;
+    requestAnimationFrame(frame);
+  }
   function rebuildIndexes() {
     neuronById.clear();
     synapseByKey.clear();
@@ -135,6 +142,7 @@
     $("save-status").textContent = "Есть несохранённые изменения";
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveState, 700);
+    scheduleFrame();
   }
   function saveState() {
     try {
@@ -186,9 +194,13 @@
     nodesDirty = true;
     visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
+    scheduleFrame();
   }
   new ResizeObserver(resize).observe(canvas);
   window.addEventListener("resize", resize);
+  for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
+    document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
+  }
 
   function worldAt(point) { return { x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom }; }
   function screenAt(point) { return { x: point.x * view.zoom + view.x, y: point.y * view.zoom + view.y }; }
@@ -199,6 +211,7 @@
     view.x = px - before.x * view.zoom; view.y = py - before.y * view.zoom;
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
+    scheduleFrame();
   }
   function fitNetwork() {
     if (!neurons.length) return;
@@ -210,6 +223,7 @@
     view.y = height/2 - ((minY+maxY)/2) * view.zoom;
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom*100) + "%";
+    scheduleFrame();
   }
 
   function hitTest(point) {
@@ -225,6 +239,7 @@
     nodesDirty = true;
     visualDirty = true;
     renderInspector(); updateMetrics();
+    scheduleFrame();
   }
   function addNeuron(x, y, type = "logic") {
     const n = makeNeuron("Новый нейрон " + nextId, type, x, y, .5);
@@ -264,6 +279,7 @@
       emitted++;
     }
     updateMetrics();
+    scheduleFrame();
   }
   function stimulateRandom() {
     if (!neurons.length) return;
@@ -536,15 +552,7 @@
 
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
-    requestAnimationFrame(frame);
-    fpsFrames++;
-    if(!fpsLast)fpsLast=time;
-    if(time-fpsLast>=500){
-      const fps=Math.round(fpsFrames*1000/(time-fpsLast));
-      const fpsEl=$("fps-value");
-      if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
-      fpsFrames=0;fpsLast=time;
-    }
+    frameScheduled = false;
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const id of activeNeuronIds){
@@ -566,6 +574,22 @@
     if(visualDirty||animationActive){
       drawBackground();drawConnections();drawNeurons();
       visualDirty=false;
+    }
+    if(animationActive){
+      if(!animationWasActive){fpsFrames=0;fpsLast=time;}
+      animationWasActive=true;
+      fpsFrames++;
+      if(time-fpsLast>=500){
+        const fps=Math.round(fpsFrames*1000/(time-fpsLast));
+        const fpsEl=$("fps-value");
+        if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
+        fpsFrames=0;fpsLast=time;
+      }
+      scheduleFrame();
+    }else{
+      animationWasActive=false;fpsFrames=0;fpsLast=0;
+      const fpsEl=$("fps-value");
+      if(fpsEl){fpsEl.textContent="— FPS";fpsEl.dataset.level="idle";}
     }
     if((animationActive||visualDirty)&&time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
   }
@@ -740,6 +764,7 @@
       const anchor = neurons.find(n => n.name === "Долгая память");
       if (anchor) activate(anchor.id, .35);
       visualDirty = true;
+      scheduleFrame();
       return spread.length;
     }
   };
@@ -748,5 +773,5 @@
   loadState();
   if(!neurons.length){seedNetwork();fitNetwork();}
   requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});
-  requestAnimationFrame(frame);
+  scheduleFrame();
 })();
