@@ -15,9 +15,12 @@ uint32_t ng_brain_add_neuron(ng_brain_handle* handle, const char* name, int kind
                              float x, float y, float excitability);
 int ng_brain_add_synapse(ng_brain_handle* handle, uint32_t from, uint32_t to, float weight);
 int ng_brain_set_synapse_weight(ng_brain_handle* handle, uint32_t from, uint32_t to, float weight);
+int ng_brain_set_synapse_eligibility(ng_brain_handle* handle, uint32_t from, uint32_t to, float value);
+void ng_brain_reset_eligibility(ng_brain_handle* handle);
 int ng_brain_stimulate(ng_brain_handle* handle, uint32_t neuron_id, float strength);
 uint32_t ng_brain_learn(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
-void ng_brain_step(ng_brain_handle* handle, float delta_seconds);
+uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
+void ng_brain_step(ng_brain_handle* handle, float delta_seconds, float eligibility_retention);
 
 uint32_t ng_brain_neuron_count(const ng_brain_handle* handle);
 uint32_t ng_brain_synapse_count(const ng_brain_handle* handle);
@@ -33,6 +36,7 @@ uint32_t ng_brain_synapse_from_at(const ng_brain_handle* handle, uint32_t index)
 uint32_t ng_brain_synapse_to_at(const ng_brain_handle* handle, uint32_t index);
 float ng_brain_synapse_weight_at(const ng_brain_handle* handle, uint32_t index);
 float ng_brain_synapse_signal_at(const ng_brain_handle* handle, uint32_t index);
+float ng_brain_synapse_eligibility_at(const ng_brain_handle* handle, uint32_t index);
 
 #ifdef __cplusplus
 }
