@@ -2248,7 +2248,7 @@
     if(/ИСТОРИЯ ИЗМЕНЕНИЙ ПРИЧИННОЙ МОДЕЛИ|ДИНАМИКА ПРИЧИННОЙ МОДЕЛИ/u.test(text))return "model_revision";
     if(/не нашёл в своей памяти|не нашел в своей памяти|пока нет достаточно близкой информации/u.test(text))return "no_match";
     if(/не буду выбирать|возможное противоречие|противореч/u.test(text))return "conflict_review";
-    if(/По твоему сообщению|В моей памяти записано|В сохранённой записи/u.test(text))return "structured_retrieval";
+    if(/По твоему сообщению|Ты сообщал мне|В моей памяти записано|В сохранённой записи/u.test(text))return "structured_retrieval";
     return intent==="general_question"?"associative_retrieval":"rule_based_reasoning";
   }
   function finishCognitiveCycle(context,result,error) {
