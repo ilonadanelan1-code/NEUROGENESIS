@@ -140,7 +140,7 @@ const localStorage = {
   setItem(key, value) { database.set(key, String(value)); }
 };
 const sandbox = {
-  window, document, localStorage, console, Date, Math, Set, Map, JSON,
+  window, document, localStorage, console, Date, Math, Set, Map, JSON, URL,
   async fetch(url, options) {
     if (String(url).endsWith("/api/health")) {
       return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
