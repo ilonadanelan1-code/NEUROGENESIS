@@ -3,6 +3,7 @@
 
   const MEMORY_KEY = "neurogenesis.memories.v1";
   const DIALOG_KEY = "neurogenesis.dialog.v1";
+  const DIALOG_CONTEXT_KEY = "neurogenesis.dialog-context.v1";
   const MODEL_DECISIONS_KEY = "neurogenesis.model-decisions.v1";
   const MODEL_EVIDENCE_KEY = "neurogenesis.model-evidence.v1";
   const REASONING_ARCHIVE_KEY = "neurogenesis.reasoning-archive.v1";
@@ -22,6 +23,11 @@
   const REASONING_AUDIT = window.NGReasoningAudit || null;
   const DISCRIMINATING_OBSERVATIONS = window.NGDiscriminatingObservations || null;
   const HYPOTHESIS_LIFECYCLE = window.NGHypothesisLifecycle || null;
+  const DIALOG_CONTEXT = window.NGDialogContext || null;
+  const LLM_BRIDGE = window.NGLLMBridge || null;
+  const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
+  if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
+  let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
@@ -2000,6 +2006,19 @@
       console.warn("Could not load NEUROGENESIS dialogue:", error);
     }
     try {
+      if (DIALOG_CONTEXT) {
+        const savedContext = JSON.parse(localStorage.getItem(DIALOG_CONTEXT_KEY) || "null");
+        dialogContext = savedContext
+          ? DIALOG_CONTEXT.sanitize(savedContext)
+          : DIALOG_CONTEXT.rebuild(dialog);
+        if (!savedContext && dialog.length) memoryMigrated = true;
+      }
+    } catch (error) {
+      dialogContext = DIALOG_CONTEXT ? DIALOG_CONTEXT.rebuild(dialog) : null;
+      memoryMigrated = true;
+      console.warn("Could not load NEUROGENESIS dialogue context:", error);
+    }
+    try {
       const savedArchive=JSON.parse(localStorage.getItem(REASONING_ARCHIVE_KEY)||"[]");
       reasoningArchive=mergeReasoningArchive(savedArchive,dialog);
       if(JSON.stringify(savedArchive)!==JSON.stringify(reasoningArchive))memoryMigrated=true;
@@ -2087,6 +2106,14 @@
       ok = false;
       console.warn("NEUROGENESIS dialogue storage failed", error);
     }
+    if (DIALOG_CONTEXT && dialogContext) {
+      try {
+        localStorage.setItem(DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext)));
+      } catch (error) {
+        ok = false;
+        console.warn("NEUROGENESIS dialogue-context storage failed", error);
+      }
+    }
     try {
       localStorage.setItem(MODEL_DECISIONS_KEY,JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
     } catch(error) {
@@ -2155,6 +2182,9 @@
     if(clean)entry.reasoning=clean;
     dialog.push(entry);
     dialog = dialog.slice(-MAX_DIALOG);
+    if (DIALOG_CONTEXT && typeof DIALOG_CONTEXT.track === "function") {
+      dialogContext = DIALOG_CONTEXT.track(dialogContext, entry);
+    }
     if(clean)reasoningArchive=mergeReasoningArchive(reasoningArchive,[entry]);
     persist();
     renderDialog();
