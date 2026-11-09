@@ -120,7 +120,7 @@ function loadMemory() {
   if (!window.NGObservationEngine) {
     vm.runInNewContext(fs.readFileSync("observation-engine.js","utf8"),sandbox,{filename:"observation-engine.js"});
   }
-  loadMemory();
+  vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
 loadMemory();
 
