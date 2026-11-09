@@ -175,6 +175,7 @@ const document = {
     return elements.get(id);
   },
   createElement() { return new ElementStub(); },
+  querySelector() { return null; },
   body: new ElementStub()
 };
 const knownNeurons = new Set(["n112", "n113", "n114", "n115", "n116", "n118"]);
@@ -220,6 +221,18 @@ vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename:
 vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), sandbox, { filename: "goals.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
+const originalGraphCreate = window.NGKnowledgeGraph.create;
+let knowledgeGraphBuildCount = 0;
+window.NGKnowledgeGraph.create = knowledge => {
+  const engine = originalGraphCreate(knowledge);
+  return {
+    ...engine,
+    build(memories) {
+      knowledgeGraphBuildCount++;
+      return engine.build(memories);
+    }
+  };
+};
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
 vm.runInNewContext(fs.readFileSync("discriminating-observations.js", "utf8"), sandbox, { filename: "discriminating-observations.js" });
@@ -1074,6 +1087,20 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.match(reassessmentPlan,/не переписывают старый ответ/u,
     "the plan must preserve the historical assessment instead of silently rewriting it");
   window.NGGoals = priorGoalsManager;
+
+  const memoryCountBeforeGraphRefresh = window.NGMemory.count();
+  window.NGMemory.remember("Контрольная запись для проверки обновления статистики графа");
+  assert.equal(window.NGMemory.count(), memoryCountBeforeGraphRefresh + 1,
+    "a new durable memory should still be added before the UI graph cache is refreshed");
+  const buildsAfterMemoryChange = knowledgeGraphBuildCount;
+  assert.ok(buildsAfterMemoryChange > 0,
+    "persisting changed memory must rebuild the knowledge graph statistics");
+  await elements.get("memory-manage").dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
+    "opening the memory library must reuse the already computed graph statistics");
+  await elements.get("memory-manage").dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
+    "closing the memory library must not rebuild an unchanged graph");
 
   console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
