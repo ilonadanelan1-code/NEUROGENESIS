@@ -4,6 +4,7 @@ const fs = require("node:fs");
 
 const html = fs.readFileSync("index.html", "utf8");
 const css = fs.readFileSync("styles.css", "utf8");
+const app = fs.readFileSync("app.js", "utf8");
 const viewport = html.match(/<meta name="viewport" content="([^"]+)"/u);
 
 assert.ok(viewport, "the app must declare a mobile viewport");
@@ -39,4 +40,18 @@ assert.ok(version, "the displayed app version must be present");
 assert.ok(html.includes("./styles.css?v=" + version),
   "the stylesheet cache key must match the displayed app version");
 
-console.log("NEUROGENESIS mobile layout contracts: viewport, portrait stacking, pointer canvas, short-landscape sizing and scroll access passed.");
+assert.ok(app.includes("function scheduleFrame()"),
+  "the canvas must have a single guarded frame scheduler");
+assert.ok(app.includes('document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});'),
+  "user input must wake the renderer from its idle state");
+const frameStart = app.indexOf("  function frame(time) {");
+const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);
+assert.notEqual(frameStart, -1, "the canvas frame loop must exist");
+assert.notEqual(frameEnd, -1, "the canvas frame loop must have a clear boundary");
+const frameBody = app.slice(frameStart, frameEnd);
+assert.doesNotMatch(frameBody, /requestAnimationFrame\(frame\)/u,
+  "the frame callback must not schedule itself unconditionally while idle");
+assert.match(frameBody, /if\(animationActive\)[\s\S]*scheduleFrame\(\)/u,
+  "continuous rendering must continue only while the simulation or activity is running");
+
+console.log("NEUROGENESIS mobile layout and idle-render contracts: viewport, portrait stacking, pointer canvas, short-landscape sizing and event-driven rendering passed.");
