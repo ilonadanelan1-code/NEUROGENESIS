@@ -107,6 +107,25 @@ assert.equal(restored.meta.conclusions[0].lifecycle.state,"restored");
 assert.ok(restored.meta.conclusions[0].lifecycle.events.filter(item=>item.kind==="decision_applied").length===3,
   "decision history must keep conditional, suspend and restore actions");
 
+// A new counter-observation after an explicit restore must remain visible even
+// while the working-model state continues to reflect that explicit decision.
+const postRestoreEvidence={...counterObservation,id:"o3",evidence:"После восстановления результат снова не наблюдался"};
+const postRestoreMeta={...restored.meta,reviews:[...restored.meta.reviews,{
+  claimId:"o3",kind:"counterexample",phase:"subsequent",
+  subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
+  at:12500,evidence:"После восстановления результат снова не наблюдался"
+}]};
+const restoredWithNewEvidence=engine.reconcile(postRestoreMeta,[postRestoreEvidence],[
+  {edgeSubject:"Недостаток сна",edgeObject:"Усталость",strategy:"restore",at:11000,claimIds:["c1"]}
+],[],13000);
+const postRestoreLifecycle=restoredWithNewEvidence.meta.conclusions[0].lifecycle;
+assert.equal(postRestoreLifecycle.state,"restored",
+  "the lifecycle state must continue to reflect the explicit working-model decision");
+assert.ok(postRestoreLifecycle.challengingClaimIds.includes("o3"),
+  "new counter-evidence must remain visible after a restore decision");
+assert.ok(postRestoreLifecycle.events.some(item=>item.kind==="evidence_added"&&item.claimId==="o3"),
+  "new counter-evidence must be appended to the lifecycle event history after restore");
+
 const changedRoutes={...restored.meta,conclusions:[{...restored.meta.conclusions[0],
  paths:[[causal("c1","Недостаток сна","Усталость"),causal("c2","Стресс","Усталость")]]}]};
 const restoredDecision=[{edgeSubject:"Недостаток сна",edgeObject:"Усталость",strategy:"restore",at:11000}];
