@@ -1,0 +1,20 @@
+name: Validate atomic localStorage transactions
+on:
+  push:
+    branches:
+      - automation/overnight-neurogenesis-20261109
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  atomic-storage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test journal, rollback, nesting and startup recovery
+        run: node tests/storage-transaction.test.js
