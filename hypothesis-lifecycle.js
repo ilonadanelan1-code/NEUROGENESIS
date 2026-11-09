@@ -174,9 +174,16 @@
           }));
         }
         record.decisionRefs=uniqueIds(record.decisionRefs);
-        const latestDecision=routeDecisions.length?routeDecisions[routeDecisions.length-1]:
-          record.decision&&routeEdges.some(edge=>knowledge.sameEntity(edge.subject,record.decision.edgeSubject)&&
-            knowledge.sameEntity(edge.object,record.decision.edgeObject))?record.decision:null;
+        const latestDecisionByEdge=new Map();
+        for(const item of routeDecisions)latestDecisionByEdge.set(edgeKey({subject:item.edgeSubject,object:item.edgeObject}),item);
+        const activeDecisions=[...latestDecisionByEdge.values()];
+        const restrictionRank={suspend:4,weaken:3,conditional:2,restore:1};
+        activeDecisions.sort((a,b)=>(restrictionRank[b.strategy]||0)-(restrictionRank[a.strategy]||0)||
+          safeTime(b.at,0)-safeTime(a.at,0));
+        const fallbackDecision=record.decision&&routeEdges.some(edge=>
+          knowledge.sameEntity(edge.subject,record.decision.edgeSubject)&&
+          knowledge.sameEntity(edge.object,record.decision.edgeObject))?record.decision:null;
+        const latestDecision=activeDecisions[0]||fallbackDecision;
         record.decision=latestDecision?{strategy:latestDecision.strategy,edgeSubject:latestDecision.edgeSubject,
           edgeObject:latestDecision.edgeObject,at:safeTime(latestDecision.at,at)}:null;
         const pendingInquiry=allInquiries.some(item=>item&&item.status==="open"&&
