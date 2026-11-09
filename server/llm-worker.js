@@ -2,6 +2,7 @@ const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache
 const MAX_BODY = 32000;
 const MAX_MESSAGES = 18;
 const MAX_MESSAGE_CHARS = 5200;
+const UPSTREAM_TIMEOUT_MS = 45000;
 
 function json(data, status, cors) {
   return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...cors } });
@@ -78,9 +79,11 @@ export default {
     const messages = cleanMessages(payload && payload.messages);
     if (!messages) return json({ error: "invalid_messages" }, 400, cors);
 
-    let upstream;
-    try {
-      upstream = await fetch(base + "/chat/completions", {
+    const controller = new AbortController();
+    let timeoutId = null;
+    let timedOut = false;
+    const upstreamOperation = (async () => {
+      const upstream = await fetch(base + "/chat/completions", {
         method: "POST",
         headers: {
           "Authorization": "Bearer " + env.UPSTREAM_API_KEY,
@@ -92,15 +95,39 @@ export default {
           temperature: 0.7,
           max_tokens: 900,
           stream: false
-        })
+        }),
+        signal: controller.signal
       });
-    } catch (_) {
-      return json({ error: "upstream_unreachable" }, 502, cors);
-    }
+      let result = null;
+      let invalidJson = false;
+      try { result = await upstream.json(); }
+      catch (_) { invalidJson = true; }
+      return { upstream, result, invalidJson };
+    })();
+    const upstreamDeadline = new Promise((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        const error = new Error("Upstream request timed out");
+        error.code = "NG_UPSTREAM_TIMEOUT";
+        reject(error);
+      }, UPSTREAM_TIMEOUT_MS);
+    });
 
-    let result;
-    try { result = await upstream.json(); }
-    catch (_) { return json({ error: "invalid_upstream_response" }, 502, cors); }
+    let upstreamResult;
+    try {
+      upstreamResult = await Promise.race([upstreamOperation, upstreamDeadline]);
+    } catch (error) {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      if (timedOut || error && error.code === "NG_UPSTREAM_TIMEOUT") {
+        return json({ error: "upstream_timeout" }, 504, cors);
+      }
+      return json({ error: "upstream_unreachable" }, 502, cors);
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+    const { upstream, result, invalidJson } = upstreamResult;
+    if (invalidJson) return json({ error: "invalid_upstream_response" }, 502, cors);
     if (!upstream.ok) {
       return json({ error: "upstream_error", upstream_status: upstream.status }, 502, cors);
     }
