@@ -34,7 +34,7 @@ assert.match(lifecycle, /if \(dirty\) saveState\(\)/u,
   "unsaved network changes must be flushed when rendering is suspended");
 assert.match(lifecycle, /clearTimeout\(saveTimer\)/u,
   "the pending debounced save must not be left behind during suspension");
-assert.match(lifecycle, /canvasResizeObserver\.disconnect\(\)/u,
+assert.match(lifecycle, /observer\.disconnect\(\)/u,
   "the resize observer must be disconnected on pagehide");
 assert.match(lifecycle, /canvasResizeObserver\.observe\(canvas\)/u,
   "the resize observer must be recreated when the page returns");
