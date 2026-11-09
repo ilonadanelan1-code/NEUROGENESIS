@@ -27,7 +27,7 @@
   const DIALOG_CONTEXT = window.NGDialogContext && typeof window.NGDialogContext.create === "function"
     ? window.NGDialogContext.create(KNOWLEDGE) : null;
   const DIALOG_MANAGER = window.NGDialogManager && typeof window.NGDialogManager.create === "function"
-    ? window.NGDialogManager.create() : null;
+    ? window.NGDialogManager.create(DIALOG_CONTEXT) : null;
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;

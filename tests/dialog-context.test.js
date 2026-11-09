@@ -37,6 +37,14 @@ assert.equal(engine.history(state, musicThread).some(row => /недостатк�
 const unresolved = engine.track(state, { role: "user", text: "Вернёмся к квантовым вычислениям", time: 6 });
 assert.equal(engine.resolve(unresolved, "А почему?").applied, false,
   "an unresolved return must not borrow context from the currently active unrelated topic");
+assert.equal(engine.isLikelyAnswer("Примерно четыре часа", "Сколько часов ты спал?"), true,
+  "a concise answer sharing the requested quantity must attach to the pending question");
+assert.equal(engine.isLikelyAnswer("Музыка прекрасна", "Сколько часов ты спал?"), false,
+  "an unrelated short statement must not be accepted as an answer merely because it is short");
+assert.equal(engine.isLikelyAnswer("Да", "Ты спал сегодня?"), true,
+  "a yes/no response should answer a pending yes/no question");
+assert.equal(engine.isLikelyAnswer("Да", "Почему ты устал?"), false,
+  "a bare yes/no response must not answer an open-ended causal question");
 const pendingBase = engine.track(
   engine.track(engine.empty(), { role: "user", text: "Недостаток сна вызывает усталость", time: 60 }),
   { role: "assistant", text: "Сколько часов ты спал?", time: 61 }
@@ -46,6 +54,18 @@ assert.equal(questionAfterQuestion.messages[questionAfterQuestion.messages.lengt
   "a follow-up question must not be marked as an answer to an earlier open question");
 assert.equal(questionAfterQuestion.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "a follow-up question must leave the earlier question open");
+const unrelatedShortStatement = engine.track(pendingBase, {
+  role: "user", text: "Музыка прекрасна", time: 66
+});
+assert.notEqual(unrelatedShortStatement.activeThreadId, pendingBase.activeThreadId,
+  "a meaningful short statement unrelated to the pending question must open a separate topic");
+assert.equal(unrelatedShortStatement.messages[unrelatedShortStatement.messages.length - 1].relation, "new_topic");
+assert.equal(unrelatedShortStatement.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
+  "the unrelated short statement must not close the earlier pending question");
+const musicFollowUp = engine.resolve(unrelatedShortStatement, "Почему?");
+assert.equal(musicFollowUp.applied, true);
+assert.match(musicFollowUp.query, /Музыка прекрасна/u);
+assert.doesNotMatch(musicFollowUp.query, /Сколько часов ты спал/u);
 const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");

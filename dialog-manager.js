@@ -29,16 +29,28 @@
     const value = normalise(text).replace(/[?]+$/u, "").trim();
     return /^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|как дела|как ты|что нового|спасибо|благодарю|пока|до свидания|ок|окей|ладно|ага|ясно)$/u.test(value);
   }
-  function isLikelyAnswer(text, pendingQuestion) {
+  function isLikelyAnswer(text, pendingQuestion, contextEngine) {
+    if (contextEngine && typeof contextEngine.isLikelyAnswer === "function") {
+      return contextEngine.isLikelyAnswer(text, pendingQuestion);
+    }
     const value = clean(text, 500);
-    const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
+    const question = normalise(pendingQuestion);
+    const answer = normalise(value);
+    const words = value ? value.split(/\s+/u).filter(Boolean).length : 0;
     const standaloneRequest =
       /(?:^|[^\p{L}])(?:объясни|объяснить|расскажи|рассказать|покажи|показать|задай|задать|составь|составить|напиши|написать|помоги|помочь|сделай|сделать|создай|создать|найди|найти|проверь|проверить|оцени|оценить|сравни|сравнить|рассчитай|рассчитать|перечисли|перечислить|подскажи|подсказать|научи|научить|разбери|разобрать|проанализируй|проанализировать)(?=$|[^\p{L}])/iu.test(value) ||
       /^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу узнать|хочу разобраться|я хочу понять)(?=$|\s)/iu.test(value);
-    return !!pendingQuestion && wordCount > 0 && wordCount <= 14 &&
-      !/[?？]/u.test(value) && !/[.!?]\s+\S/u.test(value) && !standaloneRequest;
+    if (!pendingQuestion || words < 1 || words > 14 || /[?？]/u.test(value) ||
+        /[.!?]\s+\S/u.test(value) || standaloneRequest) return false;
+    const answerTokens = new Set(answer.split(/\s+/u).filter(x=>x.length>2));
+    const questionTokens = new Set(question.split(/\s+/u).filter(x=>x.length>2));
+    const shared = [...answerTokens].filter(x=>questionTokens.has(x)).length;
+    return shared > 0 ||
+      /^(?:не знаю|не помню|не могу сказать|затрудняюсь(?: ответить)?|без понятия)$/u.test(answer) ||
+      (/^(?:ты|вы|он|она|они|это|есть ли|можно ли|правда ли|нужно ли|будет ли|сможешь ли|хочешь ли)(?=\s|$)/u.test(question) &&
+       /^(?:да|нет|скорее да|скорее нет|не совсем|возможно)$/u.test(answer));
   }
-  function classify(input, context = {}) {
+  function classify(input, context = {}, contextEngine = null) {
     const text = clean(input);
     const value = normalise(text);
     const active = context && context.activeThread || null;
@@ -74,7 +86,7 @@
       return result("objection", "examine_counterargument", 0.92, "objection_marker");
     }
     if ((last && last.role === "user" && last.relation === "answer_to_question") ||
-        isLikelyAnswer(text, pendingQuestion)) {
+        isLikelyAnswer(text, pendingQuestion, contextEngine)) {
       return result("answer", "attach_to_open_question", 0.9, "open_question_response");
     }
     if (isFollowUp(text)) {
@@ -90,8 +102,8 @@
   function result(intent, action, confidence, reason, extra = {}) {
     return { intent, action, confidence, reason, ...extra };
   }
-  function plan(input, context = {}) {
-    const classified = classify(input, context);
+  function plan(input, context = {}, contextEngine = null) {
+    const classified = classify(input, context, contextEngine);
     let clarification = "";
     if (classified.action === "choose_topic") {
       const ids = new Set(classified.candidates || []);
@@ -115,8 +127,12 @@
     };
   }
 
-  function create() {
-    return Object.freeze({ classify, plan, isQuestion, isFollowUp, returnTarget, isConversationalFiller });
+  function create(contextEngine = null) {
+    return Object.freeze({
+      classify: (input, context = {}) => classify(input, context, contextEngine),
+      plan: (input, context = {}) => plan(input, context, contextEngine),
+      isQuestion, isFollowUp, returnTarget, isConversationalFiller
+    });
   }
   window.NGDialogManager = Object.freeze({ version: 1, create });
 })();

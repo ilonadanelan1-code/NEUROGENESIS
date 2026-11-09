@@ -35,9 +35,26 @@
     const isLikelyAnswer = (text, pendingQuestion) => {
       const value = clean(text, 500);
       const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
-      return !!pendingQuestion && wordCount > 0 && wordCount <= 14 &&
-        !/[?？]/u.test(value) && !/[.!?]\s+\S/u.test(value) &&
-        !isStandaloneRequest(value);
+      if (!pendingQuestion || wordCount < 1 || wordCount > 14 ||
+          /[?？]/u.test(value) || /[.!?]\s+\S/u.test(value) ||
+          isStandaloneRequest(value)) return false;
+      const answer = normalise(value);
+      const question = normalise(pendingQuestion);
+      const directUncertainty = /^(?:не знаю|не помню|не могу сказать|затрудняюсь(?: ответить)?|без понятия)$/u.test(answer);
+      const sharedTopic = overlap(value, pendingQuestion) >= 0.2;
+      const yesNoQuestion = /^(?:ты|вы|он|она|они|это|есть ли|можно ли|правда ли|нужно ли|будет ли|сможешь ли|хочешь ли)(?=\s|$)/u.test(question);
+      const yesNoAnswer = /^(?:да|нет|скорее да|скорее нет|не совсем|возможно)$/u.test(answer);
+      const numericQuestion = /(?:сколько|какое количество|как часто|по какой шкале|на сколько)/u.test(question);
+      const numericAnswer = /(?:\d|ноль|один|одна|одно|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать|двадцать|тридцать|сорок|пятьдесят|сто)/u.test(answer);
+      const timeQuestion = /(?:когда|во сколько|какого числа|в какой день)/u.test(question);
+      const timeAnswer = /(?:\d{1,2}[:.]\d{2}|\d{1,2}[./-]\d{1,2}|вчера|сегодня|позавчера|завтра|утром|днем|днём|вечером|ночью)/u.test(answer);
+      const locationQuestion = /(?:где|куда|откуда|в каком городе|в какой стране)/u.test(question);
+      const locationAnswer = /^(?:в|на|из|около)\s+\S+/u.test(answer);
+      const causalQuestion = /(?:почему|зачем)/u.test(question);
+      const causalAnswer = /^(?:потому что|так как|из[- ]за|благодаря|вследствие)\b/u.test(answer);
+      return directUncertainty || sharedTopic || (yesNoQuestion && yesNoAnswer) ||
+        (numericQuestion && numericAnswer) || (timeQuestion && timeAnswer) ||
+        (locationQuestion && locationAnswer) || (causalQuestion && causalAnswer);
     };
     const topicOpening = text => {
       const match = clean(text, 500).match(/^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу разобраться|хочу узнать)(?:\s*[,—:]\s*|\s+)([^.!?]{3,120})/iu);
@@ -175,6 +192,9 @@
           const words = tokens(text).length;
           const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered &&
             isLikelyAnswer(text, thread.pendingQuestion.text));
+          const independentStatement = !!(thread.pendingQuestion && !likelyAnswer && words >= 2 &&
+            similarity < 0.12 && knowledge && typeof knowledge.extractClaims === "function" &&
+            knowledge.extractClaims(text).length > 0);
           const opening = topicOpening(text);
           const openingSimilarity = opening
             ? overlap(opening, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText)
@@ -183,7 +203,7 @@
           if (likelyAnswer) {
             relation = "answer_to_question";
             thread.pendingQuestion.answered = true;
-          } else if (independentTopic) {
+          } else if (independentTopic || independentStatement) {
             thread = createThread(state, text, time);
             relation = "new_topic";
             state.lastDecision = { kind: "topic_switch", text: thread.title, candidates: [thread.id] };
@@ -301,7 +321,7 @@
       const id = threadId || state.activeThreadId;
       return state.messages.filter(row => row.threadId === id).slice(-Math.max(1, Math.min(24, Number(limit) || 12)));
     }
-    return { version: 1, empty, sanitize, track, rebuild, merge, resolve, report, history, overlap, hasReference };
+    return { version: 1, empty, sanitize, track, rebuild, merge, resolve, report, history, overlap, hasReference, isLikelyAnswer };
   }
 
   window.NGDialogContext = Object.freeze({ version: 1, create });
