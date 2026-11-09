@@ -368,13 +368,14 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const importTime=1794159000000;
   const validImportedEdge={id:"valid-import-edge",subject:"Недостаток сна",object:"снижению концентрации"};
   const observationReviewEdge={id:"observation-review-edge",subject:"Недосып",object:"снижению концентрации"};
+  const observationAlternativeEdge={id:"observation-alternative-edge",subject:"Стресс",object:"снижению концентрации"};
   const reportedEvidenceEdge={id:"reported-evidence-edge",subject:"Усталость",object:"снижению концентрации",
     evidence:"По данным исследования, усталость приводит к снижению концентрации"};
   const importedReasoning={
     version:1,type:"derived_hypotheses",createdAt:importTime,status:"current",
     conclusions:[
       {subject:"Недостаток сна",object:"снижению концентрации",paths:[[validImportedEdge]]},
-      {subject:"Недосып",object:"снижению концентрации",paths:[[observationReviewEdge]]},
+      {subject:"Недосып",object:"снижению концентрации",paths:[[observationReviewEdge],[observationAlternativeEdge]]},
       {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
       {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
     ],
@@ -483,13 +484,29 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const storedLifecycleAfterObservation=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
     .find(item=>item.time===importTime).reasoning.conclusions
     .find(item=>item.subject==="Недосып").lifecycle;
-  assert.equal(storedLifecycleAfterObservation.state,"challenged",
-    "a new matching counter-observation must immediately move the archived hypothesis to challenged");
+  assert.equal(storedLifecycleAfterObservation.state,"partially_challenged",
+    "a new counter-observation must challenge only the affected route when an alternative remains");
   assert.ok(storedLifecycleAfterObservation.challengingClaimIds.includes(parsedNegativeObservation.id),
     "the challenged state must point to the exact counter-observation source claim");
   assert.ok(storedLifecycleAfterObservation.events.some(item=>item.kind==="evidence_added"&&
     item.claimId===parsedNegativeObservation.id),
     "the lifecycle event log must record the counter-observation");
+  assert.equal(storedLifecycleAfterObservation.routeReviews.length,2);
+  assert.equal(storedLifecycleAfterObservation.routeReviews[0].state,"challenged");
+  assert.equal(storedLifecycleAfterObservation.routeReviews[1].state,"new",
+    "the untouched alternative route must survive the full memory-write and persistence pipeline");
+  const lifecycleReportAfterObservation=window.NGMemory.hypothesisLifecycleReport();
+  assert.match(lifecycleReportAfterObservation,/ЧАСТЬ МАРШРУТОВ ОСПАРИВАЕТСЯ/u);
+  assert.match(lifecycleReportAfterObservation,/Маршрут 1 · затронут контрпримером/u);
+  assert.match(lifecycleReportAfterObservation,/Маршрут 2 · пока без прямых свидетельств/u);
+  const routeQuestions=window.NGMemory.inquiries();
+  assert.ok(routeQuestions.some(item=>item.kind==="discriminating_observations"&&
+    item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
+    item.comparisonEdges.some(edge=>edge.subject==="Стресс")),
+    "the existing research queue must offer a targeted comparison of the two alternative routes");
+  const routeResearchPlan=window.NGMemory.researchStrategy();
+  assert.match(routeResearchPlan,/два возможных маршрута/u,
+    "the research planner must select a discriminating question for the surviving alternative");
   assert.equal(window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="Недосып"),false,
     "a counter-observation must not silently change the working-model decision");
   const importedCycles=window.NGMemory.cognitiveCycles();
