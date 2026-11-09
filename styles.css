@@ -298,3 +298,8 @@ select.text-input{color-scheme:dark}
   .icon-button,.tool-button{width:44px;height:44px;min-width:44px;padding:0}
   .secondary-button{height:auto;padding-top:7px;padding-bottom:7px}
 }
+
+#wasm-learning-state{margin-left:auto;text-align:right;color:#9aabb0;font-size:7px;letter-spacing:.05em}
+#wasm-learning-state[data-state="ready"]{color:#80e0bc}
+#wasm-learning-state[data-state="loading"]{color:#e6c78b}
+#wasm-learning-state[data-state="error"],#wasm-learning-state[data-state="unavailable"]{color:#e5a7af}

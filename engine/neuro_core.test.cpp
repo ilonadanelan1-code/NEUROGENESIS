@@ -58,6 +58,57 @@ int main() {
     require(std::isfinite(brain.find_neuron(output)->activation),
             "valid time steps must preserve finite target activation");
 
+    Brain learning_brain;
+    const auto pre_id = learning_brain.add_neuron("pre", NeuronKind::Sensory, 0.0f, 0.0f, 1.0f);
+    const auto post_id = learning_brain.add_neuron("post", NeuronKind::Logic, 0.0f, 0.0f, 1.0f);
+    require(learning_brain.add_synapse(pre_id, post_id, 0.5f),
+            "learning fixture must create a synapse");
+    require(learning_brain.stimulate(pre_id, 0.8f) &&
+            learning_brain.stimulate(post_id, 0.7f),
+            "learning fixture must activate both connected neurons");
+    require(learning_brain.learn(0.5f, 1.0f, 0.0f) == 1,
+            "positive reward must strengthen a co-active synapse");
+    require(std::abs(learning_brain.synapses()[0].weight - 0.78f) < 1.0e-5f,
+            "Hebbian potentiation must follow rate * reward * pre * post");
+    require(learning_brain.learn(0.5f, -1.0f, 0.0f) == 1,
+            "negative reward must weaken a co-active synapse");
+    require(std::abs(learning_brain.synapses()[0].weight - 0.5f) < 1.0e-5f,
+            "negative reinforcement must reverse the potentiation");
+    require(learning_brain.learn(0.0f, 0.0f, 0.1f) == 1,
+            "weight decay must update a synapse even without reinforcement");
+    require(std::abs(learning_brain.synapses()[0].weight - 0.45f) < 1.0e-5f,
+            "weight decay must be proportional to the current weight");
+
+    const float learning_weight_before_invalid = learning_brain.synapses()[0].weight;
+    require(learning_brain.learn(nan, 1.0f, 0.0f) == 0,
+            "non-finite learning rate must be rejected");
+    require(learning_brain.learn(0.5f, infinity, 0.0f) == 0,
+            "non-finite reward must be rejected");
+    require(learning_brain.learn(0.5f, 1.0f, nan) == 0,
+            "non-finite decay must be rejected");
+    require(learning_brain.synapses()[0].weight == learning_weight_before_invalid,
+            "invalid learning parameters must not change synaptic weights");
+
+    require(learning_brain.set_synapse_weight(pre_id, post_id, 2.0f),
+            "weight restoration must accept a finite value");
+    require(learning_brain.synapses()[0].weight == 1.0f,
+            "restored weights must be clamped to one");
+    require(learning_brain.set_synapse_weight(pre_id, post_id, -1.0f),
+            "weight restoration must accept finite lower bounds");
+    require(learning_brain.synapses()[0].weight == 0.0f,
+            "restored weights must be clamped to zero");
+    require(!learning_brain.set_synapse_weight(pre_id, post_id, nan),
+            "non-finite restored weights must be rejected");
+    require(!learning_brain.set_synapse_weight(post_id, pre_id, 0.5f),
+            "unknown synapse pairs must not be created by weight restoration");
+
+    require(learning_brain.set_synapse_weight(pre_id, post_id, 0.98f),
+            "learning saturation fixture must set its initial weight");
+    require(learning_brain.learn(1.0f, 1.0f, 0.0f) == 1,
+            "positive learning must update a near-saturated synapse");
+    require(learning_brain.synapses()[0].weight == 1.0f,
+            "synaptic learning must never exceed the upper bound");
+
     ng_brain_handle* api_brain = ng_brain_create();
     require(api_brain != nullptr, "C ABI must allocate an independent brain handle");
 
@@ -92,6 +143,22 @@ int main() {
             "invalid C ABI indices must return a safe sentinel");
     require(std::isnan(ng_brain_neuron_activation_at(api_brain, 99)),
             "invalid C ABI float reads must return NaN");
+    const float weight_before_c_api_learning = ng_brain_synapse_weight_at(api_brain, 0);
+    require(ng_brain_learn(api_brain, 0.5f, 1.0f, 0.0f) == 1,
+            "C ABI must expose reward-modulated learning");
+    require(ng_brain_synapse_weight_at(api_brain, 0) > weight_before_c_api_learning,
+            "C ABI learning must strengthen co-active synapses");
+    require(ng_brain_set_synapse_weight(api_brain, api_input, api_output, 0.25f) == 1,
+            "C ABI must expose exact weight restoration");
+    require(std::abs(ng_brain_synapse_weight_at(api_brain, 0) - 0.25f) < 1.0e-6f,
+            "C ABI weight restoration must be reflected by state readers");
+    require(ng_brain_set_synapse_weight(api_brain, api_output, api_input, 0.5f) == 0,
+            "C ABI must not create missing synapses when restoring weights");
+    require(ng_brain_learn(nullptr, 0.5f, 1.0f, 0.0f) == 0,
+            "null C ABI learning must be safe");
+    require(ng_brain_set_synapse_weight(nullptr, api_input, api_output, 0.5f) == 0,
+            "null C ABI weight restoration must be safe");
+
     require(ng_brain_neuron_count(nullptr) == 0,
             "null C ABI handles must be safe to inspect");
     ng_brain_destroy(api_brain);

@@ -54,6 +54,16 @@ try {
   assert.equal(snapshot.neurons.length, 2);
   assert.equal(snapshot.synapses.length, 1);
 
+  const directWeightBeforeLearning = brain.getSynapseAt(0).weight;
+  assert.equal(brain.learn(0.5, 1, 0), 1,
+    "the WebAssembly core must expose reward-modulated learning");
+  assert.ok(brain.getSynapseAt(0).weight > directWeightBeforeLearning);
+  assert.equal(brain.setSynapseWeight(sensory, output, 0.5), true,
+    "the adapter must expose exact synapse-weight restoration");
+  assert.equal(brain.getSynapseAt(0).weight, Math.fround(0.5));
+  assert.equal(brain.setSynapseWeight(output, sensory, 0.5), false,
+    "weight restoration must not create a new synapse");
+
   assert.throws(() => brain.addNeuron("bad", "unknown"), /kind must be/u);
   assert.throws(() => brain.step(-0.1), /cannot be negative/u);
   assert.throws(() => brain.step(Number.NaN), /finite number/u);
@@ -89,12 +99,28 @@ try {
     steps: 0,
     stimulations: 0,
     rebuilds: 1,
+    learningUpdates: 0,
+    learnedSynapses: 0,
     lastError: null
   });
 
   assert.equal(shadow.stimulate("n-source", 0.2), true);
   assert.equal(shadow.stimulate("missing-neuron", 0.2), false);
   assert.equal(shadow.step(0.1), true);
+
+  const sourceWeightBeforeLearning = shadow.snapshot().synapses[0].weight;
+  assert.equal(shadow.learn(0.5, 1, 0), 1,
+    "the shadow controller must expose controlled Hebbian learning");
+  const learnedWeight = shadow.snapshot().synapses[0].weight;
+  assert.ok(learnedWeight > sourceWeightBeforeLearning);
+  assert.deepEqual(shadow.learnedWeights(), [{
+    from: "n-source",
+    to: "n-output",
+    baseWeight: 0.6,
+    weight: learnedWeight
+  }]);
+  assert.equal(shadow.diagnostics().learningUpdates, 1);
+  assert.equal(shadow.diagnostics().learnedSynapses, 1);
 
   const mirrored = shadow.snapshot();
   assert.deepEqual(mirrored.neurons.map(row => row.id), ["n-source", "n-output"]);
@@ -111,6 +137,12 @@ try {
   assert.equal(shadow.rebuild(), true, "the shadow network must be rebuildable from the latest JS snapshot");
   assert.equal(shadow.diagnostics().neurons, 3);
   assert.equal(shadow.diagnostics().synapses, 2);
+  assert.ok(Math.abs(shadow.snapshot().synapses[0].weight - learnedWeight) < 1.0e-6,
+    "learned weights must survive structural snapshot rebuilds");
+
+  const exportedLearning = shadow.learnedWeights();
+  assert.equal(shadow.restoreLearnedWeights(exportedLearning), true,
+    "learned weights must support explicit export and restore");
 
   const beforeFailedRebuild = shadow.snapshot();
   sourceNetwork.neurons.push({
@@ -125,9 +157,18 @@ try {
   assert.equal(shadow.snapshot().neurons.length, beforeFailedRebuild.neurons.length);
   assert.match(shadow.diagnostics().lastError, /unique/u);
 
+  const overlayBeforeFailedRestore = shadow.learnedWeights();
+  assert.equal(shadow.restoreLearnedWeights([{
+    from: "n-source", to: "n-output", baseWeight: 0.6, weight: 0.9
+  }]), false, "a failed snapshot rebuild must reject the imported overlay");
+  assert.deepEqual(shadow.learnedWeights(), overlayBeforeFailedRestore,
+    "failed learned-weight import must preserve the previous overlay");
+
   sourceNetwork.neurons = sourceNetwork.neurons.filter(row => row.id !== "duplicate");
   assert.equal(shadow.rebuild(), true, "the mirror must recover after its source snapshot is repaired");
   assert.equal(shadow.diagnostics().lastError, null);
+  assert.ok(Math.abs(shadow.snapshot().synapses[0].weight - learnedWeight) < 1.0e-6,
+    "a repaired snapshot must not discard a valid learned overlay");
 } finally {
   shadow.dispose();
 }

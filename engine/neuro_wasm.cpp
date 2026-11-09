@@ -69,10 +69,30 @@ int ng_brain_add_synapse(ng_brain_handle* handle, std::uint32_t from,
     }
 }
 
+int ng_brain_set_synapse_weight(ng_brain_handle* handle, std::uint32_t from,
+                                  std::uint32_t to, float weight) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.set_synapse_weight(from, to, weight) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
 int ng_brain_stimulate(ng_brain_handle* handle, std::uint32_t neuron_id, float strength) {
     if (!handle) return 0;
     try {
         return handle->brain.stimulate(neuron_id, strength) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+std::uint32_t ng_brain_learn(ng_brain_handle* handle, float learning_rate,
+                             float reward, float weight_decay) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.learn(learning_rate, reward, weight_decay);
     } catch (...) {
         return 0;
     }

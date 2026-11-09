@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <utility>
 #include <unordered_map>
+#include <utility>
 
 namespace neurogenesis {
 
@@ -34,12 +34,54 @@ bool Brain::add_synapse(std::uint32_t from, std::uint32_t to, float weight) {
     return true;
 }
 
+bool Brain::set_synapse_weight(std::uint32_t from, std::uint32_t to, float weight) {
+    if (!std::isfinite(weight)) return false;
+    const auto it = std::find_if(synapses_.begin(), synapses_.end(),
+        [from, to](const Synapse& edge) { return edge.from == from && edge.to == to; });
+    if (it == synapses_.end()) return false;
+    it->weight = std::clamp(weight, 0.0f, 1.0f);
+    return true;
+}
+
 bool Brain::stimulate(std::uint32_t neuron_id, float strength) {
     auto it = std::find_if(neurons_.begin(), neurons_.end(),
         [neuron_id](const Neuron& neuron) { return neuron.id == neuron_id; });
     if (it == neurons_.end() || !std::isfinite(strength)) return false;
     it->activation = std::clamp(it->activation + strength, 0.0f, 1.0f);
     return true;
+}
+
+std::uint32_t Brain::learn(float learning_rate, float reward, float weight_decay) {
+    if (!std::isfinite(learning_rate) || !std::isfinite(reward) ||
+        !std::isfinite(weight_decay)) return 0;
+    const float rate = std::clamp(learning_rate, 0.0f, 1.0f);
+    const float reinforcement = std::clamp(reward, -1.0f, 1.0f);
+    const float decay = std::clamp(weight_decay, 0.0f, 1.0f);
+    if (rate == 0.0f && decay == 0.0f) return 0;
+
+    std::unordered_map<std::uint32_t, std::size_t> neuron_index;
+    neuron_index.reserve(neurons_.size());
+    for (std::size_t i = 0; i < neurons_.size(); ++i) {
+        neuron_index.emplace(neurons_[i].id, i);
+    }
+
+    std::uint32_t changed = 0;
+    for (auto& edge : synapses_) {
+        const auto source = neuron_index.find(edge.from);
+        const auto target = neuron_index.find(edge.to);
+        if (source == neuron_index.end() || target == neuron_index.end()) continue;
+
+        const float pre = neurons_[source->second].activation;
+        const float post = neurons_[target->second].activation;
+        const float potentiation = rate * reinforcement * pre * post;
+        const float weakening = decay * edge.weight;
+        const float updated = std::clamp(edge.weight + potentiation - weakening, 0.0f, 1.0f);
+        if (std::abs(updated - edge.weight) > 1.0e-7f) {
+            edge.weight = updated;
+            ++changed;
+        }
+    }
+    return changed;
 }
 
 void Brain::step(float delta_seconds) {

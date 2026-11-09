@@ -7,7 +7,7 @@ const app = fs.readFileSync("app.js", "utf8");
 const adapter = fs.readFileSync("neuro-wasm-adapter.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.30", "the shadow runtime release must have a distinct asset version");
+assert.equal(version, "0.58.31", "the shadow runtime release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -20,7 +20,7 @@ assert.equal(normalized.at(-1), "memory.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
-assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.30"/u);
+assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.31"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
@@ -29,6 +29,9 @@ assert.match(adapter, /const previous = brain;[\s\S]*?brain = candidate;[\s\S]*?
   "snapshot replacement must remain atomic");
 assert.match(adapter, /authority: "javascript"/u,
   "the adapter must explicitly retain JavaScript as the authoritative runtime");
+assert.match(adapter, /function learn\(learningRate = 0\.05, reward = 1, weightDecay = 0\)/u);
+assert.match(adapter, /function learnedWeights\(\)/u);
+assert.match(adapter, /function restoreLearnedWeights\(rows\)/u);
 
 assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);
@@ -42,6 +45,16 @@ assert.match(app, /if\(drag&&drag\.kind==="node"\)syncWasmShadow\(\)/u,
   "node movement must be mirrored at gesture completion, not every pointer move");
 assert.match(app, /wasmDiagnostics\(\)/u,
   "the browser must expose shadow backend diagnostics");
+assert.match(app, /wasmLearn\(learningRate = 0\.05, reward = 1, weightDecay = 0\)/u);
+assert.match(app, /wasmLearningExport\(\)/u);
+assert.match(app, /wasmLearningImport\(rows\)/u);
+assert.match(html, /id="wasm-learn-button"/u);
+assert.match(html, /id="wasm-learning-export"/u);
+assert.match(html, /id="wasm-learning-import"/u);
+assert.match(html, /id="wasm-learning-file"/u);
+assert.match(app, /wasmShadow\.learn\(/u);
+assert.match(app, /NEUROGENESIS_WASM_LEARNED_WEIGHTS/u);
+assert.match(app, /wasmShadow\.restoreLearnedWeights\(payload\.weights\)/u);
 
 const frameStart = app.indexOf("  function frame(time) {");
 const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);

@@ -30,8 +30,15 @@ public:
     std::uint32_t add_neuron(std::string name, NeuronKind kind, float x, float y,
                              float excitability = 0.5f);
     bool add_synapse(std::uint32_t from, std::uint32_t to, float weight = 0.5f);
+    bool set_synapse_weight(std::uint32_t from, std::uint32_t to, float weight);
     bool stimulate(std::uint32_t neuron_id, float strength = 1.0f);
     void step(float delta_seconds);
+
+    // Reward-modulated Hebbian update:
+    // delta_weight = rate * reward * pre_activation * post_activation - decay * weight.
+    // All inputs are finite-checked and clamped to their documented ranges.
+    std::uint32_t learn(float learning_rate, float reward = 1.0f,
+                        float weight_decay = 0.0f);
 
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }

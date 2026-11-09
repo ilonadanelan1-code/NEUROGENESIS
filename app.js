@@ -129,14 +129,43 @@
     if (status.state !== "ready" && status.state !== "error") return false;
     const ok = wasmShadow.rebuild();
     if (!ok) console.warn("NEUROGENESIS WebAssembly shadow sync failed:", wasmShadow.diagnostics().lastError);
+    refreshWasmLearningUi(ok ? "" : "Не удалось синхронизировать теневую сеть.");
     return ok;
+  }
+  function refreshWasmLearningUi(message) {
+    const stateElement = $("wasm-learning-state");
+    const feedbackElement = $("wasm-learning-feedback");
+    if (!stateElement) return;
+    const diagnostics = wasmShadow ? wasmShadow.diagnostics() : {
+      state: window.NGWasm ? "not-started" : "unavailable",
+      learnedSynapses: 0,
+      learningUpdates: 0
+    };
+    const labels = {
+      ready: "ГОТОВО",
+      loading: "ЗАГРУЗКА",
+      idle: "ОЖИДАНИЕ",
+      "not-started": "ОЖИДАНИЕ",
+      unavailable: "OFFLINE",
+      error: "ОШИБКА",
+      disposed: "ОСТАНОВЛЕНО"
+    };
+    stateElement.textContent = labels[diagnostics.state] || "НЕИЗВЕСТНО";
+    stateElement.dataset.state = diagnostics.state;
+    if (feedbackElement) {
+      feedbackElement.textContent = message ||
+        ("Обученных связей: " + (diagnostics.learnedSynapses || 0) +
+         " · обновлений весов: " + (diagnostics.learningUpdates || 0));
+    }
   }
   function startWasmShadow() {
     if (!window.NGWasm || typeof window.NGWasm.createShadowController !== "function") return;
     wasmShadow = window.NGWasm.createShadowController({ getSnapshot: wasmShadowSnapshot });
     wasmShadow.start().then(ok => {
+      refreshWasmLearningUi(ok ? "" : "WASM недоступен: " + (wasmShadow.diagnostics().lastError || "ошибка запуска"));
       if (!ok) console.warn("NEUROGENESIS WebAssembly shadow unavailable:", wasmShadow.diagnostics().lastError);
     }).catch(error => {
+      refreshWasmLearningUi("Ошибка запуска WASM: " + error.message);
       console.warn("NEUROGENESIS WebAssembly shadow startup failed:", error);
     });
   }
@@ -825,6 +854,82 @@
   $("add-button").addEventListener("click",()=>{const p=worldAt({x:width/2,y:height/2});addNeuron(p.x+(Math.random()-.5)*80,p.y+(Math.random()-.5)*80);});
   $("connect-button").addEventListener("click",()=>setConnectMode());
   $("grow-button").addEventListener("click",grow);
+  $("wasm-learning-rate").addEventListener("input",event=>{
+    $("wasm-learning-rate-value").textContent=Math.round(Number(event.target.value)*100)+"%";
+  });
+  $("wasm-learning-decay").addEventListener("input",event=>{
+    $("wasm-learning-decay-value").textContent=(Number(event.target.value)*100).toFixed(1)+"%";
+  });
+  $("wasm-learn-button").addEventListener("click",()=>{
+    if(!wasmShadow||wasmShadow.diagnostics().state!=="ready"){
+      refreshWasmLearningUi("Теневой WASM ещё не готов. Основная симуляция продолжает работать.");
+      return;
+    }
+    const changed=wasmShadow.learn(
+      Number($("wasm-learning-rate").value),
+      Number($("wasm-learning-reward").value),
+      Number($("wasm-learning-decay").value)
+    );
+    refreshWasmLearningUi(changed
+      ? "Обучение применено. Изменено синапсов: "+changed+". Основная сеть не затронута."
+      : "Веса не изменились. Сначала подай импульс или запусти симуляцию.");
+  });
+  $("wasm-learning-export").addEventListener("click",()=>{
+    if(!wasmShadow||wasmShadow.diagnostics().state!=="ready"){
+      refreshWasmLearningUi("Нельзя экспортировать: теневой WASM ещё не готов.");
+      return;
+    }
+    try{
+      const payload={
+        format:"NEUROGENESIS_WASM_LEARNED_WEIGHTS",
+        version:1,
+        release:"0.58.31",
+        weights:wasmShadow.learnedWeights()
+      };
+      const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");
+      link.href=url;
+      link.download="neurogenesis-learned-weights.json";
+      link.style.display="none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1500);
+      refreshWasmLearningUi("Экспортировано обученных связей: "+payload.weights.length+".");
+    }catch(error){
+      refreshWasmLearningUi("Не удалось экспортировать веса: "+error.message);
+    }
+  });
+  $("wasm-learning-import").addEventListener("click",()=>$("wasm-learning-file").click());
+  $("wasm-learning-file").addEventListener("change",async event=>{
+    const file=event.target.files&&event.target.files[0];
+    if(!file)return;
+    try{
+      const raw=typeof file.text==="function"
+        ? await file.text()
+        : await new Promise((resolve,reject)=>{
+            const reader=new FileReader();
+            reader.onload=()=>resolve(String(reader.result||""));
+            reader.onerror=()=>reject(reader.error||new Error("File read failed"));
+            reader.readAsText(file);
+          });
+      const payload=JSON.parse(raw);
+      if(!payload||payload.format!=="NEUROGENESIS_WASM_LEARNED_WEIGHTS"||
+         payload.version!==1||!Array.isArray(payload.weights)){
+        throw new Error("Формат файла обученных весов не распознан");
+      }
+      if(!wasmShadow||!wasmShadow.restoreLearnedWeights(payload.weights)){
+        throw new Error("Не удалось восстановить обученные веса");
+      }
+      refreshWasmLearningUi("Совпавших связей восстановлено: "+wasmShadow.learnedWeights().length+
+        " из "+payload.weights.length+".");
+    }catch(error){
+      refreshWasmLearningUi("Импорт не выполнен: "+error.message);
+    }finally{
+      event.target.value="";
+    }
+  });
   $("run-button").addEventListener("click",()=>{
     running=!running;$("run-button").classList.toggle("active",running);
     $("run-button").innerHTML=running?"<span>Ⅱ</span>Пауза":"<span>▶</span>Запуск";
@@ -944,11 +1049,24 @@
       scheduleFrame();
       return spread.length;
     },
+    wasmLearn(learningRate = 0.05, reward = 1, weightDecay = 0) {
+      return wasmShadow ? wasmShadow.learn(learningRate, reward, weightDecay) : 0;
+    },
+    wasmSnapshot() {
+      return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
+    },
+    wasmLearningExport() {
+      return wasmShadow ? wasmShadow.learnedWeights() : [];
+    },
+    wasmLearningImport(rows) {
+      return wasmShadow ? wasmShadow.restoreLearnedWeights(rows) : false;
+    },
     wasmDiagnostics() {
       return wasmShadow ? wasmShadow.diagnostics() : {
         backend: "wasm-shadow", authority: "javascript",
         state: window.NGWasm ? "not-started" : "unavailable",
         neurons: 0, synapses: 0, steps: 0, stimulations: 0, rebuilds: 0,
+        learningUpdates: 0, learnedSynapses: 0,
         lastError: null
       };
     }
