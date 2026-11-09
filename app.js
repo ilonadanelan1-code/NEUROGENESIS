@@ -237,16 +237,29 @@
   const handleCanvasResize = () => { resize(); scheduleFrame(); };
   let canvasResizeObserver = null;
   function connectCanvasResizeObserver() {
-    if (typeof ResizeObserver === "function") {
-      if (canvasResizeObserver) return;
-      canvasResizeObserver = new ResizeObserver(handleCanvasResize);
-      canvasResizeObserver.observe(canvas);
+    if (typeof ResizeObserver !== "function" || canvasResizeObserver) return;
+    let observer = null;
+    try {
+      observer = new ResizeObserver(handleCanvasResize);
+      observer.observe(canvas);
+      canvasResizeObserver = observer;
+    } catch (error) {
+      if (observer && typeof observer.disconnect === "function") {
+        try { observer.disconnect(); } catch (disconnectError) {
+          console.warn("Could not disconnect failed ResizeObserver:", disconnectError);
+        }
+      }
+      canvasResizeObserver = null;
+      console.warn("ResizeObserver failed; using the window-resize fallback:", error);
     }
   }
   function disconnectCanvasResizeObserver() {
-    if (!canvasResizeObserver) return;
-    canvasResizeObserver.disconnect();
+    const observer = canvasResizeObserver;
     canvasResizeObserver = null;
+    if (!observer || typeof observer.disconnect !== "function") return;
+    try { observer.disconnect(); } catch (error) {
+      console.warn("Could not disconnect ResizeObserver:", error);
+    }
   }
   function suspendRendering() {
     pageSuspended = true;
