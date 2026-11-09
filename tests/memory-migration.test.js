@@ -697,5 +697,32 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(failedLLMCycle.status, "error",
     "a provider failure must be recorded as an error cycle, not as completed reasoning");
   assert.equal(failedLLMCycle.phases.find(item => item.name === "reasoning").status, "limited");
+  // The existing research planner must prioritize review goals created by new evidence,
+  // even when the question that originally produced the goal is already answered.
+  const priorGoalsManager = window.NGGoals;
+  window.NGGoals = {
+    list() {
+      return [{
+        id:"G-Q77",inquiryId:"Q77",title:"Уточнить связь «Недостаток сна → усталость»",
+        status:"review",assessment:"gap_confirmed",
+        assessmentReason:"На момент прежнего ответа прямых наблюдений не было.",
+        observationsAfterAssessment:2,observationCount:3,completeObservationCount:2,
+        metadataCoverage:75,selected:true,focusScore:88,updatedAt:1794159900000,
+        blockers:[],
+        nextAction:"После предыдущей оценки появились 2 новых прямых наблюдения. Повторно сопоставить их контекст, время и критерий."
+      }];
+    }
+  };
+  const reassessmentPlan = window.NGMemory.researchStrategy();
+  assert.match(reassessmentPlan,/ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА/u,
+    "the research planner must route review goals to a reassessment plan");
+  assert.match(reassessmentPlan,/G-Q77/u,
+    "the plan must identify the exact goal that needs reassessment");
+  assert.match(reassessmentPlan,/2 новых прямых наблюдений/u,
+    "the plan must use the existing post-assessment evidence count");
+  assert.match(reassessmentPlan,/прежний ответ сохраняются как история/u,
+    "the plan must preserve the historical assessment instead of silently rewriting it");
+  window.NGGoals = priorGoalsManager;
+
   console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
