@@ -490,8 +490,8 @@
     const rows=hypothesisLifecycleRows().sort((a,b)=>b.updatedAt-a.updatedAt);
     if(!rows.length)return "ЖИЗНЕННЫЙ ЦИКЛ ГИПОТЕЗ\n\nПока нет архивных причинных выводов, для которых можно вести историю состояний. Сначала попроси вывести причинную цепочку или новые гипотезы.";
     const labels={new:"НОВАЯ",under_review:"ПРОВЕРЯЕТСЯ",provisionally_supported:"ЕСТЬ ПРЕДВАРИТЕЛЬНО СОГЛАСУЮЩИЕСЯ ЗАПИСИ",
-      challenged:"ОСПАРИВАЕТСЯ",conditional:"УСЛОВНАЯ",weakened:"ОСЛАБЛЕНА",suspended:"ПРИОСТАНОВЛЕНА",
-      revised:"МАРШРУТ ПЕРЕСМОТРЕН",restored:"ВОЗВРАЩЕНА В АКТИВНУЮ МОДЕЛЬ"};
+      partially_challenged:"ЧАСТЬ МАРШРУТОВ ОСПАРИВАЕТСЯ",challenged:"ОСПАРИВАЕТСЯ",conditional:"УСЛОВНАЯ",
+      weakened:"ОСЛАБЛЕНА",suspended:"ПРИОСТАНОВЛЕНА",revised:"МАРШРУТ ПЕРЕСМОТРЕН",restored:"ВОЗВРАЩЕНА В АКТИВНУЮ МОДЕЛЬ"};
     const counts=HYPOTHESIS_LIFECYCLE.create(KNOWLEDGE).summary(rows).counts;
     let answer="ЖИЗНЕННЫЙ ЦИКЛ ГИПОТЕЗ\n\nВсего отслеживается: "+rows.length+".\n";
     for(const [state,label] of Object.entries(labels))if(counts[state])answer+="• "+label+": "+counts[state]+"\n";
@@ -502,6 +502,21 @@
       answer+="Версия маршрута: "+item.revision+" · исходных причинных записей: "+item.originClaimIds.length+
         " · согласующихся свидетельств: "+item.supportingClaimIds.length+
         " · оспаривающих свидетельств: "+item.challengingClaimIds.length+"\n";
+      if(item.routes.length>1&&item.routeReviews&&item.routeReviews.length) {
+        const routeLabels={new:"пока без прямых свидетельств",under_review:"есть открытый вопрос",
+          provisionally_supported:"есть согласующиеся записи",challenged:"затронут контрпримером"};
+        answer+="АЛЬТЕРНАТИВНЫЕ МАРШРУТЫ\n";
+        for(const route of item.routeReviews) {
+          const path=item.routes[route.routeIndex]||[];
+          answer+="• Маршрут "+(route.routeIndex+1)+" · "+(routeLabels[route.state]||route.state)+
+            ": "+path.map(edge=>edge.subject+" → "+edge.object).join(" → ")+"\n";
+          if(route.challengingClaimIds.length)answer+="  Оспаривающие карточки: "+route.challengingClaimIds.join(", ")+"\n";
+          if(route.supportingClaimIds.length)answer+="  Согласующиеся карточки: "+route.supportingClaimIds.join(", ")+"\n";
+          if(route.pendingInquiryCount)answer+="  Открытых вопросов по звеньям маршрута: "+route.pendingInquiryCount+"\n";
+        }
+        if(item.state==="partially_challenged")
+          answer+="Вывод не перечёркнут целиком: свидетельство затронуло только часть маршрутов; остальные сохраняются как альтернативы, но ещё не считаются доказанными.\n";
+      }
       if(item.decision)answer+="Активное решение, влияющее на гипотезу: "+({conditional:"условная связь",weaken:"ослабить связь",suspend:"временно приостановить",restore:"вернуть в активную модель"})[item.decision.strategy]+
         " · "+item.decision.edgeSubject+" → "+item.decision.edgeObject+"\n";
       const recent=item.events.slice(-4);
@@ -511,7 +526,7 @@
         return kind+(event.toState?" ("+(labels[event.toState]||event.toState)+")":"");
       }).join(" → ")+"\n";
     }
-    answer+="\nСтатус «есть предварительно согласующиеся записи» не означает доказанность. Сведения остаются пользовательскими и требуют проверки. Решения рабочей модели фиксируются отдельно от исходных воспоминаний; история переходов сохраняется.";
+    answer+="\nСтатус «есть предварительно согласующиеся записи» не означает доказанность. «Часть маршрутов оспаривается» означает, что контрпример затронул одну или несколько альтернатив, но не все; сохранённый альтернативный маршрут сам по себе также не доказан. Сведения остаются пользовательскими и требуют проверки. Решения рабочей модели фиксируются отдельно от исходных воспоминаний; история переходов сохраняется.";
     return answer;
   }
   function mergeSimilarReasoningReviews(input) {
