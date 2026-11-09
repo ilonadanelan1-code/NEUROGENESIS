@@ -3932,8 +3932,8 @@
       }
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
-      clearLegacyInquiryFragmentClaims();
-      if (imported || duplicates) invalidateKnowledgeGraphStats();
+      const legacyAnswerClaimsCleared = clearLegacyInquiryFragmentClaims();
+      if (imported || duplicates || legacyAnswerClaimsCleared) invalidateKnowledgeGraphStats();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
