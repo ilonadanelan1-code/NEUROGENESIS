@@ -3646,7 +3646,7 @@
     let importSnapshot = null;
     let importTransactionStarted = false;
     const importTransaction = window.NGStorageTransaction;
-    try {}
+    try {
       const data = JSON.parse(await file.text());
       if (data && data.format && data.format !== "NEUROGENESIS_MEMORY_BACKUP") throw new Error("Это не резервная копия NEUROGENESIS.");
       if (data && Number(data.version) > 2) throw new Error("Версия резервной копии новее поддерживаемой.");
