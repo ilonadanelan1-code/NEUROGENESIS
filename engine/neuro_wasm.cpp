@@ -79,6 +79,20 @@ int ng_brain_set_synapse_weight(ng_brain_handle* handle, std::uint32_t from,
     }
 }
 
+int ng_brain_set_synapse_eligibility(ng_brain_handle* handle, std::uint32_t from,
+                                      std::uint32_t to, float value) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.set_synapse_eligibility(from, to, value) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+void ng_brain_reset_eligibility(ng_brain_handle* handle) {
+    if (handle) handle->brain.reset_eligibility();
+}
+
 int ng_brain_stimulate(ng_brain_handle* handle, std::uint32_t neuron_id, float strength) {
     if (!handle) return 0;
     try {
@@ -98,10 +112,20 @@ std::uint32_t ng_brain_learn(ng_brain_handle* handle, float learning_rate,
     }
 }
 
-void ng_brain_step(ng_brain_handle* handle, float delta_seconds) {
-    if (!handle || !std::isfinite(delta_seconds)) return;
+std::uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning_rate,
+                                           float reward, float weight_decay) {
+    if (!handle) return 0;
     try {
-        handle->brain.step(delta_seconds);
+        return handle->brain.learn_from_reward(learning_rate, reward, weight_decay);
+    } catch (...) {
+        return 0;
+    }
+}
+
+void ng_brain_step(ng_brain_handle* handle, float delta_seconds, float eligibility_retention) {
+    if (!handle || !std::isfinite(delta_seconds) || !std::isfinite(eligibility_retention)) return;
+    try {
+        handle->brain.step(delta_seconds, eligibility_retention);
     } catch (...) {
         // Keep C callers safe if a temporary simulation buffer cannot be allocated.
     }
@@ -163,6 +187,11 @@ float ng_brain_synapse_weight_at(const ng_brain_handle* handle, std::uint32_t in
 float ng_brain_synapse_signal_at(const ng_brain_handle* handle, std::uint32_t index) {
     const auto* synapse = synapse_at(handle, index);
     return synapse ? synapse->signal : invalid_float();
+}
+
+float ng_brain_synapse_eligibility_at(const ng_brain_handle* handle, std::uint32_t index) {
+    const auto* synapse = synapse_at(handle, index);
+    return synapse ? synapse->eligibility : invalid_float();
 }
 
 } // extern "C"
