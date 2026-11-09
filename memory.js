@@ -23,7 +23,8 @@
   const REASONING_AUDIT = window.NGReasoningAudit || null;
   const DISCRIMINATING_OBSERVATIONS = window.NGDiscriminatingObservations || null;
   const HYPOTHESIS_LIFECYCLE = window.NGHypothesisLifecycle || null;
-  const DIALOG_CONTEXT = window.NGDialogContext || null;
+  const DIALOG_CONTEXT = window.NGDialogContext && typeof window.NGDialogContext.create === "function"
+    ? window.NGDialogContext.create(KNOWLEDGE) : null;
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
