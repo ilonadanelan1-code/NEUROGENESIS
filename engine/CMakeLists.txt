@@ -30,7 +30,11 @@ if(EMSCRIPTEN AND NG_BUILD_WASM)
     add_executable(neurogenesis_wasm wasm_entry.cpp)
     target_link_libraries(neurogenesis_wasm PRIVATE neurogenesis_core)
     target_compile_features(neurogenesis_wasm PRIVATE cxx_std_17)
+    target_compile_options(neurogenesis_core PRIVATE -fexceptions)
+    target_compile_options(neurogenesis_wasm PRIVATE -fexceptions)
     target_link_options(neurogenesis_wasm PRIVATE
+        -fexceptions
+        "-sDISABLE_EXCEPTION_CATCHING=0"
         "--no-entry"
         "-sMODULARIZE=1"
         "-sEXPORT_ES6=1"
