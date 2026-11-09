@@ -24,7 +24,7 @@ assert.equal(request.schema, "NEUROGENESIS_LLM_REQUEST_V1");
 assert.equal(request.messages[0].role, "system");
 assert.match(request.messages[0].content, /не изменяешь эти слои/u);
 assert.equal(request.messages[request.messages.length - 1].content.startsWith("А почему?"), true);
-assert.equal(request.metadata.historyMessages, 2, "the current user message should not be duplicated in history");
+assert.equal(request.metadata.historyMessages, 4, "the current user message should be removed while earlier turns remain in history");
 assert.match(request.messages[0].content, /пользовательскими данными/u);
 assert.match(request.messages[request.messages.length - 1].content, /Пользователь наблюдал усталость/u);
 (async () => {
