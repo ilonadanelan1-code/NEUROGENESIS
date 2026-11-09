@@ -15,20 +15,29 @@ const runtime = {
     createdBrains++;
     activeBrains++;
     let disposed = false;
-    return new Proxy(brain, {
-      get(target, property) {
-        if (property === "dispose") {
-          return () => {
-            if (disposed) return;
-            disposed = true;
-            target.dispose();
-            activeBrains--;
-          };
-        }
-        const value = Reflect.get(target, property, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-    });
+    const countedDispose = () => {
+      if (disposed) return;
+      disposed = true;
+      brain.dispose();
+      activeBrains--;
+    };
+    return {
+      addNeuron: brain.addNeuron.bind(brain),
+      addSynapse: brain.addSynapse.bind(brain),
+      setSynapseWeight: brain.setSynapseWeight.bind(brain),
+      setSynapseEligibility: brain.setSynapseEligibility.bind(brain),
+      resetEligibility: brain.resetEligibility.bind(brain),
+      learn: brain.learn.bind(brain),
+      learnFromReward: brain.learnFromReward.bind(brain),
+      stimulate: brain.stimulate.bind(brain),
+      step: brain.step.bind(brain),
+      get neuronCount() { return brain.neuronCount; },
+      get synapseCount() { return brain.synapseCount; },
+      getNeuronAt: brain.getNeuronAt.bind(brain),
+      getSynapseAt: brain.getSynapseAt.bind(brain),
+      snapshot: brain.snapshot.bind(brain),
+      dispose: countedDispose
+    };
   }
 };
 
