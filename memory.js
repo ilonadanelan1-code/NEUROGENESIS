@@ -275,6 +275,33 @@
       decisions.slice(-8).map(item=>"• "+item.edgeSubject+" → "+item.edgeObject+" — "+description[item.strategy]).join("\n")+
       "\nИсходные воспоминания и наблюдения не изменены.";
   }
+  function mergeExtractedMemoryClaims(existing, extracted) {
+    if(!KNOWLEDGE)return [];
+    const stored=KNOWLEDGE.sanitizeClaims(existing);
+    const parsed=KNOWLEDGE.sanitizeClaims(extracted);
+    const prepared=[];
+    for(let claim of parsed) {
+      if(claim.kind!=="observation"||String(claim.observationCase&&claim.observationCase.eventRef||"").trim()) {
+        prepared.push(claim);
+        continue;
+      }
+      const matching=stored.filter(prior=>prior&&prior.kind==="observation"&&
+        prior.polarity===claim.polarity&&KNOWLEDGE.sameEntity(prior.subject,claim.subject)&&
+        KNOWLEDGE.sameEntity(prior.object,claim.object)&&
+        enrichedTextLooksLikeSameMention(prior.evidence||"",claim.evidence||""));
+      const explicitRefs=[...new Set(matching.map(prior=>
+        String(prior.observationCase&&prior.observationCase.eventRef||"").trim()).filter(Boolean))];
+      if(explicitRefs.length>1)continue;
+      if(explicitRefs.length===1) {
+        claim={...claim,observationCase:{
+          ...KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
+          eventRef:explicitRefs[0]
+        }};
+      }
+      prepared.push(claim);
+    }
+    return KNOWLEDGE.mergeClaims(stored,prepared);
+  }
   function cleanMemory(raw) {
     if (!raw || typeof raw.text !== "string") return null;
     const text = raw.text.trim().slice(0, MAX_TEXT);
@@ -290,7 +317,9 @@
       return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
     });
     const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
-    const claims = KNOWLEDGE ? (extractedClaims.length ? KNOWLEDGE.mergeClaims(raw.claims, extractedClaims) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
+    const claims = KNOWLEDGE ? (extractedClaims.length
+      ? mergeExtractedMemoryClaims(raw.claims, extractedClaims)
+      : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
     const id=typeof raw.id==="string"&&raw.id?raw.id.slice(0,80):makeId();
     const linkedClaims=claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:id}:claim);
     return {
@@ -3066,7 +3095,7 @@
           item.tags.push(tag);
           item.traceIds.push(ensureTrace(tag));
         }
-        if (KNOWLEDGE) item.claims = KNOWLEDGE.mergeClaims(item.claims, claims);
+        if (KNOWLEDGE) item.claims = mergeExtractedMemoryClaims(item.claims, claims);
         ensureClaimTraces(item.claims);
         repeated++;
         const related = memories.filter(old => old.id !== item.id && old.tags.some(tag => tags.includes(tag))).slice(-4);
