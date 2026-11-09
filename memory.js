@@ -3644,15 +3644,20 @@
   }
   async function importBackup(file) {
     let importSnapshot = null;
-    try {
+    let importTransactionStarted = false;
+    const importTransaction = window.NGStorageTransaction;
+    try {}
       const data = JSON.parse(await file.text());
       if (data && data.format && data.format !== "NEUROGENESIS_MEMORY_BACKUP") throw new Error("Это не резервная копия NEUROGENESIS.");
       if (data && Number(data.version) > 2) throw new Error("Версия резервной копии новее поддерживаемой.");
       const incoming = Array.isArray(data) ? data : data && data.memories;
       if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
       importSnapshot = captureImportSnapshot();
+      if (importTransaction && typeof importTransaction.begin === "function") {
+        if (!importTransaction.begin()) throw new Error("Не удалось начать безопасную транзакцию импорта.");
+        importTransactionStarted = true;
+      }
       let imported = 0, duplicates = 0, skipped = 0;
-      let cognitiveCycleStorageOk = true;
       for (const raw of incoming) {
         const candidate = cleanMemory(raw);
         if (!candidate) { skipped++; continue; }
@@ -3713,28 +3718,31 @@
       if(Array.isArray(data.cognitiveCycles)) {
         cognitiveCycles=mergeCognitiveCycleHistory(cognitiveCycles,data.cognitiveCycles);
         nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
-        try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
-        catch(error) {
-          cognitiveCycleStorageOk=false;
-          console.warn("NEUROGENESIS cognitive cycle backup import storage failed:",error);
-        }
       }
-      if (!cognitiveCycleStorageOk) throw new Error("Не удалось сохранить историю когнитивных циклов. Импорт отменён.");
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
       clearLegacyInquiryFragmentClaims();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
-      const ok = persist() && cognitiveCycleStorageOk;
+      const ok = persist({skipGoalSync:true});
       if (!ok) throw new Error("Не удалось полностью сохранить резервную копию. Все изменения импорта отменены.");
+      if (importTransactionStarted) {
+        const committed = importTransaction.commit();
+        importTransactionStarted = false;
+        if (!committed) throw new Error("Не удалось зафиксировать транзакцию импорта. Исходные данные восстановлены.");
+      }
       renderLibrary();
       renderDialog();
       say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
       setFeedback("ИМПОРТ · +" + imported + " · ПОВТОРОВ " + duplicates + " · ПРОПУЩЕНО " + skipped);
     } catch (error) {
+      if (importTransactionStarted && importTransaction && typeof importTransaction.abort === "function") {
+        importTransaction.abort();
+        importTransactionStarted = false;
+      }
       let rollbackMessage = "";
-      if (importSnapshot) {
+      if (importSnapshot) {}
         const restored = restoreImportSnapshot(importSnapshot);
         rollbackMessage = restored
           ? " Все изменения отменены, исходные данные восстановлены."
