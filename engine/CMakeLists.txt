@@ -26,6 +26,7 @@ if(BUILD_TESTING)
 endif()
 
 if(EMSCRIPTEN AND NG_BUILD_WASM)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../dist")
     add_executable(neurogenesis_wasm wasm_entry.cpp)
     target_link_libraries(neurogenesis_wasm PRIVATE neurogenesis_core)
     target_compile_features(neurogenesis_wasm PRIVATE cxx_std_17)
