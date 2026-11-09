@@ -86,7 +86,8 @@
       endpoint: String(raw && raw.endpoint || "").trim(),
       clientToken: String(raw && raw.clientToken || "").trim()
     };
-    const adapter = LLM_BRIDGE.createHttpAdapter(config);
+    const fetcher = typeof window.fetch === "function" ? window.fetch.bind(window) : (typeof fetch === "function" ? fetch : null);
+    const adapter = LLM_BRIDGE.createHttpAdapter(config, fetcher);
     const status = LLM_GATEWAY.status();
     if (status.providers.includes("worker-proxy")) LLM_GATEWAY.unregister("worker-proxy");
     LLM_GATEWAY.register("worker-proxy", adapter);
