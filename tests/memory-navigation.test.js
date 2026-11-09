@@ -968,14 +968,6 @@ assert.equal(backupReadiness.numericOutcomeRequired,true,"the scale method requi
 assert.equal(backupReadiness.ready,false,"a scale without a recorded score must not pass review readiness");
 assert.ok(backupReadiness.blockers.some(item=>/фактическое числовое значение/u.test(item)));
 const backupDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости",0);
-console.log("DEBUG_OBSERVATION_CASES",JSON.stringify(window.NGMemory.observationCases().map(item=>({
-  id:item.id,sourceMemoryId:item.sourceMemoryId,eventRef:item.details&&item.details.eventRef,
-  evidence:item.evidence,polarity:item.polarity
-}))));
-console.log("DEBUG_DOSSIER",JSON.stringify({supportingCount:backupDossier.supportingCount,
-  duplicateMentions:backupDossier.duplicateMentions,possibleDuplicateGroups:backupDossier.possibleDuplicateGroups,
-  cases:backupDossier.cases.map(item=>({id:item.id,duplicateConfidence:item.duplicateConfidence,
-    eventRef:item.eventRef,memberIds:item.memberIds,evidence:item.evidence}))}));
 assert.equal(backupDossier.supportingCount,1);
 assert.equal(backupDossier.possibleDuplicateGroups,1);
 const backupTimeline=window.NGMemory.observationTimeline();
@@ -1011,16 +1003,15 @@ assert.equal(sameEventCases.length,2);
 assert.equal(sameEventCases[0].details.eventRef,sameEventCases[1].details.eventRef,
   "a same-event answer must write one shared eventRef to both source observation claims");
 const sameEventDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
-console.log("DEBUG_SAME_EVENT_CASES",JSON.stringify(window.NGMemory.observationCases().map(item=>({
-  id:item.id,sourceMemoryId:item.sourceMemoryId,subject:item.subject,object:item.object,
-  eventRef:item.details&&item.details.eventRef,evidence:item.evidence,polarity:item.polarity
-}))));
-console.log("DEBUG_SAME_EVENT_DOSSIER",JSON.stringify({supportingCount:sameEventDossier.supportingCount,
-  duplicateMentions:sameEventDossier.duplicateMentions,possibleDuplicateGroups:sameEventDossier.possibleDuplicateGroups,
-  explicitDuplicateGroups:sameEventDossier.explicitDuplicateGroups,
-  cases:sameEventDossier.cases.map(item=>({id:item.id,duplicateConfidence:item.duplicateConfidence,
-    eventRef:item.eventRef,memberIds:item.memberIds,sourceMemoryIds:item.sourceMemoryIds,evidence:item.evidence}))}));
 assert.equal(sameEventDossier.supportingCount,1);
+assert.equal(sameEventDossier.possibleDuplicateGroups,0,
+  "a parser-derived copy without an event ID must not reappear beside explicitly grouped source cards");
+assert.equal(sameEventDossier.explicitDuplicateGroups,1,
+  "the confirmed event group must remain the only positive event after memory reloading");
+assert.equal(window.NGMemory.observationCases().filter(item=>item.polarity&&
+  window.NGKnowledge.sameEntity(item.subject,"Недостатке сна")&&
+  window.NGKnowledge.sameEntity(item.object,"усталости")&&!item.details.eventRef).length,0,
+  "cleanMemory must not create orphan observations when the source cards already carry explicit event identity");
 assert.equal(sameEventDossier.possibleDuplicateGroups,0);
 assert.equal(sameEventDossier.explicitDuplicateGroups,1);
 assert.equal(window.NGMemory.refreshInquiries().added,0,
