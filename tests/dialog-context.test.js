@@ -145,7 +145,7 @@ assert.equal(merged.activeThreadId,"T10-left",
   "merge must compare active-thread timestamps, not the most recently updated paused thread");
 assert.equal(merged.lastDecision,null,
   "a decision belonging to the non-selected active thread must not leak into the merged context");
-assert.equal(merged.threads.filter(row=>row.status==="active").map(row=>row.id).join(","),"T10-left",
+assert.deepEqual(merged.threads.filter(row=>row.status==="active").map(row=>row.id),["T10-left"],
   "a merged context must have exactly one active thread");
 const normalizedMultipleActive = engine.sanitize({
   activeThreadId:"T30-selected",
@@ -154,7 +154,7 @@ const normalizedMultipleActive = engine.sanitize({
     {id:"T31-extra",title:"Лишняя активная тема",status:"active",updatedAt:2}
   ]
 });
-assert.equal(normalizedMultipleActive.threads.filter(row=>row.status==="active").map(row=>row.id).join(","),"T30-selected",
+assert.deepEqual(normalizedMultipleActive.threads.filter(row=>row.status==="active").map(row=>row.id),["T30-selected"],
   "sanitization must normalize malformed multiple-active-thread states");
 const inferredActive = engine.sanitize({
   threads:[

@@ -35,6 +35,22 @@ assert.equal(request.messages.some(row => row.content.includes("tool output")), 
   "non-dialogue roles must never enter the language model history");
 assert.ok(request.messages.some(row => row.content.includes("Сколько часов ты спал?")),
   "the active thread's previous assistant question must remain in context");
+
+// Without an active thread ID, the bridge must not forward an unscoped transcript.
+const unscopedRequest = bridge.buildRequest("Продолжим?", {
+  activeThread: { title: "Тема без идентификатора" },
+  recentMessages: [
+    { threadId: "T-sleep", role: "user", text: "Сведения из другой темы" },
+    { role: "assistant", text: "Реплика без ID темы" }
+  ]
+}, []);
+assert.equal(unscopedRequest.metadata.historyMessages, 0,
+  "the LLM bridge must fail closed when the active thread ID is missing");
+assert.equal(unscopedRequest.messages.length, 2,
+  "an unscoped request should contain only system policy and the current user message");
+assert.doesNotMatch(unscopedRequest.messages.map(row => row.content).join("\n"),
+  /Сведения из другой темы|Реплика без ID темы/u,
+  "messages without a confirmed active thread must not reach the model");
 assert.match(request.messages[0].content, /пользовательскими данными/u);
 assert.match(request.messages[request.messages.length - 1].content, /Пользователь наблюдал усталость/u);
 (async () => {

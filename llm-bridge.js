@@ -34,7 +34,10 @@
     if (!userInput) throw new Error("Пустой запрос к языковой модели.");
     const active = context && context.activeThread || null;
     const activeThreadId = active && typeof active.id === "string" ? active.id : "";
-    let history = safeHistory(context && context.recentMessages, options.maxMessages || 10, activeThreadId);
+    // Fail closed: without an explicit active thread ID, no dialogue history is safe to attach.
+    let history = activeThreadId
+      ? safeHistory(context && context.recentMessages, options.maxMessages || 10, activeThreadId)
+      : [];
     if (history.length && history[history.length - 1].role === "user" &&
         history[history.length - 1].content === userInput) history = history.slice(0, -1);
     const facts = safeEvidence(evidence, options.maxEvidence || 8);
