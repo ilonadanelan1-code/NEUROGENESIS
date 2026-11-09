@@ -83,7 +83,15 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   }
 });
 (async () => {
-  let response = await worker.fetch(request("/api/health"), env);
+  let response = await worker.fetch(request("/"), env);
+  assert.equal(response.status, 200, "the Worker root should provide a diagnostic response instead of a misleading 404");
+  const rootStatus = await response.json();
+  assert.equal(rootStatus.ok, true);
+  assert.equal(rootStatus.service, "NEUROGENESIS LLM proxy");
+  assert.equal(rootStatus.endpoints.health, "GET /api/health");
+  assert.equal(rootStatus.endpoints.chat, "POST /api/chat");
+
+  response = await worker.fetch(request("/api/health"), env);
   assert.equal(response.status, 401, "health endpoint must require the app token");
 
   response = await worker.fetch(request("/api/health", { headers: { Authorization: "Bearer client-test-token" } }), env);
