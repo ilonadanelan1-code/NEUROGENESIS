@@ -76,3 +76,5 @@ jobs:
           node tests/llm-bridge.test.js
           node tests/llm-worker.test.js
           node tests/memory-navigation.test.js
+          node tests/backup-import-transaction.test.js
+          node tests/storage-transaction.test.js
