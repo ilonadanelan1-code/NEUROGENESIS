@@ -34,7 +34,10 @@ assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);
 assert.match(app, /function startWasmShadow\(\)/u);
 assert.match(app, /wasmShadow\.stimulate\(id, strength\)/u);
-assert.match(app, /wasmShadow\.step\(dt \/ 1000\)/u);
+assert.match(app, /stepWasmShadow\(dt\)/u);
+assert.match(app, /wasmShadowStepElapsed < 100/u,
+  "shadow computation must be throttled to at most 10 steps per second");
+assert.match(app, /wasmShadow\.step\(elapsed \/ 1000\)/u);
 assert.match(app, /if\(drag&&drag\.kind==="node"\)syncWasmShadow\(\)/u,
   "node movement must be mirrored at gesture completion, not every pointer move");
 assert.match(app, /wasmDiagnostics\(\)/u,
