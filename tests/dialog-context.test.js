@@ -351,7 +351,7 @@ assert.equal(exchangeFollowUp.context.recentExchange.length, 4,
   "the working context should include up to four recent turns from the active topic");
 assert.match(exchangeFollowUp.query, /положительную обратную связь/u,
   "the context should preserve an earlier intermediate assistant explanation");
-assert.match(exchangeFollowUp.query, /отрицательной обратной связи/u,
+assert.match(exchangeFollowUp.query, /отрицательной обратной связью/u,
   "the context should preserve the user's intervening comparison");
 assert.match(exchangeFollowUp.query, /задержку и точность сигнала/u,
   "the context should preserve the most recent assistant reasoning");
