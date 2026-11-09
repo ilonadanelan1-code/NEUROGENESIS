@@ -159,6 +159,32 @@ assert.equal(pointerSandbox.gesture, null,
   "suspending the page must discard stale pinch-gesture state");
 assert.equal(pointerSandbox.drag, null,
   "suspending the page must discard stale drag state");
+
+const endPointerStart = app.indexOf("  function endPointer(event)");
+const endPointerEnd = app.indexOf("\n  canvas.addEventListener(\"pointerup\"", endPointerStart);
+assert.notEqual(endPointerStart, -1,
+  "pointer completion and capture-loss cleanup must exist");
+assert.notEqual(endPointerEnd, -1,
+  "pointer completion cleanup must have a clear boundary");
+const endPointerSource = app.slice(endPointerStart, endPointerEnd) +
+  "\nglobalThis.__endPointer = endPointer;";
+const endPointerSandbox = {
+  pointers: new Map([[21, { x: 10, y: 10 }], [22, { x: 30, y: 30 }]]),
+  gesture: { distance: 28 },
+  drag: null
+};
+vm.runInNewContext(endPointerSource, endPointerSandbox,
+  { filename: "canvas-pointer-end.js" });
+endPointerSandbox.__endPointer({ pointerId: 21 });
+assert.equal(endPointerSandbox.pointers.size, 1,
+  "losing one captured pointer must remove only that pointer");
+assert.equal(endPointerSandbox.gesture, null,
+  "losing one captured pointer must cancel the pinch gesture");
+assert.ok(endPointerSandbox.pointers.has(22),
+  "the remaining pointer must not be removed accidentally");
+endPointerSandbox.__endPointer({ pointerId: 22 });
+assert.equal(endPointerSandbox.pointers.size, 0,
+  "the final pointer release must empty the active pointer set");
 const suspendStart = app.indexOf("  function suspendRendering() {");
 const suspendEnd = app.indexOf("\n  function resumeRendering()", suspendStart);
 assert.notEqual(suspendStart, -1);
