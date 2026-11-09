@@ -39,6 +39,7 @@ class ElementStub {
   }
   focus() { this.focused = true; }
   scrollIntoView() {}
+  click() { this.clicked = true; }
   closest(selector) {
     let current = this;
     while (current) {
@@ -51,13 +52,32 @@ class ElementStub {
 }
 
 const elements = new Map();
+const downloadLinks = [];
+const exportedBlobs = [];
+class BlobStub {
+  constructor(parts, options = {}) {
+    this.parts = parts;
+    this.type = options.type || "";
+    this.source = parts.map(part => String(part)).join("");
+  }
+}
+class URLStub extends URL {}
+URLStub.createObjectURL = blob => {
+  exportedBlobs.push(blob);
+  return "blob:neurogenesis-test-" + exportedBlobs.length;
+};
+URLStub.revokeObjectURL = () => {};
 const sidePanel = new ElementStub("aside");
 const document = {
   getElementById(id) {
     if (!elements.has(id)) elements.set(id, new ElementStub(id.includes("button") || id.endsWith("-back") || id.endsWith("-save") || id.endsWith("-cancel") ? "button" : "div"));
     return elements.get(id);
   },
-  createElement(tag) { return new ElementStub(tag); },
+  createElement(tag) {
+    const element = new ElementStub(tag);
+    if (String(tag).toLowerCase() === "a") downloadLinks.push(element);
+    return element;
+  },
   querySelector(selector) { return selector === ".side-panel" ? sidePanel : null; },
   body: new ElementStub("body")
 };
@@ -113,7 +133,7 @@ const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
   setItem(key,value) { database.set(key,String(value)); }
 };
-const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON};
+const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON,Blob:BlobStub,URL:URLStub,setTimeout(fn){fn();return 1;}};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox,{filename:"goals.js"});
 function loadMemory() {
@@ -1238,4 +1258,21 @@ const latestGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
 assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
   "the cognitive cycle should store a compact research-goal snapshot");
 
-console.log("NEUROGENESIS attention-ranking, uncertainty-assessment, research-focus, cognitive-cycle and reasoning regression tests: passed.");
+// Backup export must produce a downloadable v2 archive with all durable stores.
+document.getElementById("memory-export").dispatch("click");
+assert.equal(exportedBlobs.length,1,"the export control should create one backup blob");
+assert.equal(exportedBlobs[0].type,"application/json;charset=utf-8");
+const exportedBackup=JSON.parse(exportedBlobs[0].source);
+assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
+assert.equal(exportedBackup.version,2);
+assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
+  "the export must include every current durable memory");
+for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","inquiries","goals"])
+  assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
+    "the backup must include the " + key + " store");
+assert.equal(downloadLinks.length,1);
+assert.equal(downloadLinks[0].clicked,true,"the generated download link should be activated");
+assert.match(downloadLinks[0].download,/^neurogenesis-memory-\\d{4}-\\d{2}-\\d{2}\\.json$/u);
+assert.equal(downloadLinks[0].parentNode,null,"the temporary download link should be removed after activation");
+
+console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");
