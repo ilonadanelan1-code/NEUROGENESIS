@@ -45,7 +45,7 @@ try {
     from: sensory,
     to: output,
     weight: Math.fround(0.5),
-    signal: Math.fround(0.1675)
+    signal: Math.fround(0.2)
   });
   assert.equal(brain.getNeuronAt(99), null);
   assert.equal(brain.getSynapseAt(99), null);
