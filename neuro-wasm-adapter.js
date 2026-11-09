@@ -478,9 +478,17 @@
             weight: Math.max(0, Math.min(1, weight))
           });
         }
+        const previous = new Map(learningOverlay);
         learningOverlay.clear();
         for (const entry of restored) learningOverlay.set(...entry);
-        if (state === "ready" && brain) return rebuild();
+        if (state === "ready" && brain) {
+          const ok = rebuild();
+          if (!ok) {
+            learningOverlay.clear();
+            for (const entry of previous) learningOverlay.set(...entry);
+          }
+          return ok;
+        }
         return true;
       } catch (error) {
         fail(error, "Could not restore learned synapse weights");
