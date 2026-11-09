@@ -149,4 +149,74 @@ try {
   brain.dispose();
 }
 
-console.log("NEUROGENESIS C++/JavaScript reference parity: activation, signal decay and synaptic learning passed.");
+
+function referenceStimulate(state, neuronId, strength) {
+  const neuron = state.neurons.find(row => row.id === neuronId);
+  if (!neuron) return false;
+  neuron.activation = f32(Math.max(0, Math.min(1, f32(neuron.activation + f32(strength)))));
+  return true;
+}
+
+// Deterministic larger graph: exercise index mapping, accumulated input,
+// signal decay, repeated reinforcement and bounded weights without flaky RNG.
+const stressBrain = runtime.createBrain();
+try {
+  const stressState = { neurons: [], synapses: [] };
+  const stressIds = new Map();
+  const kinds = ["sensory", "logic", "memory", "output", "core"];
+  for (let i = 0; i < 48; i++) {
+    const key = "stress-" + i;
+    const excitability = f32(0.25 + ((i * 17) % 70) / 100);
+    const activation = f32(((i * 13) % 31) / 100);
+    const id = stressBrain.addNeuron(key, kinds[i % kinds.length], i, -i, excitability);
+    stressIds.set(key, id);
+    if (activation > 0) stressBrain.stimulate(id, activation);
+    stressState.neurons.push({ id: key, activation, excitability });
+  }
+
+  const offsets = [1, 3, 7, 11, 17];
+  for (let i = 0; i < 48; i++) {
+    for (const offset of offsets) {
+      const target = (i + offset) % 48;
+      const weight = f32(0.08 + ((i * 19 + target * 7) % 80) / 100);
+      assert.equal(stressBrain.addSynapse(stressIds.get("stress-" + i),
+        stressIds.get("stress-" + target), weight), true);
+      stressState.synapses.push({
+        from: "stress-" + i,
+        to: "stress-" + target,
+        weight,
+        signal: 0
+      });
+    }
+  }
+  assertParity(stressBrain.snapshot(), stressState, "stress initial graph");
+
+  for (let step = 0; step < 80; step++) {
+    for (let pulse = 0; pulse < 3; pulse++) {
+      const index = (step * 7 + pulse * 13) % 48;
+      const strength = f32(0.04 + ((step + pulse * 5) % 9) / 20);
+      const key = "stress-" + index;
+      assert.equal(stressBrain.stimulate(stressIds.get(key), strength), true);
+      assert.equal(referenceStimulate(stressState, key, strength), true);
+    }
+
+    const dt = [0.016, 0.033, 0.05, 0.12, 0.2][step % 5];
+    referenceStep(stressState, dt);
+    stressBrain.step(dt);
+    assertParity(stressBrain.snapshot(), stressState, "stress propagation step " + (step + 1));
+
+    if ((step + 1) % 8 === 0) {
+      const rate = [0.05, 0.12, 0.2][(step / 8) % 3];
+      const reward = step % 16 === 7 ? -0.4 : 0.65;
+      const decay = 0.003;
+      const expected = referenceLearn(stressState, rate, reward, decay);
+      assert.equal(stressBrain.learn(rate, reward, decay), expected,
+        "stress learning update count at step " + (step + 1));
+      assertParity(stressBrain.snapshot(), stressState, "stress learning step " + (step + 1));
+    }
+  }
+} finally {
+  stressBrain.dispose();
+}
+
+console.log("NEUROGENESIS C++/JavaScript reference parity: activation, signal decay and synaptic learning passed, including 48-neuron/240-synapse stress parity.");
