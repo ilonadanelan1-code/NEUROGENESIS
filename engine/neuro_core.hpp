@@ -51,6 +51,7 @@ public:
     // Contrastive delayed reward updates only synapses targeting the selected
     // positive/negative output neurons. All eligibility traces are consumed.
     std::uint32_t learn_contrastive_reward(float learning_rate,
+                                           std::uint32_t input_neuron_id,
                                            std::uint32_t positive_neuron_id,
                                            std::uint32_t negative_neuron_id);
 
