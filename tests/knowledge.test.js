@@ -50,6 +50,16 @@ assert.equal(knowledge.isReportedCausalStatement(sourceAttributedCausal),true,
   "archive validators must be able to distinguish source-attributed evidence from a direct assertion");
 assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim,subject:"усталость",evidence:sourceAttributedCausal}]).length,0,
   "a legacy claim whose evidence is source-attributed must not re-enter active knowledge");
+for (const reportedPrefix of [
+  "Исследование показало, что усталость",
+  "Исследователи установили, что усталость"
+]) {
+  const reportedSentence = reportedPrefix + " приводит к снижению концентрации";
+  assert.equal(knowledge.extractClaims(reportedSentence).length, 0,
+    "research summaries must not become direct causal claims: " + reportedPrefix);
+  assert.equal(knowledge.isReportedCausalStatement(reportedSentence), true,
+    "archive validation must recognize research-summary phrasing: " + reportedPrefix);
+}
 const validCausalSubject = "Недостаток сна после тренировки";
 assert.equal(knowledge.extractClaims(validCausalSubject + " приводит к усталости").length, 1,
   "a descriptive causal subject must remain valid");
