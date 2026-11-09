@@ -88,12 +88,12 @@ function referenceLearnFromReward(state, learningRate, reward, weightDecay) {
   return changed;
 }
 
-function referenceLearnContrastiveReward(state, learningRate, positiveNeuronId, negativeNeuronId) {
+function referenceLearnContrastiveReward(state, learningRate, inputNeuronId, positiveNeuronId, negativeNeuronId) {
   const rate = f32(Math.max(0, Math.min(1, learningRate)));
   let changed = 0;
   for (const edge of state.synapses) {
-    const sign = edge.to === positiveNeuronId ? 1 :
-      edge.to === negativeNeuronId ? -1 : 0;
+    const sign = edge.from === inputNeuronId && edge.to === positiveNeuronId ? 1 :
+      edge.from === inputNeuronId && edge.to === negativeNeuronId ? -1 : 0;
     const delta = f32(f32(rate * sign) * edge.eligibility);
     const updated = f32(Math.max(0, Math.min(1, f32(edge.weight + delta))));
     if (Math.abs(updated - edge.weight) > 1.0e-7) {
@@ -236,8 +236,8 @@ try {
     });
   }
 
-  const expectedChanged = referenceLearnContrastiveReward(state, 0.5, positive, negative);
-  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, positive, negative), expectedChanged,
+  const expectedChanged = referenceLearnContrastiveReward(state, 0.5, input, positive, negative);
+  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, input, positive, negative), expectedChanged,
     "contrastive reward must match the JavaScript float32 reference");
   assertParity(contrastiveBrain.snapshot(), state, "contrastive reward");
   assert.equal(state.synapses[2].weight, f32(0.3),
@@ -247,12 +247,12 @@ try {
 
   assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.25), true);
   const beforeInvalid = contrastiveBrain.snapshot();
-  assert.equal(contrastiveBrain.learnContrastiveReward(Number.NaN, positive, negative), 0);
+  assert.equal(contrastiveBrain.learnContrastiveReward(Number.NaN, input, positive, negative), 0);
   assertParity(contrastiveBrain.snapshot(), {
     neurons: beforeInvalid.neurons.map(row => ({ ...row, id: row.id })),
     synapses: beforeInvalid.synapses.map(row => ({ ...row }))
   }, "invalid contrastive reward");
-  assert.throws(() => contrastiveBrain.learnContrastiveReward(0.2, positive),
+  assert.throws(() => contrastiveBrain.learnContrastiveReward(0.2, input, positive),
     /finite number/u);
 } finally {
   contrastiveBrain.dispose();
