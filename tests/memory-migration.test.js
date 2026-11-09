@@ -476,6 +476,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(skippedResearchGoal,"a skipped inquiry must keep its linked research goal");
   assert.equal(skippedResearchGoal.status,"paused",
     "skipping a question must pause its goal without deleting its history");
+  const skipGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(skipGoalCycle.goalChanges.available,
+    "the cognitive cycle must know whether a research-goal comparison was possible");
+  assert.ok(skipGoalCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.fromStatus!=="paused"&&item.toStatus==="paused"),
+    "the cycle must record the exact goal transition caused by skipping Q810");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/отложено/u,
+    "the cycle report must include the paused-goal count");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q810/u,
+    "the cycle report must identify the goal changed by the skip");
   window.NGMemory.ask("возобнови вопрос Q810");
   const resumedInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q810");
   assert.equal(resumedInquiry.status,"open",
@@ -497,11 +507,19 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "a resumed inquiry must become active until it is explicitly asked again");
   assert.match(resumedResearchGoal.nextAction,/Повторно задать Q810/u,
     "the resumed goal must instruct the planner to present the question again");
+  const resumeGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(resumeGoalCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.fromStatus==="paused"&&item.toStatus==="active"),
+    "the cycle must retain the exact pause-to-active transition from explicit resumption");
   window.NGMemory.ask("пропусти вопрос Q810");
   assert.equal(window.NGMemory.inquiries().find(item=>item.id==="Q810").status,"skipped",
     "a resumed inquiry can be skipped again without losing its prior history");
   assert.equal(window.NGMemory.goals().find(item=>item.inquiryId==="Q810").status,"paused",
     "skipping the resumed inquiry again must pause the same goal");
+  const secondSkipCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(secondSkipCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.toStatus==="paused"),
+    "a repeated skip must be visible as another cycle-level goal transition");
   const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
   const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
   assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
@@ -509,6 +527,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the integration input must be parsed as a direct counter-observation");
   assert.equal(window.NGMemory.remember(negativeObservationText),true,
     "the direct counter-observation must pass through the real memory-write pipeline");
+  const counterObservationCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(counterObservationCycle.goalChanges.available);
+  assert.ok(counterObservationCycle.goalChanges.items.some(item=>item.kind==="created"&&item.inquiryId&&
+    item.goalId==="G-"+item.inquiryId),
+    "a cycle that discovers a fresh research question must record the new linked goal");
+  assert.ok(counterObservationCycle.metrics.newQuestions>0,
+    "a new inquiry created during the cycle must be included in its cognitive metrics");
   const storedObservationMemory=JSON.parse(database.get("neurogenesis.memories.v1"))
     .flatMap(item=>item.claims||[]).find(item=>item.id===parsedNegativeObservation.id);
   assert.ok(storedObservationMemory,
@@ -584,6 +609,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const blockedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
   assert.equal(blockedComparisonGoal.status,"blocked",
     "a confirmed lack of observations must block reassessment until new evidence arrives");
+  const answerGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(answerGoalCycle.goalChanges.items.some(item=>item.goalId===initialComparisonGoal.id&&
+    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="blocked"),
+    "the answer cycle must record the comparison goal becoming blocked by the explicit gap assessment");
 
   const alternativeObservationText="При стрессе наблюдалось снижение концентрации";
   const alternativeObservation=window.NGKnowledge.extractClaims(alternativeObservationText)
@@ -592,6 +621,11 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the alternative-route integration input must parse as a direct positive observation");
   assert.equal(window.NGMemory.remember(alternativeObservationText),true,
     "the alternative-route observation must pass through the durable memory-write pipeline");
+  const reassessmentCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(reassessmentCycle.goalChanges.items.some(item=>item.goalId===initialComparisonGoal.id&&
+    item.kind==="status_changed"&&item.fromStatus==="blocked"&&item.toStatus==="review"&&
+    item.observationsAfterAssessment===1),
+    "the new-evidence cycle must record the exact blocked-to-review transition and evidence count");
   const reviewedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
   assert.equal(reviewedComparisonGoal.status,"review",
     "new evidence on the second route must unblock the previously blocked comparison goal");
@@ -613,6 +647,11 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="Недосып"),false,
     "a counter-observation must not silently change the working-model decision");
   const importedCycles=window.NGMemory.cognitiveCycles();
+  const legacyCycle=importedCycles.find(item=>item.at===1794158800000&&item.id==="C700");
+  assert.ok(legacyCycle);
+  assert.equal(legacyCycle.goalChanges.available,false,
+    "legacy imported cycles without a goal-delta history must remain readable and explicitly unavailable");
+  assert.deepEqual(legacyCycle.goalChanges.items,[]);
   assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
     "backup import must retain the cognitive-cycle history already stored on this device");
   const restoredImportedCycle=importedCycles.find(item=>item.at===importTime+5000);
