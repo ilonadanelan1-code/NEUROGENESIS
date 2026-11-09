@@ -56,6 +56,7 @@
   const activeNeuronIds = new Set();
   let wasmShadow = null;
   let wasmShadowStepElapsed = 0;
+  let experienceQuality = null;
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
   const neuronById = new Map();
@@ -132,6 +133,47 @@
     refreshWasmLearningUi(ok ? "" : "Не удалось синхронизировать теневую сеть.");
     return ok;
   }
+  function refreshExperienceEpisodeUi(message) {
+    const statusElement = $("wasm-experience-status");
+    const reportElement = $("wasm-experience-report");
+    const beginButton = $("wasm-episode-begin-button");
+    const cancelButton = $("wasm-episode-cancel-button");
+    const evaluateButton = $("wasm-sequence-learn-button");
+    const status = experienceQuality ? experienceQuality.status() : { state: "unavailable", current: null, latestReport: null };
+    const isOpen = status.state === "open" && !!status.current;
+    const wasmReady = !!(wasmShadow && wasmShadow.diagnostics().state === "ready");
+    if (beginButton) beginButton.disabled = !wasmReady || isOpen;
+    if (cancelButton) cancelButton.disabled = !isOpen;
+    if (evaluateButton) evaluateButton.disabled = !isOpen;
+    if (statusElement) {
+      if (isOpen) {
+        const current = status.current;
+        statusElement.textContent = "ЭПИЗОД " + current.id +
+          " · шаги " + current.steps +
+          " · следов сейчас " + (current.latestMetrics?.eligibleSynapses || 0);
+        statusElement.dataset.state = "open";
+      } else if (status.latestReport) {
+        const report = status.latestReport;
+        statusElement.textContent = report.id + " · " + report.status +
+          " · шагов " + report.steps +
+          (report.changedSynapses != null ? " · изменено связей " + report.changedSynapses : "");
+        statusElement.dataset.state = report.status;
+      } else {
+        statusElement.textContent = wasmReady ? "ЭПИЗОД НЕ НАЧАТ" : "ОЖИДАНИЕ WASM";
+        statusElement.dataset.state = status.state;
+      }
+    }
+    if (reportElement) {
+      const report = status.latestReport;
+      reportElement.textContent = message || (report
+        ? "Последний отчёт: следов до оценки " + (report.eligibleSynapsesBeforeReward || 0) +
+          ", изменено связанных весов " + (report.changedEligibleSynapses || 0) +
+          ", изменено остальных весов " + (report.changedNonEligibleSynapses || 0) +
+          ", изменение среднего веса " + Number(report.meanAbsoluteWeightDelta || 0).toFixed(5) +
+          (report.traceConsumed ? ". Следы использованы." : ". Остались неиспользованные следы.")
+        : "Начни эпизод, запусти симуляцию и только затем оцени результат.");
+    }
+  }
   function refreshWasmLearningUi(message) {
     const stateElement = $("wasm-learning-state");
     const feedbackElement = $("wasm-learning-feedback");
@@ -158,10 +200,19 @@
          " · обновлений весов: " + (diagnostics.learningUpdates || 0) +
          " · подкреплений опыта: " + (diagnostics.sequenceRewards || 0));
     }
+    refreshExperienceEpisodeUi();
   }
   function startWasmShadow() {
     if (!window.NGWasm || typeof window.NGWasm.createShadowController !== "function") return;
     wasmShadow = window.NGWasm.createShadowController({ getSnapshot: wasmShadowSnapshot });
+    if (window.NGExperienceQuality && typeof window.NGExperienceQuality.create === "function") {
+      experienceQuality = window.NGExperienceQuality.create({
+        getSnapshot: () => wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] },
+        resetEligibility: () => wasmShadow ? wasmShadow.resetEligibility() : false,
+        applyReward: (reward, rate, decay) =>
+          wasmShadow ? wasmShadow.learnFromReward(rate, reward, decay) : 0
+      });
+    }
     wasmShadow.start().then(ok => {
       refreshWasmLearningUi(ok ? "" : "WASM недоступен: " + (wasmShadow.diagnostics().lastError || "ошибка запуска"));
       if (!ok) console.warn("NEUROGENESIS WebAssembly shadow unavailable:", wasmShadow.diagnostics().lastError);
@@ -176,7 +227,10 @@
     if (wasmShadowStepElapsed < 100) return;
     const elapsed = wasmShadowStepElapsed;
     wasmShadowStepElapsed = 0;
-    wasmShadow.step(elapsed / 1000);
+    if (wasmShadow.step(elapsed / 1000) && experienceQuality) {
+      const observed = experienceQuality.observeStep();
+      if (observed.ok && observed.episode.steps % 5 === 0) refreshExperienceEpisodeUi();
+    }
   }
   const view = { x: 0, y: 0, zoom: 1 };
   const stars = Array.from({length:window.innerWidth <= 700 ? 65 : 95},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
@@ -876,21 +930,60 @@
       : "Веса не изменились. Сначала подай импульс или запусти симуляцию.");
   });
 
-  $("wasm-sequence-learn-button").addEventListener("click",()=>{
-    if(!wasmShadow||wasmShadow.diagnostics().state!=="ready"){
-      refreshWasmLearningUi("Теневой WASM ещё не готов. Основная симуляция продолжает работать.");
+  $("wasm-episode-begin-button").addEventListener("click",()=>{
+    if(!experienceQuality){
+      refreshWasmLearningUi("Менеджер эпизодов недоступен.");
       return;
     }
-    const changed=wasmShadow.learnFromReward(
-      Number($("wasm-learning-rate").value),
+    const result=experienceQuality.beginEpisode("ручной эпизод");
+    if(!result.ok){
+      refreshExperienceEpisodeUi(result.code==="episode-already-open"
+        ? "Эпизод уже открыт. Заверши его оценкой или сбрось перед началом нового."
+        : "Не удалось начать эпизод: "+result.code+".");
+      return;
+    }
+    refreshExperienceEpisodeUi("Эпизод начат. Следы старых эпизодов очищены; теперь запусти симуляцию.");
+  });
+
+  $("wasm-episode-cancel-button").addEventListener("click",()=>{
+    if(!experienceQuality)return;
+    const result=experienceQuality.cancel("сброшен пользователем");
+    refreshExperienceEpisodeUi(result.ok
+      ? "Эпизод сброшен без подкрепления. Веса не изменялись."
+      : "Нет открытого эпизода для сброса.");
+  });
+
+  $("wasm-sequence-learn-button").addEventListener("click",()=>{
+    if(!wasmShadow||wasmShadow.diagnostics().state!=="ready"||!experienceQuality){
+      refreshWasmLearningUi("Теневой WASM или менеджер эпизодов ещё не готов.");
+      return;
+    }
+    const result=experienceQuality.evaluate(
       Number($("wasm-learning-reward").value),
+      Number($("wasm-learning-rate").value),
       Number($("wasm-learning-decay").value)
     );
+    if(!result.ok){
+      const messages={
+        "no-open-episode":"Сначала начни эпизод. Без открытого эпизода оценка не применяется.",
+        "empty-episode":"В эпизоде не было шагов симуляции. Награда и затухание не применялись.",
+        "no-eligible-traces":"Не осталось подходящих следов. Награда и затухание весов не применялись.",
+        "parameters-out-of-range":"Параметры оценки вне допустимого диапазона."
+      };
+      refreshExperienceEpisodeUi(messages[result.code]||("Не удалось оценить эпизод: "+(result.error||result.code)+"."));
+      return;
+    }
+    const report=result.report;
     const diagnostics=wasmShadow.diagnostics();
     refreshWasmLearningUi(
-      "Оценка опыта применена. Изменено синапсов: "+changed+
-      ". Подкреплений: "+diagnostics.sequenceRewards+
-      ". Следы использованы и очищены; основная сеть не затронута."
+      "Эпизод "+report.id+" оценён: шагов "+report.steps+
+      ", следов "+report.eligibleSynapsesBeforeReward+
+      ", изменено связей "+report.changedSynapses+
+      " (с eligibility "+report.changedEligibleSynapses+
+      ", без eligibility "+report.changedNonEligibleSynapses+
+      "), среднее |Δ веса| "+report.meanAbsoluteWeightDelta.toFixed(5)+
+      ". Подкреплений всего: "+diagnostics.sequenceRewards+
+      ". Основная JS-сеть не затронута."
     );
   });
   $("wasm-learning-export").addEventListener("click",()=>{
@@ -902,7 +995,7 @@
       const payload={
         format:"NEUROGENESIS_WASM_LEARNED_WEIGHTS",
         version:1,
-        release:"0.58.32",
+        release:"0.58.33",
         weights:wasmShadow.learnedWeights()
       };
       const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -1076,6 +1169,24 @@
     },
     wasmResetSequence() {
       return wasmShadow ? wasmShadow.resetEligibility() : false;
+    },
+    wasmExperienceBegin(label = "") {
+      return experienceQuality ? experienceQuality.beginEpisode(label) : { ok: false, code: "unavailable" };
+    },
+    wasmExperienceObserve() {
+      return experienceQuality ? experienceQuality.observeStep() : { ok: false, code: "unavailable" };
+    },
+    wasmExperienceEvaluate(reward, learningRate = 0.05, weightDecay = 0) {
+      return experienceQuality ? experienceQuality.evaluate(reward, learningRate, weightDecay) : { ok: false, code: "unavailable" };
+    },
+    wasmExperienceCancel(reason) {
+      return experienceQuality ? experienceQuality.cancel(reason) : { ok: false, code: "unavailable" };
+    },
+    wasmExperienceStatus() {
+      return experienceQuality ? experienceQuality.status() : { state: "unavailable", current: null, latestReport: null, historyCount: 0 };
+    },
+    wasmExperienceHistory() {
+      return experienceQuality ? experienceQuality.history() : [];
     },
     wasmSnapshot() {
       return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
