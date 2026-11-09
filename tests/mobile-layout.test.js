@@ -66,4 +66,4 @@ assert.doesNotMatch(frameBody, /requestAnimationFrame\(frame\)/u,
 assert.match(frameBody, /if\(animationActive\)[\s\S]*scheduleFrame\(\)/u,
   "continuous rendering must continue only while the simulation or activity is running");
 
-console.log("NEUROGENESIS mobile layout and idle-render contracts: viewport, portrait stacking, pointer canvas, short-landscape sizing and event-driven rendering passed.");
+console.log("NEUROGENESIS mobile layout and idle-render contracts: viewport, portrait stacking, pointer canvas, short-landscape sizing, coarse-pointer touch targets and event-driven rendering passed.");
