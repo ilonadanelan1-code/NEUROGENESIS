@@ -18,6 +18,7 @@
   const MAX_DIALOG_TEXT = 4200;
   const MAX_TEXT = 1200;
   const KNOWLEDGE = window.NGKnowledge || null;
+  const KNOWLEDGE_GRAPH = window.NGKnowledgeGraph || null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
@@ -1985,8 +1986,14 @@
     if (manage) manage.textContent = libraryOpen ? "Закрыть записи" : "Записи (" + memories.length + ")";
     const knowledgeCount = $("knowledge-count");
     if (knowledgeCount && KNOWLEDGE) {
-      const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
-      knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
+      if (KNOWLEDGE_GRAPH) {
+        const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
+        knowledgeCount.textContent = graph.stats.nodes + " УЗЛОВ · " +
+          graph.stats.edges + " СВЯЗЕЙ · " + graph.stats.conflicts + " КОНФЛИКТОВ";
+      } else {
+        const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
+        knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
+      }
     }
   }
   function setFeedback(message) {
@@ -3271,6 +3278,11 @@
      reconcileEdgeEvidence: (subject,object,baselineAt=0) => evidenceReconciliationForEdge(subject,object,baselineAt),
      reconcileExperience: () => experienceReconciliationAnswer(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0},
+    knowledgeGraph: () => KNOWLEDGE_GRAPH ? KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories) : null,
+    knowledgeGraphSummary: () => {
+      const graph = KNOWLEDGE_GRAPH ? KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories) : null;
+      return graph ? {...graph.stats} : null;
+    },
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
     cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
     attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),

@@ -120,9 +120,18 @@ function loadMemory() {
   if (!window.NGObservationEngine) {
     vm.runInNewContext(fs.readFileSync("observation-engine.js","utf8"),sandbox,{filename:"observation-engine.js"});
   }
+  if (!window.NGKnowledgeGraph) {
+    vm.runInNewContext(fs.readFileSync("knowledge-graph.js","utf8"),sandbox,{filename:"knowledge-graph.js"});
+  }
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
 loadMemory();
+
+const initialGraph = window.NGMemory.knowledgeGraph();
+assert.ok(initialGraph,"memory API should expose the derived knowledge graph");
+assert.equal(initialGraph.stats.memories,6,"the graph should preserve every source memory record");
+assert.ok(initialGraph.stats.claims >= 6,"the graph should contain the structured claims extracted from memory");
+assert.ok(initialGraph.edges.some(edge=>edge.type==="contains"),"memory-to-claim provenance should be represented as an edge");
 
 sidePanel.scrollTop = 147;
 const manage = document.getElementById("memory-manage");

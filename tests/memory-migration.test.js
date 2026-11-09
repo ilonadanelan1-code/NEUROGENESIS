@@ -138,9 +138,13 @@ const localStorage = {
 const sandbox = { window, document, localStorage, console, Date, Math, Set, Map, JSON };
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
+vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
 assert.equal(window.NGMemory.count(), 6);
+const migratedGraph = window.NGMemory.knowledgeGraph();
+assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
+assert.ok(migratedGraph.stats.claims >= 6,"legacy claims should be projected without rewriting the backup format");
 const claims = window.NGMemory.claims();
 assert.equal(claims.length, 6, "all legacy memories should be upgraded to structured claims");
 const relation = claims.find(claim => claim.kind === "relationship");
