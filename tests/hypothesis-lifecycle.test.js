@@ -65,18 +65,18 @@ assert.ok(revised.meta.conclusions[0].lifecycle.events.some(item=>item.kind==="r
 // A later, weaker decision on another route must not hide an active suspension.
 const multiBase={version:1,type:"derived_hypotheses",createdAt:15000,conclusions:[{
   subject:"Факторы",object:"Результат",paths:[
-    [causal("m1","Фактор А","Результат")],[causal("m2","Фактор Б","Результат")]
+    [causal("m1","Недосыпание","Результат")],[causal("m2","Стресс","Результат")]
   ]}],reviews:[],modelHistory:[]};
 const multiCreated=engine.reconcile(multiBase,[],[],[],15000);
 const multiSuspended=engine.reconcile(multiCreated.meta,[],[
-  {edgeSubject:"Фактор А",edgeObject:"Результат",strategy:"suspend",at:16000},
-  {edgeSubject:"Фактор Б",edgeObject:"Результат",strategy:"conditional",at:17000}
+  {edgeSubject:"Недосыпание",edgeObject:"Результат",strategy:"suspend",at:16000},
+  {edgeSubject:"Стресс",edgeObject:"Результат",strategy:"conditional",at:17000}
 ],[],18000);
 assert.equal(multiSuspended.meta.conclusions[0].lifecycle.state,"suspended",
   "an active suspended edge must not be hidden by a newer conditional decision on another edge");
 const oneRestored=engine.reconcile(multiSuspended.meta,[],[
-  {edgeSubject:"Фактор А",edgeObject:"Результат",strategy:"restore",at:19000},
-  {edgeSubject:"Фактор Б",edgeObject:"Результат",strategy:"conditional",at:17000}
+  {edgeSubject:"Недосыпание",edgeObject:"Результат",strategy:"restore",at:19000},
+  {edgeSubject:"Стресс",edgeObject:"Результат",strategy:"conditional",at:17000}
 ],[],20000);
 assert.equal(oneRestored.meta.conclusions[0].lifecycle.state,"conditional",
   "restoring the suspended edge should reveal the remaining conditional decision");
