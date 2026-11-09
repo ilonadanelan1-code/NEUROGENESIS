@@ -194,10 +194,9 @@
     nodesDirty = true;
     visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
-    scheduleFrame();
   }
-  new ResizeObserver(resize).observe(canvas);
-  window.addEventListener("resize", resize);
+  new ResizeObserver(() => { resize(); scheduleFrame(); }).observe(canvas);
+  window.addEventListener("resize", () => { resize(); scheduleFrame(); });
   for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
     document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
   }
