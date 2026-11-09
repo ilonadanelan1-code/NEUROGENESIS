@@ -6,8 +6,34 @@ import "../experience-multipattern-benchmark.js";
 assert.equal(typeof globalThis.NGMultiPatternBenchmark?.run, "function",
   "the multi-pattern benchmark module must expose run()");
 
-const runtime = await globalThis.NGWasm.load({ moduleFactory: createModule });
+const baseRuntime = await globalThis.NGWasm.load({ moduleFactory: createModule });
+let createdBrains = 0;
+let activeBrains = 0;
+const runtime = {
+  createBrain() {
+    const brain = baseRuntime.createBrain();
+    createdBrains++;
+    activeBrains++;
+    let disposed = false;
+    return new Proxy(brain, {
+      get(target, property) {
+        if (property === "dispose") {
+          return () => {
+            if (disposed) return;
+            disposed = true;
+            target.dispose();
+            activeBrains--;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+  }
+};
 const report = await globalThis.NGMultiPatternBenchmark.run({ runtime });
+assert.equal(createdBrains, 2, "each training order must use its own isolated brain");
+assert.equal(activeBrains, 0, "both isolated training brains must be disposed");
 
 assert.equal(report.kind, "two-pattern sequential learning benchmark");
 assert.equal(report.network.neurons, 4);
@@ -19,8 +45,7 @@ assert.equal(report.passed, true,
 for (const key of [
   "bothTrainingOrdersLearnDistinctResponses",
   "previouslyLearnedResponseSurvivesLaterTask",
-  "noOrderSpecificFailure",
-  "allTestBrainsAreDisposed"
+  "orderSymmetryIsStable"
 ]) {
   assert.equal(report.checks[key], true, "benchmark check failed: " + key);
 }
