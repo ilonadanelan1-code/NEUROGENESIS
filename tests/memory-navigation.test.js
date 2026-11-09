@@ -763,7 +763,7 @@ assert.match(incompleteReadiness,/ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАН
   "balanced observations without context, time and criterion details must not pass the review gate");
 assert.match(incompleteReadiness,/время или временной порядок/u,
   "the report should name missing temporal information");
-assert.match(incompleteReadiness,/как определялся или измерялся результат/u,
+assert.match(incompleteReadiness,/способ оценки не указан/u,
   "the report should name the missing outcome criterion");
 assert.match(incompleteReadiness,/Контекст: не указан/u,
   "an inquiry response must not rewrite individual event cards");
