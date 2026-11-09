@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const { URL } = require("node:url");
 
 const window = {};
-const sandbox = { window, Date, Math, Map, Set, JSON, URL };
+const sandbox = { window, Date, Math, Map, Set, JSON, URL, AbortController, setTimeout, clearTimeout };
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 const bridge = window.NGLLMBridge;
 const context = {
@@ -177,5 +177,25 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   );
   await assert.rejects(() => notFoundAdapter.health(), /Шлюз вернул 404/u,
     "a missing Worker route should explain that the gateway base URL or path is wrong");
+
+  let neverResolvingSignal = null;
+  const hangingAdapter = bridge.createHttpAdapter(
+    { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token", requestTimeoutMs: 25 },
+    async (_url, options) => {
+      neverResolvingSignal = options.signal;
+      return new Promise(() => {});
+    }
+  );
+  await assert.rejects(() => hangingAdapter.health(), /Истекло время ожидания проверки шлюза/u,
+    "a health request that never resolves must fail within its deadline");
+  assert.equal(neverResolvingSignal.aborted, true,
+    "the browser should abort the timed-out network request when AbortController is available");
+
+  const hangingBodyAdapter = bridge.createHttpAdapter(
+    { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token", requestTimeoutMs: 25 },
+    async () => ({ ok: true, status: 200, async json() { return new Promise(() => {}); } })
+  );
+  await assert.rejects(() => hangingBodyAdapter.generate(request), /Истекло время ожидания ответа модели/u,
+    "a response whose body never finishes parsing must also be bounded");
   console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
