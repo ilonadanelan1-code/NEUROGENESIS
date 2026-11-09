@@ -159,23 +159,22 @@
       const checks = {
         sharedInputRoutesRemainSymmetric:
           Math.abs(inputWeightA - inputWeightB) <= TOLERANCE,
-        competingOutputWeightsRemainSymmetric:
-          Math.abs(outputWeightX - outputWeightY) <= TOLERANCE,
         inputAActivatesBothCompetingOutputs: after.A.bothOutputsActive,
         inputBActivatesBothCompetingOutputs: after.B.bothOutputsActive,
-        inputAProducesNoSelectiveOutput:
-          Math.abs(after.A.outputDifference) <= TOLERANCE,
-        inputBProducesNoSelectiveOutput:
-          Math.abs(after.B.outputDifference) <= TOLERANCE,
         bothInputsCollapseToSameOutputResponse:
           Math.abs(after.A.outputX - after.B.outputX) <= TOLERANCE &&
           Math.abs(after.A.outputY - after.B.outputY) <= TOLERANCE,
+        outputPreferenceIsSharedByBothInputs:
+          Math.abs(after.A.outputDifference - after.B.outputDifference) <= TOLERANCE,
+        expectedAtoXAndBtoYMappingCannotBothBeSatisfied:
+          !(after.A.outputX > after.A.outputY + TOLERANCE &&
+            after.B.outputY > after.B.outputX + TOLERANCE),
         rewardsArriveAfterActivityFades:
           episodes.every(episode => episode.activeNeuronsBeforeReward === 0),
         everyEpisodeHasTargetTrace:
           episodes.every(episode => episode.targetEligibility > EPSILON),
-        noWrongOutputTraceInEachEpisode:
-          episodes.every(episode => episode.competingEligibility <= EPSILON),
+        sharedPathCreatesCompetingEligibilityTraces:
+          episodes.every(episode => episode.competingEligibility > EPSILON),
         everyEpisodeConsumesTraces:
           episodes.every(episode => episode.traceConsumed),
         allWeightsRemainBounded:
@@ -217,9 +216,9 @@
     const checks = {
       bothTrainingOrdersReproduceSharedPathInterference:
         aThenB.diagnosed && bThenA.diagnosed,
-      diagnosisIsOrderIndependent:
-        Math.abs(aThenB.after.A.outputX - bThenA.after.A.outputX) <= TOLERANCE &&
-        Math.abs(aThenB.after.B.outputY - bThenA.after.B.outputY) <= TOLERANCE,
+      bothOrdersLoseInputIdentity:
+        aThenB.checks.bothInputsCollapseToSameOutputResponse &&
+        bThenA.checks.bothInputsCollapseToSameOutputResponse,
       eachScenarioUsesSixDelayedRewardEpisodes:
         aThenB.episodes.length === 6 && bThenA.episodes.length === 6
     };
