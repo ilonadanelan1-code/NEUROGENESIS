@@ -155,10 +155,10 @@
         { answer: wholeWord("час(?:а|ов)?"), question: wholeWord("час(?:а|ов)?") },
         { answer: wholeWord("минут(?:а|ы)?"), question: wholeWord("минут(?:а|ы)?") },
         { answer: wholeWord("секунд(?:а|ы)?"), question: wholeWord("секунд(?:а|ы)?") },
-        { answer: wholeWord("шкал[\\\\p{L}]*|балл[\\\\p{L}]*|оцен[\\\\p{L}]*"), question: wholeWord("шкал[\\\\p{L}]*|балл[\\\\p{L}]*|оцен[\\\\p{L}]*") },
-        { answer: wholeWord("килограмм[\\\\p{L}]*|кг|вес[\\\\p{L}]*"), question: wholeWord("килограмм[\\\\p{L}]*|кг|вес[\\\\p{L}]*") },
-        { answer: wholeWord("сантиметр[\\\\p{L}]*|см|рост[\\\\p{L}]*"), question: wholeWord("сантиметр[\\\\p{L}]*|см|рост[\\\\p{L}]*") },
-        { answer: wholeWord("процент[\\\\p{L}]*|%"), question: wholeWord("процент[\\\\p{L}]*|%") }
+        { answer: wholeWord("шкал[\\p{L}]*|балл[\\p{L}]*|оцен[\\p{L}]*"), question: wholeWord("шкал[\\p{L}]*|балл[\\p{L}]*|оцен[\\p{L}]*") },
+        { answer: wholeWord("килограмм[\\p{L}]*|кг|вес[\\p{L}]*"), question: wholeWord("килограмм[\\p{L}]*|кг|вес[\\p{L}]*") },
+        { answer: wholeWord("сантиметр[\\p{L}]*|см|рост[\\p{L}]*"), question: wholeWord("сантиметр[\\p{L}]*|см|рост[\\p{L}]*") },
+        { answer: wholeWord("процент[\\p{L}]*|%"), question: wholeWord("процент[\\p{L}]*|%") }
       ];
       const ranked = matches.map(question => {
         const questionText = normalise(question.text);
