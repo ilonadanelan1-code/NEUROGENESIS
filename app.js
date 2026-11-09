@@ -55,6 +55,7 @@
   let animationWasActive = false;
   const activeNeuronIds = new Set();
   let wasmShadow = null;
+  let wasmShadowStepElapsed = 0;
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
   const neuronById = new Map();
@@ -125,7 +126,7 @@
   function syncWasmShadow() {
     if (!wasmShadow) return false;
     const status = wasmShadow.diagnostics();
-    if (status.state !== "ready") return false;
+    if (status.state !== "ready" && status.state !== "error") return false;
     const ok = wasmShadow.rebuild();
     if (!ok) console.warn("NEUROGENESIS WebAssembly shadow sync failed:", wasmShadow.diagnostics().lastError);
     return ok;
@@ -138,6 +139,14 @@
     }).catch(error => {
       console.warn("NEUROGENESIS WebAssembly shadow startup failed:", error);
     });
+  }
+  function stepWasmShadow(deltaMilliseconds) {
+    if (!wasmShadow || wasmShadow.diagnostics().state !== "ready") return;
+    wasmShadowStepElapsed += Math.max(0, Math.min(100, deltaMilliseconds));
+    if (wasmShadowStepElapsed < 100) return;
+    const elapsed = wasmShadowStepElapsed;
+    wasmShadowStepElapsed = 0;
+    wasmShadow.step(elapsed / 1000);
   }
   const view = { x: 0, y: 0, zoom: 1 };
   const stars = Array.from({length:window.innerWidth <= 700 ? 65 : 95},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
@@ -710,7 +719,7 @@
       return;
     }
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
-    if (wasmShadow) wasmShadow.step(dt / 1000);
+    stepWasmShadow(dt);
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const id of activeNeuronIds){
       const n=neuronById.get(id);
