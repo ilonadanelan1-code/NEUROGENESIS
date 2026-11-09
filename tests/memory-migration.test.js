@@ -376,6 +376,11 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(validImportedLifecycle.state,"new",
     "an archived review without a matching imported source claim must not challenge the valid conclusion");
   assert.equal(validImportedLifecycle.challengingClaimIds.length,0);
+  const importedRevision=window.NGMemory.modelEvolution();
+  assert.doesNotMatch(importedRevision,/Недостаток сна → снижению концентрации — ПОД ВОПРОСОМ/u,
+    "unverified archived review metadata must not mark a valid route as challenged");
+  assert.match(importedRevision,/Недостаток сна → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,
+    "the route should remain unobserved until a matching source claim is available");
 
   const beforeCount = window.NGMemory.count();
   const beforeClaims = window.NGMemory.claims().length;
