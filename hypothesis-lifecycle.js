@@ -165,8 +165,9 @@
           .sort((a,b)=>safeTime(a.at,0)-safeTime(b.at,0));
         for(const item of routeDecisions) {
           const decisionKey=[edgeKey({subject:item.edgeSubject,object:item.edgeObject}),item.strategy,safeTime(item.at,0)].join("|");
-          if(record.decisionRefs.includes(decisionKey))continue;
-          record.decisionRefs.push(decisionKey);
+          const decisionRef="D-"+hash(decisionKey);
+          if(record.decisionRefs.includes(decisionRef))continue;
+          record.decisionRefs.push(decisionRef);
           append(record,makeEvent("decision_applied",safeTime(item.at,at),{
             edgeSubject:item.edgeSubject,edgeObject:item.edgeObject,strategy:item.strategy,decisionKey,
             reason:"Явное пользовательское решение изменило использование звена в рабочей модели."
