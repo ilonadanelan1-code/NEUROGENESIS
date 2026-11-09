@@ -107,7 +107,7 @@
     const unrelatedEdgesBefore = beforeReward.synapses
       .filter(edge => edge.from !== input)
       .map(edge => ({ from: edge.from, to: edge.to, weight: edge.weight }));
-    const changedSynapses = brain.learnContrastiveReward(LEARNING_RATE, target, other);
+    const changedSynapses = brain.learnContrastiveReward(LEARNING_RATE, input, target, other);
     const afterReward = brain.snapshot();
     const targetAfter = findEdge(afterReward, input, target);
     const crossAfter = findEdge(afterReward, input, other);
