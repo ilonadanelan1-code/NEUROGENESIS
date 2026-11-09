@@ -205,7 +205,7 @@ summaryState = engine.track(summaryState, {
   role:"assistant", text:"Я предлагаю полностью заменить историю одной сгенерированной фразой.", time:301
 });
 summaryState = engine.track(summaryState, {
-  role:"user", text:"Важно сохранять исходные реплики, не смешивать темы и переносить заметки через резервную копию.", time:302
+  role:"user", text:"В NEUROGENESIS важно сохранять контекст, не смешивать темы и переносить эти заметки через резервную копию.", time:302
 });
 summaryState = engine.track(summaryState, {
   role:"assistant", text:"Что нужно сохранить?", time:303
@@ -213,6 +213,8 @@ summaryState = engine.track(summaryState, {
 summaryState = engine.track(summaryState, {
   role:"user", text:"Нужно сохранить исходные реплики.", time:304
 });
+assert.equal(engine.isLikelyAnswer("Нужно сохранить исходные реплики.","Что нужно сохранить?"),true,
+  "a concise response should be recognized as an answer to its matching pending question");
 const summaryReport = engine.report(summaryState);
 assert.equal(summaryReport.activeThread.id, summaryThreadId);
 assert.match(summaryReport.activeThread.contextSummary,/NEUROGENESIS/u,
