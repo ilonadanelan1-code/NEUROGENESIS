@@ -378,7 +378,7 @@
       answer+="Версия маршрута: "+item.revision+" · исходных причинных записей: "+item.originClaimIds.length+
         " · согласующихся свидетельств: "+item.supportingClaimIds.length+
         " · оспаривающих свидетельств: "+item.challengingClaimIds.length+"\n";
-      if(item.decision)answer+="Последнее решение: "+({conditional:"условная связь",weaken:"ослабить связь",suspend:"временно приостановить",restore:"вернуть в активную модель"})[item.decision.strategy]+
+      if(item.decision)answer+="Активное решение, влияющее на гипотезу: "+({conditional:"условная связь",weaken:"ослабить связь",suspend:"временно приостановить",restore:"вернуть в активную модель"})[item.decision.strategy]+
         " · "+item.decision.edgeSubject+" → "+item.decision.edgeObject+"\n";
       const recent=item.events.slice(-4);
       if(recent.length)answer+="История: "+recent.map(event=>{
