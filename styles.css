@@ -126,6 +126,7 @@ select.text-input{color-scheme:dark}
   .canvas-hint{display:none}
 }
 @media(max-height:560px) and (orientation:landscape){
+  .app-shell{min-height:0}
   .topbar{height:49px;flex-basis:49px}.workspace{grid-template-columns:minmax(0,1fr) 270px}
   .side-panel{display:block;padding:0 13px;overflow-y:auto}.section-block{padding:10px 0}
   .brain-panel{height:auto}.organism-title{margin:5px 0 8px}.metrics{gap:5px}.metric{padding:6px}
