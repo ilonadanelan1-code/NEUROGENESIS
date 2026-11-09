@@ -2995,8 +2995,11 @@
           " · завершено "+cycle.goals.completed]:[]),
         ...(cycle.goalChanges&&cycle.goalChanges.available&&cycle.goalChanges.total?[
           "ИЗМЕНЕНИЯ ЦЕЛЕЙ В ЭТОМ ЦИКЛЕ · "+cycle.goalChanges.total,
+          ...(cycle.goalChanges.total>cycle.goalChanges.items.length
+            ?["Показаны последние "+cycle.goalChanges.items.length+" записей из "+cycle.goalChanges.total+"; более ранние изменения не помещены в краткий список."]
+            :[]),
           ...cycle.goalChanges.items.map(item=>{
-            const labels={created:"создана",status_changed:"сменился статус",updated:"обновлена",removed:"удалена"};
+            const labels={created:"создана",status_changed:"сменился статус",updated:"обновлена",removed:"перестала отслеживаться"};
             const statusLabels={active:"активна",waiting_user:"ждёт ответа",blocked:"заблокирована",review:"требует пересмотра",
               paused:"отложена",completed:"завершена",stale:"без движения"};
             const transition=item.fromStatus
