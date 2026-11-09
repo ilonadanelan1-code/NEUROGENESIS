@@ -94,7 +94,7 @@ try {
   assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.8), true);
   assert.equal(contrastiveBrain.setSynapseEligibility(input, negative, 0.6), true);
   assert.equal(contrastiveBrain.setSynapseEligibility(input, neutral, 0.7), true);
-  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, positive, negative), 2);
+  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, input, positive, negative), 2);
   const rows = contrastiveBrain.snapshot().synapses;
   assert.ok(Math.abs(rows[0].weight - 0.9) < 1e-6);
   assert.ok(Math.abs(rows[1].weight - 0.1) < 1e-6);
@@ -118,7 +118,7 @@ const mappedContrastive = runtime.createBrainFromSnapshot({
 try {
   assert.equal(mappedContrastive.setSynapseEligibility("mapped-input", "mapped-positive", 0.8), true);
   assert.equal(mappedContrastive.setSynapseEligibility("mapped-input", "mapped-negative", 0.6), true);
-  assert.equal(mappedContrastive.learnContrastiveReward(0.5, "mapped-positive", "mapped-negative"), 2,
+  assert.equal(mappedContrastive.learnContrastiveReward(0.5, "mapped-input", "mapped-positive", "mapped-negative"), 2,
     "snapshot mirrors must map source neuron IDs to contrastive core targets");
   const rows = mappedContrastive.snapshot().synapses;
   assert.ok(Math.abs(rows[0].weight - 0.9) < 1e-6);
@@ -150,7 +150,7 @@ try {
   assert.equal(contrastiveShadow.step(0.1, 0.9), true);
   assert.ok(contrastiveShadow.snapshot().synapses.every(row => row.eligibility > 0));
   assert.equal(contrastiveShadow.learnContrastiveReward(
-    0.5, "contrast-positive", "contrast-negative"), 2);
+    0.5, "contrast-input", "contrast-positive", "contrast-negative"), 2);
   const rows = contrastiveShadow.snapshot().synapses;
   assert.ok(rows[0].weight > 0.5);
   assert.ok(rows[1].weight < 0.4);
