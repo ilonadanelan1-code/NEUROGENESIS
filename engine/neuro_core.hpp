@@ -48,6 +48,12 @@ public:
     std::uint32_t learn_from_reward(float learning_rate, float reward,
                                     float weight_decay = 0.0f);
 
+    // Contrastive delayed reward updates only synapses targeting the selected
+    // positive/negative output neurons. All eligibility traces are consumed.
+    std::uint32_t learn_contrastive_reward(float learning_rate,
+                                           std::uint32_t positive_neuron_id,
+                                           std::uint32_t negative_neuron_id);
+
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }
     const Neuron* find_neuron(std::uint32_t id) const noexcept;
