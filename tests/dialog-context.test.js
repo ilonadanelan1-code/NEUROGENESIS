@@ -75,6 +75,64 @@ assert.doesNotMatch(musicFollowUp.query, /Сколько часов ты спа�
 const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");
+
+// A single assistant turn may contain several independent clarification questions.
+// Answers must be attached to the question they actually address, not just the first
+// or last question in the assistant message.
+let multiQuestionState = engine.track(
+  engine.track(engine.empty(), {
+    role: "user", text: "После тренировки я чувствую усталость и хочу точнее описать её.", time: 630
+  }),
+  {
+    role: "assistant",
+    text: "Сколько часов ты спал? По какой шкале оцениваешь усталость?",
+    time: 631
+  }
+);
+const multiQuestionThreadId = multiQuestionState.activeThreadId;
+assert.deepEqual(
+  Array.from(engine.report(multiQuestionState).activeThread.pendingQuestions),
+  ["Сколько часов ты спал?", "По какой шкале оцениваешь усталость?"],
+  "all separate questions from one assistant reply must remain open"
+);
+multiQuestionState = engine.track(multiQuestionState, {
+  role: "user", text: "Примерно четыре часа", time: 632
+});
+const firstMappedAnswer = multiQuestionState.messages[multiQuestionState.messages.length - 1];
+assert.equal(firstMappedAnswer.relation, "answer_to_question");
+assert.equal(firstMappedAnswer.questionText, "Сколько часов ты спал?",
+  "a duration answer must be linked to the hours question");
+assert.deepEqual(
+  Array.from(engine.report(multiQuestionState).activeThread.pendingQuestions),
+  ["По какой шкале оцениваешь усталость?"],
+  "answering one question must not close other open questions"
+);
+multiQuestionState = engine.track(multiQuestionState, {
+  role: "user", text: "По шкале от 1 до 10", time: 633
+});
+const secondMappedAnswer = multiQuestionState.messages[multiQuestionState.messages.length - 1];
+assert.equal(secondMappedAnswer.relation, "answer_to_question");
+assert.equal(secondMappedAnswer.questionText, "По какой шкале оцениваешь усталость?",
+  "a scale answer must be linked to the scale question");
+assert.equal(engine.report(multiQuestionState).activeThread.pendingQuestions.length, 0,
+  "each matched clarification question should close independently");
+assert.match(engine.report(multiQuestionState).activeThread.contextSummary,/Ответ на вопрос/u,
+  "the extractive summary should retain which clarification each answer addressed");
+const multiQuestionRoundTrip = engine.sanitize(JSON.parse(JSON.stringify(multiQuestionState)));
+assert.equal(engine.report(multiQuestionRoundTrip).activeThread.pendingQuestions.length, 0,
+  "the question queue and its resolved state must survive serialization");
+const legacyPendingQuestion = engine.sanitize({
+  activeThreadId: "T91-legacy-question",
+  threads: [{
+    id: "T91-legacy-question", title: "Старая тема", status: "active",
+    pendingQuestion: { text: "Сколько часов ты спал?", askedAt: 700, answered: false }
+  }]
+});
+assert.deepEqual(
+  Array.from(engine.report(legacyPendingQuestion).activeThread.pendingQuestions),
+  ["Сколько часов ты спал?"],
+  "legacy single-question state must migrate into the pending question queue"
+);
 const unrelatedRequest = engine.track(pendingBase, {
   role: "user",
   text: "Я изучаю устройство нейросетей. Объясни в двух предложениях, что такое контекст диалога, а затем задай мне один уточняющий вопрос.",

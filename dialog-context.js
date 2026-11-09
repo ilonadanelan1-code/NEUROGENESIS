@@ -5,6 +5,7 @@
   const MAX_MESSAGES = 64;
   const MAX_TEXT = 1600;
   const MAX_TITLE = 72;
+  const MAX_PENDING_QUESTIONS = 6;
   const clean = (value, limit = MAX_TEXT) => String(value == null ? "" : value)
     .replace(/\s+/gu, " ").trim().slice(0, limit);
 
@@ -70,6 +71,11 @@
       const candidates = lines.filter(line => /\?\s*$/u.test(line) || /ВОПРОС ДЛЯ УТОЧНЕНИЯ/iu.test(line));
       return candidates.length ? clean(candidates[0], 260) : "";
     };
+    const extractQuestions = text => clean(text, MAX_TEXT)
+      .split(/(?<=[?？])\s+/u)
+      .map(row => clean(row, 260))
+      .filter(row => /[?？]\s*$/u.test(row))
+      .slice(0, MAX_PENDING_QUESTIONS);
     const MAX_SUMMARY_PARTS = 4;
     const MAX_SUMMARY_PART_CHARS = 180;
     function mergeSummaryParts(existing, incoming = []) {
@@ -96,7 +102,8 @@
       if (message.relation === "answer_to_question") {
         const prior = (Array.isArray(threadMessages) ? threadMessages : [])
           .filter(row => row.role === "assistant" && row.time <= message.time).slice().reverse();
-        const question = prior.map(row => sentenceEndQuestion(row.text)).find(Boolean);
+        const question = clean(message.questionText, 260) ||
+          prior.map(row => sentenceEndQuestion(row.text)).find(Boolean);
         if (question) return clean("Ответ на вопрос «" + clean(question, 72) + "»: " + message.text, MAX_SUMMARY_PART_CHARS);
       }
       return clean(message.text, MAX_SUMMARY_PART_CHARS);
@@ -104,6 +111,46 @@
     function summaryText(parts) {
       return (Array.isArray(parts) ? parts : []).map((row, index) =>
         (index + 1) + ". " + clean(row && row.text, MAX_SUMMARY_PART_CHARS)).filter(Boolean).join("\n");
+    }
+    function sanitizePendingQuestions(thread) {
+      const source = Array.isArray(thread && thread.pendingQuestions)
+        ? thread.pendingQuestions
+        : thread && thread.pendingQuestion ? [thread.pendingQuestion] : [];
+      return source.filter(row => row && typeof row.text === "string")
+        .map(row => ({
+          text: clean(row.text, 260),
+          askedAt: Math.max(0, Number(row.askedAt) || 0),
+          answered: !!row.answered
+        }))
+        .filter(row => row.text)
+        .slice(-MAX_PENDING_QUESTIONS);
+    }
+    function latestPendingQuestion(rows) {
+      const list = Array.isArray(rows) ? rows : [];
+      for (let index = list.length - 1; index >= 0; index--) {
+        if (!list[index].answered) return list[index];
+      }
+      return list[list.length - 1] || null;
+    }
+    function syncPendingQuestion(thread) {
+      thread.pendingQuestions = sanitizePendingQuestions(thread);
+      thread.pendingQuestion = latestPendingQuestion(thread.pendingQuestions);
+    }
+    function matchPendingQuestion(text, pendingQuestions) {
+      const matches = (Array.isArray(pendingQuestions) ? pendingQuestions : [])
+        .filter(row => row && !row.answered && isLikelyAnswer(text, row.text));
+      if (!matches.length) return null;
+      if (matches.length === 1) return matches[0];
+      const answer = normalise(text);
+      if (/^(?:не знаю|не помню|не могу сказать|затрудняюсь(?: ответить)?|без понятия)$/u.test(answer)) {
+        return matches.slice().sort((a, b) => b.askedAt - a.askedAt)[0];
+      }
+      const ranked = matches.map(question => ({
+        question,
+        score: overlap(text, question.text)
+      })).sort((a, b) => b.score - a.score || a.question.askedAt - b.question.askedAt);
+      if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08) return null;
+      return ranked[0].question;
     }
     function empty() {
       return { version: 1, activeThreadId: "", nextSequence: 1, threads: [], messages: [], lastDecision: null };
@@ -125,11 +172,8 @@
           lastUserText: clean(row.lastUserText),
           lastAssistantText: clean(row.lastAssistantText),
           summaryParts: Array.isArray(row.summaryParts) ? row.summaryParts : [],
-          pendingQuestion: row.pendingQuestion && typeof row.pendingQuestion.text === "string" ? {
-            text: clean(row.pendingQuestion.text, 260),
-            askedAt: Math.max(0, Number(row.pendingQuestion.askedAt) || 0),
-            answered: !!row.pendingQuestion.answered
-          } : null
+          pendingQuestions: sanitizePendingQuestions(row),
+          pendingQuestion: latestPendingQuestion(sanitizePendingQuestions(row))
         }));
       const ids = new Set(result.threads.map(row => row.id));
       result.messages = (Array.isArray(source.messages) ? source.messages : []).filter(row =>
@@ -139,7 +183,8 @@
           id: row.id.slice(0, 64), threadId: row.threadId,
           role: row.role, text: clean(row.text), time: Math.max(0, Number(row.time) || 0),
           relation: ["new_topic","continuation","answer_to_question","explicit_return","assistant_reply"].includes(row.relation)
-            ? row.relation : "continuation"
+            ? row.relation : "continuation",
+          questionText: clean(row.questionText, 260)
         }));
       result.activeThreadId = ids.has(source.activeThreadId) ? source.activeThreadId : "";
       if (!result.activeThreadId && result.threads.length) {
@@ -183,7 +228,7 @@
       const row = {
         id, title, status: "active", createdAt: now, updatedAt: now, turnCount: 0,
         keywords: tokens(message).slice(0, 16), lastUserText: "", lastAssistantText: "",
-        summaryParts: [], pendingQuestion: null
+        summaryParts: [], pendingQuestions: [], pendingQuestion: null
       };
       for (const old of state.threads) if (old.status === "active") old.status = "paused";
       state.threads.push(row);
@@ -221,6 +266,7 @@
       let thread = activeThread(state);
       let relation = role === "assistant" ? "assistant_reply" : "continuation";
       let summaryCandidateText = text;
+      let answerQuestionText = "";
       let resolvedAmbiguousReturn = false;
       if (role === "user" && !returnTarget(text) &&
           state.lastDecision && state.lastDecision.kind === "ambiguous_return") {
@@ -267,9 +313,10 @@
         } else {
           const similarity = overlap(text, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText);
           const words = tokens(text).length;
-          const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered &&
-            isLikelyAnswer(text, thread.pendingQuestion.text));
-          const independentStatement = !!(thread.pendingQuestion && !likelyAnswer && words >= 2 &&
+          const matchedQuestion = matchPendingQuestion(text, thread.pendingQuestions);
+          const likelyAnswer = !!matchedQuestion;
+          const hasOpenQuestion = thread.pendingQuestions.some(row => !row.answered);
+          const independentStatement = !!(hasOpenQuestion && !likelyAnswer && words >= 2 &&
             similarity < 0.12 && knowledge && typeof knowledge.extractClaims === "function" &&
             knowledge.extractClaims(text).length > 0);
           const opening = topicOpening(text);
@@ -279,8 +326,10 @@
           const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
           if (likelyAnswer) {
             relation = "answer_to_question";
-            summaryCandidateText = "Ответ на вопрос «" + clean(thread.pendingQuestion.text, 72) + "»: " + text;
-            thread.pendingQuestion.answered = true;
+            answerQuestionText = matchedQuestion.text;
+            summaryCandidateText = "Ответ на вопрос «" + clean(matchedQuestion.text, 72) + "»: " + text;
+            matchedQuestion.answered = true;
+            syncPendingQuestion(thread);
           } else if (independentTopic || independentStatement) {
             thread = createThread(state, text, time);
             relation = "new_topic";
@@ -304,12 +353,18 @@
       if (role === "assistant") {
         thread.lastAssistantText = text;
         thread.updatedAt = time;
-        const question = sentenceEndQuestion(text);
-        if (question) thread.pendingQuestion = { text: question, askedAt: time, answered: false };
+        const questions = extractQuestions(text);
+        for (const question of questions) {
+          const duplicate = thread.pendingQuestions.some(row =>
+            !row.answered && normalise(row.text) === normalise(question));
+          if (!duplicate) thread.pendingQuestions.push({ text: question, askedAt: time, answered: false });
+        }
+        thread.pendingQuestions = thread.pendingQuestions.slice(-MAX_PENDING_QUESTIONS);
+        syncPendingQuestion(thread);
       }
       state.messages.push({
         id: "M" + time.toString(36) + "-" + state.messages.length.toString(36),
-        threadId: thread.id, role, text, time, relation
+        threadId: thread.id, role, text, time, relation, questionText: answerQuestionText
       });
       if (role === "user") {
         thread.summaryParts = mergeSummaryParts(thread.summaryParts, [{ text: summaryCandidateText, at: time }]);
@@ -373,18 +428,25 @@
         !(row.role === "user" && row.text === raw)).slice(-6);
       const priorUser = [...previous].reverse().find(row => row.role === "user");
       const priorAssistant = [...previous].reverse().find(row => row.role === "assistant");
+      const pendingQuestions = thread.pendingQuestions.filter(row => !row.answered).map(row => row.text);
       const context = {
         title: thread.title,
         contextSummary: summaryText(thread.summaryParts),
         lastUserText: priorUser ? priorUser.text : thread.lastUserText,
         lastAssistantText: priorAssistant ? priorAssistant.text : thread.lastAssistantText,
-        pendingQuestion: thread.pendingQuestion && !thread.pendingQuestion.answered ? thread.pendingQuestion.text : ""
+        pendingQuestion: pendingQuestions[0] || "",
+        pendingQuestions
       };
       const pieces = [raw, "ТЕМА: " + context.title];
       if (context.contextSummary) pieces.push("РАНЕЕ СОХРАНЁННЫЕ ВЫДЕРЖКИ ИЗ РЕПЛИК ПОЛЬЗОВАТЕЛЯ: " + context.contextSummary);
       if (context.lastUserText) pieces.push("ПРЕДЫДУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: " + clean(context.lastUserText, 260));
       if (context.lastAssistantText) pieces.push("ПРЕДЫДУЩИЙ ОТВЕТ АССИСТЕНТА: " + clean(context.lastAssistantText, 260));
-      if (context.pendingQuestion) pieces.push("ОТКРЫТЫЙ ВОПРОС: " + clean(context.pendingQuestion, 220));
+      if (context.pendingQuestions.length === 1) {
+        pieces.push("ОТКРЫТЫЙ ВОПРОС: " + clean(context.pendingQuestions[0], 220));
+      } else if (context.pendingQuestions.length > 1) {
+        pieces.push("НЕЗАКРЫТЫЕ ВОПРОСЫ: " + context.pendingQuestions
+          .map((question, index) => (index + 1) + ". " + clean(question, 220)).join("; "));
+      }
       return {
         query: pieces.join(" · "), applied: true, reason: "short_or_referential_follow_up",
         threadId: thread.id, title: thread.title, context
@@ -398,7 +460,8 @@
         activeThread: active ? {
           id: active.id, title: active.title, status: active.status, turnCount: active.turnCount,
           contextSummary: summaryText(active.summaryParts), summaryParts: active.summaryParts.length,
-          pendingQuestion: active.pendingQuestion && !active.pendingQuestion.answered ? active.pendingQuestion.text : ""
+          pendingQuestion: active.pendingQuestion && !active.pendingQuestion.answered ? active.pendingQuestion.text : "",
+          pendingQuestions: active.pendingQuestions.filter(row => !row.answered).map(row => row.text)
         } : null,
         topics: state.threads.slice().reverse().map(row => ({
           id: row.id, title: row.title, status: row.status, updatedAt: row.updatedAt, turnCount: row.turnCount,
