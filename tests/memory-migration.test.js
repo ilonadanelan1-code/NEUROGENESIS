@@ -1144,6 +1144,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const cleanupMemoryAfterImport=cleanupMemoriesAfterImport.find(item=>item.text===cleanupText);
   assert.ok(cleanupMemoryAfterImport,
     "an inquiry-only import must retain the pre-existing memory record; count="+cleanupMemoriesAfterImport.length+
+    "; runtimeCount="+window.NGMemory.count()+
+    "; targetId="+cleanupMemory.id+
     "; texts="+JSON.stringify(cleanupMemoriesAfterImport.map(item=>item.text).slice(-8))+
     "; feedback="+document.getElementById("memory-feedback").textContent);
   assert.deepEqual(cleanupMemoryAfterImport.claims,[],
