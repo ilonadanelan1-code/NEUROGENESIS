@@ -151,6 +151,7 @@ const sandbox = {
     return { ok:false, status:404, async json() { return { error:"not_found" }; } };
   }
 };
+window.fetch = sandbox.fetch;
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
