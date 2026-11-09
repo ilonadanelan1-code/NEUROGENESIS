@@ -226,4 +226,97 @@ assert.equal(independentQ4.unknownEventCount,2);
 assert.equal(independentQ4.numericOutcomeMissingCount,2,
   "missing numeric outcomes must remain missing rather than being invented");
 
+// A blocked research goal must become reviewable when new direct observations arrive
+// after the original answer. The historical user assessment itself must remain unchanged.
+const reevaluationDatabase = new Map();
+const reevaluationStorage = {
+  getItem(key) { return reevaluationDatabase.has(key) ? reevaluationDatabase.get(key) : null; },
+  setItem(key, value) { reevaluationDatabase.set(key, String(value)); },
+  removeItem(key) { reevaluationDatabase.delete(key); }
+};
+const reevaluationWindow = { NGKnowledge: window.NGKnowledge };
+const reevaluationSandbox = {
+  window: reevaluationWindow, localStorage: reevaluationStorage,
+  console, Date, Math, Set, Map, JSON
+};
+vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), reevaluationSandbox, {
+  filename: "goals-reevaluation.test.js"
+});
+const assessmentTime = now + 500000;
+const reevaluationInquiries = [
+  {
+    id:"Q8",kind:"missing_observation",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+    question:"Есть ли наблюдения?",status:"answered",assessment:"gap_confirmed",
+    assessmentReason:"На момент ответа подходящих наблюдений не было.",
+    sourceClaimIds:["q8-cause"],createdAt:assessmentTime-2000,updatedAt:assessmentTime,
+    lastAskedAt:assessmentTime-1000,answeredAt:assessmentTime,assessmentAt:assessmentTime
+  },
+  {
+    id:"Q9",kind:"clarify_counterexample",edgeSubject:"стресс",edgeObject:"бессонница",
+    question:"Уточни обстоятельства",status:"answered",assessment:"insufficient_context",
+    assessmentReason:"На момент ответа обстоятельства сравнения были неизвестны.",
+    sourceClaimIds:["q9-cause"],createdAt:assessmentTime-2000,updatedAt:assessmentTime,
+    lastAskedAt:assessmentTime-1000,answeredAt:assessmentTime,assessmentAt:assessmentTime
+  }
+];
+const reevaluationMemories = [{
+  id:"reevaluation-causes",createdAt:assessmentTime-2000,claims:[
+    {id:"q8-cause",kind:"causal",subject:"Недостаток сна",object:"усталость",createdAt:assessmentTime-2000},
+    {id:"q9-cause",kind:"causal",subject:"стресс",object:"бессонница",createdAt:assessmentTime-2000}
+  ]
+}];
+reevaluationWindow.NGGoals.reconcile({
+  inquiries:reevaluationInquiries,memories:reevaluationMemories,now:assessmentTime+100
+});
+let reevaluationRows = reevaluationWindow.NGGoals.list();
+assert.equal(reevaluationRows.find(row=>row.inquiryId==="Q8").status,"blocked",
+  "a confirmed evidence gap should remain blocked while no newer observation exists");
+assert.equal(reevaluationRows.find(row=>row.inquiryId==="Q9").status,"blocked",
+  "an insufficient-context assessment should remain blocked while no newer observation exists");
+
+reevaluationMemories.push({
+  id:"reevaluation-new-observations",createdAt:assessmentTime+500,claims:[
+    {id:"q8-observation",kind:"observation",subject:"Недостаток сна",object:"усталость",
+      polarity:true,createdAt:assessmentTime+500,observationCase:{
+        context:{status:"provided",value:"после рабочего дня"},
+        timing:{status:"provided",value:"вечером"},
+        criterion:{status:"provided",value:"по шкале 1–10"},
+        outcome:{status:"provided",value:"7/10"}
+      }},
+    {id:"q9-observation",kind:"observation",subject:"стресс",object:"бессонница",
+      polarity:true,createdAt:assessmentTime+600,observationCase:{
+        context:{status:"provided",value:"во время экзаменов"},
+        timing:{status:"provided",value:"в течение недели"},
+        criterion:{status:"provided",value:"по факту нарушения сна"},
+        outcome:{status:"provided",value:"три ночи"}
+      }}
+  ]
+});
+reevaluationWindow.NGGoals.reconcile({
+  inquiries:reevaluationInquiries,memories:reevaluationMemories,now:assessmentTime+1000
+});
+reevaluationRows = reevaluationWindow.NGGoals.list();
+const refreshedGap = reevaluationRows.find(row=>row.inquiryId==="Q8");
+const refreshedContext = reevaluationRows.find(row=>row.inquiryId==="Q9");
+for (const [row,id] of [[refreshedGap,"Q8"],[refreshedContext,"Q9"]]) {
+  assert.equal(row.status,"review",
+    id+" must move from blocked to review when direct evidence arrives after its assessment");
+  assert.equal(row.observationsAfterAssessment,1,
+    id+" must count the new direct observation against the historical assessment time");
+  assert.match(row.nextAction,/новых прямых наблюдений/u,
+    id+" must explain why the goal requires reassessment");
+  assert.ok(row.milestones.includes("после оценки добавлены новые наблюдения"),
+    id+" must expose the new-evidence milestone");
+  assert.equal(row.blockers.length,0,
+    id+" must not retain the obsolete no-evidence/context blocker after new evidence arrives");
+}
+assert.equal(refreshedGap.assessment,"gap_confirmed",
+  "new evidence must not rewrite the historical gap assessment");
+assert.equal(refreshedGap.assessmentReason,"На момент ответа подходящих наблюдений не было.",
+  "the original reason must remain available for audit");
+assert.match(reevaluationWindow.NGGoals.report(),/после последней оценки: 1/u,
+  "the goals report must expose the number of observations added after assessment");
+assert.equal(reevaluationInquiries[0].assessment,"gap_confirmed",
+  "goal reconciliation must not mutate the source inquiry");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");
