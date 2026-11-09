@@ -106,15 +106,27 @@
       record.events=[...record.events,event].sort((a,b)=>a.at-b.at).slice(-MAX_EVENTS);
       return true;
     }
-    function stateFor(record,decisions,pendingInquiry) {
+    function stateFor(record,decisions,pendingInquiry,activeEvidence={}) {
       if(record.decision) {
         return ({conditional:"conditional",weaken:"weakened",suspend:"suspended",restore:"restored"})[record.decision.strategy]||"new";
       }
-      if(record.challengingClaimIds.length)return "challenged";
+      if(activeEvidence.challenging)return "challenged";
       if(pendingInquiry)return "under_review";
-      if(record.supportingClaimIds.length)return "provisionally_supported";
+      if(activeEvidence.supporting)return "provisionally_supported";
       if(record.revision>1)return "revised";
       return "new";
+    }
+    function reviewMatchesClaim(finding,claim,edge) {
+      if(!finding||!claim||typeof finding.claimId!=="string"||finding.claimId!==claim.id||!edge)return false;
+      if(!knowledge.sameEntity(claim.subject,edge.subject)||!knowledge.sameEntity(claim.object,edge.object)||
+         !knowledge.sameEntity(finding.edgeSubject,edge.subject)||!knowledge.sameEntity(finding.edgeObject,edge.object)||
+         !finding.subject||!finding.object||!knowledge.sameEntity(finding.subject,claim.subject)||
+         !knowledge.sameEntity(finding.object,claim.object))return false;
+      if(claim.status==="superseded")return finding.kind==="source_revised"&&claim.kind==="causal";
+      const expected=claim.kind==="causal"&&claim.polarity===false?"opposing_claim":
+        claim.kind==="observation"?(claim.polarity===false?"counterexample":"supporting_observation"):null;
+      return finding.kind===expected||
+        (finding.kind==="supporting_claim"&&claim.kind==="causal"&&claim.polarity!==false);
     }
     function reconcile(meta,claims=[],decisions=[],inquiries=[],now=Date.now()) {
       if(!meta||!Array.isArray(meta.conclusions))return {meta,changed:false,transitions:[]};
@@ -157,13 +169,20 @@
         }
         record.originClaimIds=uniqueIds([...record.originClaimIds,...originIds]);
         const routeEdges=[...new Map(routes.flat().map(edge=>[edgeKey(edge),edge])).values()];
-        const matchedReviews=(Array.isArray(meta.reviews)?meta.reviews:[]).filter(finding=>
-          routeEdges.some(edge=>knowledge.sameEntity(edge.subject,finding.edgeSubject)&&knowledge.sameEntity(edge.object,finding.edgeObject)));
+        const claimsById=new Map(allClaims.filter(claim=>claim&&typeof claim.id==="string").map(claim=>[claim.id,claim]));
+        const activeEvidence={challenging:false,supporting:false};
+        const matchedReviews=(Array.isArray(meta.reviews)?meta.reviews:[]).filter(finding=>{
+          const edge=routeEdges.find(item=>knowledge.sameEntity(item.subject,finding&&finding.edgeSubject)&&
+            knowledge.sameEntity(item.object,finding&&finding.edgeObject));
+          const claim=claimsById.get(finding&&finding.claimId);
+          return reviewMatchesClaim(finding,claim,edge);
+        });
         for(const finding of matchedReviews) {
-          if(typeof finding.claimId!=="string"||!finding.claimId)continue;
           const challenging=["counterexample","opposing_claim","source_revised"].includes(finding.kind);
           const supporting=["supporting_observation","supporting_claim"].includes(finding.kind);
           if(!challenging&&!supporting)continue;
+          if(challenging)activeEvidence.challenging=true;
+          if(supporting)activeEvidence.supporting=true;
           const target=challenging?record.challengingClaimIds:record.supportingClaimIds;
           if(target.includes(finding.claimId))continue;
           target.push(finding.claimId);
@@ -202,7 +221,7 @@
           edgeObject:latestDecision.edgeObject,at:safeTime(latestDecision.at,at)}:null;
         const pendingInquiry=allInquiries.some(item=>item&&item.status==="open"&&
           routeEdges.some(edge=>knowledge.sameEntity(edge.subject,item.edgeSubject)&&knowledge.sameEntity(edge.object,item.edgeObject)));
-        const nextState=stateFor(record,routeDecisions,pendingInquiry);
+        const nextState=stateFor(record,routeDecisions,pendingInquiry,activeEvidence);
         const oldState=prior?record.state:"new";
         if(prior&&oldState!==nextState) {
           append(record,makeEvent("state_changed",at,{fromState:oldState,toState:nextState,
