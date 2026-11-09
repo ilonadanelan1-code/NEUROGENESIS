@@ -3631,7 +3631,7 @@
   function prepareLLMRequestCore(query) {
     if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
     const report = DIALOG_CONTEXT.report(dialogContext);
-    const history = DIALOG_CONTEXT.history(dialogContext, report.activeThread && report.activeThread.id, 10);
+    const history = DIALOG_CONTEXT.history(dialogContext, report.activeThread && report.activeThread.id, 17);
     const resolution = DIALOG_CONTEXT.resolve(dialogContext, query);
     const evidenceQuery = resolution.applied && resolution.query ? resolution.query : query;
     const evidence = memories.map(item => ({ item, score:scoreMemory(evidenceQuery, item) }))

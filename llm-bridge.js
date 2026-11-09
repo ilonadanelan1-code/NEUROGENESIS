@@ -12,12 +12,24 @@
     "NEUROGENESIS управляет памятью, знаниями и проверкой выводов. Ты формулируешь ответ, но не изменяешь эти слои самостоятельно."
   ].join("\n");
 
-  function safeHistory(rows, maxMessages = 12, threadId = "") {
-    return (Array.isArray(rows) ? rows : []).filter(row =>
+  function safeHistory(rows, maxMessages = 16, threadId = "", maxChars = 10000) {
+    const countValue = Number(maxMessages);
+    const count = Number.isFinite(countValue) ? Math.max(0, Math.min(16, Math.floor(countValue))) : 16;
+    const charValue = Number(maxChars);
+    const budget = Number.isFinite(charValue) ? Math.max(0, Math.min(10000, Math.floor(charValue))) : 10000;
+    if (!count || !budget) return [];
+    const candidates = (Array.isArray(rows) ? rows : []).filter(row =>
       row && (row.role === "user" || row.role === "assistant") && typeof row.text === "string" &&
-      (!threadId || row.threadId === threadId))
-      .slice(-Math.max(0, Math.min(20, Number(maxMessages) || 12)))
-      .map(row => ({ role: row.role, content: clean(row.text, 1600) }));
+      (!threadId || row.threadId === threadId)).slice(-count);
+    const selected = [];
+    let remaining = budget;
+    for (let index = candidates.length - 1; index >= 0 && selected.length < count && remaining > 0; index--) {
+      const content = clean(candidates[index].text, Math.min(1200, remaining));
+      if (!content) continue;
+      selected.push({ role: candidates[index].role, content });
+      remaining -= content.length;
+    }
+    return selected.reverse();
   }
   function safeEvidence(rows, maxItems = 8) {
     return (Array.isArray(rows) ? rows : []).filter(row => row && typeof row.text === "string")
@@ -35,11 +47,16 @@
     const active = context && context.activeThread || null;
     const activeThreadId = active && typeof active.id === "string" ? active.id : "";
     // Fail closed: without an explicit active thread ID, no dialogue history is safe to attach.
-    let history = activeThreadId
-      ? safeHistory(context && context.recentMessages, options.maxMessages || 10, activeThreadId)
+    let historyRows = activeThreadId && Array.isArray(context && context.recentMessages)
+      ? context.recentMessages.filter(row => row && row.threadId === activeThreadId)
       : [];
-    if (history.length && history[history.length - 1].role === "user" &&
-        history[history.length - 1].content === userInput) history = history.slice(0, -1);
+    if (historyRows.length) {
+      const last = historyRows[historyRows.length - 1];
+      if (last.role === "user" && clean(last.text, 1600) === userInput) historyRows = historyRows.slice(0, -1);
+    }
+    const history = activeThreadId
+      ? safeHistory(historyRows, options.maxMessages ?? 16, activeThreadId, options.maxHistoryChars ?? 10000)
+      : [];
     const facts = safeEvidence(evidence, options.maxEvidence || 8);
     const topic = active && typeof active.title === "string" ? clean(active.title, 100) : "";
     const system = TRUST_POLICY + (topic ? "\nТекущая тема диалога: " + topic + "." : "") +
@@ -53,7 +70,11 @@
     return {
       schema: "NEUROGENESIS_LLM_REQUEST_V1",
       messages,
-      metadata: { topic, historyMessages: history.length, evidenceItems: facts.length }
+      metadata: {
+        topic, historyMessages: history.length,
+        historyCharacters: history.reduce((total, row) => total + row.content.length, 0),
+        evidenceItems: facts.length
+      }
     };
   }
   function createHttpAdapter(config = {}, fetchImpl) {

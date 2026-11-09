@@ -51,6 +51,39 @@ assert.equal(unscopedRequest.messages.length, 2,
 assert.doesNotMatch(unscopedRequest.messages.map(row => row.content).join("\n"),
   /Сведения из другой темы|Реплика без ID темы/u,
   "messages without a confirmed active thread must not reach the model");
+
+const extendedRows = Array.from({ length:20 }, (_, index) => ({
+  threadId:"T-long", role:index % 2 ? "assistant" : "user",
+  text:"СООБЩЕНИЕ " + index + " " + "x".repeat(400)
+}));
+extendedRows.push({ threadId:"T-foreign", role:"assistant", text:"Чужая тема не должна попасть в историю" });
+extendedRows.push({ threadId:"T-long", role:"user", text:"Последний вопрос" });
+const extendedRequest = bridge.buildRequest("Последний вопрос", {
+  activeThread:{ id:"T-long", title:"Длинная беседа" }, recentMessages:extendedRows
+}, []);
+assert.equal(extendedRequest.metadata.historyMessages,16,
+  "the bridge should retain up to sixteen prior messages, excluding the current user prompt");
+assert.equal(extendedRequest.messages.length,18,
+  "sixteen history messages plus system policy and current prompt must fit the worker's eighteen-message cap");
+assert.ok(extendedRequest.metadata.historyCharacters <= 10000,
+  "dialogue history must respect the shared ten-thousand-character budget");
+assert.match(extendedRequest.messages[1].content,/СООБЩЕНИЕ 4/u,
+  "the retained history should keep the correct recent chronological window");
+assert.match(extendedRequest.messages[16].content,/СООБЩЕНИЕ 19/u,
+  "the newest prior message should remain immediately before the current prompt");
+assert.equal(extendedRequest.messages.some(row=>row.content.includes("Чужая тема не должна попасть")),false,
+  "extended history must remain isolated to the active topic");
+
+const oversizedRows = Array.from({ length:16 }, (_, index) => ({
+  threadId:"T-long", role:"assistant", text:"Длинное сообщение " + index + " " + "я".repeat(1300)
+}));
+const boundedRequest = bridge.buildRequest("Текущий запрос", {
+  activeThread:{ id:"T-long", title:"Длинная беседа" }, recentMessages:oversizedRows
+}, []);
+assert.ok(boundedRequest.metadata.historyCharacters <= 10000,
+  "long transcripts must be trimmed to the total character budget");
+assert.ok(boundedRequest.messages.length <= 18,
+  "the request must never exceed the worker's message-count limit");
 assert.match(request.messages[0].content, /пользовательскими данными/u);
 assert.match(request.messages[request.messages.length - 1].content, /Пользователь наблюдал усталость/u);
 (async () => {
