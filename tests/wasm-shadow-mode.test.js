@@ -57,7 +57,7 @@ assert.match(benchmark, /function runMultiPattern\(runtime\)/u);
 assert.match(benchmark, /function runPatternOrder\(runtime, sequence\)/u);
 assert.match(benchmark, /firstAssociationSurvivesSecondEpisode/u);
 assert.match(benchmark, /crossAssociationsRemainUnchanged/u);
-assert.match(benchmark, /function runDensePattern\(fixture, label\)/u);
+assert.match(benchmark, /function trainDensePattern\(fixture, label\)/u);
 assert.match(benchmark, /function runSharedPathInterference\(runtime\)/u);
 assert.match(benchmark, /positiveRewardPotentiatesOffTargetPaths/u);
 assert.match(benchmark, /nonTargetOutputsRemainActive/u);
