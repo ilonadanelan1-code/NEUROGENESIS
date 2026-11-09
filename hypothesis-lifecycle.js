@@ -21,10 +21,21 @@
     const entityKey=value=>knowledge.canonicalEntity?knowledge.canonicalEntity(value):
       String(value||"").normalize("NFKC").toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/giu," ").trim();
     const edgeKey=edge=>entityKey(edge&&edge.subject)+"|"+entityKey(edge&&edge.object);
-    const cleanRoutes=value=>Array.isArray(value)?value.slice(0,3).map(path=>
-      Array.isArray(path)?path.slice(0,3).filter(edge=>edge&&typeof edge.subject==="string"&&typeof edge.object==="string")
-        .map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)})):[])
-      .filter(path=>path.length):[];
+    const validCausalEdge=edge=>{
+      if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string"||
+         !edge.subject.trim()||!edge.object.trim())return false;
+      if(typeof knowledge.sanitizeClaims==="function")return knowledge.sanitizeClaims([{
+        kind:"causal",subject:edge.subject,predicate:"приводит к",object:edge.object,evidence:""
+      }]).length===1;
+      return true;
+    };
+    const cleanRoutes=value=>Array.isArray(value)?value.slice(0,3).map(path=>{
+      if(!Array.isArray(path)||!path.length)return [];
+      const candidate=path.slice(0,3);
+      if(candidate.some(edge=>!validCausalEdge(edge)))return [];
+      return candidate.map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,
+        subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
+    }).filter(path=>path.length):[];
     function routeSignature(routes) {
       const rows=cleanRoutes(routes).map(path=>path.map(edgeKey).join(">")).sort();
       return hash(rows.join("||"));
@@ -48,10 +59,12 @@
     }
     function sanitize(raw) {
       if(!raw||typeof raw!=="object"||typeof raw.id!=="string"||!/^H-[a-z0-9]{1,16}$/u.test(raw.id)||
-        typeof raw.subject!=="string"||typeof raw.object!=="string")return null;
+        typeof raw.subject!=="string"||typeof raw.object!=="string"||
+        !validCausalEdge({subject:raw.subject,object:raw.object}))return null;
       const events=[...new Map((Array.isArray(raw.events)?raw.events:[]).map(cleanEvent).filter(Boolean).map(item=>[item.id,item])).values()]
         .sort((a,b)=>a.at-b.at).slice(-MAX_EVENTS);
-      const decision=raw.decision&&typeof raw.decision==="object"?{
+      const decision=raw.decision&&typeof raw.decision==="object"&&
+        validCausalEdge({subject:raw.decision.edgeSubject,object:raw.decision.edgeObject})?{
         strategy:["conditional","weaken","suspend","restore"].includes(raw.decision.strategy)?raw.decision.strategy:null,
         edgeSubject:typeof raw.decision.edgeSubject==="string"?raw.decision.edgeSubject.slice(0,180):"",
         edgeObject:typeof raw.decision.edgeObject==="string"?raw.decision.edgeObject.slice(0,180):"",
@@ -110,7 +123,8 @@
       const allInquiries=Array.isArray(inquiries)?inquiries:[];
       let changed=false;const transitions=[];
       const conclusions=meta.conclusions.map(rawConclusion=>{
-        if(!rawConclusion||typeof rawConclusion.subject!=="string"||typeof rawConclusion.object!=="string")return rawConclusion;
+        if(!rawConclusion||typeof rawConclusion.subject!=="string"||typeof rawConclusion.object!=="string"||
+           !validCausalEdge({subject:rawConclusion.subject,object:rawConclusion.object}))return rawConclusion;
         const routes=cleanRoutes(rawConclusion.paths);
         if(!routes.length)return rawConclusion;
         const lifecycleKey=hash([safeTime(meta.createdAt,1),entityKey(rawConclusion.subject),entityKey(rawConclusion.object)].join("|"));
