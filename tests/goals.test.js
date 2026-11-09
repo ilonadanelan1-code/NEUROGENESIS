@@ -168,14 +168,14 @@ assert.ok(q1Contrast&&q4Duplicate,"the two inquiry goals must remain separately 
 assert.equal(q1Contrast.kind,"contrast_observations");
 assert.equal(q1Contrast.observationCount,3,
   "Q1 must retain all three positive/negative observations for the contrast investigation");
-assert.deepEqual(q1Contrast.evidenceClaimIds.filter(id=>id.startsWith("q1-")).sort(),
-  ["q1-negative","q1-positive-a","q1-positive-b"],
+assert.equal([...q1Contrast.evidenceClaimIds].filter(id=>id.startsWith("q1-")).sort().join("|"),
+  "q1-negative|q1-positive-a|q1-positive-b",
   "Q1 must retain both polarities and the third observation");
 assert.equal(q4Duplicate.kind,"duplicate_observation");
 assert.equal(q4Duplicate.observationCount,2,
   "Q4 must compare only the two observation cards explicitly cited by that inquiry");
-assert.deepEqual(q4Duplicate.evidenceClaimIds.slice().sort(),
-  ["q1-negative","q1-positive-a"],
+assert.equal([...q4Duplicate.evidenceClaimIds].sort().join("|"),
+  "q1-negative|q1-positive-a",
   "the duplicate-card task must not absorb the third same-edge observation");
 assert.equal(q4Duplicate.unknownEventCount,2,
   "Q4 must continue to report both cited cards as lacking explicit event identity");
