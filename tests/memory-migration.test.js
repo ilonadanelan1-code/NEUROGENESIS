@@ -1140,10 +1140,12 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     }]
   });}}];
   await importInput.dispatch("change");
-  const cleanupMemoryAfterImport=JSON.parse(database.get("neurogenesis.memories.v1"))
-    .find(item=>item.text===cleanupText);
+  const cleanupMemoriesAfterImport=JSON.parse(database.get("neurogenesis.memories.v1")||"[]");
+  const cleanupMemoryAfterImport=cleanupMemoriesAfterImport.find(item=>item.text===cleanupText);
   assert.ok(cleanupMemoryAfterImport,
-    "an inquiry-only import must retain the pre-existing memory record");
+    "an inquiry-only import must retain the pre-existing memory record; count="+cleanupMemoriesAfterImport.length+
+    "; texts="+JSON.stringify(cleanupMemoriesAfterImport.map(item=>item.text).slice(-8))+
+    "; feedback="+document.getElementById("memory-feedback").textContent);
   assert.deepEqual(cleanupMemoryAfterImport.claims,[],
     "an inquiry-only import must clear the matching legacy answer fragment from the existing memory");
   assert.equal(window.NGMemory.claims().length,claimsBeforeCleanup-cleanupClaimIds.length,
