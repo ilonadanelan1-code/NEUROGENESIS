@@ -263,8 +263,14 @@
       console.warn("Could not disconnect ResizeObserver:", error);
     }
   }
+  function clearPointerState() {
+    pointers.clear();
+    gesture = null;
+    drag = null;
+  }
   function suspendRendering() {
     pageSuspended = true;
+    clearPointerState();
     cancelScheduledFrame();
     lastFrame = 0;
     animationWasActive = false;
@@ -750,7 +756,9 @@
     }
   });
   function endPointer(event){pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;if(pointers.size===0)drag=null;}
-  canvas.addEventListener("pointerup",endPointer);canvas.addEventListener("pointercancel",endPointer);
+  canvas.addEventListener("pointerup",endPointer);
+  canvas.addEventListener("pointercancel",endPointer);
+  canvas.addEventListener("lostpointercapture",endPointer);
   canvas.addEventListener("wheel",event=>{event.preventDefault();const p=pointerPoint(event);zoomAt(event.deltaY<0?1.14:1/1.14,p.x,p.y);},{passive:false});
   canvas.addEventListener("dblclick",event=>{const p=pointerPoint(event),w=worldAt(p);addNeuron(w.x,w.y);});
 
