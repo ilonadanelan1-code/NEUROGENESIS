@@ -5,11 +5,9 @@ const vm = require("node:vm");
 
 const window = {};
 const sandbox = { window, Date, Math, Map, Set, JSON };
+vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
-const engine = window.NGDialogContext.create({
-  normalise: value => String(value || "").toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/giu, " ").trim(),
-  tokens: value => String(value || "").toLowerCase().replace(/ё/g, "е").split(/[^a-zа-я0-9]+/giu).filter(x => x.length > 2)
-});
+const engine = window.NGDialogContext.create(window.NGKnowledge);
 let state = engine.empty();
 state = engine.track(state, { role: "user", text: "Недостаток сна сегодня вызвал у меня усталость", time: 1 });
 const firstThread = state.activeThreadId;
@@ -21,6 +19,11 @@ assert.equal(state.messages[state.messages.length - 1].relation, "answer_to_ques
 const resolved = engine.resolve(state, "А почему?");
 assert.equal(resolved.applied, true, "short follow-ups should inherit the active context");
 assert.match(resolved.query, /усталость/u);
+assert.equal(engine.hasReference("А это почему?"), true,
+  "Russian demonstrative references must be detected with Unicode-aware boundaries");
+assert.equal(engine.hasReference("Что такое контекст диалога?"), false,
+  "the phrase 'что такое' must not by itself force an unrelated concept question into the old topic");
+
 state = engine.track(state, { role: "user", text: "Теперь поговорим о музыке и музыкальных инструментах", time: 4 });
 const musicThread = state.activeThreadId;
 assert.notEqual(musicThread, firstThread, "clear topic change should create a separate thread");
@@ -61,6 +64,36 @@ const commandAfterQuestion = engine.track(pendingBase, {
 });
 assert.notEqual(commandAfterQuestion.messages[commandAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "an imperative request must not be mistaken for an answer");
+
+let backupLike = engine.empty();
+backupLike = engine.track(backupLike, {
+  role: "user",
+  text: "При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 07:15; критерий: по шкале 1–10",
+  time: 100
+});
+backupLike = engine.track(backupLike, { role: "assistant", text: "Запомнил 1 новый фрагмент.", time: 101 });
+backupLike = engine.track(backupLike, { role: "user", text: "Задай мне вопрос о сне", time: 102 });
+backupLike = engine.track(backupLike, {
+  role: "assistant",
+  text: "Как ты оценивал бы свою усталость по шкале 1–10 после тренировки при недосыпе?",
+  time: 103
+});
+const sleepThreadId = backupLike.activeThreadId;
+const neuralRequest = engine.track(backupLike, {
+  role: "user",
+  text: "Я изучаю устройство нейросетей. Объясни в двух предложениях, что такое контекст диалога, а затем задай мне один уточняющий вопрос.",
+  time: 104
+});
+assert.notEqual(neuralRequest.activeThreadId, sleepThreadId,
+  "the exact backup sequence must open a separate neural-networks topic");
+assert.equal(neuralRequest.messages[neuralRequest.messages.length - 1].relation, "new_topic");
+assert.equal(neuralRequest.threads.find(row => row.id === sleepThreadId).pendingQuestion.answered, false,
+  "switching to neural networks must not answer or close the pending sleep question");
+const sameSubjectOpening = engine.track(backupLike, {
+  role: "user", text: "Я изучаю связь недостатка сна и усталости", time: 105
+});
+assert.equal(sameSubjectOpening.activeThreadId, sleepThreadId,
+  "a topic opening that clearly overlaps the active subject must stay in that topic");
 const resumed = engine.track(unresolved, { role: "user", text: "Музыка и инструменты мне интересны", time: 9 });
 assert.equal(resumed.lastDecision, null, "an unresolved-reference flag must not poison later turns");
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));

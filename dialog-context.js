@@ -24,7 +24,10 @@
       for (const token of a) if (b.has(token)) shared++;
       return shared / Math.min(a.size, b.size);
     };
-    const hasReference = text => /\b(это|этот|эта|эти|тот|та|те|такой|такая|такое|такие|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|предыдущ|выше|сказан|упомянут)\b|^(?:а\s+)?(?:почему|зачем|как|и\s+что|а\s+если|а\s+что)\b/iu.test(clean(text, 500));
+    const hasReference = text => {
+      const value = clean(text, 500).replace(/что(?:\s+же)?\s+такое/giu, "что");
+      return /(?<![\p{L}\p{N}_])(?:это|этот|эта|эти|тот|та|те|такой|такая|такие|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|предыдущ|выше|сказан|упомянут)(?![\p{L}\p{N}_])/iu.test(value);
+    };
     const isShortFollowUp = text => tokens(text).length <= 4 || hasReference(text);
     const isStandaloneRequest = text =>
       /(?:^|[^\p{L}])(?:объясни|объяснить|расскажи|рассказать|покажи|показать|задай|задать|составь|составить|напиши|написать|помоги|помочь|сделай|сделать|создай|создать|найди|найти|проверь|проверить|оцени|оценить|сравни|сравнить|рассчитай|рассчитать|перечисли|перечислить|подскажи|подсказать|научи|научить|разбери|разобрать|проанализируй|проанализировать)(?=$|[^\p{L}])/iu.test(text) ||
@@ -36,7 +39,11 @@
         !/[?？]/u.test(value) && !/[.!?]\s+\S/u.test(value) &&
         !isStandaloneRequest(value);
     };
-    const isExplicitSwitch = text => /^(?:другая тема|сменим тему|перейдем к|перейдём к|теперь поговорим о|кстати,?\s|отдельный вопрос|новая тема)\b/iu.test(clean(text, 500));
+    const topicOpening = text => {
+      const match = clean(text, 500).match(/^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу разобраться|хочу узнать)(?:\s*[,—:]\s*|\s+)([^.!?]{3,120})/iu);
+      return match ? clean(match[1], 120) : "";
+    };
+    const isExplicitSwitch = text => /^(?:другая тема|сменим тему|перейдем к|перейдём к|теперь поговорим о|кстати,?\s|отдельный вопрос|новая тема)(?=$|\s|[?.,!])/iu.test(clean(text, 500));
     const returnTarget = text => {
       const match = clean(text, 500).match(/^(?:вернемся|вернёмся|возвращаемся|вернись|назад)\s+(?:к|ко)\s+(.+?)[.!?]?$/iu);
       return match ? clean(match[1], 120) : "";
@@ -168,9 +175,18 @@
           const words = tokens(text).length;
           const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered &&
             isLikelyAnswer(text, thread.pendingQuestion.text));
+          const opening = topicOpening(text);
+          const openingSimilarity = opening
+            ? overlap(opening, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText)
+            : 1;
+          const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
           if (likelyAnswer) {
             relation = "answer_to_question";
             thread.pendingQuestion.answered = true;
+          } else if (independentTopic) {
+            thread = createThread(state, text, time);
+            relation = "new_topic";
+            state.lastDecision = { kind: "topic_switch", text: thread.title, candidates: [thread.id] };
           } else if (hasReference(text) || isShortFollowUp(text) || similarity >= 0.24) {
             relation = "continuation";
           } else if (words >= 4 && similarity < 0.12) {

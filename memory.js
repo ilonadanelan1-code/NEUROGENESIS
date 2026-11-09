@@ -2758,7 +2758,15 @@
     setFeedback("ПАМЯТЬ ОБНОВЛЕНА · " + memories.length + " / " + MAX_MEMORIES);
     return true;
   }
-  function rememberText(raw) { return runCognitiveCycle("remember",raw,rememberTextCore); }
+  function rememberText(raw) {
+    if (DIALOG_MANAGER && DIALOG_MANAGER.isConversationalFiller &&
+        DIALOG_MANAGER.isConversationalFiller(raw)) {
+      say("assistant", "Это обычная реплика для общения, а не содержательное воспоминание. Я не добавил её в долговременную память. Для продолжения беседы используй «Спросить» или «Спросить языковую модель».");
+      setFeedback("ДИАЛОГОВАЯ РЕПЛИКА · НЕ ДОБАВЛЕНА В ПАМЯТЬ");
+      return false;
+    }
+    return runCognitiveCycle("remember", raw, rememberTextCore);
+  }
 
   function matchMemory(query, item) {
     const q = [...new Set(tokens(query))];

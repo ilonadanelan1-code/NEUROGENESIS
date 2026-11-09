@@ -25,6 +25,10 @@
     return /[?]/u.test(value) ||
       /^(?:кто|что|где|куда|откуда|когда|почему|зачем|как|сколько|какой|какая|какие|можно ли|правда ли|есть ли)(?=$|\s|[?.,!])/u.test(value);
   }
+  function isConversationalFiller(text) {
+    const value = normalise(text).replace(/[?]+$/u, "").trim();
+    return /^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|как дела|как ты|что нового|спасибо|благодарю|пока|до свидания|ок|окей|ладно|ага|ясно)$/u.test(value);
+  }
   function isLikelyAnswer(text, pendingQuestion) {
     const value = clean(text, 500);
     const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
@@ -112,7 +116,7 @@
   }
 
   function create() {
-    return Object.freeze({ classify, plan, isQuestion, isFollowUp, returnTarget });
+    return Object.freeze({ classify, plan, isQuestion, isFollowUp, returnTarget, isConversationalFiller });
   }
   window.NGDialogManager = Object.freeze({ version: 1, create });
 })();

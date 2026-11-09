@@ -47,6 +47,13 @@ assert.equal(manager.classify("Нет, я имел в виду другое", ac
 assert.equal(manager.classify("Я не согласен с этим выводом", active).intent, "objection");
 assert.equal(manager.classify("Теперь поговорим о музыке", active).action, "open_topic");
 assert.equal(manager.classify("Привет!", active).action, "greet");
+assert.equal(manager.isConversationalFiller("Как дела?"), true,
+  "small-talk greetings must be detected before saving them as long-term memory");
+assert.equal(manager.isConversationalFiller("Музыка прекрасна"), false,
+  "a meaningful personal opinion must remain eligible for long-term memory");
+assert.equal(manager.isConversationalFiller("Задай мне вопрос о сне"), false,
+  "a substantive user request must not be filtered as small talk");
+
 assert.equal(manager.classify("Что ты помнишь о музыке?", active).action, "retrieve_and_reason");
 
 const returned = manager.plan("Вернёмся к музыке", {
