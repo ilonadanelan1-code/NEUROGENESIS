@@ -81,6 +81,24 @@ assert.match(extendedRequest.messages[16].content,/СООБЩЕНИЕ 19/u,
 assert.equal(extendedRequest.messages.some(row=>row.content.includes("Чужая тема не должна попасть")),false,
   "extended history must remain isolated to the active topic");
 
+const duplicateHistoryRows = [
+  { id:"M-old-user", threadId:"T-duplicates", role:"user", text:"Старая реплика" },
+  { id:"M-old-user", threadId:"T-duplicates", role:"user", text:"Старая реплика" },
+  { id:"M-old-assistant", threadId:"T-duplicates", role:"assistant", text:"Ответ в теме" },
+  { id:"M-current", threadId:"T-duplicates", role:"user", text:"Текущий вопрос" },
+  { id:"M-current", threadId:"T-duplicates", role:"user", text:"Текущий вопрос" }
+];
+const deduplicatedRequest = bridge.buildRequest("Текущий вопрос", {
+  activeThread:{ id:"T-duplicates", title:"Проверка повторов" },
+  recentMessages:duplicateHistoryRows
+}, []);
+assert.equal(deduplicatedRequest.metadata.historyMessages,2,
+  "duplicate message IDs must be removed before selecting the active-topic history");
+assert.equal(deduplicatedRequest.messages.filter(row=>row.content==="Старая реплика").length,1,
+  "a repeated stored message must reach the model only once");
+assert.equal(deduplicatedRequest.messages.filter(row=>row.role==="user"&&row.content==="Текущий вопрос").length,1,
+  "duplicate copies of the current prompt must not be repeated in the model history");
+
 const oversizedRows = Array.from({ length:16 }, (_, index) => ({
   threadId:"T-long", role:"assistant", text:"Длинное сообщение " + index + " " + "я".repeat(1300)
 }));

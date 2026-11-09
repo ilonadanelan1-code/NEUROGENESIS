@@ -29,7 +29,13 @@
       const value = clean(text, 500).replace(/что(?:\s+же)?\s+такое/giu, "что");
       return /(?<![\p{L}\p{N}_])(?:это|этот|эта|эти|тот|та|те|такой|такая|такие|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|предыдущ|выше|сказан|упомянут)(?![\p{L}\p{N}_])/iu.test(value);
     };
-    const isShortFollowUp = text => tokens(text).length <= 4 || hasReference(text);
+    const isStandaloneQuestion = text => {
+      const value = clean(text, 500);
+      return /[?？]\s*$/u.test(value) && !hasReference(value) &&
+        /^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|что\s+значит|что\s+означает|как\s+работает|как\s+работают|как\s+устроен|как\s+устроена|как\s+устроены|как\s+называется|где\s+находится|сколько\s+стоит)(?=\s|$)/iu.test(value);
+    };
+    const isShortFollowUp = text => !isStandaloneQuestion(text) &&
+      (tokens(text).length <= 4 || hasReference(text));
     const isStandaloneRequest = text =>
       /(?:^|[^\p{L}])(?:объясни|объяснить|расскажи|рассказать|покажи|показать|задай|задать|составь|составить|напиши|написать|помоги|помочь|сделай|сделать|создай|создать|найди|найти|проверь|проверить|оцени|оценить|сравни|сравнить|рассчитай|рассчитать|перечисли|перечислить|подскажи|подсказать|научи|научить|разбери|разобрать|проанализируй|проанализировать)(?=$|[^\p{L}])/iu.test(text) ||
       /^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу узнать|хочу разобраться|я хочу понять)(?=$|\s)/iu.test(text);
@@ -332,14 +338,14 @@
           const openingSimilarity = opening
             ? overlap(opening, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText)
             : 1;
-          const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
+          const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);\n          const independentQuestion = isStandaloneQuestion(text) && similarity < 0.12;
           if (likelyAnswer) {
             relation = "answer_to_question";
             answerQuestionText = matchedQuestion.text;
             summaryCandidateText = "Ответ на вопрос «" + clean(matchedQuestion.text, 72) + "»: " + text;
             matchedQuestion.answered = true;
             syncPendingQuestion(thread);
-          } else if (independentTopic || independentStatement) {
+          } else if (independentTopic || independentStatement || independentQuestion) {
             thread = createThread(state, text, time);
             relation = "new_topic";
             state.lastDecision = { kind: "topic_switch", text: thread.title, candidates: [thread.id] };

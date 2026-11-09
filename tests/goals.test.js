@@ -186,4 +186,44 @@ assert.equal(q4Duplicate.eventCount,0,
 assert.equal(JSON.stringify(separationMemories),separationSnapshot,
   "goal reconciliation must not mutate source observations or their polarity");
 
+// Q1 must retain all three contrast observations, while Q4 compares only its two
+// explicitly cited cards. Missing event IDs and numeric outcomes stay unknown.
+const independentQ1Q4 = window.NGGoals.reconcile({
+  inquiries:[
+    {id:"Q1",kind:"contrast_observations",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+      question:"Сопоставить три наблюдения",status:"open",sourceClaimIds:["q1-cause"],
+      createdAt:now-300000,updatedAt:now-300000,lastAskedAt:now-200000},
+    {id:"Q4",kind:"duplicate_observation",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+      question:"Один ли это эпизод?",status:"open",sourceClaimIds:["q4-card-1","q4-card-2"],
+      createdAt:now-250000,updatedAt:now-250000,lastAskedAt:now-150000}
+  ],
+  memories:[{id:"q1-q4-independent-memory",claims:[
+    {id:"q1-cause",kind:"causal",subject:"Недостаток сна",object:"усталость"},
+    {id:"q4-card-1",kind:"observation",subject:"Недостаток сна",object:"усталость",
+      observationCase:{criterion:{status:"provided",value:"по шкале 1–10"},outcome:{status:"not_stated",value:""},eventRef:""}},
+    {id:"q4-card-2",kind:"observation",subject:"Недостаток сна",object:"усталость",
+      observationCase:{criterion:{status:"provided",value:"по шкале 1–10"},outcome:{status:"not_stated",value:""},eventRef:""}},
+    {id:"q1-card-3",kind:"observation",subject:"Недостаток сна",object:"усталость",
+      observationCase:{criterion:{status:"provided",value:"по шкале 1–10"},outcome:{status:"not_stated",value:""},eventRef:"event-q1-third"}}
+  ]}],
+  focus:{item:{id:"Q1"},score:0.7,reasons:["проверка независимости"]},
+  now:now+200000
+});
+const independentRows = window.NGGoals.list();
+const independentQ1 = independentRows.find(item=>item.inquiryId==="Q1");
+const independentQ4 = independentRows.find(item=>item.inquiryId==="Q4");
+assert.equal(independentQ1.observationCount,3,
+  "Q1 contrast evidence must retain all three positive/negative observations");
+assert.ok(independentQ1.evidenceClaimIds.includes("q1-card-3"),
+  "the third Q1 observation must not be removed by Q4's narrower sourceClaimIds");
+assert.equal(independentQ4.observationCount,2,
+  "Q4 duplicate-card evidence must remain limited to its two cited observations");
+assert.equal(independentQ4.evidenceClaimIds.includes("q1-card-3"),false,
+  "Q4 must not absorb the unrelated third observation even though it shares the same edge");
+assert.equal(independentQ4.eventCount,0,
+  "Q4 must not infer event identity when both cited cards have no explicit eventRef");
+assert.equal(independentQ4.unknownEventCount,2);
+assert.equal(independentQ4.numericOutcomeMissingCount,2,
+  "missing numeric outcomes must remain missing rather than being invented");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");

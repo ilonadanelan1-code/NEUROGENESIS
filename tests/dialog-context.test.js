@@ -72,6 +72,20 @@ const musicFollowUp = engine.resolve(unrelatedShortStatement, "Почему?");
 assert.equal(musicFollowUp.applied, true);
 assert.match(musicFollowUp.query, /Музыка прекрасна/u);
 assert.doesNotMatch(musicFollowUp.query, /Сколько часов ты спал/u);
+const standaloneConceptQuestion = engine.track(pendingBase, {
+  role: "user", text: "Что такое контекст диалога?", time: 67
+});
+assert.notEqual(standaloneConceptQuestion.activeThreadId, pendingBase.activeThreadId,
+  "a short standalone concept question must open a new topic instead of borrowing the pending sleep question");
+assert.equal(standaloneConceptQuestion.messages[standaloneConceptQuestion.messages.length - 1].relation, "new_topic");
+assert.equal(standaloneConceptQuestion.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
+  "a standalone concept question must leave the previous topic's question pending");
+const conceptFollowUp = engine.resolve(standaloneConceptQuestion, "Почему?");
+assert.equal(conceptFollowUp.applied, true,
+  "a follow-up to the new concept question should resolve inside its own topic");
+assert.match(conceptFollowUp.query, /контекст диалога/u);
+assert.doesNotMatch(conceptFollowUp.query, /Сколько часов ты спал/u,
+  "the new topic must not inherit the earlier sleep question");
 const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");

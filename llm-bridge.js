@@ -12,15 +12,29 @@
     "NEUROGENESIS управляет памятью, знаниями и проверкой выводов. Ты формулируешь ответ, но не изменяешь эти слои самостоятельно."
   ].join("\n");
 
+  function uniqueHistoryRows(rows, threadId = "") {
+    const source = (Array.isArray(rows) ? rows : []).filter(row =>
+      row && (!threadId || row.threadId === threadId));
+    const seen = new Set();
+    const unique = [];
+    for (let index = source.length - 1; index >= 0; index--) {
+      const row = source[index];
+      const id = typeof row.id === "string" ? row.id.trim() : "";
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      unique.push(row);
+    }
+    return unique.reverse();
+  }
+
   function safeHistory(rows, maxMessages = 16, threadId = "", maxChars = 10000) {
     const countValue = Number(maxMessages);
     const count = Number.isFinite(countValue) ? Math.max(0, Math.min(16, Math.floor(countValue))) : 16;
     const charValue = Number(maxChars);
     const budget = Number.isFinite(charValue) ? Math.max(0, Math.min(10000, Math.floor(charValue))) : 10000;
     if (!count || !budget) return [];
-    const candidates = (Array.isArray(rows) ? rows : []).filter(row =>
-      row && (row.role === "user" || row.role === "assistant") && typeof row.text === "string" &&
-      (!threadId || row.threadId === threadId)).slice(-count);
+    const candidates = uniqueHistoryRows(rows, threadId).filter(row =>
+      (row.role === "user" || row.role === "assistant") && typeof row.text === "string").slice(-count);
     const selected = [];
     let remaining = budget;
     for (let index = candidates.length - 1; index >= 0 && selected.length < count && remaining > 0; index--) {
@@ -48,7 +62,7 @@
     const activeThreadId = active && typeof active.id === "string" ? active.id : "";
     // Fail closed: without an explicit active thread ID, no dialogue history is safe to attach.
     let historyRows = activeThreadId && Array.isArray(context && context.recentMessages)
-      ? context.recentMessages.filter(row => row && row.threadId === activeThreadId)
+      ? uniqueHistoryRows(context.recentMessages, activeThreadId)
       : [];
     if (historyRows.length) {
       const last = historyRows[historyRows.length - 1];
