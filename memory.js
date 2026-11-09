@@ -1105,10 +1105,10 @@
     const seen=new Set(),result=[];
     for(const memory of memories)for(const claim of memory.claims||[]) {
       if(!claim||claim.kind!=="observation"||claim.status==="superseded")continue;
-      const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
+      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
+      const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"")+"|"+normalise(details.eventRef||"");
       if(seen.has(key))continue;
       seen.add(key);
-      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
       result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
         polarity:claim.polarity!==false,evidence:claim.evidence||"",recordedAt:safeTime(claim.createdAt,memory.createdAt),
         details,sourceRef:details.sourceRef||"",verification:claim.verification||"unverified",
