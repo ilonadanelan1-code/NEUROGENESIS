@@ -127,9 +127,11 @@ select.text-input{color-scheme:dark}
 }
 @media(max-height:560px) and (orientation:landscape){
   .app-shell{min-height:0}
-  .topbar{height:49px;flex-basis:49px}.workspace{grid-template-columns:minmax(0,1fr) 270px}
-  .side-panel{display:block;padding:0 13px;overflow-y:auto}.section-block{padding:10px 0}
-  .brain-panel{height:auto}.organism-title{margin:5px 0 8px}.metrics{gap:5px}.metric{padding:6px}
+  .topbar{height:49px;flex-basis:49px}
+  .workspace{display:grid;flex-direction:initial;grid-template-columns:minmax(0,1fr) 270px}
+  .side-panel{display:block;height:auto;flex:initial;padding:0 13px;overflow-y:auto}
+  .section-block{padding:10px 0}
+  .brain-panel{height:auto;min-height:0;flex:initial}.organism-title{margin:5px 0 8px}.metrics{gap:5px}.metric{padding:6px}
   .metric strong{font-size:13px}.primary-button{padding:7px 10px}.secondary-button{height:30px}
   .canvas-topline{top:12px}.canvas-tools{bottom:10px}.canvas-hint{bottom:19px}
 }
