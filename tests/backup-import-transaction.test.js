@@ -59,10 +59,11 @@ assert.equal(typeof handler,"function","memory import handler must be registered
   input.files=[{async text(){return JSON.stringify({
     format:"NEUROGENESIS_MEMORY_BACKUP",version:2,
     memories:[{id:"atomic-import-regression",text:"Проверка атомарного восстановления резервной копии",tags:[],traceIds:[],createdAt:Date.now(),updatedAt:Date.now(),strength:.65,repetitions:1,recalls:0}],
-    dialog:[],modelDecisions:[],modelEvidence:[],reasoningArchive:[],inquiries:[],cognitiveCycles:[],
+    dialog:[{role:"user",text:"Новый диалог должен откатиться вместе с памятью",time:Date.now()}],
+    modelDecisions:[],modelEvidence:[],reasoningArchive:[],inquiries:[],cognitiveCycles:[],
     goals:[{id:"G-Q999",inquiryId:"Q999",kind:"missing_observation",title:"Временная цель проверки отката",status:"active",nextAction:"Удалить цель при откате",blockers:[],sourceClaimIds:[],evidenceClaimIds:[],evidenceMemoryIds:[],observationCount:0,eventCount:0,unknownEventCount:0,completeObservationCount:0,incompleteObservationCount:0,metadataCoverage:0,numericOutcomeMissingCount:0,milestones:[],progress:1,focusScore:1,selected:false,assessment:"unassessed",assessmentReason:"",createdAt:Date.now(),updatedAt:Date.now()+1000,lastProgressAt:Date.now()}]
   });}}];
-  failStorageWriteOnceFor="neurogenesis.model-evidence.v1";
+  failStorageWriteOnceFor="neurogenesis.dialog-context.v1";
   await handler({target:input});
   assert.equal(window.NGMemory.count(),beforeCount,"failed import must restore original memories");
   assert.equal(JSON.stringify(window.NGMemory.dialogContext()),beforeContext,"failed import must restore dialogue context");
