@@ -718,7 +718,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the research planner must route review goals to a reassessment plan");
   assert.match(reassessmentPlan,/G-Q77/u,
     "the plan must identify the exact goal that needs reassessment");
-  assert.match(reassessmentPlan,/2 новых прямых наблюдений/u,
+  assert.match(reassessmentPlan,/Наблюдений после прежней оценки: 2/u,
     "the plan must use the existing post-assessment evidence count");
   assert.match(reassessmentPlan,/прежний ответ сохраняются как история/u,
     "the plan must preserve the historical assessment instead of silently rewriting it");
