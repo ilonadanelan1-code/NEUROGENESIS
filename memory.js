@@ -2553,13 +2553,18 @@
           JSON.stringify(old.blockers)!==JSON.stringify(item.blockers)||
           old.nextAction!==item.nextAction)kind="updated";
       if(!kind)continue;
+      const addedIds=(values,prior,limit)=>values.filter(id=>!prior.includes(id)).slice(0,limit);
+      const removedIds=(values,next,limit)=>values.filter(id=>!next.includes(id)).slice(0,limit);
       changes.push({
         goalId:item.id,inquiryId:item.inquiryId,kind,
         title:item.title,fromStatus:old?old.status:"",toStatus:item.status,
         assessment:item.assessment,progress:item.progress,
         observationCount:item.observationCount,
         observationsAfterAssessment:item.observationsAfterAssessment,
-        sourceClaimIds:item.sourceClaimIds,evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds,
+        sourceClaimIds:addedIds(item.sourceClaimIds,old?old.sourceClaimIds:[],6),
+        evidenceClaimIds:addedIds(item.evidenceClaimIds,old?old.evidenceClaimIds:[],6),
+        removedEvidenceClaimIds:removedIds(old?old.evidenceClaimIds:[],item.evidenceClaimIds,6),
+        evidenceMemoryIds:addedIds(item.evidenceMemoryIds,old?old.evidenceMemoryIds:[],3),
         nextAction:item.nextAction
       });
     }
@@ -2569,7 +2574,9 @@
       assessment:old.assessment,progress:old.progress,
       observationCount:old.observationCount,
       observationsAfterAssessment:old.observationsAfterAssessment,
-      sourceClaimIds:old.sourceClaimIds,evidenceClaimIds:old.evidenceClaimIds,evidenceMemoryIds:old.evidenceMemoryIds,
+      sourceClaimIds:old.sourceClaimIds.slice(0,6),evidenceClaimIds:[],
+      removedEvidenceClaimIds:old.evidenceClaimIds.slice(0,6),
+      evidenceMemoryIds:old.evidenceMemoryIds.slice(0,3),
       nextAction:""
     });
     return {available:true,total:changes.length,items:changes.slice(-MAX_COGNITIVE_GOAL_CHANGES)};
@@ -2637,9 +2644,10 @@
             progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
             observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
             observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
-            sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
-            evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
-            evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,8):[],
+            sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            removedEvidenceClaimIds:Array.isArray(item.removedEvidenceClaimIds)?item.removedEvidenceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,3).map(x=>x.slice(0,100)):[],
             nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
           })):[]
       }:{available:false,total:0,items:[]},
@@ -2997,7 +3005,9 @@
             return "• "+(labels[item.kind]||"изменена")+" · "+item.goalId+
               (item.inquiryId?" / "+item.inquiryId:"")+" · "+transition+" · "+item.title+
               (item.observationsAfterAssessment?" · новых наблюдений после оценки: "+item.observationsAfterAssessment:"")+
-              (item.evidenceClaimIds&&item.evidenceClaimIds.length?" · источники: "+item.evidenceClaimIds.slice(0,6).join(", "):"")+
+              (item.evidenceClaimIds&&item.evidenceClaimIds.length?" · новые источники: "+item.evidenceClaimIds.join(", "):"")+
+              (item.removedEvidenceClaimIds&&item.removedEvidenceClaimIds.length?" · снятые источники: "+item.removedEvidenceClaimIds.join(", "):"")+
+              (item.evidenceMemoryIds&&item.evidenceMemoryIds.length?" · новые записи памяти: "+item.evidenceMemoryIds.join(", "):"")+
               (item.nextAction?"\n  Следующий шаг: "+item.nextAction:"");
           })
         ]:[]),
