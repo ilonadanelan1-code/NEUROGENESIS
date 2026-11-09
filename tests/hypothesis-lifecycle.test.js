@@ -26,7 +26,8 @@ assert.ok(question.transitions.some(item=>item.from==="new"&&item.to==="under_re
 const support=engine.reconcile(question.meta,[],[],[],3000);
 const withSupport=engine.reconcile(support.meta,[causal("o1","Недостаток сна","Усталость")],[],[],4000);
 // Reviews are the only evidence input: a causal claim is not silently upgraded to an observation.
-assert.equal(withSupport.meta.conclusions[0].lifecycle.state,"under_review");
+assert.equal(withSupport.meta.conclusions[0].lifecycle.state,"new",
+  "a causal claim alone must not count as review evidence or keep an inquiry open");
 const reviewed={...support.meta,reviews:[{claimId:"o1",kind:"supporting_observation",phase:"subsequent",
   edgeSubject:"Недостаток сна",edgeObject:"Усталость",at:4500,evidence:"Наблюдалась усталость"}]};
 const provisionally=engine.reconcile(reviewed,[],[],[],5000);
