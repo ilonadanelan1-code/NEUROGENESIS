@@ -2,9 +2,10 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const { URL } = require("node:url");
 
 const window = {};
-const sandbox = { window, Date, Math, Map, Set, JSON, URL: globalThis.URL };
+const sandbox = { window, Date, Math, Map, Set, JSON, URL };
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 const bridge = window.NGLLMBridge;
 const context = {
