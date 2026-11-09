@@ -4018,7 +4018,8 @@
     nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; },
     goals: () => window.NGGoals&&typeof window.NGGoals.list==="function"?window.NGGoals.list():[],
     goalSummary: () => syncResearchGoals(),
-    goalReport: () => researchGoalsAnswer()
+    goalReport: () => researchGoalsAnswer(),
+    persist: () => persist()
 
   };
 })();
