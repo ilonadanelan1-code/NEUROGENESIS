@@ -39,7 +39,7 @@ jobs:
           node --check dialog-context.js
           node --check dialog-manager.js
           node --check llm-bridge.js
-          node tests/llm-worker.test.js
+          node --input-type=module --check < server/llm-worker.js
           node --check memory.js
           node tests/activation.test.js
           node tests/knowledge.test.js
