@@ -25,6 +25,15 @@
     return /[?]/u.test(value) ||
       /^(?:кто|что|где|куда|откуда|когда|почему|зачем|как|сколько|какой|какая|какие|можно ли|правда ли|есть ли)(?=$|\s|[?.,!])/u.test(value);
   }
+  function isLikelyAnswer(text, pendingQuestion) {
+    const value = clean(text, 500);
+    const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
+    const standaloneRequest =
+      /(?:^|[^\p{L}])(?:объясни|объяснить|расскажи|рассказать|покажи|показать|задай|задать|составь|составить|напиши|написать|помоги|помочь|сделай|сделать|создай|создать|найди|найти|проверь|проверить|оцени|оценить|сравни|сравнить|рассчитай|рассчитать|перечисли|перечислить|подскажи|подсказать|научи|научить|разбери|разобрать|проанализируй|проанализировать)(?=$|[^\p{L}])/iu.test(value) ||
+      /^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу узнать|хочу разобраться|я хочу понять)(?=$|\s)/iu.test(value);
+    return !!pendingQuestion && wordCount > 0 && wordCount <= 14 &&
+      !/[?？]/u.test(value) && !/[.!?]\s+\S/u.test(value) && !standaloneRequest;
+  }
   function classify(input, context = {}) {
     const text = clean(input);
     const value = normalise(text);
@@ -61,7 +70,7 @@
       return result("objection", "examine_counterargument", 0.92, "objection_marker");
     }
     if ((last && last.role === "user" && last.relation === "answer_to_question") ||
-        (pendingQuestion && !isQuestion(text) && text.length <= 220)) {
+        isLikelyAnswer(text, pendingQuestion)) {
       return result("answer", "attach_to_open_question", 0.9, "open_question_response");
     }
     if (isFollowUp(text)) {
