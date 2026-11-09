@@ -88,6 +88,6 @@ const noHypothesisBridge=graphEngine.build([
 const possibleRecall=graphEngine.search(noHypothesisBridge,"музыка",10);
 assert.ok(!possibleRecall.matches.some(item=>item.memoryId==="possible-target"&&item.pathType==="two_hop"),
   "hypothetical claims must not act as established positive bridges");
-assert.deepEqual(graphEngine.search(connectedGraph,"неизвестное слово",10).matches,[],
+assert.equal(graphEngine.search(connectedGraph,"неизвестное слово",10).matches.length,0,
   "queries without a graph match should return an empty result");
 console.log("NEUROGENESIS knowledge graph tests: stable IDs, provenance, explicit events, conflicts, bounded traversal and guarded reasoning passed.");
