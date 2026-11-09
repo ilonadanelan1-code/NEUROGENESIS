@@ -511,6 +511,25 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   fallbackDatabase.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
     {role:"assistant",time:fallbackArchiveTime,text:"Fallback archive",sourceReasoning:fallbackRawReasoning}
   ]));
+  fallbackDatabase.set("neurogenesis.model-decisions.v1",JSON.stringify([
+    {edgeSubject:"что усталость",edgeObject:"снижению концентрации",strategy:"restore",at:fallbackArchiveTime,
+      evidence:"Утверждение, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Усталость",edgeObject:"снижению концентрации",strategy:"restore",at:fallbackArchiveTime+1,
+      evidence:"Исследование показало, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Недостаток сна",edgeObject:"усталости",strategy:"restore",at:fallbackArchiveTime+2,
+      evidence:"Недостаток сна привёл к усталости"}
+  ]));
+  fallbackDatabase.set("neurogenesis.model-evidence.v1",JSON.stringify([
+    {edgeSubject:"что усталость",edgeObject:"снижению концентрации",kind:"supporting_claim",
+      claimId:"fallback-bad-subject",signature:"fallback-bad-subject",
+      evidence:"Недостаток сна привёл к усталости"},
+    {edgeSubject:"Усталость",edgeObject:"снижению концентрации",kind:"supporting_claim",
+      claimId:"fallback-reported-evidence",signature:"fallback-reported-evidence",
+      evidence:"Исследование показало, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Недостаток сна",edgeObject:"усталости",kind:"supporting_claim",
+      claimId:"fallback-valid-evidence",signature:"fallback-valid-evidence",
+      evidence:"Недостаток сна привёл к усталости"}
+  ]));
   const fallbackLocalStorage={
     getItem(key){return fallbackDatabase.has(key)?fallbackDatabase.get(key):null;},
     setItem(key,value){fallbackDatabase.set(key,String(value));},
@@ -536,6 +555,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.origin==="snapshot_alternative"&&
     item.reason==="reported_causal_statement"&&item.subject==="Недосып"),
     "the fallback archive guard must also reject report-attributed snapshot alternatives");
+  const fallbackDecisions=fallbackWindow.NGMemory.modelDecisions();
+  assert.equal(fallbackDecisions.length,1,
+    "the fallback guard must not reactivate malformed or report-attributed restore decisions");
+  assert.equal(fallbackDecisions[0].edgeSubject,"Недостаток сна",
+    "a valid restore decision with direct evidence should remain available without NGKnowledge");
+  const fallbackEvidence=fallbackWindow.NGMemory.modelEvidence();
+  assert.equal(fallbackEvidence.length,1,
+    "the fallback guard must reject malformed subjects and report-attributed model evidence");
+  assert.equal(fallbackEvidence[0].claimId,"fallback-valid-evidence",
+    "a valid direct evidence item should remain available without NGKnowledge");
   const fallbackPersisted=JSON.parse(fallbackDatabase.get("neurogenesis.reasoning-archive.v1"))[0];
   assert.equal(fallbackPersisted.sourceReasoning.conclusions[0].subject,"Исследование показало, что усталость",
     "the raw source snapshot must remain available for historical inspection");

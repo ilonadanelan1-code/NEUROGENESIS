@@ -151,9 +151,8 @@
         !["conditional","weaken","suspend","restore"].includes(raw.strategy)) return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
-    if(KNOWLEDGE&&typeof KNOWLEDGE.sanitizeClaims==="function"&&
-       KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edgeSubject,predicate:"приводит к",object:edgeObject,
-         evidence:typeof raw.evidence==="string"?raw.evidence:""}]).length!==1)return null;
+    if(!isValidArchivedCausalEdge({subject:edgeSubject,object:edgeObject,
+       evidence:typeof raw.evidence==="string"?raw.evidence:""}))return null;
     return {
       edgeSubject,edgeObject,strategy:raw.strategy,
       at:safeTime(raw.at,Date.now()),
@@ -616,9 +615,8 @@
        !["counterexample","opposing_claim","supporting_observation","supporting_claim"].includes(raw.kind))return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
-    if(KNOWLEDGE&&typeof KNOWLEDGE.isValidCausalSubject==="function"&&!KNOWLEDGE.isValidCausalSubject(edgeSubject))return null;
-    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function"&&
-       KNOWLEDGE.isReportedCausalStatement(typeof raw.evidence==="string"?raw.evidence:""))return null;
+    if(!isValidArchivedCausalEdge({subject:edgeSubject,object:edgeObject,
+       evidence:typeof raw.evidence==="string"?raw.evidence:""}))return null;
     return {edgeSubject,edgeObject,claimId:raw.claimId.slice(0,100),kind:raw.kind,
       direction:["counterexample","opposing_claim"].includes(raw.kind)?"challenging":"supporting",
       strategy:["conditional","weaken","suspend","restore"].includes(raw.strategy)?raw.strategy:null,
