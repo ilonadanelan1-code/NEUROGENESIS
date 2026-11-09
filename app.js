@@ -967,19 +967,28 @@
     const originalLabel=button.textContent;
     button.disabled=true;
     button.textContent="Проверка…";
-    if(reportElement)reportElement.textContent="Создаю изолированные мини-сети и сравниваю ответ до и после трёх видов подкрепления.";
+    if(reportElement)reportElement.textContent="Проверяю положительное, отрицательное и нейтральное подкрепление, затем две ассоциации в обоих порядках обучения.";
     try{
       const report=await window.NGExperienceBenchmark.run();
       const passedChecks=Object.values(report.checks).filter(Boolean).length;
       const p=report.positive,n=report.negative,z=report.neutral;
+      const ab=report.multiPattern.orders.AB;
+      const ba=report.multiPattern.orders.BA;
       if(reportElement){
         reportElement.textContent=(report.passed?"ТЕСТ ПРОЙДЕН":"ТЕСТ НЕ ПРОЙДЕН")+
           " · проверок "+passedChecks+"/"+Object.keys(report.checks).length+
-          ". Ответ до обучения "+p.responseBefore.toFixed(4)+
-          "; после +reward "+p.responseAfter.toFixed(4)+
-          "; после −reward "+n.responseAfter.toFixed(4)+
-          "; после нейтральной оценки "+z.responseAfter.toFixed(4)+
-          ". Тестовая сеть изолирована от основной.";
+          ". Ответ одиночной связи: до "+p.responseBefore.toFixed(4)+
+          ", после +reward "+p.responseAfter.toFixed(4)+
+          ", после −reward "+n.responseAfter.toFixed(4)+
+          ", после нейтральной оценки "+z.responseAfter.toFixed(4)+
+          ". Две ассоциации A→X и B→Y: порядок A-B — "+
+          ab.patterns.A.responseAfter.toFixed(3)+" / "+ab.patterns.B.responseAfter.toFixed(3)+
+          "; порядок B-A — "+ba.patterns.A.responseAfter.toFixed(3)+" / "+
+          ba.patterns.B.responseAfter.toFixed(3)+
+          ". Изменение веса первой связи после второго эпизода: "+
+          ab.firstAssociationRetention.weightDelta.toFixed(5)+" и "+
+          ba.firstAssociationRetention.weightDelta.toFixed(5)+
+          ". Использованы изолированные тестовые сети, основная сеть не изменялась.";
       }
     }catch(error){
       if(reportElement)reportElement.textContent="Контрольный тест завершился ошибкой: "+error.message;

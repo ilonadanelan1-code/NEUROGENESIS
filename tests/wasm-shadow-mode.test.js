@@ -9,7 +9,7 @@ const experience = fs.readFileSync("experience-quality.js", "utf8");
 const benchmark = fs.readFileSync("experience-benchmark.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.34", "the shadow runtime release must have a distinct asset version");
+assert.equal(version, "0.58.35", "the shadow runtime release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -30,7 +30,7 @@ assert.equal(normalized.at(-1), "memory.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
-assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.34"/u);
+assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.35"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
@@ -53,6 +53,13 @@ assert.match(benchmark, /learnFromReward\(0\.25, reward, 0\)/u);
 assert.match(benchmark, /positiveRewardIncreasesResponse/u);
 assert.match(benchmark, /negativeRewardDecreasesResponse/u);
 assert.match(benchmark, /neutralRewardPreservesWeight/u);
+assert.match(benchmark, /function runMultiPattern\(runtime\)/u);
+assert.match(benchmark, /function runPatternOrder\(runtime, sequence\)/u);
+assert.match(benchmark, /firstAssociationSurvivesSecondEpisode/u);
+assert.match(benchmark, /crossAssociationsRemainUnchanged/u);
+assert.match(app, /report\.multiPattern\.orders\.AB/u);
+assert.match(app, /report\.multiPattern\.orders\.BA/u);
+assert.match(html, /Проверить подкрепление и две ассоциации/u);
 
 assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);

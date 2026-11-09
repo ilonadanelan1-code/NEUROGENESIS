@@ -3,6 +3,7 @@
 
   const root = typeof window !== "undefined" ? window : globalThis;
   const EPSILON = 1e-6;
+  const TOLERANCE = 1e-5;
 
   function requireBrain(runtime) {
     if (!runtime || typeof runtime.createBrain !== "function") {
@@ -89,6 +90,236 @@
     }
   }
 
+  function createPatternFixture(runtime) {
+    if (!runtime || typeof runtime.createBrain !== "function") {
+      throw new TypeError("A ready NEUROGENESIS WASM runtime is required");
+    }
+    const brain = runtime.createBrain();
+    try {
+      const inputA = brain.addNeuron("pattern-A", "sensory", 0, 0, 1);
+      const inputB = brain.addNeuron("pattern-B", "sensory", 0, 1, 1);
+      const outputX = brain.addNeuron("response-X", "output", 1, 0, 1);
+      const outputY = brain.addNeuron("response-Y", "output", 1, 1, 1);
+      if (![inputA, inputB, outputX, outputY].every(Boolean)) {
+        throw new Error("Could not create the two-pattern benchmark neurons");
+      }
+
+      // The 0.04 cross-links remain below the core's 0.05 activation threshold.
+      // This isolates two paired routes; it is deliberately not a dense-classifier test.
+      const edges = [
+        { key: "A-X", from: inputA, to: outputX, weight: 0.2 },
+        { key: "A-Y", from: inputA, to: outputY, weight: 0.04 },
+        { key: "B-X", from: inputB, to: outputX, weight: 0.04 },
+        { key: "B-Y", from: inputB, to: outputY, weight: 0.2 }
+      ];
+      for (const edge of edges) {
+        if (!brain.addSynapse(edge.from, edge.to, edge.weight)) {
+          throw new Error("Could not create benchmark synapse " + edge.key);
+        }
+      }
+      return {
+        brain,
+        patterns: {
+          A: { input: inputA, target: outputX, other: outputY, edge: "A-X", cross: "A-Y" },
+          B: { input: inputB, target: outputY, other: outputX, edge: "B-Y", cross: "B-X" }
+        },
+        edges
+      };
+    } catch (error) {
+      brain.dispose();
+      throw error;
+    }
+  }
+
+  function findEdge(snapshot, from, to) {
+    return snapshot.synapses.find(edge => edge.from === from && edge.to === to) || null;
+  }
+
+  function measurePattern(fixture, label) {
+    const { brain, patterns } = fixture;
+    const pattern = patterns[label];
+    settle(brain);
+    if (!brain.stimulate(pattern.input, 1)) {
+      throw new Error("Could not stimulate pattern " + label);
+    }
+    brain.step(0.1, 0);
+    const snapshot = brain.snapshot();
+    const target = snapshot.neurons.find(row => row.id === pattern.target);
+    const other = snapshot.neurons.find(row => row.id === pattern.other);
+    if (!target || !other || !Number.isFinite(target.activation) ||
+        !Number.isFinite(other.activation)) {
+      throw new Error("Pattern " + label + " produced an invalid response");
+    }
+    settle(brain);
+    return { correct: target.activation, incorrect: other.activation };
+  }
+
+  function trainPattern(fixture, label) {
+    const { brain, patterns } = fixture;
+    const pattern = patterns[label];
+    settle(brain);
+    if (!brain.stimulate(pattern.input, 1) || !brain.stimulate(pattern.target, 1)) {
+      throw new Error("Could not prepare pattern " + label + " training");
+    }
+    brain.step(0.1, 0.9);
+    for (let i = 0; i < 20; i++) brain.step(0.25, 0.9);
+
+    const beforeReward = brain.snapshot();
+    const targetEdge = findEdge(beforeReward, pattern.input, pattern.target);
+    const crossEdge = findEdge(beforeReward, pattern.input, pattern.other);
+    const eligibilityBeforeReward = targetEdge?.eligibility ?? 0;
+    const crossEligibilityBeforeReward = crossEdge?.eligibility ?? 0;
+    const activeNeuronsBeforeReward = beforeReward.neurons.filter(
+      row => row.activation > EPSILON
+    ).length;
+    if (eligibilityBeforeReward <= EPSILON) {
+      throw new Error("Pattern " + label + " did not retain its target eligibility trace");
+    }
+    if (crossEligibilityBeforeReward > EPSILON) {
+      throw new Error("Pattern " + label + " unexpectedly activated its cross-association");
+    }
+    if (activeNeuronsBeforeReward !== 0) {
+      throw new Error("Pattern " + label + " reward was not delayed until inactivity");
+    }
+
+    const changedSynapses = brain.learnFromReward(0.25, 1, 0);
+    const afterReward = brain.snapshot();
+    const targetWeightAfter = findEdge(afterReward, pattern.input, pattern.target)?.weight;
+    const crossWeightAfter = findEdge(afterReward, pattern.input, pattern.other)?.weight;
+    const traceConsumed = afterReward.synapses.every(
+      edge => edge.eligibility <= EPSILON
+    );
+    if (!Number.isFinite(targetWeightAfter) || !Number.isFinite(crossWeightAfter)) {
+      throw new Error("Pattern " + label + " reward produced an invalid weight");
+    }
+    return {
+      label,
+      eligibilityBeforeReward,
+      crossEligibilityBeforeReward,
+      activeNeuronsBeforeReward,
+      changedSynapses,
+      targetWeightBefore: targetEdge.weight,
+      targetWeightAfter,
+      crossWeightBefore: crossEdge.weight,
+      crossWeightAfter,
+      traceConsumed
+    };
+  }
+
+  function runPatternOrder(runtime, sequence) {
+    const fixture = createPatternFixture(runtime);
+    const { brain, patterns, edges } = fixture;
+    try {
+      const before = {
+        A: measurePattern(fixture, "A"),
+        B: measurePattern(fixture, "B")
+      };
+      const firstEpisode = trainPattern(fixture, sequence[0]);
+      const secondEpisode = trainPattern(fixture, sequence[1]);
+      const afterSecondEpisode = brain.snapshot();
+      const firstPattern = patterns[sequence[0]];
+      const firstWeightAfterOtherEpisode =
+        findEdge(afterSecondEpisode, firstPattern.input, firstPattern.target)?.weight;
+      const firstAssociationRetention = {
+        pattern: sequence[0],
+        weightAfterOwnEpisode: firstEpisode.targetWeightAfter,
+        weightAfterOtherEpisode: firstWeightAfterOtherEpisode,
+        weightDelta: firstWeightAfterOtherEpisode - firstEpisode.targetWeightAfter
+      };
+
+      const after = {
+        A: measurePattern(fixture, "A"),
+        B: measurePattern(fixture, "B")
+      };
+      const finalSnapshot = brain.snapshot();
+      const patternResults = {};
+      for (const label of ["A", "B"]) {
+        const pattern = patterns[label];
+        const targetEdge = findEdge(finalSnapshot, pattern.input, pattern.target);
+        const crossEdge = findEdge(finalSnapshot, pattern.input, pattern.other);
+        patternResults[label] = {
+          responseBefore: before[label].correct,
+          responseAfter: after[label].correct,
+          incorrectResponseAfter: after[label].incorrect,
+          targetWeightBefore: edges.find(edge => edge.key === pattern.edge).weight,
+          targetWeightAfter: targetEdge?.weight,
+          crossWeightBefore: edges.find(edge => edge.key === pattern.cross).weight,
+          crossWeightAfter: crossEdge?.weight
+        };
+      }
+
+      const crossWeightsUnchanged = edges.filter(edge => edge.key === "A-Y" || edge.key === "B-X")
+        .every(edge => {
+          const current = findEdge(finalSnapshot, edge.from, edge.to);
+          return current && Math.abs(current.weight - edge.weight) <= TOLERANCE;
+        });
+      const checks = {
+        bothPatternsImproveTheirTargetResponse:
+          patternResults.A.responseAfter > patternResults.A.responseBefore + TOLERANCE &&
+          patternResults.B.responseAfter > patternResults.B.responseBefore + TOLERANCE,
+        bothPatternsRemainDistinct:
+          patternResults.A.responseAfter > patternResults.A.incorrectResponseAfter + TOLERANCE &&
+          patternResults.B.responseAfter > patternResults.B.incorrectResponseAfter + TOLERANCE,
+        firstAssociationSurvivesSecondEpisode:
+          Math.abs(firstAssociationRetention.weightDelta) <= TOLERANCE,
+        crossAssociationsRemainUnchanged: crossWeightsUnchanged,
+        rewardsArriveAfterInactivity:
+          firstEpisode.activeNeuronsBeforeReward === 0 &&
+          secondEpisode.activeNeuronsBeforeReward === 0,
+        eachPatternConsumesItsTrace:
+          firstEpisode.traceConsumed && secondEpisode.traceConsumed &&
+          firstEpisode.eligibilityBeforeReward > EPSILON &&
+          secondEpisode.eligibilityBeforeReward > EPSILON
+      };
+      return {
+        order: sequence.join("→"),
+        network: { neurons: 4, synapses: 4, patterns: 2 },
+        patterns: patternResults,
+        episodes: [firstEpisode, secondEpisode],
+        firstAssociationRetention,
+        checks,
+        passed: Object.values(checks).every(Boolean)
+      };
+    } finally {
+      brain.dispose();
+    }
+  }
+
+  function runMultiPattern(runtime) {
+    const orders = {
+      AB: runPatternOrder(runtime, ["A", "B"]),
+      BA: runPatternOrder(runtime, ["B", "A"])
+    };
+    const checks = {
+      AThenBOrderPasses: orders.AB.passed,
+      BThenAOrderPasses: orders.BA.passed,
+      bothOrdersLearnBothPatterns:
+        orders.AB.checks.bothPatternsImproveTheirTargetResponse &&
+        orders.BA.checks.bothPatternsImproveTheirTargetResponse,
+      bothOrdersKeepOutputsDistinct:
+        orders.AB.checks.bothPatternsRemainDistinct &&
+        orders.BA.checks.bothPatternsRemainDistinct,
+      bothOrdersPreserveEarlierAssociation:
+        orders.AB.checks.firstAssociationSurvivesSecondEpisode &&
+        orders.BA.checks.firstAssociationSurvivesSecondEpisode,
+      bothOrdersAvoidCrossAssociationUpdates:
+        orders.AB.checks.crossAssociationsRemainUnchanged &&
+        orders.BA.checks.crossAssociationsRemainUnchanged,
+      delayedRewardsAndTraceConsumption:
+        orders.AB.checks.rewardsArriveAfterInactivity &&
+        orders.BA.checks.rewardsArriveAfterInactivity &&
+        orders.AB.checks.eachPatternConsumesItsTrace &&
+        orders.BA.checks.eachPatternConsumesItsTrace
+    };
+    return {
+      kind: "two-pattern paired-association benchmark",
+      network: { neurons: 4, synapses: 4, patterns: 2, targetWeight: 0.2, crossWeight: 0.04 },
+      orders,
+      checks,
+      passed: Object.values(checks).every(Boolean)
+    };
+  }
+
   async function run(options = {}) {
     const settings = options && typeof options === "object" ? options : {};
     const runtime = settings.runtime || (
@@ -101,25 +332,33 @@
     const positive = runCondition(runtime, 1);
     const negative = runCondition(runtime, -1);
     const neutral = runCondition(runtime, 0);
-    const tolerance = 1e-5;
+    const multiPattern = runMultiPattern(runtime);
     const checks = {
-      positiveRewardIncreasesWeight: positive.weightAfter > positive.weightBefore + tolerance,
-      positiveRewardIncreasesResponse: positive.responseAfter > positive.responseBefore + tolerance,
-      negativeRewardDecreasesWeight: negative.weightAfter < negative.weightBefore - tolerance,
-      negativeRewardDecreasesResponse: negative.responseAfter < negative.responseBefore - tolerance,
-      neutralRewardPreservesWeight: Math.abs(neutral.weightAfter - neutral.weightBefore) <= tolerance,
+      positiveRewardIncreasesWeight: positive.weightAfter > positive.weightBefore + TOLERANCE,
+      positiveRewardIncreasesResponse: positive.responseAfter > positive.responseBefore + TOLERANCE,
+      negativeRewardDecreasesWeight: negative.weightAfter < negative.weightBefore - TOLERANCE,
+      negativeRewardDecreasesResponse: negative.responseAfter < negative.responseBefore - TOLERANCE,
+      neutralRewardPreservesWeight: Math.abs(neutral.weightAfter - neutral.weightBefore) <= TOLERANCE,
       rewardArrivesAfterActivity: positive.activeNeuronsBeforeReward === 0 &&
         negative.activeNeuronsBeforeReward === 0 && neutral.activeNeuronsBeforeReward === 0,
-      everyRewardConsumesTrace: positive.traceConsumed && negative.traceConsumed && neutral.traceConsumed
+      everyRewardConsumesTrace: positive.traceConsumed && negative.traceConsumed && neutral.traceConsumed,
+      twoPatternAThenBPasses: multiPattern.checks.AThenBOrderPasses,
+      twoPatternBThenAPasses: multiPattern.checks.BThenAOrderPasses,
+      twoPatternsImproveBothResponses: multiPattern.checks.bothOrdersLearnBothPatterns,
+      twoPatternsRemainDistinct: multiPattern.checks.bothOrdersKeepOutputsDistinct,
+      earlierAssociationIsPreserved: multiPattern.checks.bothOrdersPreserveEarlierAssociation,
+      crossAssociationsAreNotUpdated: multiPattern.checks.bothOrdersAvoidCrossAssociationUpdates,
+      bothPatternRewardsAreDelayedAndConsumed: multiPattern.checks.delayedRewardsAndTraceConsumption
     };
     return {
-      kind: "single-edge delayed-reward benchmark",
+      kind: "delayed-reward and two-pattern association benchmark",
       network: { neurons: 2, synapses: 1, initialWeight: 0.5 },
       learningRate: 0.25,
       weightDecay: 0,
       positive,
       negative,
       neutral,
+      multiPattern,
       checks,
       passed: Object.values(checks).every(Boolean)
     };
