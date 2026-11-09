@@ -141,7 +141,7 @@ const localStorage = {
 const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON,Blob:BlobStub,URL:URLStub,setTimeout(fn){fn();return 1;}};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox,{filename:"goals.js"});
-function loadMemory() {
+function loadMemory(withDialogContext = false) {
   if (!window.NGObservationEngine) {
     vm.runInNewContext(fs.readFileSync("observation-engine.js","utf8"),sandbox,{filename:"observation-engine.js"});
   }
@@ -151,11 +151,8 @@ function loadMemory() {
   if (!window.NGReasoningAudit) {
     vm.runInNewContext(fs.readFileSync("reasoning-audit.js","utf8"),sandbox,{filename:"reasoning-audit.js"});
   }
-  if (!window.NGDialogContext) {
+  if (withDialogContext && !window.NGDialogContext) {
     vm.runInNewContext(fs.readFileSync("dialog-context.js","utf8"),sandbox,{filename:"dialog-context.js"});
-  }
-  if (!window.NGDialogManager) {
-    vm.runInNewContext(fs.readFileSync("dialog-manager.js","utf8"),sandbox,{filename:"dialog-manager.js"});
   }
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
@@ -1269,6 +1266,8 @@ const latestGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
 assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
   "the cognitive cycle should store a compact research-goal snapshot");
 
+// Load only the dialogue context engine for the backup round-trip check.
+loadMemory(true);
 // Backup export must produce a downloadable v2 archive with all durable stores.
 const exportedBlobsBefore=exportedBlobs.length;
 const downloadLinksBefore=downloadLinks.length;
@@ -1303,7 +1302,10 @@ assert.ok(summaryBeforeImport.length>0);
 const importInput=document.getElementById("memory-import-file");
 importInput.files=[{async text(){return JSON.stringify({...exportedBackup,memories:[],dialog:[]});}}];
 void (async () => {
-  await importInput.dispatch("change");
+  const handlers=importInput.listeners.change||[];
+  const importHandler=handlers[handlers.length-1];
+  assert.equal(typeof importHandler,"function","the memory-import handler should be installed");
+  await importHandler({target:importInput});
   assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
     "importing a v2 backup must restore and preserve the active topic summary");
 })().catch(error=>{console.error(error);process.exitCode=1;});
