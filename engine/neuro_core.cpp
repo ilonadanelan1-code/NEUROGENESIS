@@ -30,7 +30,7 @@ bool Brain::add_synapse(std::uint32_t from, std::uint32_t to, float weight) {
     const auto exists = std::any_of(synapses_.begin(), synapses_.end(),
         [from, to](const Synapse& edge) { return edge.from == from && edge.to == to; });
     if (exists) return false;
-    synapses_.push_back(Synapse{from, to, std::clamp(weight, 0.0f, 1.0f), 0.0f});
+    synapses_.push_back(Synapse{from, to, std::clamp(weight, 0.0f, 1.0f), 0.0f, 0.0f});
     return true;
 }
 
@@ -41,6 +41,19 @@ bool Brain::set_synapse_weight(std::uint32_t from, std::uint32_t to, float weigh
     if (it == synapses_.end()) return false;
     it->weight = std::clamp(weight, 0.0f, 1.0f);
     return true;
+}
+
+bool Brain::set_synapse_eligibility(std::uint32_t from, std::uint32_t to, float value) {
+    if (!std::isfinite(value)) return false;
+    const auto it = std::find_if(synapses_.begin(), synapses_.end(),
+        [from, to](const Synapse& edge) { return edge.from == from && edge.to == to; });
+    if (it == synapses_.end()) return false;
+    it->eligibility = std::clamp(value, 0.0f, 1.0f);
+    return true;
+}
+
+void Brain::reset_eligibility() noexcept {
+    for (auto& edge : synapses_) edge.eligibility = 0.0f;
 }
 
 bool Brain::stimulate(std::uint32_t neuron_id, float strength) {
@@ -84,9 +97,31 @@ std::uint32_t Brain::learn(float learning_rate, float reward, float weight_decay
     return changed;
 }
 
-void Brain::step(float delta_seconds) {
-    if (!std::isfinite(delta_seconds)) return;
+std::uint32_t Brain::learn_from_reward(float learning_rate, float reward, float weight_decay) {
+    if (!std::isfinite(learning_rate) || !std::isfinite(reward) ||
+        !std::isfinite(weight_decay)) return 0;
+    const float rate = std::clamp(learning_rate, 0.0f, 1.0f);
+    const float reinforcement = std::clamp(reward, -1.0f, 1.0f);
+    const float decay = std::clamp(weight_decay, 0.0f, 1.0f);
+
+    std::uint32_t changed = 0;
+    for (auto& edge : synapses_) {
+        const float potentiation = rate * reinforcement * edge.eligibility;
+        const float weakening = decay * edge.weight;
+        const float updated = std::clamp(edge.weight + potentiation - weakening, 0.0f, 1.0f);
+        if (std::abs(updated - edge.weight) > 1.0e-7f) {
+            edge.weight = updated;
+            ++changed;
+        }
+        edge.eligibility = 0.0f;
+    }
+    return changed;
+}
+
+void Brain::step(float delta_seconds, float eligibility_retention) {
+    if (!std::isfinite(delta_seconds) || !std::isfinite(eligibility_retention)) return;
     const float dt = std::clamp(delta_seconds, 0.0f, 0.25f);
+    const float retention = std::clamp(eligibility_retention, 0.0f, 1.0f);
     if (dt <= 0.0f) return;
 
     std::vector<float> incoming(neurons_.size(), 0.0f);
@@ -113,6 +148,16 @@ void Brain::step(float delta_seconds) {
         const float response = drive > 0.05f ? std::min(1.0f, drive) : 0.0f;
         neuron.activation = std::clamp(
             std::max(neuron.activation - dt * 0.65f, response), 0.0f, 1.0f);
+    }
+
+    for (auto& edge : synapses_) {
+        const auto source = neuron_index.find(edge.from);
+        const auto target = neuron_index.find(edge.to);
+        if (source == neuron_index.end() || target == neuron_index.end()) continue;
+        const float coactivation =
+            neurons_[source->second].activation * neurons_[target->second].activation;
+        edge.eligibility = std::clamp(
+            edge.eligibility * retention + coactivation, 0.0f, 1.0f);
     }
 }
 

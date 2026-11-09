@@ -11,7 +11,7 @@ const close = (actual, expected, label, epsilon = 1.0e-5) => {
   );
 };
 
-function referenceStep(state, deltaSeconds) {
+function referenceStep(state, deltaSeconds, eligibilityRetention = 0.85) {
   const dt = f32(Math.max(0, Math.min(0.25, deltaSeconds)));
   const index = new Map(state.neurons.map((neuron, position) => [neuron.id, position]));
   const incoming = new Float32Array(state.neurons.length);
@@ -33,6 +33,16 @@ function referenceStep(state, deltaSeconds) {
     const response = drive > 0.05 ? f32(Math.min(1, drive)) : 0;
     const decayed = f32(neuron.activation - f32(dt * 0.65));
     neuron.activation = f32(Math.max(0, Math.min(1, Math.max(decayed, response))));
+  }
+
+  const retention = f32(Math.max(0, Math.min(1, eligibilityRetention)));
+  const byId = new Map(state.neurons.map(neuron => [neuron.id, neuron]));
+  for (const edge of state.synapses) {
+    const pre = byId.get(edge.from)?.activation ?? 0;
+    const post = byId.get(edge.to)?.activation ?? 0;
+    const retained = f32(edge.eligibility * retention);
+    const coactivation = f32(pre * post);
+    edge.eligibility = f32(Math.max(0, Math.min(1, f32(retained + coactivation))));
   }
 }
 
@@ -60,6 +70,24 @@ function referenceLearn(state, learningRate, reward, weightDecay) {
   return changed;
 }
 
+function referenceLearnFromReward(state, learningRate, reward, weightDecay) {
+  const rate = f32(Math.max(0, Math.min(1, learningRate)));
+  const reinforcement = f32(Math.max(-1, Math.min(1, reward)));
+  const decay = f32(Math.max(0, Math.min(1, weightDecay)));
+  let changed = 0;
+  for (const edge of state.synapses) {
+    const potentiation = f32(f32(rate * reinforcement) * edge.eligibility);
+    const weakening = f32(decay * edge.weight);
+    const updated = f32(Math.max(0, Math.min(1, f32(edge.weight + potentiation - weakening))));
+    if (Math.abs(updated - edge.weight) > 1.0e-7) {
+      edge.weight = updated;
+      changed++;
+    }
+    edge.eligibility = 0;
+  }
+  return changed;
+}
+
 function assertParity(actual, expected, phase) {
   assert.equal(actual.neurons.length, expected.neurons.length, phase + " neuron count");
   assert.equal(actual.synapses.length, expected.synapses.length, phase + " synapse count");
@@ -74,6 +102,8 @@ function assertParity(actual, expected, phase) {
       phase + " synapse " + i + " weight");
     close(actual.synapses[i].signal, expected.synapses[i].signal,
       phase + " synapse " + i + " signal");
+    close(actual.synapses[i].eligibility, expected.synapses[i].eligibility,
+      phase + " synapse " + i + " eligibility");
   }
 }
 
@@ -113,7 +143,8 @@ try {
       from,
       to,
       weight: f32(weight),
-      signal: 0
+      signal: 0,
+      eligibility: 0
     });
   }
 
@@ -140,6 +171,11 @@ try {
       "C++ and JavaScript reference must agree on the changed synapse count");
     assertParity(brain.snapshot(), state, "learn " + rate + "/" + reward + "/" + decay);
   }
+
+  const expectedDelayed = referenceLearnFromReward(state, 0.25, -0.4, 0.01);
+  assert.equal(brain.learnFromReward(0.25, -0.4, 0.01), expectedDelayed,
+    "delayed negative reward must match the JavaScript eligibility reference");
+  assertParity(brain.snapshot(), state, "delayed negative reward");
 
   assert.throws(() => brain.learn(Number.NaN, 1, 0), /finite number/u);
   assert.throws(() => brain.learn(0.1, Number.POSITIVE_INFINITY, 0), /finite number/u);
@@ -185,7 +221,8 @@ try {
         from: "stress-" + i,
         to: "stress-" + target,
         weight,
-        signal: 0
+        signal: 0,
+        eligibility: 0
       });
     }
   }
@@ -201,8 +238,9 @@ try {
     }
 
     const dt = [0.016, 0.033, 0.05, 0.12, 0.2][step % 5];
-    referenceStep(stressState, dt);
-    stressBrain.step(dt);
+    const retention = [0.72, 0.81, 0.9, 0.96][step % 4];
+    referenceStep(stressState, dt, retention);
+    stressBrain.step(dt, retention);
     assertParity(stressBrain.snapshot(), stressState, "stress propagation step " + (step + 1));
 
     if ((step + 1) % 8 === 0) {
@@ -214,9 +252,17 @@ try {
         "stress learning update count at step " + (step + 1));
       assertParity(stressBrain.snapshot(), stressState, "stress learning step " + (step + 1));
     }
+
+    if ((step + 1) % 16 === 0) {
+      const reward = step % 32 === 15 ? -0.55 : 0.7;
+      const expected = referenceLearnFromReward(stressState, 0.18, reward, 0.002);
+      assert.equal(stressBrain.learnFromReward(0.18, reward, 0.002), expected,
+        "stress delayed reward update count at step " + (step + 1));
+      assertParity(stressBrain.snapshot(), stressState, "stress delayed reward step " + (step + 1));
+    }
   }
 } finally {
   stressBrain.dispose();
 }
 
-console.log("NEUROGENESIS C++/JavaScript reference parity: activation, signal decay and synaptic learning passed, including 48-neuron/240-synapse stress parity.");
+console.log("NEUROGENESIS C++/JavaScript reference parity: activation, signal decay and synaptic learning passed, including delayed reward eligibility and 48-neuron/240-synapse stress parity.");

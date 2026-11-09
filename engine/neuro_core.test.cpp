@@ -109,6 +109,54 @@ int main() {
     require(learning_brain.synapses()[0].weight == 1.0f,
             "synaptic learning must never exceed the upper bound");
 
+    Brain sequence_brain;
+    const auto sequence_pre = sequence_brain.add_neuron(
+        "sequence-pre", NeuronKind::Sensory, 0.0f, 0.0f, 1.0f);
+    const auto sequence_post = sequence_brain.add_neuron(
+        "sequence-post", NeuronKind::Output, 0.0f, 0.0f, 1.0f);
+    require(sequence_brain.add_synapse(sequence_pre, sequence_post, 0.4f),
+            "sequence fixture must create a synapse");
+    require(sequence_brain.stimulate(sequence_pre, 0.8f) &&
+            sequence_brain.stimulate(sequence_post, 0.7f),
+            "sequence fixture must activate a connected pair");
+    sequence_brain.step(0.1f, 0.9f);
+    const float sequence_weight_before_reward = sequence_brain.synapses()[0].weight;
+    const float sequence_trace = sequence_brain.synapses()[0].eligibility;
+    require(sequence_trace > 0.0f,
+            "co-activation must create an eligibility trace without changing the weight");
+    for (int i = 0; i < 12; ++i) sequence_brain.step(0.25f, 0.9f);
+    require(sequence_brain.find_neuron(sequence_pre)->activation == 0.0f &&
+            sequence_brain.find_neuron(sequence_post)->activation == 0.0f,
+            "the delayed reward fixture must end after the original activations have faded");
+    const float trace_after_fading = sequence_brain.synapses()[0].eligibility;
+    require(trace_after_fading > 0.0f,
+            "eligibility traces must outlive the original activation");
+    for (int i = 0; i < 5; ++i) sequence_brain.step(0.25f, 0.9f);
+    require(sequence_brain.synapses()[0].eligibility < trace_after_fading,
+            "eligibility traces must decay when co-activation has ended");
+    require(sequence_brain.learn_from_reward(0.5f, 1.0f, 0.0f) == 1,
+            "delayed positive reward must update the earlier co-active synapse");
+    require(sequence_brain.synapses()[0].weight > sequence_weight_before_reward,
+            "delayed positive reward must strengthen the earlier association");
+    require(sequence_brain.synapses()[0].eligibility == 0.0f,
+            "a consumed reward must clear its eligibility trace");
+
+    require(sequence_brain.stimulate(sequence_pre, 0.8f) &&
+            sequence_brain.stimulate(sequence_post, 0.7f),
+            "negative sequence fixture must activate both neurons");
+    sequence_brain.step(0.1f, 0.9f);
+    const float before_negative_sequence_reward = sequence_brain.synapses()[0].weight;
+    require(sequence_brain.learn_from_reward(0.5f, -1.0f, 0.0f) == 1,
+            "delayed negative reward must update an eligible synapse");
+    require(sequence_brain.synapses()[0].weight < before_negative_sequence_reward,
+            "delayed negative reward must weaken the earlier association");
+    require(sequence_brain.set_synapse_eligibility(sequence_pre, sequence_post, 2.0f) &&
+            sequence_brain.synapses()[0].eligibility == 1.0f,
+            "eligibility restoration must clamp to its documented bounds");
+    sequence_brain.reset_eligibility();
+    require(sequence_brain.synapses()[0].eligibility == 0.0f,
+            "eligibility reset must clear all traces");
+
     ng_brain_handle* api_brain = ng_brain_create();
     require(api_brain != nullptr, "C ABI must allocate an independent brain handle");
 
@@ -121,7 +169,7 @@ int main() {
             "C ABI must expose synapse creation");
     require(ng_brain_stimulate(api_brain, api_input, 0.4f) == 1,
             "C ABI must expose neuron stimulation");
-    ng_brain_step(api_brain, 0.1f);
+    ng_brain_step(api_brain, 0.1f, 0.85f);
 
     require(ng_brain_neuron_count(api_brain) == 2,
             "C ABI must expose the neuron count");
@@ -139,6 +187,8 @@ int main() {
             "C ABI must expose propagated target activation");
     require(ng_brain_synapse_signal_at(api_brain, 0) > 0.19f,
             "C ABI must expose propagated synaptic signal");
+    require(ng_brain_synapse_eligibility_at(api_brain, 0) > 0.0f,
+            "C ABI must expose accumulated eligibility traces");
     require(ng_brain_neuron_id_at(api_brain, 99) == 0,
             "invalid C ABI indices must return a safe sentinel");
     require(std::isnan(ng_brain_neuron_activation_at(api_brain, 99)),
@@ -148,6 +198,20 @@ int main() {
             "C ABI must expose reward-modulated learning");
     require(ng_brain_synapse_weight_at(api_brain, 0) > weight_before_c_api_learning,
             "C ABI learning must strengthen co-active synapses");
+    require(ng_brain_learn_from_reward(api_brain, 0.25f, 0.5f, 0.0f) == 1,
+            "C ABI must expose delayed reward learning");
+    require(ng_brain_synapse_eligibility_at(api_brain, 0) == 0.0f,
+            "C ABI reward application must consume eligibility traces");
+    require(ng_brain_set_synapse_eligibility(api_brain, api_input, api_output, 0.4f) == 1,
+            "C ABI must expose eligibility restoration");
+    ng_brain_reset_eligibility(api_brain);
+    require(ng_brain_synapse_eligibility_at(api_brain, 0) == 0.0f,
+            "C ABI must expose trace reset");
+    require(ng_brain_learn_from_reward(nullptr, 0.5f, 1.0f, 0.0f) == 0,
+            "null C ABI reward learning must be safe");
+    require(ng_brain_set_synapse_eligibility(nullptr, api_input, api_output, 0.5f) == 0,
+            "null C ABI trace restoration must be safe");
+    ng_brain_reset_eligibility(nullptr);
     require(ng_brain_set_synapse_weight(api_brain, api_input, api_output, 0.25f) == 1,
             "C ABI must expose exact weight restoration");
     require(std::abs(ng_brain_synapse_weight_at(api_brain, 0) - 0.25f) < 1.0e-6f,
