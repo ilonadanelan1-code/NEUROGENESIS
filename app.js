@@ -54,6 +54,8 @@
   let pageSuspended = typeof document.hidden === "boolean" && document.hidden;
   let animationWasActive = false;
   const activeNeuronIds = new Set();
+  let wasmShadow = null;
+  let wasmShadowStepElapsed = 0;
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
   const neuronById = new Map();
@@ -108,6 +110,43 @@
     }
     connectionsDirty = true;
     nodesDirty = true;
+    syncWasmShadow();
+  }
+  function wasmShadowSnapshot() {
+    return {
+      neurons: neurons.map(n => ({
+        id: n.id, name: n.name, type: n.type, x: n.x, y: n.y,
+        bias: n.bias, activity: n.activity
+      })),
+      synapses: synapses.map(edge => ({
+        from: edge.from, to: edge.to, weight: edge.weight
+      }))
+    };
+  }
+  function syncWasmShadow() {
+    if (!wasmShadow) return false;
+    const status = wasmShadow.diagnostics();
+    if (status.state !== "ready" && status.state !== "error") return false;
+    const ok = wasmShadow.rebuild();
+    if (!ok) console.warn("NEUROGENESIS WebAssembly shadow sync failed:", wasmShadow.diagnostics().lastError);
+    return ok;
+  }
+  function startWasmShadow() {
+    if (!window.NGWasm || typeof window.NGWasm.createShadowController !== "function") return;
+    wasmShadow = window.NGWasm.createShadowController({ getSnapshot: wasmShadowSnapshot });
+    wasmShadow.start().then(ok => {
+      if (!ok) console.warn("NEUROGENESIS WebAssembly shadow unavailable:", wasmShadow.diagnostics().lastError);
+    }).catch(error => {
+      console.warn("NEUROGENESIS WebAssembly shadow startup failed:", error);
+    });
+  }
+  function stepWasmShadow(deltaMilliseconds) {
+    if (!wasmShadow || wasmShadow.diagnostics().state !== "ready") return;
+    wasmShadowStepElapsed += Math.max(0, Math.min(100, deltaMilliseconds));
+    if (wasmShadowStepElapsed < 100) return;
+    const elapsed = wasmShadowStepElapsed;
+    wasmShadowStepElapsed = 0;
+    wasmShadow.step(elapsed / 1000);
   }
   const view = { x: 0, y: 0, zoom: 1 };
   const stars = Array.from({length:window.innerWidth <= 700 ? 65 : 95},()=>({x:Math.random(),y:Math.random(),r:.35+Math.random()*1.05,alpha:.2+Math.random()*.48,phase:Math.random()*Math.PI*2,tint:Math.random()>.82?"#c3a9ff":"#91e8ef"}));
@@ -361,6 +400,7 @@
   function addNeuron(x, y, type = "logic") {
     const n = makeNeuron("Новый нейрон " + nextId, type, x, y, .5);
     neurons.push(n); neuronById.set(n.id, n); nodesDirty=true; selectNeuron(n.id); showToast("Новый нейрон создан"); markDirty();
+    syncWasmShadow();
     return n;
   }
   function connect(a, b) {
@@ -372,7 +412,8 @@
     if (!outgoingById.has(a)) outgoingById.set(a, []);
     outgoingById.get(a).push(edge);
     connectionsDirty = true;
-    markDirty(); updateMetrics(); showToast("Связь сформирована"); return true;
+    markDirty(); updateMetrics(); showToast("Связь сформирована");
+    return true;
   }
   function removeNeuron(id) {
     neurons = neurons.filter(n => n.id !== id);
@@ -387,6 +428,7 @@
     const n = getNeuron(id);
     if (!n) return;
     n.activity = Math.min(1, n.activity + strength);
+    if (wasmShadow) wasmShadow.stimulate(id, strength);
     activeNeuronIds.add(id);
     const outgoing = outgoingById.get(id) || [];
     let emitted = 0;
@@ -414,6 +456,7 @@
       const other = neurons.filter(n => n.id !== parent.id && n.id !== child.id).sort((a,b) => Math.hypot(a.x-child.x,a.y-child.y)-Math.hypot(b.x-child.x,b.y-child.y))[0];
       if (other) connect(child.id, other.id);
     }
+    syncWasmShadow();
     activate(parent.id, .6); showToast("Организм сформировал новую ветвь");
   }
 
@@ -676,6 +719,7 @@
       return;
     }
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
+    stepWasmShadow(dt);
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const id of activeNeuronIds){
       const n=neuronById.get(id);
@@ -727,7 +771,7 @@
       if(hit){
         if(!connectFrom){connectFrom=hit.id;selectNeuron(hit.id);$("mode-note").textContent="Теперь нажми на второй нейрон.";}
         else if(connectFrom===hit.id){connectFrom=null;$("mode-note").textContent="Выбери первый нейрон для связи.";}
-        else {connect(connectFrom,hit.id);connectFrom=null;setConnectMode(false);}
+        else {if(connect(connectFrom,hit.id))syncWasmShadow();connectFrom=null;setConnectMode(false);}
       }
       return;
     }
@@ -755,7 +799,14 @@
       view.x+=point.x-drag.last.x;view.y+=point.y-drag.last.y;drag.last=point;backgroundDirty=true;connectionsDirty=true;nodesDirty=true;visualDirty=true;
     }
   });
-  function endPointer(event){pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;if(pointers.size===0)drag=null;}
+  function endPointer(event){
+    pointers.delete(event.pointerId);
+    if(pointers.size<2)gesture=null;
+    if(pointers.size===0){
+      if(drag&&drag.kind==="node")syncWasmShadow();
+      drag=null;
+    }
+  }
   canvas.addEventListener("pointerup",endPointer);
   canvas.addEventListener("pointercancel",endPointer);
   canvas.addEventListener("lostpointercapture",endPointer);
@@ -786,9 +837,10 @@
   $("center-button").addEventListener("click",fitNetwork);
   $("save-button").addEventListener("click",()=>{saveState();showToast("Сеть сохранена на этом устройстве");});
   $("delete-button").addEventListener("click",()=>{if(selectedId&&confirm("Удалить выбранный нейрон и все его связи?"))removeNeuron(selectedId);});
-  $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;nodesDirty=true;markDirty();}});
-  $("neuron-type").addEventListener("change",event=>{const n=currentNeuron();if(n){n.type=event.target.value;nodesDirty=true;markDirty();}});
+  $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;nodesDirty=true;markDirty();syncWasmShadow();}});
+  $("neuron-type").addEventListener("change",event=>{const n=currentNeuron();if(n){n.type=event.target.value;nodesDirty=true;markDirty();syncWasmShadow();}});
   $("neuron-bias").addEventListener("input",event=>{const n=currentNeuron();if(n){n.bias=Number(event.target.value)/100;$("bias-value").textContent=event.target.value+"%";markDirty();}});
+  $("neuron-bias").addEventListener("change",()=>syncWasmShadow());
   $("search-input").addEventListener("input",event=>{searchTerm=event.target.value.trim().toLowerCase();nodesDirty=true;visualDirty=true;const found=neurons.find(n=>n.name.toLowerCase().includes(searchTerm));if(searchTerm&&found){selectNeuron(found.id);const p=screenAt(found);zoomAt(1.1,p.x,p.y);}});
   document.addEventListener("keydown",event=>{
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveState();}
@@ -819,6 +871,7 @@
       neuronById.set(trace.id, trace);
       connect(anchor.id, trace.id);
       connect(trace.id, anchor.id);
+      syncWasmShadow();
       connectionsDirty = true;
       nodesDirty = true;
       markDirty();
@@ -841,7 +894,7 @@
           changed = true;
         }
       }
-      if (changed) { connectionsDirty = true; markDirty(); }
+      if (changed) { connectionsDirty = true; markDirty(); syncWasmShadow(); }
     },
     hasNeuron(id) { return neuronById.has(id); },
     hasMemoryTrace(id, key) {
@@ -890,12 +943,21 @@
       visualDirty = true;
       scheduleFrame();
       return spread.length;
+    },
+    wasmDiagnostics() {
+      return wasmShadow ? wasmShadow.diagnostics() : {
+        backend: "wasm-shadow", authority: "javascript",
+        state: window.NGWasm ? "not-started" : "unavailable",
+        neurons: 0, synapses: 0, steps: 0, stimulations: 0, rebuilds: 0,
+        lastError: null
+      };
     }
   };
 
   resize();
   loadState();
   if(!neurons.length){seedNetwork();fitNetwork();}
+  startWasmShadow();
   requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});
   scheduleFrame();
 })();
