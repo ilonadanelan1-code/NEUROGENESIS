@@ -130,22 +130,56 @@
     if (!hostname) throw new Error("Адрес шлюза указан неверно.");
     if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
 
-    async function call(path, body) {
-      let response;
-      try {
-        response = await requestFetch(endpoint + path, {
+    const timeoutValue = Number(config.requestTimeoutMs);
+    const requestTimeoutMs = Number.isFinite(timeoutValue)
+      ? Math.max(50, Math.min(120000, Math.floor(timeoutValue)))
+      : 60000;
+    const healthTimeoutMs = Math.min(15000, requestTimeoutMs);
+
+    async function call(path, body, timeoutMs) {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      let timeoutId = null;
+      let timedOut = false;
+      const operation = (async () => {
+        const response = await requestFetch(endpoint + path, {
           method: body ? "POST" : "GET",
           headers: {
             "Authorization": "Bearer " + token,
             ...(body ? { "Content-Type": "application/json" } : {})
           },
-          ...(body ? { body: JSON.stringify(body) } : {})
+          ...(body ? { body: JSON.stringify(body) } : {}),
+          ...(controller ? { signal: controller.signal } : {})
         });
-      } catch (_) {
+        let data = null;
+        try { data = await response.json(); } catch (_) {}
+        return { response, data };
+      })();
+      const deadline = new Promise((resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          if (controller) controller.abort();
+          const error = new Error("Request timed out");
+          error.code = "NG_REQUEST_TIMEOUT";
+          reject(error);
+        }, timeoutMs);
+      });
+      let result;
+      try {
+        result = await Promise.race([operation, deadline]);
+      } catch (error) {
+        if (timedOut || error && error.code === "NG_REQUEST_TIMEOUT") {
+          const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+          const action = body ? "ответа модели" : "проверки шлюза";
+          throw new Error("Истекло время ожидания " + action + " (" + seconds + " с). Запрос завершён; проверь соединение и повтори попытку.");
+        }
+        if (error && error.name === "AbortError") {
+          throw new Error("Запрос к серверному шлюзу был прерван. Проверь соединение и повтори попытку.");
+        }
         throw new Error("Не удалось связаться с серверным шлюзом. Проверь адрес и интернет-соединение.");
+      } finally {
+        if (timeoutId !== null) clearTimeout(timeoutId);
       }
-      let data = null;
-      try { data = await response.json(); } catch (_) {}
+      const { response, data } = result;
       if (!response.ok) {
         const errors = {
           unauthorized: "Шлюз отклонил ключ доступа. Проверь APP_TOKEN.",
@@ -153,6 +187,7 @@
           origin_not_allowed: "Домен NEUROGENESIS не разрешён в настройках шлюза.",
           provider_not_configured: "На сервере ещё не настроены провайдер, модель или API-ключ.",
           upstream_unreachable: "Сервер не смог связаться с провайдером языковой модели.",
+          upstream_timeout: "Провайдер не ответил за отведённое время. Запрос завершён; повтори попытку позже.",
           upstream_error: "Провайдер отклонил запрос. HTTP " + (data && data.upstream_status || response.status) + ".",
           invalid_messages: "Шлюз отклонил структуру диалога.",
           request_too_large: "Контекст беседы слишком большой."
@@ -163,12 +198,12 @@
     }
     return Object.freeze({
       async generate(request) {
-        const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} });
+        const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} }, requestTimeoutMs);
         if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
         return result.reply.trim();
       },
       async health() {
-        const result = await call("/api/health");
+        const result = await call("/api/health", null, healthTimeoutMs);
         if (!result.configured) throw new Error("Шлюз доступен, но провайдер ещё не настроен.");
         return { ok: true, model: result.model || null, provider: result.provider || "openai-compatible" };
       }
