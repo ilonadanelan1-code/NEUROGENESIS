@@ -115,6 +115,7 @@ const localStorage = {
 };
 const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox,{filename:"goals.js"});
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 
 sidePanel.scrollTop = 147;

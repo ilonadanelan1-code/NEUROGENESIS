@@ -1198,6 +1198,14 @@
     if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ");
     return answer+"\n\nОтветы остаются пользовательскими сведениями. Они не подтверждают причинную связь автоматически.";
   }
+  function researchGoalsAnswer() {
+    refreshInquiryQueue();
+    syncResearchGoals();
+    const manager = window.NGGoals;
+    return manager && typeof manager.report === "function"
+      ? manager.report()
+      : "Слой исследовательских целей недоступен в этой сборке.";
+  }
   function skipInquiry(id) {
     const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
     if(!item)return "Не нашёл открытый вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
@@ -2026,8 +2034,15 @@
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory && KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]))) memoryMigrated = true;
     if (memoryMigrated) { memoryMigrated = false; persist(); }
   }
+  function syncResearchGoals(focus = null) {
+    const manager = window.NGGoals;
+    if (!manager || typeof manager.reconcile !== "function") return null;
+    try { return manager.reconcile({inquiries,memories,focus,now:Date.now()}); }
+    catch (error) { console.warn("NEUROGENESIS research-goal update failed:",error); return null; }
+  }
   function persist() {
     updateCount();
+    syncResearchGoals();
     let ok = true;
     try {
       localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
@@ -2194,6 +2209,16 @@
         score:Math.max(0,Math.min(100,Math.round(Number(raw.focus.score)||0))),
         reasons:Array.isArray(raw.focus.reasons)?raw.focus.reasons.filter(x=>typeof x==="string").slice(0,4).map(x=>x.slice(0,120)):[]
       }:null,
+      goals:raw.goals&&typeof raw.goals==="object"?{
+        total:Math.max(0,Math.floor(Number(raw.goals.total)||0)),
+        active:Math.max(0,Math.floor(Number(raw.goals.active)||0)),
+        waiting:Math.max(0,Math.floor(Number(raw.goals.waiting)||0)),
+        blocked:Math.max(0,Math.floor(Number(raw.goals.blocked)||0)),
+        review:Math.max(0,Math.floor(Number(raw.goals.review)||0)),
+        paused:Math.max(0,Math.floor(Number(raw.goals.paused)||0)),
+        completed:Math.max(0,Math.floor(Number(raw.goals.completed)||0)),
+        focusId:typeof raw.goals.focusId==="string"?raw.goals.focusId.slice(0,24):""
+      }:null,
       metrics:{
         inputTokens:Math.max(0,Number(raw.metrics&&raw.metrics.inputTokens)||0),
         parsedClaims:Math.max(0,Number(raw.metrics&&raw.metrics.parsedClaims)||0),
@@ -2208,7 +2233,10 @@
         newQuestions:Math.max(0,Number(raw.metrics&&raw.metrics.newQuestions)||0),
         attentionTopScore:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.attentionTopScore)||0))),
         supportIndex:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.supportIndex)||0))),
-        researchFocusScore:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.researchFocusScore)||0)))
+        researchFocusScore:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.researchFocusScore)||0))),
+        goalCount:Math.max(0,Math.floor(Number(raw.metrics&&raw.metrics.goalCount)||0)),
+        activeGoals:Math.max(0,Math.floor(Number(raw.metrics&&raw.metrics.activeGoals)||0)),
+        blockedGoals:Math.max(0,Math.floor(Number(raw.metrics&&raw.metrics.blockedGoals)||0))
       },
       memoryIds:Array.isArray(raw.memoryIds)?raw.memoryIds.filter(x=>typeof x==="string").slice(0,8):[],
       claimIds:Array.isArray(raw.claimIds)?raw.claimIds.filter(x=>typeof x==="string").slice(0,12):[]
@@ -2223,6 +2251,7 @@
     if(/готовност.*пересмотр|достаточност.*наблюден/u.test(q))return "evidence_readiness";
     if(/исследовательск.*шаг|план исследования|стратеги.*исследован/u.test(q))return "research_planning";
     if(/пробел.*знан|вопрос.*провер/u.test(q))return "research_gap_scan";
+    if(/текущ.*цел|покажи.*цел|какие у тебя цел|над чем ты работаешь|прогресс цел/u.test(q))return "goal_monitoring";
     if(/задай.*вопрос|следующ.*вопрос|что тебе нужно уточнить/u.test(q))return "research_question";
     if(/причинн.*модел|пересмотр.*модел/u.test(q))return "model_revision";
     if(/гипотез/u.test(q))return "hypothesis_reasoning";
@@ -2394,6 +2423,7 @@
     const knowledgeSummary=KNOWLEDGE&&KNOWLEDGE.summary?KNOWLEDGE.summary(allClaims):{total:allClaims.length};
     const uncertainty=assessCognitiveUncertainty(answer,context.intent,claimsToCheck,relevantConflicts,context.attention.length,context.mode);
     const focus=nextResearchFocus(context.input,newClaims.map(claim=>claim.id));
+    const goalState=syncResearchGoals(focus);
     const reasoningKind=cognitiveReasoningKind(context.intent,answer,context.mode);
     const phase=(name,status,summary)=>({name,status,summary});
     const phases=[
@@ -2413,10 +2443,12 @@
       phase("learning",successful?"complete":"limited",
         "Изменены следы памяти: "+updatedMemoryIds.length+"; новых вопросов: "+newQuestionIds.length+
           "; следующий фокус: "+(focus?focus.item.id:"пока не определён")+
+          "; исследовательских целей: "+(goalState?goalState.total:0)+
           "; решения причинной модели автоматически не менялись."),
       phase("model_update",successful?"complete":"limited",
         "Состояние: "+memories.length+" записей, "+knowledgeSummary.total+" структурных утверждений, "+
-          currentModelDecisions().length+" решений модели, "+openInquiries().length+" открытых вопросов.")
+          currentModelDecisions().length+" решений модели, "+openInquiries().length+" открытых вопросов, "+
+          (goalState?goalState.active+" активных целей и "+goalState.blocked+" заблокированных":"слой целей недоступен")+".")
     ];
     const cycle={
       id:"C"+context.sequence,sequence:context.sequence,at:Date.now(),mode:context.mode,intent:context.intent,
@@ -2428,8 +2460,10 @@
         memoryUpdated:updatedMemoryIds.length,claimCount:allClaims.length,conflictCount:relevantConflicts.length,
         openQuestions:openInquiries().length,newQuestions:newQuestionIds.length,
         attentionTopScore:context.attention.length?Math.round(context.attention[0].score*100):0,
-        supportIndex:uncertainty.supportIndex,researchFocusScore:focus?Math.round(focus.score*100):0
+        supportIndex:uncertainty.supportIndex,researchFocusScore:focus?Math.round(focus.score*100):0,
+        goalCount:goalState?goalState.total:0,activeGoals:goalState?goalState.active:0,blockedGoals:goalState?goalState.blocked:0
       },
+      goals:goalState?goalState:null,
       attentionDetails:context.attention.map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
       uncertainty,
       focus:focus?{inquiryId:focus.item.id,score:Math.round(focus.score*100),reasons:focus.reasons}:null,
@@ -2477,6 +2511,9 @@
         cycle.focus?"СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: "+cycle.focus.inquiryId+
           " · рейтинг "+cycle.focus.score+"/100 · "+cycle.focus.reasons.join("; "):
           "СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: пока нет открытого вопроса.",
+        ...(cycle.goals?["МОНИТОРИНГ ЦЕЛЕЙ: всего "+cycle.goals.total+" · активных "+cycle.goals.active+
+          " · ждут ответа "+cycle.goals.waiting+" · заблокировано "+cycle.goals.blocked+
+          " · требуют пересмотра "+cycle.goals.review+" · завершено "+cycle.goals.completed]:[]),
         ...(cycle.attentionDetails.length?["РАСПРЕДЕЛЕНИЕ ВНИМАНИЯ:",
           ...cycle.attentionDetails.slice(0,5).map((item,index)=>(index+1)+". "+item.memoryId+
             " · значимость "+Math.round(item.score*100)+"/100 · "+item.reasons.join("; "))]:[])];
@@ -2605,6 +2642,9 @@
     }
     if(/^(?:покажи историю когнитивных циклов|покажи последние когнитивные циклы)$/u.test(lower)) {
       say("assistant",cognitiveCycleReport(5));setFeedback("КОГНИТИВНАЯ ИСТОРИЯ · ПОСЛЕДНИЕ ЦИКЛЫ");return;
+    }
+    if(/^(?:покажи текущие цели|какие у тебя цели|над чем ты работаешь|над чем ты сейчас работаешь|покажи прогресс целей|что сейчас блокирует цели|каков твой текущий фокус)$/u.test(lower)) {
+      say("assistant",researchGoalsAnswer());setFeedback("САМОКОНТРОЛЬ · ИССЛЕДОВАТЕЛЬСКИЕ ЦЕЛИ");return;
     }
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
@@ -2812,14 +2852,15 @@
     return true;
   }
   function clearMemory() {
-    if (!memories.length && !modelDecisions.length) { setFeedback("Память уже пуста."); return; }
-    if (!window.confirm("Удалить все " + memories.length + " записей, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
+    if (!memories.length && !modelDecisions.length && !inquiries.length) { setFeedback("Память уже пуста."); return; }
+    if (!window.confirm("Удалить все " + memories.length + " записей, исследовательские цели, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
     modelDecisions = [];
     modelEvidence = [];
     inquiries = [];
     nextInquiryNumber = 1;
+    if(window.NGGoals&&typeof window.NGGoals.clear==="function")window.NGGoals.clear();
     cognitiveCycles = [];
     nextCognitiveCycleNumber = 1;
     try { localStorage.setItem(COGNITIVE_CYCLES_KEY,"[]"); } catch(error) { console.warn("Could not clear cognitive cycle history:",error); }
@@ -3087,7 +3128,8 @@
         modelDecisions,
         modelEvidence,
         reasoningArchive,
-        inquiries
+        inquiries,
+        goals:window.NGGoals&&typeof window.NGGoals.export==="function"?window.NGGoals.export():[]
       };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -3157,11 +3199,13 @@
       reasoningArchive=mergeReasoningArchive(reasoningArchive,
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
+      if(Array.isArray(data.goals)&&window.NGGoals&&typeof window.NGGoals.merge==="function")window.NGGoals.merge(data.goals);
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
       clearLegacyInquiryFragmentClaims();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
+      syncResearchGoals();
       const ok = persist();
       renderLibrary();
       renderDialog();
@@ -3301,6 +3345,7 @@
   if (clearButton) clearButton.addEventListener("click", clearMemory);
 
   load();
+  syncResearchGoals();
   updateCount();
   renderDialog();
   renderLibrary();
@@ -3331,7 +3376,10 @@
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
     cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
     attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
-    nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; }
+    nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; },
+    goals: () => window.NGGoals&&typeof window.NGGoals.list==="function"?window.NGGoals.list():[],
+    goalSummary: () => syncResearchGoals(),
+    goalReport: () => researchGoalsAnswer()
 
   };
 })();
