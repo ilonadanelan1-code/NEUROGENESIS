@@ -47,7 +47,11 @@
       observationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.observationCount) || 0))),
       eventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.eventCount) || 0))),
       unknownEventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.unknownEventCount) || 0))),
-      milestones: Array.isArray(raw.milestones) ? raw.milestones.filter(x => typeof x === "string").slice(0, 4).map(x => x.slice(0, 80)) : [],
+      completeObservationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.completeObservationCount) || 0))),
+      incompleteObservationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.incompleteObservationCount) || 0))),
+      metadataCoverage: Math.max(0, Math.min(100, Math.round(Number(raw.metadataCoverage) || 0))),
+      numericOutcomeMissingCount: Math.max(0, Math.min(500, Math.floor(Number(raw.numericOutcomeMissingCount) || 0))),
+      milestones: Array.isArray(raw.milestones) ? raw.milestones.filter(x => typeof x === "string").slice(0, 5).map(x => x.slice(0, 80)) : [],
       progress: Math.max(0, Math.min(100, Math.round(Number(raw.progress) || 0))),
       focusScore: Math.max(0, Math.min(100, Math.round(Number(raw.focusScore) || 0))),
       selected: raw.selected === true, assessment: cleanText(raw.assessment, 64),
@@ -79,7 +83,7 @@
   function statusFor(inquiry, now, lastProgressAt) {
     if (inquiry.status === "skipped") return "paused";
     if (inquiry.status === "answered") {
-      if (["duplicate_same_event","duplicate_separate_events"].includes(inquiry.assessment)) return "completed";
+      if (["duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events"].includes(inquiry.assessment)) return "completed";
       if (["insufficient_context","gap_confirmed"].includes(inquiry.assessment)) return "blocked";
       return "review";
     }
@@ -113,13 +117,34 @@
         ? claim.eventRef.trim()
         : typeof details.eventRef === "string" ? details.eventRef.trim() : "";
     }).filter(Boolean);
-    const events = new Set(explicitEventRefs);
+    const events = new Set(explicitEventRefs.map(value=>normalise(value)));
+    const numericRequired = field => !!(field&&field.status==="provided"&&
+      /шкал|балл|процент|температур|пульс|частот|давлен|уровен|количеств|числов/u.test(normalise(field.value)));
+    const numericPresent = field => !!(field&&field.status==="provided"&&/[+-]?\d+(?:[.,]\d+)?/u.test(String(field.value||"")));
+    const fieldCount = observations.length*4;
+    const knownFields = observations.reduce((sum,claim)=>{
+      const details=claim.observationCase&&typeof claim.observationCase==="object"?claim.observationCase:{};
+      return sum+["context","timing","criterion","outcome"].filter(key=>
+        details[key]&&details[key].status==="provided").length;
+    },0);
+    const quality = observations.map(claim=>{
+      const details=claim.observationCase&&typeof claim.observationCase==="object"?claim.observationCase:{};
+      const required=["context","timing","criterion"].filter(key=>!details[key]||details[key].status!=="provided");
+      const needsNumber=numericRequired(details.criterion);
+      const missingNumber=needsNumber&&!numericPresent(details.outcome);
+      return {claimId:claim.id,complete:required.length===0&&!missingNumber,missingFields:required,
+        numericOutcomeRequired:needsNumber,numericOutcomeMissing:missingNumber};
+    });
     return {
       claimIds: [...evidence.keys()].slice(0, 12),
       memoryIds: [...memoryIds].slice(0, 12),
       observationCount: observations.length,
       eventCount: events.size,
-      unknownEventCount: observations.length - explicitEventRefs.length
+      unknownEventCount: observations.length - explicitEventRefs.length,
+      completeObservationCount: quality.filter(item=>item.complete).length,
+      incompleteObservationCount: quality.filter(item=>!item.complete).length,
+      metadataCoverage: fieldCount?Math.round(knownFields/fieldCount*100):0,
+      numericOutcomeMissingCount: quality.filter(item=>item.numericOutcomeMissing).length
     };
   }
   function buildGoal(inquiry, memories, focus, now, previous) {
@@ -131,8 +156,16 @@
     if (inquiry.status === "answered") milestones.push("получен ответ");
     if (["duplicate_same_event","duplicate_separate_events"].includes(inquiry.assessment))
       milestones.push("идентичность эпизодов уточнена");
+    if (inquiry.assessment==="duplicate_partitioned_events")
+      milestones.push("карточки распределены по группам эпизодов");
     if (evidence.observationCount > 0) milestones.push("привязаны прямые наблюдения");
-    const progress = Math.round(milestones.length / 4 * 100);
+    const workSteps = [
+      sourceClaimIds.length > 0,
+      inquiry.lastAskedAt > 0,
+      inquiry.status === "answered",
+      evidence.observationCount > 0 || ["duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events"].includes(inquiry.assessment)
+    ];
+    const progress = Math.round(workSteps.filter(Boolean).length / 4 * 100);
     const focusId = focus && focus.item && focus.item.id;
     const selected = focusId === inquiry.id;
     const focusScore = selected ? Math.round(Math.max(0, Math.min(1, Number(focus.score) || 0)) * 100) : 0;
@@ -145,7 +178,7 @@
       blockers.push("В привязанных записях пока нет прямой карточки наблюдения для этого звена.");
     }
     if (inquiry.kind === "duplicate_observation" &&
-        !["duplicate_same_event","duplicate_separate_events"].includes(inquiry.assessment) &&
+        !["duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events"].includes(inquiry.assessment) &&
         evidence.unknownEventCount > 0) {
       blockers.push("Для " + evidence.unknownEventCount + " наблюдений не задан eventRef: нельзя определить, один это эпизод или несколько.");
     }
@@ -161,7 +194,7 @@
     } else if (inquiry.status === "skipped") {
       nextAction = "Вопрос отложен. К нему можно вернуться позднее.";
     } else if (inquiry.kind === "duplicate_observation") {
-      nextAction = "Ответить на " + inquiry.id + ": «один эпизод» — если все карточки описывают один случай; «разные эпизоды» — если каждая карточка описывает отдельный случай. При неоднозначном ответе группировка не изменится.";
+      nextAction = "Ответить на " + inquiry.id + ": «один эпизод», «разные эпизоды» или полное разбиение вида «группы: 1+2; 3; 4+5». Каждый номер карточки нужно использовать ровно один раз.";
     } else if (evidence.observationCount > 0) {
       nextAction = "Сопоставить связанные карточки наблюдений, не считая их автоматически доказательством.";
     }
@@ -173,6 +206,10 @@
       status, nextAction, blockers, sourceClaimIds, evidenceClaimIds: evidence.claimIds,
       evidenceMemoryIds: evidence.memoryIds, observationCount: evidence.observationCount,
       eventCount: evidence.eventCount, unknownEventCount: evidence.unknownEventCount,
+      completeObservationCount:evidence.completeObservationCount,
+      incompleteObservationCount:evidence.incompleteObservationCount,
+      metadataCoverage:evidence.metadataCoverage,
+      numericOutcomeMissingCount:evidence.numericOutcomeMissingCount,
       milestones, progress, focusScore, selected,
       assessment: cleanText(inquiry.assessment, 64), assessmentReason: cleanText(inquiry.assessmentReason, 420),
       createdAt: previous ? previous.createdAt : safeTime(inquiry.createdAt, now),
@@ -264,8 +301,11 @@
         lines.push("  Основание: вопрос " + item.inquiryId + "; исходных утверждений: " + item.sourceClaimIds.length +
           "; связанных записей: " + item.evidenceMemoryIds.length + "; прямых наблюдений: " + item.observationCount +
           " · явных eventRef: " + item.eventCount + " · без eventRef: " + item.unknownEventCount + ".");
-        lines.push("  Этапы обработки: " + (item.milestones.length ? item.milestones.join("; ") : "пока не начаты") +
-          " · служебный прогресс " + item.progress + "/100.");
+        lines.push("  Прогресс выполнения работы: " + item.progress + "/100 · " +
+          (item.milestones.length ? item.milestones.join("; ") : "этапы пока не начаты") + ".");
+        lines.push("  Качество доказательств: полных карточек " + item.completeObservationCount + "/" +
+          item.observationCount + " · заполненность полей " + item.metadataCoverage + "% · не хватает числового результата: " +
+          item.numericOutcomeMissingCount + ".");
         if (item.blockers.length) lines.push("  Блокеры: " + item.blockers.join("; "));
         lines.push("  Следующий шаг: " + item.nextAction);
         if (item.selected) lines.push("  Приоритет внимания: " + item.focusScore + "/100 (очередность работы, не вероятность истинности).");

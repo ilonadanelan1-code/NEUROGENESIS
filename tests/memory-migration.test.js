@@ -181,9 +181,12 @@ assert.equal(migratedInquiry.responseDetails.context.status,"not_recorded");
 assert.equal(migratedInquiry.responseDetails.timing.status,"unknown");
 assert.equal(migratedInquiry.responseDetails.criterion.status,"not_recorded");
 const readiness=window.NGMemory.reviewReadinessForEdge("Недостаток сна","усталости");
-assert.equal(readiness.contextStatus,"not_recorded");
-assert.equal(readiness.timingStatus,"unknown");
-assert.equal(readiness.criterionStatus,"not_recorded");
+assert.equal(readiness.contextStatus,"not_stated","the absence report must not rewrite the direct observation card");
+assert.equal(readiness.timingStatus,"not_stated","the inquiry timing is not a timestamp attached to the event card");
+assert.equal(readiness.criterionStatus,"not_stated","the inquiry response is not an observation measurement method");
+assert.equal(readiness.answerContextStatus,"not_recorded");
+assert.equal(readiness.answerTimingStatus,"unknown");
+assert.equal(readiness.answerCriterionStatus,"not_recorded");
 assert.equal(readiness.context,false,"an absence report must never count as a provided context");
 
 const migrated = JSON.parse(database.get("neurogenesis.memories.v1"));

@@ -62,6 +62,9 @@ assert.equal(q1.eventCount,2);
 assert.ok(q1.evidenceClaimIds.includes("c1"));
 assert.ok(q1.evidenceMemoryIds.includes("m1"));
 assert.ok(q1.milestones.includes("вопрос был задан"));
+assert.equal(q1.completeObservationCount,0,"observations without structured metadata are incomplete");
+assert.equal(q1.incompleteObservationCount,2,"quality must be calculated for each observation card");
+assert.equal(q1.metadataCoverage,0,"metadata cannot be filled from another source by coincidence");
 const q2 = rows.find(item => item.inquiryId === "Q2");
 assert.equal(q2.status,"blocked");
 assert.match(q2.nextAction,/уточнить обстоятельства/iu);
@@ -76,6 +79,8 @@ assert.equal(q6.unknownEventCount,2);
 assert.match(q6.nextAction,/один эпизод.*разные эпизоды/u);
 assert.match(q6.blockers.join(" "),/нельзя определить/u);
 assert.match(window.NGGoals.report(),/явных eventRef/u);
+assert.match(window.NGGoals.report(),/Прогресс выполнения работы/u);
+assert.match(window.NGGoals.report(),/Качество доказательств/u);
 assert.match(window.NGGoals.report(),/не вероятность истинности/u);
 assert.equal(database.has("neurogenesis.goals.v1"),true);
 const reloadedWindow = {};
@@ -90,4 +95,35 @@ assert.equal(reloadedWindow.NGGoals.merge([{id:"not-a-goal",inquiryId:"Q7",title
 reloadedWindow.NGGoals.clear();
 assert.equal(reloadedWindow.NGGoals.list().length,0);
 assert.equal(database.has("neurogenesis.goals.v1"),false);
+
+// Work progress and evidence quality are independent dimensions.
+const qualityWindow={};
+const qualitySandbox={window:qualityWindow,localStorage,console,Date,Math,Set,Map,JSON};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),qualitySandbox,{filename:"goals.js"});
+const qualityNow=now+100000;
+qualityWindow.NGGoals.reconcile({
+  inquiries:[{id:"Q7",kind:"duplicate_observation",edgeSubject:"X",edgeObject:"Y",
+    question:"Разбей эпизоды",status:"answered",assessment:"duplicate_partitioned_events",
+    sourceClaimIds:["q7-a","q7-b"],lastAskedAt:qualityNow-100,createdAt:qualityNow-1000,
+    updatedAt:qualityNow,answeredAt:qualityNow,resolution:"partitioned_events"}],
+  memories:[{id:"quality-memory",claims:[
+    {id:"q7-a",kind:"observation",subject:"X",object:"Y",observationCase:{eventRef:"evt-1",
+      context:{status:"provided",value:"после тренировки"},timing:{status:"provided",value:"утром"},
+      criterion:{status:"provided",value:"по шкале 1–10"},outcome:{status:"not_stated",value:""}}},
+    {id:"q7-b",kind:"observation",subject:"X",object:"Y",observationCase:{eventRef:"evt-2",
+      context:{status:"provided",value:"обычный день"},timing:{status:"provided",value:"вечером"},
+      criterion:{status:"provided",value:"по шкале 1–10"},outcome:{status:"provided",value:"6/10"}}}
+  ]}],
+  now:qualityNow
+});
+const q7=qualityWindow.NGGoals.list().find(item=>item.inquiryId==="Q7");
+assert.equal(q7.status,"completed","a resolved mixed event grouping should complete the grouping task");
+assert.equal(q7.progress,100,"all completed workflow stages should reach 100 percent");
+assert.equal(q7.completeObservationCount,1,"only the card with a numeric outcome is complete");
+assert.equal(q7.incompleteObservationCount,1);
+assert.equal(q7.numericOutcomeMissingCount,1);
+assert.equal(q7.metadataCoverage,88,"field coverage should be independent from workflow completion");
+assert.match(qualityWindow.NGGoals.report(),/Прогресс выполнения работы: 100\/100/u);
+assert.match(qualityWindow.NGGoals.report(),/Качество доказательств: полных карточек 1\/2/u);
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");

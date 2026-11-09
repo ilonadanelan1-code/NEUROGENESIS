@@ -765,8 +765,8 @@ assert.match(incompleteReadiness,/время или временной поря�
   "the report should name missing temporal information");
 assert.match(incompleteReadiness,/как определялся или измерялся результат/u,
   "the report should name the missing outcome criterion");
-assert.match(incompleteReadiness,/Контекст: неизвестен/u,
-  "the word circumstances inside an explicit denial must not be counted as described context");
+assert.match(incompleteReadiness,/Контекст: не указан/u,
+  "an inquiry response must not rewrite individual event cards");
 assert.match(incompleteReadiness,/Критерий результата: не указан/u,
   "a missing method and a statement about no recorded observations must not count as a measurement criterion");
 const savedReadinessInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
@@ -826,7 +826,8 @@ assert.equal(reconciliation.duplicateMentions,1,"identical evidence text should 
 assert.equal(reconciliation.completeCases,2,"a possible duplicate group must not be counted as a confirmed complete event");
 assert.equal(reconciliation.identityUnresolvedCount,1,"the unresolved event identity should be reported separately");
 assert.equal(reconciliation.metadataCoverage,100,"metadata coverage should count context, timing, method and measured value fields");
-assert.equal(reconciliation.alignedPairCount,1,"same context and criterion with opposite outcomes should be recognized as a comparable pair");
+assert.equal(reconciliation.alignedPairCount,0,"a possible duplicate event must not be used as a confirmed comparable pair");
+assert.equal(reconciliation.incompletePairCount,1,"the unresolved repeat should remain incomplete for pairwise comparison");
 assert.equal(reconciliation.contextDifferencePairCount,1,"different contexts should be reported as a possible source of heterogeneity");
 assert.equal(reconciliation.independentVerifiedSources,0,"multiple user memories must not be misrepresented as independent verification");
 assert.equal(reconciliation.addedAfterModelCount,3,"the dossier should identify unique records saved after the archived conclusion");

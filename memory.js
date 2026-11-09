@@ -766,8 +766,8 @@
       "\n\nЗАЧЕМ Я СПРАШИВАЮ\n"+item.reason+
       "\n\nОТВЕТ\nНажми «Запомнить» и начни ответ точно так:\nОтвет на вопрос "+item.id+": [твой ответ]\n\n"+
       (item.kind==="duplicate_observation"
-        ?"Для однозначного ответа напиши «один эпизод» (все карточки вместе) или «разные эпизоды» (каждая отдельно). Смешанные группы пока не распознаются автоматически: при таком ответе вопрос останется открытым, а группировка не изменится."
-        :"Ответ будет сохранён как твоё сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом.");
+        ?"Можно ответить «один эпизод» или «разные эпизоды». Для смешанного случая используй «группы: 1+2; 3; 4+5» по номерам карточек из вопроса; каждый номер нужно указать ровно один раз."
+        :"Ответ будет сохранён как твоё отдельное сообщение и привязан к "+item.id+". Он не станет автоматически доказанным фактом и не заполнит поля отдельных карточек наблюдений.");
   }
   function researchImpactForInquiry(item) {
     const affected=new Set();
@@ -856,6 +856,11 @@
     const challenging=distinct.filter(item=>!item.polarity);
     const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
+    const answerDetails=relatedAnswers.map(item=>item.responseDetails||
+      KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response"));
+    const answerContextStatus=observationFieldStatus(answerDetails,"context");
+    const answerTimingStatus=observationFieldStatus(answerDetails,"timing");
+    const answerCriterionStatus=observationFieldStatus(answerDetails,"criterion");
     const checks=distinct.map(observationEventQuality);
     const contextStatus=aggregateEventFieldStatus(distinct,"context");
     const timingStatus=aggregateEventFieldStatus(distinct,"timing");
@@ -869,9 +874,13 @@
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
     if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");
-    for(const [key,label] of [["context","контекст"],["timing","время или временной порядок"],["criterion","способ оценки"]]) {
+    for(const [key,label,wording] of [
+      ["context","контекст","не указан"],
+      ["timing","время или временной порядок","не указаны"],
+      ["criterion","способ оценки","не указан"]
+    ]) {
       const count=missingByField(key);
-      if(count)blockers.push(label+" не указаны в "+count+" из "+distinct.length+" отдельных событий");
+      if(count)blockers.push(label+" "+wording+" в "+count+" из "+distinct.length+" отдельных событий");
     }
     if(numericOutcomeMissingCount)blockers.push("не записано фактическое числовое значение результата (например, 6/10) в "+numericOutcomeMissingCount+" событии(ях), хотя указан числовой способ оценки");
     if(identityUnresolvedCount)blockers.push("идентичность эпизодов не уточнена в "+identityUnresolvedCount+" возможной группе карточек; их нельзя считать установленным числом самостоятельных событий");
@@ -884,7 +893,9 @@
     return {subject,object,supportingCount:supporting.length,challengingCount:challenging.length,
       totalCount:distinct.length,context:distinct.length>0&&contextStatus==="provided",
       timing:distinct.length>0&&timingStatus==="provided",criterion:distinct.length>0&&criterionStatus==="provided",
-      contextStatus,timingStatus,criterionStatus,outcomeStatus,numericOutcomeRequired,numericOutcomeMissingCount,
+      contextStatus,timingStatus,criterionStatus,outcomeStatus,
+      answerContextStatus,answerTimingStatus,answerCriterionStatus,
+      numericOutcomeRequired,numericOutcomeMissingCount,
       completeEventCount,incompleteEventCount:distinct.length-completeEventCount,metadataConflictCount,identityUnresolvedCount,
       possibleDuplicateCount:grouped.duplicateMentions,possibleDuplicateGroups:grouped.possibleDuplicateGroups,
       ready,label,blockers,eventChecks:checks,answerIds:relatedAnswers.map(item=>item.id)};
