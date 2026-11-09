@@ -225,7 +225,9 @@
       ? inquiry.comparisonEdges.filter(edge => edge && typeof edge.subject === "string" &&
         typeof edge.object === "string")
       : [];
-    const evidenceEdges = comparisonEdges.length ? comparisonEdges : [inquiry];
+    const evidenceEdges = comparisonEdges.length ? comparisonEdges : [{
+      subject: inquiry.edgeSubject, object: inquiry.edgeObject
+    }];
     if (inquiry.responseMemoryId) memoryIds.add(inquiry.responseMemoryId);
     for (const memory of memoryRows) {
       if (!memory || typeof memory.id !== "string") continue;
