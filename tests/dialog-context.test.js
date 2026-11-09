@@ -331,6 +331,33 @@ assert.match(mergedSummary,/сохранение контекста/u);
 assert.match(mergedSummary,/изоляцию тем/u,
   "merging two copies of the same thread must preserve summary notes from both sides");
 
+// A short follow-up must retain the last few turns, not only the final exchange.
+let exchangeState = engine.empty();
+exchangeState = engine.track(exchangeState, {
+  role: "user", text: "Исследуем, как обратная связь влияет на обучение", time: 700
+});
+exchangeState = engine.track(exchangeState, {
+  role: "assistant", text: "Сначала рассмотрим положительную обратную связь и скорость обучения.", time: 701
+});
+exchangeState = engine.track(exchangeState, {
+  role: "user", text: "Затем сравним её с отрицательной обратной связью", time: 702
+});
+exchangeState = engine.track(exchangeState, {
+  role: "assistant", text: "Для сравнения важно учитывать задержку и точность сигнала.", time: 703
+});
+const exchangeFollowUp = engine.resolve(exchangeState, "А что насчёт задержки?");
+assert.equal(exchangeFollowUp.applied, true);
+assert.equal(exchangeFollowUp.context.recentExchange.length, 4,
+  "the working context should include up to four recent turns from the active topic");
+assert.match(exchangeFollowUp.query, /положительную обратную связь/u,
+  "the context should preserve an earlier intermediate assistant explanation");
+assert.match(exchangeFollowUp.query, /отрицательной обратной связи/u,
+  "the context should preserve the user's intervening comparison");
+assert.match(exchangeFollowUp.query, /задержку и точность сигнала/u,
+  "the context should preserve the most recent assistant reasoning");
+assert.ok(exchangeFollowUp.context.recentExchange.every(row => row.text.length <= 220),
+  "each retained exchange fragment must remain bounded");
+
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));
 assert.equal(roundTrip.activeThreadId, firstThread);
 assert.equal(engine.report(roundTrip).topics.length, 2);
