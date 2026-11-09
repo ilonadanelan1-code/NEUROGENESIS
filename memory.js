@@ -1346,6 +1346,31 @@
   }
   function researchStrategyAnswer() {
     const refreshed=refreshInquiryQueue();
+    const goalManager=window.NGGoals;
+    const reassessmentGoals=goalManager&&typeof goalManager.list==="function"
+      ?goalManager.list().filter(item=>item&&item.status==="review"&&item.observationsAfterAssessment>0&&
+        ["insufficient_context","gap_confirmed"].includes(item.assessment))
+        .sort((a,b)=>Number(b.selected)-Number(a.selected)||b.focusScore-a.focusScore||
+          b.observationsAfterAssessment-a.observationsAfterAssessment||b.updatedAt-a.updatedAt)
+      :[];
+    if(reassessmentGoals.length) {
+      const goal=reassessmentGoals[0];
+      let answer="ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА\n\n";
+      answer+="ПОЧЕМУ ЭТОТ ШАГ СТАЛ АКТУАЛЬНЫМ\nПосле прежней оценки «"+
+        (goal.assessment==="gap_confirmed"?"пробел в наблюдениях подтверждён":"контекста было недостаточно")+
+        "» появились новые прямые наблюдения. Они не переписывают старый ответ, но дают основание повторно рассмотреть связь.\n\n";
+      answer+="ЦЕЛЬ · "+goal.id+"\n"+goal.title+"\n";
+      answer+="Наблюдений после прежней оценки: "+goal.observationsAfterAssessment+
+        " · всего прямых наблюдений: "+goal.observationCount+
+        " · полностью описано: "+goal.completeObservationCount+
+        " · заполненность полей: "+goal.metadataCoverage+"%.\n\n";
+      answer+="ПРЕЖНЯЯ ОЦЕНКА СОХРАНЕНА\n"+(goal.assessmentReason||"Первоначальная оценка остаётся частью истории.")+"\n\n";
+      if(goal.blockers&&goal.blockers.length)answer+="ОСТАЮЩИЕСЯ ОГРАНИЧЕНИЯ\n"+goal.blockers.join("; ")+".\n\n";
+      answer+="СЛЕДУЮЩИЙ ШАГ\n"+(goal.nextAction||"Повторно сопоставить контекст, время и критерии новых наблюдений.")+"\n\n";
+      if(reassessmentGoals.length>1)answer+="В очереди повторной оценки ещё целей: "+(reassessmentGoals.length-1)+".\n\n";
+      answer+="Новые записи остаются пользовательскими наблюдениями. Их появление само по себе не доказывает и не опровергает причинную связь; решение рабочей модели автоматически не меняется.";
+      return answer;
+    }
     if(!refreshed.open.length) {
       return "ПЛАН ИССЛЕДОВАНИЯ\n\nСейчас нет открытых исследовательских вопросов. Если в памяти появились новые наблюдения, сначала обнови очередь командой «Найди пробелы в знаниях». Полученные ответы можно посмотреть командой «Оцени ответы на вопросы».";
     }
