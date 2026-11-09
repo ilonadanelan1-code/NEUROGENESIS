@@ -37,7 +37,7 @@
     if (!title) return null;
     return {
       id: raw.id, inquiryId: raw.inquiryId,
-      kind: ["contrast_observations","clarify_counterexample","missing_observation","duplicate_observation"].includes(raw.kind)
+      kind: ["contrast_observations","clarify_counterexample","missing_observation","duplicate_observation","discriminating_observations"].includes(raw.kind)
         ? raw.kind : "missing_observation",
       title, status, nextAction: cleanText(raw.nextAction, 420),
       blockers: Array.isArray(raw.blockers) ? raw.blockers.filter(x => typeof x === "string").slice(0, 4).map(x => x.slice(0, 220)) : [],
