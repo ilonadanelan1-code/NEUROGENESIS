@@ -943,7 +943,19 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   };
   const fallbackWindow={...window};
   delete fallbackWindow.NGKnowledge;
-  const fallbackSandbox={...sandbox,window:fallbackWindow,localStorage:fallbackLocalStorage};
+  // This isolated module instance needs its own DOM; sharing event targets would
+  // register two independent import handlers on the same file input.
+  const fallbackElements=new Map();
+  const fallbackDocument={
+    ...document,
+    getElementById(id) {
+      if(!fallbackElements.has(id))fallbackElements.set(id,new ElementStub());
+      return fallbackElements.get(id);
+    },
+    createElement() { return new ElementStub(); },
+    body:new ElementStub()
+  };
+  const fallbackSandbox={...sandbox,window:fallbackWindow,document:fallbackDocument,localStorage:fallbackLocalStorage};
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),fallbackSandbox,{filename:"memory-fallback.js"});
   const fallbackHistory=fallbackWindow.NGMemory.reasoningHistory();
   assert.equal(fallbackHistory.length,1);
