@@ -134,9 +134,17 @@ const window = {
     removeMemoryTraces(ids) { for (const id of ids) neurons.delete(id); }
   }
 };
+let failStorageWriteOnceFor = "";
 const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
-  setItem(key,value) { database.set(key,String(value)); }
+  setItem(key,value) {
+    if (key === failStorageWriteOnceFor) {
+      failStorageWriteOnceFor = "";
+      throw new Error("Injected localStorage quota failure for memory persistence.");
+    }
+    database.set(key,String(value));
+  },
+  removeItem(key) { database.delete(key); }
 };
 const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON,Blob:BlobStub,URL:URLStub,setTimeout(fn){fn();return 1;}};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
@@ -1313,6 +1321,32 @@ void (async () => {
   await importHandler({target:importInput});
   assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
     "importing a v2 backup must restore and preserve the active topic summary");
+
+  // Verify the real memory.js persistence entry point: several application
+  // stores are replaced, then the context write fails. All earlier writes
+  // and the staged goals store must return to their exact before-images.
+  const persistentKeys=[
+    "neurogenesis.goals.v1","neurogenesis.memories.v1","neurogenesis.dialog.v1",
+    "neurogenesis.dialog-context.v1","neurogenesis.model-decisions.v1",
+    "neurogenesis.model-evidence.v1","neurogenesis.reasoning-archive.v1",
+    "neurogenesis.inquiries.v1","neurogenesis.cognitive-cycles.v1"
+  ];
+  const beforeImages=new Map(persistentKeys.map((key,index)=>{
+    const value="before-transaction-"+index;
+    database.set(key,value);
+    return [key,value];
+  }));
+  failStorageWriteOnceFor="neurogenesis.dialog-context.v1";
+  assert.equal(window.NGMemory.persist(),false,
+    "memory.js must report a failed multi-key persistence transaction");
+  for(const key of persistentKeys) {
+    assert.equal(database.get(key),beforeImages.get(key),
+      "memory.js must restore the complete before-image for "+key);
+  }
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "a recovered ordinary-save transaction must remove its journal");
+  assert.equal(window.NGStorageTransaction.status().ready,true,
+    "the storage manager must remain usable after ordinary-save rollback");
 })().catch(error=>{console.error(error);process.exitCode=1;});
 assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
 assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
