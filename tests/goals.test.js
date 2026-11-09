@@ -37,7 +37,10 @@ const inquiries = [
     resolution:"same_event",createdAt:now-500000,updatedAt:now-100000},
   {id:"Q6",kind:"duplicate_observation",edgeSubject:"сон",edgeObject:"усталость",
     question:"Это один эпизод или разные?",status:"open",assessment:"unassessed",
-    sourceClaimIds:["o3","o4"],createdAt:now-400000,updatedAt:now-400000,lastAskedAt:0}
+    sourceClaimIds:["o3","o4"],createdAt:now-400000,updatedAt:now-400000,lastAskedAt:0},
+  {id:"Q7",kind:"discriminating_observations",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+    question:"Сопоставить два маршрута",status:"open",priority:0,sourceClaimIds:["c1","c2"],
+    createdAt:now-300000,updatedAt:now-300000,lastAskedAt:0}
 ];
 const memories = [{
   id:"m1",
@@ -51,7 +54,7 @@ const memories = [{
 }];
 const focus = {item:{id:"Q1"},score:.82,reasons:["влияние на другие выводы"]};
 const initial = window.NGGoals.reconcile({inquiries,memories,focus,now});
-assert.equal(initial.total,6);
+assert.equal(initial.total,7);
 const rows = window.NGGoals.list();
 const q1 = rows.find(item => item.inquiryId === "Q1");
 assert.equal(q1.status,"waiting_user");
@@ -65,6 +68,9 @@ assert.ok(q1.milestones.includes("вопрос был задан"));
 assert.equal(q1.completeObservationCount,0,"observations without structured metadata are incomplete");
 assert.equal(q1.incompleteObservationCount,2,"quality must be calculated for each observation card");
 assert.equal(q1.metadataCoverage,0,"metadata cannot be filled from another source by coincidence");
+const q7 = rows.find(item => item.inquiryId === "Q7");
+assert.equal(q7.kind,"discriminating_observations","the goal manager must preserve the new inquiry category");
+assert.equal(q7.status,"active");
 const q2 = rows.find(item => item.inquiryId === "Q2");
 assert.equal(q2.status,"blocked");
 assert.match(q2.nextAction,/уточнить обстоятельства/iu);
@@ -86,11 +92,11 @@ assert.equal(database.has("neurogenesis.goals.v1"),true);
 const reloadedWindow = {};
 const sandbox2 = {window:reloadedWindow,localStorage,console,Date,Math,Set,Map,JSON};
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox2,{filename:"goals.js"});
-assert.equal(reloadedWindow.NGGoals.list().length,6,"goals must persist across reloads");
+assert.equal(reloadedWindow.NGGoals.list().length,7,"goals must persist across reloads");
 assert.equal(reloadedWindow.NGGoals.list().find(item=>item.inquiryId==="Q1").status,"waiting_user");
 reloadedWindow.NGGoals.merge([{id:"G-Q6",inquiryId:"Q6",title:"Новая цель",status:"active",kind:"missing_observation",createdAt:now,updatedAt:now}]);
 assert.equal(reloadedWindow.NGGoals.list().some(item=>item.inquiryId==="Q6"),true);
-assert.equal(reloadedWindow.NGGoals.merge([{id:"not-a-goal",inquiryId:"Q7",title:"Мусор"}]).total,6,
+assert.equal(reloadedWindow.NGGoals.merge([{id:"not-a-goal",inquiryId:"Q7",title:"Мусор"}]).total,7,
   "invalid imported goal IDs must be rejected");
 reloadedWindow.NGGoals.clear();
 assert.equal(reloadedWindow.NGGoals.list().length,0);
