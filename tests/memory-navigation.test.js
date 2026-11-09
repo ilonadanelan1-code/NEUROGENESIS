@@ -1049,4 +1049,41 @@ assert.match(sanitizedModelReply,/исходные воспоминания не
 assert.equal(window.NGMemory.modelDecisions().length,0,
   "sanitizing historical route syntax must not silently alter model decisions");
 
-console.log("NEUROGENESIS model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation, event-chronology and archive-sanitization tests: passed.");
+
+// Every save and every question now passes through the same observable cognitive cycle.
+window.NGMemory.remember("Я живу в Казани");
+const savedCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+assert.ok(savedCycle,"a successful memory write should create a cognitive cycle");
+assert.equal(savedCycle.mode,"remember");
+assert.deepEqual(savedCycle.phases.map(item=>item.name),
+  ["perception","attention","memory","reasoning","verification","learning","model_update"],
+  "every write cycle should traverse the seven ordered cognitive phases");
+assert.equal(savedCycle.phases[0].status,"complete");
+assert.equal(savedCycle.metrics.memoryAdded,1);
+assert.ok(savedCycle.claimIds.length>0,"the cycle should retain IDs of claims it processed");
+assert.ok(!("input" in savedCycle)&&!("output" in savedCycle),
+  "cycle history should keep process metadata, not duplicate raw user text");
+
+window.NGMemory.ask("Где я живу?");
+const answerCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+assert.equal(answerCycle.mode,"ask");
+assert.equal(answerCycle.intent,"general_question");
+assert.equal(answerCycle.phases.length,7);
+assert.ok(answerCycle.metrics.attentionMatches>0,
+  "question processing should record relevant memories selected for attention");
+assert.ok(answerCycle.phases.find(item=>item.name==="reasoning").summary.includes("structured_retrieval"),
+  "the reasoning stage should identify the structured retrieval path");
+assert.ok(answerCycle.metrics.memoryUpdated>0,
+  "retrieved memories should register their recall-strength update");
+
+const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
+assert.ok(storedCycles.length>=2,"cognitive cycles should persist in local storage");
+const cycleReport=window.NGMemory.cognitiveCycleReport(2);
+assert.match(cycleReport,/КОГНИТИВНЫЙ ЦИКЛ · C/u);
+assert.match(cycleReport,/7\\. Обновление модели/u);
+window.NGMemory.ask("Покажи последний когнитивный цикл");
+assert.match(feed.children[feed.children.length-1].textContent,/КОГНИТИВНЫЙ ЦИКЛ/u,
+  "the user should be able to inspect the latest completed cycle from the chat");
+
+
+console.log("NEUROGENESIS cognitive-cycle, model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation, event-chronology and archive-sanitization tests: passed.");
