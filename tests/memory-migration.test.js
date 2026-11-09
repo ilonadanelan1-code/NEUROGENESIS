@@ -484,24 +484,6 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the archive lifecycle must be synchronized during import persistence, without opening its report");
   assert.equal(storedLifecycleAfterImport.state,"under_review",
     "an imported open inquiry must immediately mark its matching hypothesis as under review");
-  const duplicateCompletionGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
-  assert.ok(duplicateCompletionGoal&&duplicateCompletionGoal.status==="active",
-    "an imported duplicate-card inquiry must immediately create an active goal");
-  assert.equal(window.NGMemory.remember(
-    "Ответ на вопрос Q811: группы: 1+2"
-  ),true,"a valid event-grouping answer must pass through the memory pipeline");
-  const completedDuplicateInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q811");
-  assert.equal(completedDuplicateInquiry.status,"answered");
-  assert.equal(completedDuplicateInquiry.assessment,"duplicate_same_event");
-  const completedDuplicateGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
-  assert.equal(completedDuplicateGoal.status,"completed",
-    "a correctly resolved duplicate-observation inquiry must complete its research goal");
-  const completionCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
-  assert.ok(completionCycle.goalChanges.items.some(item=>item.goalId==="G-Q811"&&
-    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="completed"),
-    "the cognitive cycle must retain the exact active-to-completed goal transition");
-  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q811/u);
-  assert.match(window.NGMemory.cognitiveCycleReport(),/завершена/u);
   window.NGMemory.ask("пропусти вопрос Q810");
   const storedInquiryAfterSkip = JSON.parse(database.get("neurogenesis.inquiries.v1"))
     .find(item=>item.id==="Q810");
@@ -563,6 +545,24 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(secondSkipCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
     item.kind==="status_changed"&&item.toStatus==="paused"),
     "a repeated skip must be visible as another cycle-level goal transition");
+  const duplicateCompletionGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.ok(duplicateCompletionGoal&&duplicateCompletionGoal.status==="active",
+    "an imported duplicate-card inquiry must immediately create an active goal");
+  assert.equal(window.NGMemory.remember(
+    "Ответ на вопрос Q811: группы: 1+2"
+  ),true,"a valid event-grouping answer must pass through the memory pipeline");
+  const completedDuplicateInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q811");
+  assert.equal(completedDuplicateInquiry.status,"answered");
+  assert.equal(completedDuplicateInquiry.assessment,"duplicate_same_event");
+  const completedDuplicateGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.equal(completedDuplicateGoal.status,"completed",
+    "a correctly resolved duplicate-observation inquiry must complete its research goal");
+  const completionCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(completionCycle.goalChanges.items.some(item=>item.goalId==="G-Q811"&&
+    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="completed"),
+    "the cognitive cycle must retain the exact active-to-completed goal transition");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q811/u);
+  assert.match(window.NGMemory.cognitiveCycleReport(),/завершена/u);
   const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
   const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
   assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
