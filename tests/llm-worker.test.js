@@ -6,19 +6,25 @@ const vm = require("node:vm");
 class TestURL {
   constructor(value) {
     this.original = String(value);
-    const match = this.original.match(/^([a-z][a-z0-9+.-]*:)\\/\\/([^/?#]+)([^?#]*)(?:\\?([^#]*))?(?:#(.*))?$/iu);
-    if (!match) throw new Error("Invalid URL");
-    this.protocol = match[1].toLowerCase();
-    const authority = match[2];
+    const scheme = this.original.indexOf("://");
+    if (scheme < 1) throw new Error("Invalid URL");
+    this.protocol = this.original.slice(0, scheme + 1).toLowerCase();
+    const rest = this.original.slice(scheme + 3);
+    const boundary = rest.search(/[/?#]/u);
+    const authority = boundary < 0 ? rest : rest.slice(0, boundary);
+    const path = boundary < 0 ? "/" : rest.slice(boundary);
     const at = authority.lastIndexOf("@");
     const host = at >= 0 ? authority.slice(at + 1) : authority;
     const credentials = at >= 0 ? authority.slice(0, at) : "";
     this.username = credentials.split(":")[0] || "";
     this.password = credentials.includes(":") ? credentials.split(":").slice(1).join(":") : "";
-    this.hostname = host.replace(/:\\d+$/u, "").toLowerCase();
-    this.pathname = match[3] || "/";
-    this.search = match[4] ? "?" + match[4] : "";
-    this.hash = match[5] ? "#" + match[5] : "";
+    this.hostname = host.split(":")[0].toLowerCase();
+    const hash = path.indexOf("#");
+    this.hash = hash >= 0 ? path.slice(hash) : "";
+    const noHash = hash >= 0 ? path.slice(0, hash) : path;
+    const query = noHash.indexOf("?");
+    this.search = query >= 0 ? noHash.slice(query) : "";
+    this.pathname = (query >= 0 ? noHash.slice(0, query) : noHash) || "/";
   }
   toString() { return this.original; }
 }
