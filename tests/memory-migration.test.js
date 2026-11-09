@@ -316,17 +316,26 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const importInput=document.getElementById("memory-import-file");
   const importTime=1794159000000;
   const validImportedEdge={id:"valid-import-edge",subject:"Недостаток сна",object:"снижению концентрации"};
+  const reportedEvidenceEdge={id:"reported-evidence-edge",subject:"Усталость",object:"снижению концентрации",
+    evidence:"По данным исследования, усталость приводит к снижению концентрации"};
   const importedReasoning={
     version:1,type:"derived_hypotheses",createdAt:importTime,status:"current",
     conclusions:[
       {subject:"Недостаток сна",object:"снижению концентрации",paths:[[validImportedEdge]]},
-      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]}
+      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
     ],
-    reviews:[{claimId:"missing-import-source",kind:"counterexample",phase:"subsequent",
-      subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
-      edgeObject:"снижению концентрации",at:importTime+10,evidence:"Архивный контрпример без исходной карточки"}],
+    reviews:[
+      {claimId:"missing-import-source",kind:"counterexample",phase:"subsequent",
+        subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
+        edgeObject:"снижению концентрации",at:importTime+10,evidence:"Архивный контрпример без исходной карточки"},
+      {claimId:"valid-import-causal",kind:"supporting_claim",phase:"subsequent",
+        subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
+        edgeObject:"снижению концентрации",at:importTime+20,evidence:"Архивный текст, не совпадающий с исходной запись"}
+    ],
     modelHistory:[{at:importTime,edges:[],alternatives:[
-      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]}
+      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
     ]}]
   };
   const importedDialogReasoning={
@@ -341,8 +350,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       id:"bad-import-memory",text:"Архивная запись без причинного разбора",createdAt:importTime,
       claims:[{id:"bad-import-claim",kind:"causal",subject:"что усталость",predicate:"приводит к",
         object:"снижению концентрации",evidence:"что усталость приводит к снижению концентрации"}]
+    },{
+      id:"valid-import-source",text:"Недостаток сна приводит к снижению концентрации",createdAt:importTime+1,
+      claims:[{id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
+        object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"}]
     }],
     reasoningArchive:[{role:"assistant",time:importTime,text:"Импортированный архив",reasoning:importedReasoning}],
+    modelDecisions:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",strategy:"restore",
+      at:importTime+30,claimIds:["bad-import-claim"]}],
+    modelEvidence:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",claimId:"bad-import-claim",
+      kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
     dialog:[{role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning}]
   };
   importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
@@ -356,6 +373,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the malformed conclusion must be retained as an excluded archive path");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_alternative"),
     "malformed snapshot alternatives must also remain excluded rather than becoming routes");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.reason==="reported_causal_statement"&&item.subject==="Усталость"),
+    "report-attributed evidence on an otherwise-valid route must remain excluded in the archive projection");
   const storedImportedArchive=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
     .find(item=>item.time===importTime);
   assert.ok(storedImportedArchive.reasoning.reviews.some(item=>item.claimId==="missing-import-source"),
@@ -380,6 +399,12 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(validImportedLifecycle.state,"new",
     "an archived review without a matching imported source claim must not challenge the valid conclusion");
   assert.equal(validImportedLifecycle.challengingClaimIds.length,0);
+  assert.equal(validImportedLifecycle.supportingClaimIds.length,0,
+    "a review that reuses a real source ID but changes its evidence must not become active support");
+  assert.ok(!window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="что усталость"),
+    "an imported restore decision with a malformed causal subject must not enter the active decision ledger");
+  assert.ok(!window.NGMemory.modelEvidence().some(item=>item.edgeSubject==="что усталость"),
+    "report-attributed model evidence with a malformed subject must not be presented as active evidence");
   const importedRevision=window.NGMemory.modelEvolution();
   assert.doesNotMatch(importedRevision,/Недостаток сна → снижению концентрации — ПОД ВОПРОСОМ/u,
     "unverified archived review metadata must not mark a valid route as challenged");
