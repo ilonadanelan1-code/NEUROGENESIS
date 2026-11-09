@@ -6,7 +6,7 @@
       throw new Error("NGDiscriminatingObservations requires NGKnowledge comparison methods");
     const entityKey=value=>knowledge.canonicalEntity?knowledge.canonicalEntity(value):knowledge.normalise(value);
     const edgeKey=edge=>entityKey(edge&&edge.subject)+"=>"+entityKey(edge&&edge.object);
-    const routeLabel=path=>[path[0].subject,...path.map(edge=>edge.object)].map(value=>clean(value,90)).join(" → ").slice(0,260);
+    const routeLabel=path=>[path[0].subject,...path.map(edge=>edge.object)].map(value=>clean(value,90)).join(" → ").slice(0,150);
     function observationState(edge,claims) {
       const matches=(claims||[]).filter(claim=>claim&&claim.kind==="observation"&&claim.status!=="superseded"&&
         knowledge.sameEntity(claim.subject,edge.subject)&&knowledge.sameEntity(claim.object,edge.object));
