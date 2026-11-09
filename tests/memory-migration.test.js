@@ -464,6 +464,22 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       uncertainty:{level:"medium",supportIndex:55,reasons:["данные из резервной копии"],evidenceCount:1,conflictCount:0,independentSources:0},
       metrics:{inputTokens:3,parsedClaims:1,attentionMatches:0,memoryBefore:0,memoryAfter:1,memoryAdded:1},
       memoryIds:["valid-import-source"],claimIds:["valid-import-causal"]
+    },{
+      id:"C701",sequence:701,at:importTime+6000,mode:"remember",intent:"memory_write",status:"complete",
+      phases:[{name:"learning",status:"complete",summary:"Цель повторной оценки обновлена"}],
+      uncertainty:{level:"medium",supportIndex:60,reasons:["новое наблюдение"],evidenceCount:2,conflictCount:1,independentSources:0},
+      goals:{total:2,active:0,waiting:0,blocked:0,review:1,paused:0,completed:1,focusId:"G-Q77"},
+      goalChanges:{available:true,total:2,items:[
+        {goalId:"G-Q77",inquiryId:"Q77",kind:"status_changed",title:"Уточнить связь сна и усталости",
+          fromStatus:"blocked",toStatus:"review",assessment:"gap_confirmed",progress:75,
+          observationCount:3,observationsAfterAssessment:2,nextAction:"Повторно сопоставить новые наблюдения."},
+        {goalId:"G-Q78",inquiryId:"Q78",kind:"status_changed",title:"Уточнить идентичность эпизодов",
+          fromStatus:"active",toStatus:"completed",assessment:"duplicate_same_event",progress:100,
+          observationCount:2,observationsAfterAssessment:0,nextAction:""}
+      ]},
+      metrics:{inputTokens:4,parsedClaims:2,attentionMatches:1,memoryBefore:1,memoryAfter:2,memoryAdded:1,
+        goalCount:2,activeGoals:0,blockedGoals:0},
+      memoryIds:["valid-import-source"],claimIds:["valid-import-causal"]
     }],
     dialog:[
       {role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning},
@@ -701,6 +717,20 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const restoredImportedCycle=importedCycles.find(item=>item.at===importTime+5000);
   assert.ok(restoredImportedCycle,
     "backup import must restore cognitive cycles from the optional v2 field");
+  const restoredGoalDeltaCycle=importedCycles.find(item=>item.at===importTime+6000);
+  assert.ok(restoredGoalDeltaCycle,"backup import must retain the cycle with detailed goal changes");
+  assert.equal(restoredGoalDeltaCycle.goalChanges.available,true);
+  assert.equal(restoredGoalDeltaCycle.goalChanges.total,2);
+  const restoredReviewDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q77");
+  assert.ok(restoredReviewDelta);
+  assert.equal(restoredReviewDelta.kind,"status_changed");
+  assert.equal(restoredReviewDelta.fromStatus,"blocked");
+  assert.equal(restoredReviewDelta.toStatus,"review");
+  assert.equal(restoredReviewDelta.observationsAfterAssessment,2);
+  const restoredCompletionDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q78");
+  assert.ok(restoredCompletionDelta);
+  assert.equal(restoredCompletionDelta.toStatus,"completed",
+    "backup import must retain completed-goal transitions as well as review transitions");
   assert.notEqual(restoredImportedCycle.id,"C700",
     "a cycle imported from another local sequence with a colliding ID must receive a unique ID");
   assert.equal(new Set(importedCycles.map(item=>item.id)).size,importedCycles.length,
@@ -710,6 +740,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
   assert.ok(storedCycles.some(item=>item.at===importTime+5000),
     "restored cognitive cycles must be persisted in local storage");
+  const persistedGoalDelta=storedCycles.find(item=>item.at===importTime+6000);
+  assert.ok(persistedGoalDelta&&persistedGoalDelta.goalChanges.items.some(item=>
+    item.goalId==="G-Q77"&&item.fromStatus==="blocked"&&item.toStatus==="review"),
+    "detailed goal transitions must also survive durable local-storage persistence");
   const cycleCountBeforeLegacyImport=window.NGMemory.cognitiveCycles().length;
   importInput.files=[{async text(){return JSON.stringify({
     format:"NEUROGENESIS_MEMORY_BACKUP",version:2,memories:[]
