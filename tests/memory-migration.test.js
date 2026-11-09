@@ -98,7 +98,15 @@ class ElementStub {
     this.scrollHeight = 0;
     this.files = [];
   }
-  addEventListener() {}
+  addEventListener(type, listener) {
+    (this.listeners ||= Object.create(null));
+    (this.listeners[type] ||= []).push(listener);
+  }
+  dispatch(type, event = {}) {
+    for (const listener of this.listeners && this.listeners[type] || []) {
+      listener({ target:this, preventDefault() {}, ...event });
+    }
+  }
   appendChild(child) { this.children.push(child); return child; }
   append(...children) { this.children.push(...children); }
   remove() {}
@@ -245,6 +253,36 @@ assert.equal(persistedObservation.claims[0].sourceMemoryId,"mobservation");
 assert.equal(persistedObservation.claims[0].observationCase.schema,2);
 assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
 (async () => {
+  // Exercise the actual remember-button -> submit("remember") path.
+  const rememberInput = document.getElementById("memory-input");
+  const rememberButton = document.getElementById("remember-button");
+  const beforeRememberCount = window.NGMemory.count();
+  const filler = "Как дела?";
+  rememberInput.value = filler;
+  rememberButton.dispatch("click");
+  assert.equal(window.NGMemory.count(), beforeRememberCount,
+    "small talk submitted through the UI must not create a durable memory");
+  const durableAfterFiller = JSON.parse(database.get("neurogenesis.memories.v1"));
+  assert.equal(durableAfterFiller.some(item => item.text === filler), false,
+    "small talk must be absent from persisted long-term memory");
+  const dialogAfterFiller = JSON.parse(database.get("neurogenesis.dialog.v1"));
+  assert.ok(dialogAfterFiller.some(item => item.role === "user" && item.text === filler),
+    "the small-talk user turn must remain in persisted dialogue history");
+
+  const musicBefore = durableAfterFiller.find(item => item.text === "Музыка прекрасна");
+  assert.ok(musicBefore, "the positive-control memory fixture must exist");
+  const repetitionsBefore = musicBefore.repetitions;
+  rememberInput.value = "Музыка прекрасна";
+  rememberButton.dispatch("click");
+  const durableAfterMusic = JSON.parse(database.get("neurogenesis.memories.v1"));
+  const musicAfter = durableAfterMusic.find(item => item.text === "Музыка прекрасна");
+  assert.ok(musicAfter, "meaningful positive-control text must remain in long-term memory");
+  assert.ok(musicAfter.repetitions > repetitionsBefore,
+    "the real UI remember path must process meaningful text instead of filtering it as small talk");
+  assert.ok(JSON.parse(database.get("neurogenesis.dialog.v1"))
+    .some(item => item.role === "user" && item.text === "Музыка прекрасна"),
+    "the meaningful positive-control turn must remain in dialogue history");
+
   const beforeCount = window.NGMemory.count();
   const beforeClaims = window.NGMemory.claims().length;
   window.NGMemory.configureLLM({
