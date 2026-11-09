@@ -149,14 +149,16 @@
         return matches.slice().sort((a, b) => b.askedAt - a.askedAt)[0];
       }
       const answerText = normalise(text);
+      const wholeWord = pattern =>
+        new RegExp("(?<![\\p{L}\\p{N}_])(?:" + pattern + ")(?![\\p{L}\\p{N}_])", "u");
       const affinities = [
-        { answer: /(?:час|часа|часов)/u, question: /(?:час|часа|часов)/u },
-        { answer: /(?:минут|минута|минуты)/u, question: /(?:минут)/u },
-        { answer: /(?:секунд|секунда|секунды)/u, question: /(?:секунд)/u },
-        { answer: /(?:шкал|балл|оцен)/u, question: /(?:шкал|балл|оцен)/u },
-        { answer: /(?:килограмм|кг|вес)/u, question: /(?:килограмм|кг|вес)/u },
-        { answer: /(?:сантиметр|см|рост)/u, question: /(?:сантиметр|см|рост)/u },
-        { answer: /(?:процент|%)/u, question: /(?:процент|%)/u }
+        { answer: wholeWord("час(?:а|ов)?"), question: wholeWord("час(?:а|ов)?") },
+        { answer: wholeWord("минут(?:а|ы)?"), question: wholeWord("минут(?:а|ы)?") },
+        { answer: wholeWord("секунд(?:а|ы)?"), question: wholeWord("секунд(?:а|ы)?") },
+        { answer: wholeWord("шкал[\\\\p{L}]*|балл[\\\\p{L}]*|оцен[\\\\p{L}]*"), question: wholeWord("шкал[\\\\p{L}]*|балл[\\\\p{L}]*|оцен[\\\\p{L}]*") },
+        { answer: wholeWord("килограмм[\\\\p{L}]*|кг|вес[\\\\p{L}]*"), question: wholeWord("килограмм[\\\\p{L}]*|кг|вес[\\\\p{L}]*") },
+        { answer: wholeWord("сантиметр[\\\\p{L}]*|см|рост[\\\\p{L}]*"), question: wholeWord("сантиметр[\\\\p{L}]*|см|рост[\\\\p{L}]*") },
+        { answer: wholeWord("процент[\\\\p{L}]*|%"), question: wholeWord("процент[\\\\p{L}]*|%") }
       ];
       const ranked = matches.map(question => {
         const questionText = normalise(question.text);
