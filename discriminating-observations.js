@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const clean=(value,limit=180)=>String(value==null?"":value).replace(/\\s+/gu," ").trim().slice(0,limit);
+  const clean=(value,limit=180)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
   function create(knowledge) {
     if(!knowledge||typeof knowledge.sameEntity!=="function"||typeof knowledge.normalise!=="function")
       throw new Error("NGDiscriminatingObservations requires NGKnowledge comparison methods");
