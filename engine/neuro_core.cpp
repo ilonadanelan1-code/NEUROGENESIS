@@ -119,10 +119,14 @@ std::uint32_t Brain::learn_from_reward(float learning_rate, float reward, float 
 }
 
 std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
+                                              std::uint32_t input_neuron_id,
                                               std::uint32_t positive_neuron_id,
                                               std::uint32_t negative_neuron_id) {
     if (!std::isfinite(learning_rate) ||
+        input_neuron_id == positive_neuron_id ||
+        input_neuron_id == negative_neuron_id ||
         positive_neuron_id == negative_neuron_id ||
+        !find_neuron(input_neuron_id) ||
         !find_neuron(positive_neuron_id) ||
         !find_neuron(negative_neuron_id)) return 0;
 
@@ -130,8 +134,8 @@ std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
     std::uint32_t changed = 0;
     for (auto& edge : synapses_) {
         float sign = 0.0f;
-        if (edge.to == positive_neuron_id) sign = 1.0f;
-        else if (edge.to == negative_neuron_id) sign = -1.0f;
+        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) sign = 1.0f;
+        else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) sign = -1.0f;
 
         const float delta = rate * sign * edge.eligibility;
         const float updated = std::clamp(edge.weight + delta, 0.0f, 1.0f);
@@ -139,8 +143,8 @@ std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
             edge.weight = updated;
             ++changed;
         }
-        // Unassigned traces are deliberately consumed rather than leaking into
-        // a later episode with a different positive/negative output pair.
+        // Unassigned and unrelated traces are deliberately consumed rather than
+        // leaking into a later episode with different input/output identities.
         edge.eligibility = 0.0f;
     }
     return changed;
