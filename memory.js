@@ -3536,13 +3536,88 @@
       setFeedback("Экспорт не удался. Браузер не разрешил создать файл.");
     }
   }
+  const IMPORT_STORAGE_KEYS = [
+    MEMORY_KEY, DIALOG_KEY, DIALOG_CONTEXT_KEY, MODEL_DECISIONS_KEY, MODEL_EVIDENCE_KEY,
+    REASONING_ARCHIVE_KEY, INQUIRIES_KEY, COGNITIVE_CYCLES_KEY, "neurogenesis.goals.v1"
+  ];
+  function cloneImportState(value, label) {
+    let serialized;
+    try { serialized = JSON.stringify(value); }
+    catch (error) { throw new Error("Не удалось подготовить безопасный откат импорта (" + label + ")."); }
+    if (typeof serialized !== "string") throw new Error("Не удалось подготовить безопасный откат импорта (" + label + ").");
+    return JSON.parse(serialized);
+  }
+  function captureImportSnapshot() {
+    const storage = IMPORT_STORAGE_KEYS.map(key => [key, localStorage.getItem(key)]);
+    const traceIds = new Set([
+      ...Object.values(tagTrace),
+      ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
+    ].filter(Boolean));
+    return {
+      storage,
+      memories: cloneImportState(memories, "memories"),
+      dialog: cloneImportState(dialog, "dialog"),
+      dialogContext: cloneImportState(dialogContext, "dialog context"),
+      modelDecisions: cloneImportState(modelDecisions, "model decisions"),
+      modelEvidence: cloneImportState(modelEvidence, "model evidence"),
+      reasoningArchive: cloneImportState(reasoningArchive, "reasoning archive"),
+      inquiries: cloneImportState(inquiries, "inquiries"),
+      nextInquiryNumber,
+      cognitiveCycles: cloneImportState(cognitiveCycles, "cognitive cycles"),
+      nextCognitiveCycleNumber,
+      tagTrace: { ...tagTrace },
+      traceIds
+    };
+  }
+  function restoreImportSnapshot(snapshot) {
+    const transientTraceIds = new Set([
+      ...Object.values(tagTrace),
+      ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
+    ].filter(id => id && !snapshot.traceIds.has(id)));
+    memories = snapshot.memories;
+    dialog = snapshot.dialog;
+    dialogContext = snapshot.dialogContext;
+    modelDecisions = snapshot.modelDecisions;
+    modelEvidence = snapshot.modelEvidence;
+    reasoningArchive = snapshot.reasoningArchive;
+    inquiries = snapshot.inquiries;
+    nextInquiryNumber = snapshot.nextInquiryNumber;
+    cognitiveCycles = snapshot.cognitiveCycles;
+    nextCognitiveCycleNumber = snapshot.nextCognitiveCycleNumber;
+    tagTrace = Object.assign(Object.create(null), snapshot.tagTrace);
+
+    let storageRestored = true;
+    for (const [key, value] of snapshot.storage) {
+      try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      } catch (error) {
+        storageRestored = false;
+        console.warn("NEUROGENESIS import rollback could not restore storage key:", key, error);
+      }
+    }
+    if (window.NGGoals && typeof window.NGGoals.load === "function") {
+      try { window.NGGoals.load(); }
+      catch (error) { storageRestored = false; console.warn("NEUROGENESIS import rollback could not restore research goals:", error); }
+    }
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) {
+      KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry => entry.claims || []));
+    }
+    try { releaseUnusedTraces([...transientTraceIds]); }
+    catch (error) { console.warn("NEUROGENESIS import rollback could not clean temporary neuron traces:", error); }
+    try { renderLibrary(); renderDialog(); updateCount(); }
+    catch (error) { console.warn("NEUROGENESIS import rollback could not refresh the interface:", error); }
+    return storageRestored;
+  }
   async function importBackup(file) {
+    let importSnapshot = null;
     try {
       const data = JSON.parse(await file.text());
       if (data && data.format && data.format !== "NEUROGENESIS_MEMORY_BACKUP") throw new Error("Это не резервная копия NEUROGENESIS.");
       if (data && Number(data.version) > 2) throw new Error("Версия резервной копии новее поддерживаемой.");
       const incoming = Array.isArray(data) ? data : data && data.memories;
       if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
+      importSnapshot = captureImportSnapshot();
       let imported = 0, duplicates = 0, skipped = 0;
       let cognitiveCycleStorageOk = true;
       for (const raw of incoming) {
@@ -3611,6 +3686,7 @@
           console.warn("NEUROGENESIS cognitive cycle backup import storage failed:",error);
         }
       }
+      if (!cognitiveCycleStorageOk) throw new Error("Не удалось сохранить историю когнитивных циклов. Импорт отменён.");
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
       clearLegacyInquiryFragmentClaims();
@@ -3618,13 +3694,21 @@
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
       const ok = persist() && cognitiveCycleStorageOk;
+      if (!ok) throw new Error("Не удалось полностью сохранить резервную копию. Все изменения импорта отменены.");
       renderLibrary();
       renderDialog();
       say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
       setFeedback("ИМПОРТ · +" + imported + " · ПОВТОРОВ " + duplicates + " · ПРОПУЩЕНО " + skipped);
     } catch (error) {
+      let rollbackMessage = "";
+      if (importSnapshot) {
+        const restored = restoreImportSnapshot(importSnapshot);
+        rollbackMessage = restored
+          ? " Все изменения отменены, исходные данные восстановлены."
+          : " ВНИМАНИЕ: браузер не подтвердил полное восстановление хранилища.";
+      }
       console.warn("NEUROGENESIS import failed:", error);
-      setFeedback("Не удалось импортировать файл: " + String(error.message || error).slice(0, 100));
+      setFeedback("Не удалось импортировать файл: " + String(error.message || error).slice(0, 100) + rollbackMessage);
     }
   }
 
