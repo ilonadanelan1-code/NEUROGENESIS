@@ -445,16 +445,26 @@
       const priorUser = [...previous].reverse().find(row => row.role === "user");
       const priorAssistant = [...previous].reverse().find(row => row.role === "assistant");
       const pendingQuestions = thread.pendingQuestions.filter(row => !row.answered).map(row => row.text);
+      const recentExchange = previous.slice(-4).map(row => ({
+        role: row.role,
+        text: clean(row.text, 220),
+        time: row.time,
+        relation: row.relation
+      }));
       const context = {
         title: thread.title,
         contextSummary: summaryText(thread.summaryParts),
         lastUserText: priorUser ? priorUser.text : thread.lastUserText,
         lastAssistantText: priorAssistant ? priorAssistant.text : thread.lastAssistantText,
+        recentExchange,
         pendingQuestion: pendingQuestions[0] || "",
         pendingQuestions
       };
       const pieces = [raw, "ТЕМА: " + context.title];
       if (context.contextSummary) pieces.push("РАНЕЕ СОХРАНЁННЫЕ ВЫДЕРЖКИ ИЗ РЕПЛИК ПОЛЬЗОВАТЕЛЯ: " + context.contextSummary);
+      if (context.recentExchange.length) pieces.push("ПОСЛЕДНИЕ РЕПЛИКИ В ЭТОЙ ТЕМЕ: " +
+        context.recentExchange.map(row => (row.role === "user" ? "Пользователь" : "Ассистент") +
+          ": " + row.text).join(" | "));
       if (context.lastUserText) pieces.push("ПРЕДЫДУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: " + clean(context.lastUserText, 260));
       if (context.lastAssistantText) pieces.push("ПРЕДЫДУЩИЙ ОТВЕТ АССИСТЕНТА: " + clean(context.lastAssistantText, 260));
       if (context.pendingQuestions.length === 1) {
