@@ -606,18 +606,31 @@
     }
     return unique.sort((a,b)=>a.at-b.at).slice(-MAX_MODEL_EVIDENCE);
   }
+  function cloneArchiveData(value) {
+    if(!value||typeof value!=="object")return null;
+    try { return JSON.parse(JSON.stringify(value)); } catch(_) { return null; }
+  }
+  function reasoningArchiveIdentity(entry) {
+    const source=entry&&entry.sourceReasoning&&typeof entry.sourceReasoning==="object"
+      ?entry.sourceReasoning:entry&&entry.reasoning;
+    if(!source||typeof source!=="object")return "";
+    const createdAt=safeTime(source.createdAt,0);
+    return [safeTime(entry.time,createdAt),createdAt,String(source.type||""),JSON.stringify(source)].join("|");
+  }
   function mergeReasoningArchive(existing,incoming) {
     const unique=new Map();
     for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
       if(!raw||raw.role==="user")continue;
-      const reasoning=cleanReasoning(raw.reasoning);
+      const sourceReasoning=cloneArchiveData(raw.sourceReasoning&&typeof raw.sourceReasoning==="object"
+        ?raw.sourceReasoning:raw.reasoning);
+      const reasoning=cleanReasoning(raw.reasoning)||cleanReasoning(sourceReasoning);
       if(!reasoning)continue;
       const entry={role:"assistant",time:safeTime(raw.time,reasoning.createdAt),
-        text:typeof raw.text==="string"?raw.text.slice(0,MAX_DIALOG_TEXT):"",reasoning};
-      const conclusionKey=reasoning.conclusions.map(item=>item.subject+"|"+item.object+"|"+
-        item.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
-      const key=entry.time+"|"+reasoning.createdAt+"|"+reasoning.type+"|"+conclusionKey;
-      unique.set(key,entry);
+        text:typeof raw.text==="string"?raw.text.slice(0,MAX_DIALOG_TEXT):"",
+        reasoning,sourceReasoning};
+      // Deduplicate by the immutable source snapshot, not by its sanitized projection.
+      // Distinct malformed historical records can share the same empty active view.
+      unique.set(reasoningArchiveIdentity(entry),entry);
     }
     return [...unique.values()].sort((a,b)=>a.time-b.time).slice(-MAX_REASONING_ARCHIVE);
   }
@@ -626,16 +639,14 @@
     if(!reasoning)return;
     const archived=mergeReasoningArchive([], [entry])[0];
     if(!archived)return;
-    const archivedKey=archived.time+"|"+archived.reasoning.createdAt+"|"+archived.reasoning.type+"|"+
-      archived.reasoning.conclusions.map(item=>item.subject+"|"+item.object+"|"+
-        item.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
+    const archivedKey=reasoningArchiveIdentity(archived);
     for(const item of dialog) {
       const candidate=mergeReasoningArchive([], [item])[0];
       if(!candidate)continue;
-      const candidateKey=candidate.time+"|"+candidate.reasoning.createdAt+"|"+candidate.reasoning.type+"|"+
-        candidate.reasoning.conclusions.map(row=>row.subject+"|"+row.object+"|"+
-          row.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
-      if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
+      if(reasoningArchiveIdentity(candidate)===archivedKey) {
+        item.reasoning=cleanReasoning(reasoning);
+        if(!item.sourceReasoning)item.sourceReasoning=cloneArchiveData(archived.sourceReasoning);
+      }
     }
   }
   function duplicateInquiryGrouping(response, claimIds) {
@@ -2108,8 +2119,13 @@
       const savedDialog = JSON.parse(localStorage.getItem(DIALOG_KEY) || "[]");
       dialog = Array.isArray(savedDialog)
         ? savedDialog.filter(x => x && typeof x.text === "string")
-          .map(x => ({ role: x.role === "user" ? "user" : "assistant", text: x.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(x.time, Date.now()), reasoning: cleanReasoning(x.reasoning) }))
-          .slice(-MAX_DIALOG)
+          .map(x => {
+            const sourceReasoning=cloneArchiveData(x.sourceReasoning&&typeof x.sourceReasoning==="object"
+              ?x.sourceReasoning:x.reasoning);
+            return {role:x.role==="user"?"user":"assistant",text:x.text.slice(0,MAX_DIALOG_TEXT),
+              time:safeTime(x.time,Date.now()),reasoning:cleanReasoning(x.reasoning)||cleanReasoning(sourceReasoning),
+              sourceReasoning};
+          }).slice(-MAX_DIALOG)
         : [];
     } catch (error) {
       dialog = [];
@@ -2288,8 +2304,12 @@
   }
   function say(role, text, reasoning) {
     const entry={ role, text: String(text).slice(0, MAX_DIALOG_TEXT), time: Date.now() };
+    const sourceReasoning=reasoning?cloneArchiveData(reasoning):null;
     const clean=reasoning?reconcileHypothesisMeta(reasoning):null;
-    if(clean)entry.reasoning=clean;
+    if(clean) {
+      entry.reasoning=clean;
+      entry.sourceReasoning=sourceReasoning||cloneArchiveData(clean);
+    }
     dialog.push(entry);
     dialog = dialog.slice(-MAX_DIALOG);
     if (DIALOG_CONTEXT && typeof DIALOG_CONTEXT.track === "function") {
@@ -3465,7 +3485,13 @@
       }
       if (Array.isArray(data.dialog)) {
         const restored = data.dialog.filter(item => item && typeof item.text === "string")
-          .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(item.time, Date.now()), reasoning: cleanReasoning(item.reasoning) }));
+          .map(item => {
+            const sourceReasoning=cloneArchiveData(item.sourceReasoning&&typeof item.sourceReasoning==="object"
+              ?item.sourceReasoning:item.reasoning);
+            return {role:item.role==="user"?"user":"assistant",text:item.text.slice(0,MAX_DIALOG_TEXT),
+              time:safeTime(item.time,Date.now()),reasoning:cleanReasoning(item.reasoning)||cleanReasoning(sourceReasoning),
+              sourceReasoning};
+          });
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
       }
       if (DIALOG_CONTEXT) {
