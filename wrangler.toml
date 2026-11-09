@@ -4,5 +4,6 @@ compatibility_date = "2026-11-09"
 
 [vars]
 APP_ORIGIN = "https://ilonadanelan1-code.github.io"
-UPSTREAM_BASE_URL = "https://api.openai.com/v1"
-# Set UPSTREAM_MODEL in the Cloudflare Worker dashboard (Variables) to the model enabled for your provider.
+UPSTREAM_BASE_URL = "https://openrouter.ai/api/v1"
+UPSTREAM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+# UPSTREAM_API_KEY and APP_TOKEN are secrets and must stay configured in Cloudflare.
