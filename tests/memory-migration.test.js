@@ -144,7 +144,7 @@ vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, 
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
 assert.equal(window.NGMemory.count(), 6);
-assert.deepEqual(window.NGMemory.hypothesisLifecycle(), [], "legacy backups without causal archives should load an empty lifecycle safely");
+assert.equal(window.NGMemory.hypothesisLifecycle().length, 0, "legacy backups without causal archives should load an empty lifecycle safely");
 assert.match(window.NGMemory.hypothesisLifecycleReport(), /Пока нет архивных причинных выводов/u);
 const migratedGraph = window.NGMemory.knowledgeGraph();
 assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
