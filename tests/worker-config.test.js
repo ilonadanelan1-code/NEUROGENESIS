@@ -11,7 +11,7 @@ assert.match(config, /^main\s*=\s*"server\/llm-worker\.js"\s*$/mu,
 assert.match(config, /^\[vars\]\s*$/mu,
   "Wrangler must declare its non-secret production variables");
 
-const varsSection = config.match(/^\[vars\]\s*([\s\S]*?)(?=^\[|$)/mu)?.[1] || "";
+const varsSection = config.match(/^\[vars\]\s*\r?\n([\s\S]*)$/mu)?.[1] || "";
 const vars = Object.fromEntries(
   [...varsSection.matchAll(/^([A-Z_]+)\s*=\s*"([^"]*)"\s*$/gmu)]
     .map(match => [match[1], match[2]])
