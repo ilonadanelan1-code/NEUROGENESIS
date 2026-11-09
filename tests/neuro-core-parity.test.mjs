@@ -206,7 +206,7 @@ try {
     assertParity(stressBrain.snapshot(), stressState, "stress propagation step " + (step + 1));
 
     if ((step + 1) % 8 === 0) {
-      const rate = [0.05, 0.12, 0.2][(step / 8) % 3];
+      const rate = [0.05, 0.12, 0.2][Math.floor(step / 8) % 3];
       const reward = step % 16 === 7 ? -0.4 : 0.65;
       const decay = 0.003;
       const expected = referenceLearn(stressState, rate, reward, decay);
