@@ -56,7 +56,6 @@
     const token = clean(config.clientToken, 400);
     const requestFetch = fetchImpl || (typeof fetch === "function" ? fetch : null);
     if (!endpoint || !token) throw new Error("Укажи адрес серверного шлюза и ключ доступа к нему.");
-    if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
     const schemeEnd = endpoint.indexOf("://");
     if (schemeEnd < 1) throw new Error("Адрес шлюза указан неверно.");
     const protocol = endpoint.slice(0, schemeEnd).toLowerCase();
@@ -72,6 +71,7 @@
       throw new Error("Адрес шлюза должен использовать HTTPS.");
     }
     if (!hostname) throw new Error("Адрес шлюза указан неверно.");
+    if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
 
     async function call(path, body) {
       let response;
