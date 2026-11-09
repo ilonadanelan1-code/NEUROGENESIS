@@ -264,4 +264,42 @@ assert.equal(roundTrip.activeThreadId, firstThread);
 assert.equal(engine.report(roundTrip).topics.length, 2);
 const bad = engine.sanitize({ activeThreadId: "missing", threads: [{ id: "T1-x", title: "A" }], messages: [{ id: "M", threadId: "missing", role: "user", text: "x" }] });
 assert.equal(bad.messages.length, 0, "messages without a valid thread must be rejected");
+
+// Stress the hard bounds used by long-running multi-topic conversations.
+let bounded = engine.empty();
+for (let index = 0; index < 21; index++) {
+  bounded = engine.track(bounded, {
+    role: "user",
+    text: "Новая тема: независимое исследовательское направление " + index,
+    time: 1000 + index
+  });
+}
+assert.equal(bounded.threads.length, 16,
+  "the dialogue context must retain no more than sixteen topic threads");
+assert.equal(bounded.activeThreadId, bounded.threads[bounded.threads.length - 1].id,
+  "the newest topic must remain active after older topics are evicted");
+assert.equal(bounded.messages.length, 16,
+  "messages belonging only to evicted topic threads must be discarded");
+
+for (let index = 0; index < 70; index++) {
+  bounded = engine.track(bounded, {
+    role: "assistant",
+    text: "Служебный ответ для проверки ограничения истории " + index,
+    time: 2000 + index
+  });
+}
+assert.equal(bounded.messages.length, 64,
+  "the dialogue transcript must never exceed sixty-four retained messages");
+const retainedThreadIds = new Set(bounded.threads.map(thread => thread.id));
+assert.ok(bounded.messages.every(message => retainedThreadIds.has(message.threadId)),
+  "message eviction must not leave orphaned references to removed topics");
+assert.ok(engine.report(bounded).recentMessages.length <= 8,
+  "the dialogue report must keep its recent-message window bounded");
+assert.ok(engine.history(bounded, bounded.activeThreadId, 100).length <= 24,
+  "a requested topic transcript must respect the twenty-four-message history cap");
+const boundedRoundTrip = engine.sanitize(JSON.parse(JSON.stringify(bounded)));
+assert.equal(boundedRoundTrip.threads.length, 16,
+  "serialization and sanitization must preserve the topic-count limit");
+assert.equal(boundedRoundTrip.messages.length, 64,
+  "serialization and sanitization must preserve the message-count limit");
 console.log("NEUROGENESIS dialogue context: passed.");
