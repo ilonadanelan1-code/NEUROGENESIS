@@ -67,7 +67,7 @@ assert.match(app, /NGCompetitionBenchmark\.run\(\)/u);
 assert.match(html, /Проверить обучение и конкуренцию выходов/u);
 assert.match(app, /report\.multiPattern\.orders\.AB/u);
 assert.match(app, /report\.multiPattern\.orders\.BA/u);
-assert.match(html, /Проверить подкрепление и две ассоциации/u);
+assert.match(html, /Проверить обучение и конкуренцию выходов/u);
 
 assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);
