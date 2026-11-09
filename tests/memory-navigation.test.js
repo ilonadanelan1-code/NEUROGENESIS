@@ -886,7 +886,7 @@ const duplicateQueue=window.NGMemory.refreshInquiries();
 const duplicateInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
 assert.ok(duplicateInquiry,"a possible duplicate group should create its own research question even without a causal archive");
 assert.equal(duplicateInquiry.status,"open");
-assert.match(duplicateInquiry.question,/одно и то же событие или разные самостоятельные эпизоды/u);
+assert.match(duplicateInquiry.question,/одному и тому же событию или это разные самостоятельные эпизоды/u);
 const duplicateInquiryCount=window.NGMemory.inquiries().length;
 window.NGMemory.remember("Ответ на вопрос "+duplicateInquiry.id+": Не уверен, возможно, это похожие записи.");
 const pendingDuplicate=window.NGMemory.inquiries().find(item=>item.id===duplicateInquiry.id);
