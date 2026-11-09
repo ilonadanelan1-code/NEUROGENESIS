@@ -2996,7 +2996,7 @@
         ...(cycle.goalChanges&&cycle.goalChanges.available&&cycle.goalChanges.total?[
           "ИЗМЕНЕНИЯ ЦЕЛЕЙ В ЭТОМ ЦИКЛЕ · "+cycle.goalChanges.total,
           ...(cycle.goalChanges.total>cycle.goalChanges.items.length
-            ?["Показаны последние "+cycle.goalChanges.items.length+" записей из "+cycle.goalChanges.total+"; более ранние изменения не помещены в краткий список."]
+            ?["В краткий список включено "+cycle.goalChanges.items.length+" из "+cycle.goalChanges.total+" изменений; более ранние не показаны."]
             :[]),
           ...cycle.goalChanges.items.map(item=>{
             const labels={created:"создана",status_changed:"сменился статус",updated:"обновлена",removed:"перестала отслеживаться"};
