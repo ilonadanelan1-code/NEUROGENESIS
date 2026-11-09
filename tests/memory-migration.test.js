@@ -410,8 +410,26 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
         object:"снижению концентрации",evidence:"что усталость приводит к снижению концентрации"}]
     },{
       id:"valid-import-source",text:"Недостаток сна приводит к снижению концентрации",createdAt:importTime+1,
-      claims:[{id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
-        object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"}]
+      claims:[
+        {id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
+          object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"},
+        {id:"valid-duplicate-observation-a",kind:"observation",subject:"Недосып",predicate:"сопровождался",
+          object:"снижению концентрации",evidence:"После ночной смены концентрация снизилась",
+          polarity:true,createdAt:importTime+3,observationCase:{
+            context:{status:"provided",value:"после ночной смены"},
+            timing:{status:"provided",value:"утром"},
+            criterion:{status:"provided",value:"по шкале концентрации"},
+            outcome:{status:"provided",value:"4/10"}
+          }},
+        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Недосып",predicate:"сопровождался",
+          object:"снижению концентрации",evidence:"После короткого сна концентрация снизилась",
+          polarity:true,createdAt:importTime+4,observationCase:{
+            context:{status:"provided",value:"после короткого сна"},
+            timing:{status:"provided",value:"днём"},
+            criterion:{status:"provided",value:"по шкале концентрации"},
+            outcome:{status:"provided",value:"5/10"}
+          }}
+      ]
     }],
     reasoningArchive:[
       {role:"assistant",time:importTime,text:"Импортированный архив",reasoning:importedReasoning},
@@ -432,6 +450,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       question:"Есть ли отдельное наблюдение для этой связи?",
       reason:"Проверка синхронизации статуса гипотезы.",priority:1,status:"open",
       sourceClaimIds:["valid-import-causal"],createdAt:importTime+50,updatedAt:importTime+50
+    },{
+      id:"Q811",signature:"import-duplicate-completion-cycle-test",kind:"duplicate_observation",
+      edgeSubject:"Недосып",edgeObject:"снижению концентрации",
+      question:"Эти две карточки относятся к одному или разным эпизодам?",
+      reason:"Проверка завершения цели в истории когнитивного цикла.",priority:1,status:"open",
+      sourceClaimIds:["valid-duplicate-observation-a","valid-duplicate-observation-b"],
+      createdAt:importTime+60,updatedAt:importTime+60
     }],
     cognitiveCycles:[{
       id:"C700",sequence:700,at:importTime+5000,mode:"remember",intent:"memory_write",status:"complete",
@@ -459,6 +484,24 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the archive lifecycle must be synchronized during import persistence, without opening its report");
   assert.equal(storedLifecycleAfterImport.state,"under_review",
     "an imported open inquiry must immediately mark its matching hypothesis as under review");
+  const duplicateCompletionGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.ok(duplicateCompletionGoal&&duplicateCompletionGoal.status==="active",
+    "an imported duplicate-card inquiry must immediately create an active goal");
+  assert.equal(window.NGMemory.remember(
+    "Ответ на вопрос Q811: группы: 1+2"
+  ),true,"a valid event-grouping answer must pass through the memory pipeline");
+  const completedDuplicateInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q811");
+  assert.equal(completedDuplicateInquiry.status,"answered");
+  assert.equal(completedDuplicateInquiry.assessment,"duplicate_same_event");
+  const completedDuplicateGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.equal(completedDuplicateGoal.status,"completed",
+    "a correctly resolved duplicate-observation inquiry must complete its research goal");
+  const completionCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(completionCycle.goalChanges.items.some(item=>item.goalId==="G-Q811"&&
+    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="completed"),
+    "the cognitive cycle must retain the exact active-to-completed goal transition");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q811/u);
+  assert.match(window.NGMemory.cognitiveCycleReport(),/завершена/u);
   window.NGMemory.ask("пропусти вопрос Q810");
   const storedInquiryAfterSkip = JSON.parse(database.get("neurogenesis.inquiries.v1"))
     .find(item=>item.id==="Q810");
