@@ -147,7 +147,7 @@ const mixedParameters=engine.evidenceReconciliationForEdge([
 assert.equal(mixedParameters.multiDimensionDifferencePairCount,1);
 assert.equal(mixedParameters.contextTimingDifferencePairCount,1);
 assert.match(mixedParameters.pattern,/нескольких параметров/u);
-assert.match(mixedParameters.recommendation,/нельзя выделить роль отдельного фактора/u);
+assert.match(mixedParameters.recommendation,/Нельзя выделить роль отдельного фактора/u);
 
 // Missing, unknown, unrecorded and explicitly absent values remain distinct.
 const fieldStatuses=engine.evidenceReconciliationForEdge([
