@@ -845,10 +845,11 @@
       const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
       if(seen.has(key))continue;
       seen.add(key);
+      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
       result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
         polarity:claim.polarity!==false,evidence:claim.evidence||"",recordedAt:safeTime(claim.createdAt,memory.createdAt),
-        details:KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
-        verification:claim.verification||"unverified",source:claim.source||"user_message"});
+        details,sourceRef:details.sourceRef||"",verification:claim.verification||"unverified",
+        source:claim.source||"user_message"});
     }
     return result.sort((a,b)=>a.recordedAt-b.recordedAt);
   }
@@ -994,15 +995,33 @@
     if(d.metadataConflictCount)answer+="Конфликтующих значений полей внутри явно связанных событий: "+d.metadataConflictCount+".\n";
     if(d.outcomeMissingCount)answer+="Для числового способа оценки не записано фактическое числовое значение результата в "+d.outcomeMissingCount+" событии(ях).\n";
     answer+="Отдельных записей памяти: "+d.userRecordCount+"; добавлено в память после сохранения вывода: "+d.addedAfterModelCount+".\n";
-    answer+="Независимо подтверждённых источников: "+d.independentVerifiedSources+". Все текущие случаи остаются пользовательскими и непроверенными.\n";
+    answer+="Явных ссылок на источники: "+d.sourceReferenceCount+
+      "; уникальных независимо подтверждённых ссылок: "+d.independentVerifiedSources+
+      (d.verifiedWithoutSourceRef?"; подтверждённых записей без ссылки, не засчитанных как независимый источник: "+d.verifiedWithoutSourceRef:"")+".\n";
+    answer+="Пользовательских непроверенных эпизодов: "+d.userReportedUnverifiedCount+
+      ". Записи памяти сами по себе не являются независимыми источниками.\n";
+    const fieldNames={context:"контекст",timing:"время",criterion:"критерий",outcome:"результат"};
+    const statusNames={not_stated:"не указано",unknown:"неизвестно",not_recorded:"не записано",none_reported:"сообщено об отсутствии",conflict:"конфликт значений"};
+    for(const key of Object.keys(fieldNames)) {
+      const counts=d.fieldStatusCounts[key]||{};
+      const statusText=Object.entries(statusNames).filter(([status])=>counts[status]>0)
+        .map(([status,label])=>label+": "+counts[status]).join(", ");
+      if(statusText)answer+="Статус поля «"+fieldNames[key]+"»: "+statusText+".\n";
+    }
     answer+="Сопоставление: "+d.pattern+".\n";
     if(d.oppositePairCount) {
       answer+="Пар противоположных исходов: "+d.oppositePairCount+"; совпадают контекст и критерий: "+d.alignedPairCount+
-        "; различаются метаданные: "+d.differentMetadataPairCount+"; недостаточно полей для сравнения: "+d.incompletePairCount+".\n";
-      for(const pair of d.oppositePairs.slice(0,3))
+        "; различаются контекст/критерий: "+d.differentMetadataPairCount+
+        "; отличаются только временем: "+d.timingOnlyPairCount+
+        "; одновременно различаются несколько параметров: "+d.multiDimensionDifferencePairCount+
+        "; недостаточно полей для сравнения: "+d.incompletePairCount+".\n";
+      const dimensionNames={context:"контекст",timing:"время",criterion:"критерий"};
+      for(const pair of d.oppositePairs.slice(0,3)) {
+        const changed=(pair.changedDimensions||[]).map(key=>dimensionNames[key]||key);
         answer+="  • "+pair.supportingId+" / "+pair.challengingId+": "+
           (pair.status==="aligned"?"контекст и критерий совпадают":pair.status==="different_metadata"?"контекст или критерий различаются":"поля для сопоставления неполны")+
-          (pair.timingDiff?"; время указано по-разному":"")+".\n";
+          (changed.length?"; изменились параметры: "+changed.join(", "):"")+".\n";
+      }
     }
     if(d.addedAfterModelIds.length)answer+="Новые для архива записи: "+d.addedAfterModelIds.slice(0,8).join(", ")+". (Это время сохранения в память, не доказательство времени события.)\n";
     answer+="Оценка: "+d.recommendation+"\nТекущее решение модели не меняется автоматически.";
