@@ -60,6 +60,9 @@ jobs:
           cmake --build build/engine --parallel 2
           ctest --test-dir build/engine --output-on-failure
 
+      - name: Check mobile layout contracts
+        run: node tests/mobile-layout.test.js
+
       - name: Run regression tests
         run: |
           node tests/activation.test.js
