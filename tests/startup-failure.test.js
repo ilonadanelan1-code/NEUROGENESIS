@@ -67,7 +67,7 @@ for (let failedLayer = 0; failedLayer < 3; failedLayer++) {
   result = runStartup({ layerFailure: failedLayer });
   assert.equal(result.status.textContent, "НЕ УДАЛОСЬ СОЗДАТЬ ВСЕ ГРАФИЧЕСКИЕ СЛОИ",
     "each auxiliary canvas layer must fail gracefully: " + failedLayer);
-  assert.equal(result.createdLayers, failedLayer + 1);
+  assert.equal(result.createdLayers, 3, "all offscreen layers are allocated before their contexts are checked");
 }
 
 result = runStartup({ layerFailure: 1, throwLayer: true });
