@@ -2468,7 +2468,7 @@
       id:typeof raw.id==="string"?raw.id.slice(0,24):"C"+sequence,
       sequence,
       at:safeTime(raw.at,Date.now()),
-      mode:raw.mode==="remember"?"remember":"ask",
+      mode:["remember","llm"].includes(raw.mode)?raw.mode:"ask",
       intent:typeof raw.intent==="string"?raw.intent.slice(0,48):"general",
       status:["complete","partial","error"].includes(raw.status)?raw.status:"partial",
       phases,
@@ -2683,6 +2683,7 @@
   }
   function cognitiveReasoningKind(intent,answer,mode) {
     if(mode==="remember")return "memory_encoding";
+    if(mode==="llm")return "language_model_response";
     const text=String(answer||"");
     if(/ВОПРОС ДЛЯ УТОЧНЕНИЯ/u.test(text))return "research_question";
     if(/ХРОНОЛОГИЯ НАБЛЮДЕНИЙ/u.test(text))return "event_timeline";
@@ -2717,7 +2718,7 @@
         (hit.item.claims||[]).some(claim=>claim.id===item.left.id||claim.id===item.right.id)))
     );
     const lastAssistant=[...dialog].reverse().find(item=>item.role==="assistant");
-    const answer=lastAssistant&&lastAssistant.text||"";
+    const answer=error?"":lastAssistant&&lastAssistant.text||"";
     const newMemoryIds=memories.filter(item=>!context.before.has(item.id)).map(item=>item.id);
     const updatedMemoryIds=memories.filter(item=>{
       const old=context.before.get(item.id);
@@ -2742,14 +2743,23 @@
       phase("memory",successful?"complete":"limited",
         context.mode==="remember"
           ?"Память: "+context.beforeMemoryCount+" → "+memories.length+"; новых записей: "+newMemoryIds.length+"; обновлено: "+updatedMemoryIds.length+"."
-          :"Извлечение завершено; релевантных записей: "+selectedMemoryIds.length+"."),
-      phase("reasoning",answer?"complete":"limited",
-        "Тип обработки: "+reasoningKind+". Использован встроенный набор правил, а не языковая модель."),
+          :context.mode==="llm"
+            ?"Для ответа отобрано связанных записей: "+selectedMemoryIds.length+"; долговременная память и структурированные знания не изменялись."
+            :"Извлечение завершено; релевантных записей: "+selectedMemoryIds.length+"."),
+      phase("reasoning",successful&&answer?"complete":"limited",
+        context.mode==="llm"
+          ?(successful?"Тип обработки: "+reasoningKind+". Ответ получен от подключённой языковой модели через шлюз."
+            :"Вызов языковой модели не завершился успешно; содержательный ответ не получен.")
+          :"Тип обработки: "+reasoningKind+". Использован встроенный набор правил, а не языковая модель."),
       phase("verification",relevantConflicts.length||uncertainty.level!=="low"?"limited":"complete",
         "Проверено связанных утверждений: "+claimsToCheck.length+"; конфликтов: "+relevantConflicts.length+
-          "; индекс опоры на сохранённые данные: "+uncertainty.supportIndex+"/100 (не вероятность); независимых источников: "+uncertainty.independentSources+"."),
+          "; индекс опоры на сохранённые данные: "+uncertainty.supportIndex+"/100 (не вероятность); независимых источников: "+uncertainty.independentSources+
+          (context.mode==="llm"?". Ответ модели не считается независимой проверкой и автоматически не становится фактом.":".")),
       phase("learning",successful?"complete":"limited",
-        "Изменены следы памяти: "+updatedMemoryIds.length+"; новых вопросов: "+newQuestionIds.length+
+        (context.mode==="llm"
+          ?"Ответ добавлен в историю диалога; долговременная память и рабочая причинная модель не изменялись. "
+          :"Изменены следы памяти: "+updatedMemoryIds.length+"; ")+
+          "новых вопросов: "+newQuestionIds.length+
           "; следующий фокус: "+(focus?focus.item.id:"пока не определён")+
           "; исследовательских целей: "+(goalState?goalState.total:0)+
           "; решения причинной модели автоматически не менялись."),
@@ -2814,7 +2824,7 @@
         model_update:"7. Обновление модели"
       };
       const lines=["КОГНИТИВНЫЙ ЦИКЛ · "+cycle.id,
-        "Тип: "+(cycle.mode==="remember"?"сохранение информации":"обработка вопроса")+" · намерение: "+cycle.intent,
+        "Тип: "+(cycle.mode==="remember"?"сохранение информации":cycle.mode==="llm"?"обращение к языковой модели":"обработка вопроса")+" · намерение: "+cycle.intent,
         "Состояние: "+cycle.status,
         ...cycle.phases.map(item=>(labels[item.name]||item.name)+" ["+item.status+"]: "+item.summary),
         "Метрики: память "+cycle.metrics.memoryAfter+"/"+MAX_MEMORIES+
@@ -3786,18 +3796,24 @@
     llmRequestInFlight = true;
     const askButton = $("llm-ask-button");
     if (askButton) askButton.disabled = true;
+    let cycleContext = null;
     try {
+      cycleContext = beginCognitiveCycle("llm", query);
       if (!llmVerified) await testLLMConnection();
       const request = prepareLLMRequestCore(query);
       if (!request) throw new Error("Не удалось подготовить контекст диалога.");
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТПРАВЛЯЮ КОНТЕКСТ…");
       const answer = await LLM_GATEWAY.generate(request);
       say("assistant", answer);
+      try { if(cycleContext)finishCognitiveCycle(cycleContext,true,null); }
+      catch(cycleError) { console.warn("NEUROGENESIS LLM cycle logging failed:",cycleError); }
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА");
       return true;
     } catch (error) {
       const message = String(error && error.message || error).slice(0, 240);
       say("assistant", "Не удалось получить ответ языковой модели. " + message);
+      try { if(cycleContext)finishCognitiveCycle(cycleContext,false,error); }
+      catch(cycleError) { console.warn("NEUROGENESIS failed LLM cycle logging failed:",cycleError); }
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОШИБКА ПОДКЛЮЧЕНИЯ");
       return false;
     } finally {
