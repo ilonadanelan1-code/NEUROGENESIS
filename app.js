@@ -30,6 +30,8 @@
   let fpsFrames = 0;
   let fpsLast = 0;
   let frameScheduled = false;
+  let frameHandle = null;
+  let pageSuspended = typeof document.hidden === "boolean" && document.hidden;
   let animationWasActive = false;
   const activeNeuronIds = new Set();
   const MAX_PULSES = 180;
@@ -50,9 +52,14 @@
   let nodesDirty = true;
   const curveByKey = new Map();
   function scheduleFrame() {
-    if (frameScheduled) return;
+    if (pageSuspended || document.hidden || frameScheduled) return;
     frameScheduled = true;
-    requestAnimationFrame(frame);
+    frameHandle = requestAnimationFrame(frame);
+  }
+  function cancelScheduledFrame() {
+    if (frameHandle !== null) window.cancelAnimationFrame(frameHandle);
+    frameHandle = null;
+    frameScheduled = false;
   }
   function rebuildIndexes() {
     neuronById.clear();
@@ -196,10 +203,63 @@
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
   const handleCanvasResize = () => { resize(); scheduleFrame(); };
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(handleCanvasResize).observe(canvas);
+  let canvasResizeObserver = null;
+  function connectCanvasResizeObserver() {
+    if (typeof ResizeObserver !== "function" || canvasResizeObserver) return;
+    canvasResizeObserver = new ResizeObserver(handleCanvasResize);
+    canvasResizeObserver.observe(canvas);
   }
+  function disconnectCanvasResizeObserver() {
+    if (!canvasResizeObserver) return;
+    canvasResizeObserver.disconnect();
+    canvasResizeObserver = null;
+  }
+  function suspendRendering() {
+    pageSuspended = true;
+    cancelScheduledFrame();
+    lastFrame = 0;
+    animationWasActive = false;
+    fpsFrames = 0;
+    fpsLast = 0;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = 0;
+    }
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = 0;
+    }
+    if (dirty) saveState();
+  }
+  function resumeRendering() {
+    if (document.hidden) return;
+    pageSuspended = false;
+    lastFrame = 0;
+    visualDirty = true;
+    backgroundDirty = true;
+    connectionsDirty = true;
+    nodesDirty = true;
+    connectCanvasResizeObserver();
+    resize();
+    scheduleFrame();
+  }
+  function handleVisibilityChange() {
+    if (document.hidden) suspendRendering();
+    else resumeRendering();
+  }
+  function handlePageHide() {
+    suspendRendering();
+    disconnectCanvasResizeObserver();
+  }
+  function handlePageShow() {
+    connectCanvasResizeObserver();
+    resumeRendering();
+  }
+  connectCanvasResizeObserver();
   window.addEventListener("resize", handleCanvasResize);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", handlePageHide);
+  window.addEventListener("pageshow", handlePageShow);
   for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
     document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
   }
@@ -555,6 +615,11 @@
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
     frameScheduled = false;
+    frameHandle = null;
+    if (pageSuspended || document.hidden) {
+      pageSuspended = true;
+      return;
+    }
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
     for(const id of activeNeuronIds){
