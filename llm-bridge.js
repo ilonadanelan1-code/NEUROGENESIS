@@ -57,12 +57,21 @@
     const requestFetch = fetchImpl || (typeof fetch === "function" ? fetch : null);
     if (!endpoint || !token) throw new Error("Укажи адрес серверного шлюза и ключ доступа к нему.");
     if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
-    let parsed;
-    try { parsed = new URL(endpoint); } catch (_) { throw new Error("Адрес шлюза указан неверно."); }
-    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
+    const schemeEnd = endpoint.indexOf("://");
+    if (schemeEnd < 1) throw new Error("Адрес шлюза указан неверно.");
+    const protocol = endpoint.slice(0, schemeEnd).toLowerCase();
+    const remainder = endpoint.slice(schemeEnd + 3);
+    const boundary = remainder.search(/[/?#]/u);
+    const authority = boundary < 0 ? remainder : remainder.slice(0, boundary);
+    const suffix = boundary < 0 ? "" : remainder.slice(boundary);
+    const hostname = authority.slice(authority.lastIndexOf("@") + 1).split(":")[0].toLowerCase();
+    if (authority.includes("@") || /[?#]/u.test(suffix)) {
+      throw new Error("Адрес шлюза не должен содержать логин, пароль, параметры или фрагмент.");
+    }
+    if (protocol !== "https" && !(protocol === "http" && ["localhost", "127.0.0.1"].includes(hostname))) {
       throw new Error("Адрес шлюза должен использовать HTTPS.");
     }
-    if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Адрес шлюза не должен содержать логин, пароль, параметры или фрагмент.");
+    if (!hostname) throw new Error("Адрес шлюза указан неверно.");
 
     async function call(path, body) {
       let response;
