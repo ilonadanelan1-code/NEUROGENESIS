@@ -20,14 +20,14 @@ const stylesheetRefs = [...html.matchAll(/<link\b[^>]*\bhref=["']([^"']+\.css(?:
 assert.ok(scriptRefs.length > 0, "the page must declare its JavaScript entry points");
 assert.ok(stylesheetRefs.length > 0, "the page must declare its stylesheet");
 
-const scriptTags = [...html.matchAll(/<script\\b([^>]*)>/gu)];
+const scriptTags = [...html.matchAll(/<script\b([^>]*)>/gu)];
 assert.equal(scriptTags.length, scriptRefs.length,
   "every external JavaScript asset must have a corresponding script tag");
 for (const [, attributes] of scriptTags) {
-  assert.match(attributes, /\\bdefer\\b/u,
+  assert.match(attributes, /\bdefer\b/u,
     "classic app scripts must be deferred so the full DOM exists before startup");
 }
-const scriptOrder = scriptRefs.map(ref => ref.split("?")[0].replace(/^\\.\\//u, ""));
+const scriptOrder = scriptRefs.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 function before(first, second) {
   const a = scriptOrder.indexOf(first), b = scriptOrder.indexOf(second);
   assert.notEqual(a, -1, "missing startup module: " + first);
