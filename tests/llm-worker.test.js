@@ -53,9 +53,16 @@ class TestRequest {
 
 const source = fs.readFileSync("server/llm-worker.js", "utf8").replace("export default", "globalThis.NGWorker =");
 const upstreamCalls = [];
+let forceTimeout = false;
 const sandbox = {
   URL: TestURL,
   Response: TestResponse,
+  AbortController,
+  setTimeout(callback, delay) {
+    if (forceTimeout) { callback(); return 1; }
+    return setTimeout(callback, delay);
+  },
+  clearTimeout(timer) { if (timer !== 1) clearTimeout(timer); },
   globalThis: {},
   async fetch(url, options) {
     upstreamCalls.push({ url, options });
@@ -115,6 +122,31 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
     "the provider key must be added only by the server worker");
   assert.equal(upstreamCalls[0].options.body.includes("provider-secret"), false);
 
+  forceTimeout = true;
+  let timedOutSignal = null;
+  sandbox.fetch = async (_url, options) => {
+    timedOutSignal = options.signal;
+    return new Promise(() => {});
+  };
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Зависший запрос" }] })
+  }), env);
+  assert.equal(response.status, 504, "a provider that never responds must produce a bounded gateway timeout");
+  assert.equal((await response.json()).error, "upstream_timeout");
+  assert.equal(timedOutSignal.aborted, true, "the Worker must abort the upstream request when its deadline expires");
+
+  sandbox.fetch = async () => ({
+    ok: true, status: 200, async json() { return new Promise(() => {}); }
+  });
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Зависшее тело ответа" }] })
+  }), env);
+  assert.equal(response.status, 504,
+    "the upstream response-body parsing phase must share the same timeout, not just the initial fetch");
+
+  forceTimeout = false;
   response = await worker.fetch(request("/api/chat", {
     method: "POST", headers: { Authorization: "Bearer client-test-token" }, body: JSON.stringify({ messages: [{ role: "tool", content: "no" }] })
   }), env);
