@@ -169,8 +169,10 @@ assert.equal(q1Contrast.kind,"contrast_observations");
 assert.equal(q1Contrast.observationCount,3,
   "Q1 must retain all three positive/negative observations for the contrast investigation");
 assert.equal([...q1Contrast.evidenceClaimIds].filter(id=>id.startsWith("q1-")).sort().join("|"),
-  "q1-negative|q1-positive-a|q1-positive-b",
-  "Q1 must retain both polarities and the third observation");
+  "q1-causal|q1-negative|q1-positive-a|q1-positive-b",
+  "Q1 must retain its source causal claim and all three positive/negative observations");
+assert.equal(q1Contrast.observationCount,3,
+  "Q1 observation count must remain independent from its linked causal claim");
 assert.equal(q4Duplicate.kind,"duplicate_observation");
 assert.equal(q4Duplicate.observationCount,2,
   "Q4 must compare only the two observation cards explicitly cited by that inquiry");
