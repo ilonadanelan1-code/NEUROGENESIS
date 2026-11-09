@@ -46,6 +46,7 @@ jobs:
           node --check neuro-wasm-adapter.js
           node --check experience-quality.js
           node --check experience-benchmark.js
+          node --check contrastive-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -83,6 +84,7 @@ jobs:
           node tests/neuro-wasm-adapter.test.mjs
           node tests/neuro-core-parity.test.mjs
           node tests/experience-benchmark.test.mjs
+          node tests/contrastive-benchmark.test.mjs
 
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4
