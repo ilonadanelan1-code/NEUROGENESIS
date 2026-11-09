@@ -478,7 +478,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       phases:[{name:"learning",status:"complete",summary:"Цель повторной оценки обновлена"}],
       uncertainty:{level:"medium",supportIndex:60,reasons:["новое наблюдение"],evidenceCount:2,conflictCount:1,independentSources:0},
       goals:{total:2,active:0,waiting:0,blocked:0,review:1,paused:0,completed:1,focusId:"G-Q77"},
-      goalChanges:{available:true,total:2,items:[
+      goalChanges:{available:true,total:20,items:[
         {goalId:"G-Q77",inquiryId:"Q77",kind:"status_changed",title:"Уточнить связь сна и усталости",
           fromStatus:"blocked",toStatus:"review",assessment:"gap_confirmed",progress:75,
           observationCount:3,observationsAfterAssessment:2,sourceClaimIds:["claim-origin-77"],
@@ -738,7 +738,9 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const restoredGoalDeltaCycle=importedCycles.find(item=>item.at===importTime+6000);
   assert.ok(restoredGoalDeltaCycle,"backup import must retain the cycle with detailed goal changes");
   assert.equal(restoredGoalDeltaCycle.goalChanges.available,true);
-  assert.equal(restoredGoalDeltaCycle.goalChanges.total,2);
+  assert.equal(restoredGoalDeltaCycle.goalChanges.total,20);
+  assert.match(window.NGMemory.cognitiveCycleReport(5),/В краткий список включено 2 из 20 изменений/u,
+    "the cycle report must disclose when only the most recent goal changes are listed");
   const restoredReviewDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q77");
   assert.ok(restoredReviewDelta);
   assert.equal(restoredReviewDelta.kind,"status_changed");
