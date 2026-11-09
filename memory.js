@@ -3742,7 +3742,7 @@
         importTransactionStarted = false;
       }
       let rollbackMessage = "";
-      if (importSnapshot) {}
+      if (importSnapshot) {
         const restored = restoreImportSnapshot(importSnapshot);
         rollbackMessage = restored
           ? " Все изменения отменены, исходные данные восстановлены."
