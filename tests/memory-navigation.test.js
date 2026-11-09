@@ -151,6 +151,12 @@ function loadMemory() {
   if (!window.NGReasoningAudit) {
     vm.runInNewContext(fs.readFileSync("reasoning-audit.js","utf8"),sandbox,{filename:"reasoning-audit.js"});
   }
+  if (!window.NGDialogContext) {
+    vm.runInNewContext(fs.readFileSync("dialog-context.js","utf8"),sandbox,{filename:"dialog-context.js"});
+  }
+  if (!window.NGDialogManager) {
+    vm.runInNewContext(fs.readFileSync("dialog-manager.js","utf8"),sandbox,{filename:"dialog-manager.js"});
+  }
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
 loadMemory();
