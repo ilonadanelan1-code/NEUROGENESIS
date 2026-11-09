@@ -2237,10 +2237,7 @@
       const savedCycles=JSON.parse(localStorage.getItem(COGNITIVE_CYCLES_KEY)||"[]");
       cognitiveCycles=mergeCognitiveCycleHistory([],savedCycles);
       nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
-      if(JSON.stringify(savedCycles)!==JSON.stringify(cognitiveCycles)) {
-        try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
-        catch(storageError) { console.warn("Could not normalize NEUROGENESIS cognitive cycle history:",storageError); }
-      }
+      if(JSON.stringify(savedCycles)!==JSON.stringify(cognitiveCycles)) memoryMigrated=true;
     } catch(error) {
       cognitiveCycles=[];nextCognitiveCycleNumber=1;
       console.warn("Could not load NEUROGENESIS cognitive cycles:",error);
@@ -2290,54 +2287,67 @@
     try { return manager.reconcile({inquiries,memories,focus,now:Date.now()}); }
     catch (error) { console.warn("NEUROGENESIS research-goal update failed:",error); return null; }
   }
-  function persist() {
+  function persist(options = {}) {
     updateCount();
-    syncResearchGoals();
-    let ok = true;
-    try {
-      localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
-    } catch (error) {
-      ok = false;
-      console.warn("NEUROGENESIS memory storage failed", error);
-    }
-    try {
-      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
-    } catch (error) {
-      ok = false;
-      console.warn("NEUROGENESIS dialogue storage failed", error);
-    }
-    if (DIALOG_CONTEXT && dialogContext) {
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.begin === "function" &&
+        typeof transaction.stage === "function" && typeof transaction.commit === "function") {
+      if (!transaction.begin()) {
+        const state = transaction.status ? transaction.status() : {};
+        setFeedback("СОХРАНЕНИЕ ОСТАНОВЛЕНО · " +
+          String(state.error || "не удалось восстановить незавершённую транзакцию").slice(0, 140));
+        return false;
+      }
       try {
-        localStorage.setItem(DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext)));
+        if (!options.skipGoalSync) syncResearchGoals();
+        const writes = [
+          [MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES))],
+          [DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG))],
+          [MODEL_DECISIONS_KEY, JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS))],
+          [MODEL_EVIDENCE_KEY, JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE))],
+          [REASONING_ARCHIVE_KEY, JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE))],
+          [INQUIRIES_KEY, JSON.stringify(inquiries.slice(-MAX_INQUIRIES))],
+          [COGNITIVE_CYCLES_KEY, JSON.stringify(cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES))]
+        ];
+        if (DIALOG_CONTEXT && dialogContext) {
+          writes.splice(2, 0, [DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext))]);
+        }
+        for (const [key, value] of writes) {
+          if (!transaction.stage(key, value)) throw new Error("Не удалось подготовить ключ " + key);
+        }
+        const ok = transaction.commit();
+        if (!ok) {
+          const state = transaction.status ? transaction.status() : {};
+          setFeedback("СОХРАНЕНИЕ ОТМЕНЕНО · прежние данные восстановлены. " +
+            String(state.error || "Хранилище недоступно").slice(0, 120) +
+            " Сделай экспорт и освободи место в браузере.");
+        }
+        return ok;
       } catch (error) {
-        ok = false;
-        console.warn("NEUROGENESIS dialogue-context storage failed", error);
+        transaction.abort();
+        console.warn("NEUROGENESIS storage transaction could not be staged:", error);
+        setFeedback("СОХРАНЕНИЕ ОТМЕНЕНО · " + String(error.message || error).slice(0, 140));
+        return false;
       }
     }
+
+    // Compatibility fallback for builds where the goals module has not loaded.
     try {
-      localStorage.setItem(MODEL_DECISIONS_KEY,JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
-    } catch(error) {
-      ok=false;
-      console.warn("NEUROGENESIS model decision storage failed",error);
+      localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
+      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
+      if (DIALOG_CONTEXT && dialogContext) localStorage.setItem(DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext)));
+      localStorage.setItem(MODEL_DECISIONS_KEY, JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
+      localStorage.setItem(MODEL_EVIDENCE_KEY, JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE)));
+      localStorage.setItem(REASONING_ARCHIVE_KEY, JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE)));
+      localStorage.setItem(INQUIRIES_KEY, JSON.stringify(inquiries.slice(-MAX_INQUIRIES)));
+      localStorage.setItem(COGNITIVE_CYCLES_KEY, JSON.stringify(cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES)));
+      if (!options.skipGoalSync) syncResearchGoals();
+      return true;
+    } catch (error) {
+      console.warn("NEUROGENESIS storage fallback failed:", error);
+      setFeedback("Не удалось полностью сохранить данные: " + String(error.message || error).slice(0, 120));
+      return false;
     }
-    try {
-      localStorage.setItem(MODEL_EVIDENCE_KEY,JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE)));
-    } catch(error) {
-      ok=false;
-      console.warn("NEUROGENESIS model evidence storage failed",error);
-    }
-    try {
-      localStorage.setItem(REASONING_ARCHIVE_KEY,JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE)));
-    } catch(error) {
-      ok=false;console.warn("NEUROGENESIS reasoning archive storage failed",error);
-    }
-    try {
-      localStorage.setItem(INQUIRIES_KEY,JSON.stringify(inquiries.slice(-MAX_INQUIRIES)));
-    } catch(error) {
-      ok=false;console.warn("NEUROGENESIS inquiry queue storage failed",error);
-    }
-    if (!ok) setFeedback("Не удалось полностью сохранить данные: хранилище браузера заполнено или недоступно. Сделай экспорт резервной копии.");
-    return ok;
   }
   function updateCount() {
     const el = $("memory-count");
@@ -2718,6 +2728,8 @@
     const knowledgeSummary=KNOWLEDGE&&KNOWLEDGE.summary?KNOWLEDGE.summary(allClaims):{total:allClaims.length};
     const uncertainty=assessCognitiveUncertainty(answer,context.intent,claimsToCheck,relevantConflicts,context.attention.length,context.mode);
     const focus=nextResearchFocus(context.input,newClaims.map(claim=>claim.id));
+    const storageTransaction=window.NGStorageTransaction;
+    const cycleTransactionStarted=!!(storageTransaction&&storageTransaction.begin&&storageTransaction.begin());
     const goalState=syncResearchGoals(focus);
     const reasoningKind=cognitiveReasoningKind(context.intent,answer,context.mode);
     const phase=(name,status,summary)=>({name,status,summary});
@@ -2768,8 +2780,15 @@
     const cleaned=cleanCognitiveCycle(cycle);
     if(cleaned)cognitiveCycles.push(cleaned);
     cognitiveCycles=cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES);
-    try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
-    catch(storageError) { console.warn("NEUROGENESIS cognitive cycle storage failed:",storageError); }
+    const cycleSaveOk=persist({skipGoalSync:true});
+    if(cycleTransactionStarted) {
+      if(cycleSaveOk) {
+        if(!storageTransaction.commit()) {
+          const state=storageTransaction.status?storageTransaction.status():{};
+          setFeedback("КОГНИТИВНЫЙ ЦИКЛ НЕ СОХРАНЁН · " + String(state.error||"транзакция отменена").slice(0,120));
+        }
+      } else storageTransaction.abort();
+    }
     return cleaned;
   }
   function runCognitiveCycle(mode,raw,operation) {
@@ -3242,6 +3261,13 @@
     const hasGoals=window.NGGoals&&typeof window.NGGoals.list==="function"&&window.NGGoals.list().length>0;
     if (!memories.length && !modelDecisions.length && !inquiries.length && !hasGoals) { setFeedback("Память уже пуста."); return; }
     if (!window.confirm("Удалить все " + memories.length + " записей, исследовательские цели, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
+    const storageTransaction=window.NGStorageTransaction;
+    const clearTransactionStarted=!!(storageTransaction&&storageTransaction.begin&&storageTransaction.begin());
+    if(storageTransaction&&!clearTransactionStarted) {
+      const state=storageTransaction.status?storageTransaction.status():{};
+      setFeedback("ОЧИСТКА ОТМЕНЕНА · " + String(state.error||"хранилище не готово").slice(0,120));
+      return;
+    }
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
     modelDecisions = [];
@@ -3251,9 +3277,16 @@
     if(window.NGGoals&&typeof window.NGGoals.clear==="function")window.NGGoals.clear();
     cognitiveCycles = [];
     nextCognitiveCycleNumber = 1;
-    try { localStorage.setItem(COGNITIVE_CYCLES_KEY,"[]"); } catch(error) { console.warn("Could not clear cognitive cycle history:",error); }
     releaseUnusedTraces(oldIds);
-    persist();
+    const clearSaved=persist({skipGoalSync:true});
+    const clearCommitted=clearSaved&&(!clearTransactionStarted||storageTransaction.commit());
+    if(!clearCommitted) {
+      if(clearTransactionStarted)storageTransaction.abort();
+      if(window.NGGoals&&typeof window.NGGoals.load==="function")window.NGGoals.load();
+      load();
+      setFeedback("ОЧИСТКА ОТМЕНЕНА · сохранённые данные восстановлены.");
+      return;
+    }
     renderLibrary();
     say("assistant", "Долговременная память очищена. История этого диалога сохранена.");
     setFeedback("ПАМЯТЬ ОЧИЩЕНА");
