@@ -970,25 +970,26 @@
     if(reportElement)reportElement.textContent="Проверяю положительное, отрицательное и нейтральное подкрепление, затем две ассоциации в обоих порядках обучения.";
     try{
       const report=await window.NGExperienceBenchmark.run();
+      const competition=window.NGCompetitionBenchmark
+        ? await window.NGCompetitionBenchmark.run()
+        : {diagnosed:false,error:"diagnostic-unavailable"};
       const passedChecks=Object.values(report.checks).filter(Boolean).length;
       const p=report.positive,n=report.negative,z=report.neutral;
       const ab=report.multiPattern.orders.AB;
       const ba=report.multiPattern.orders.BA;
+      const shared=competition.aThenB?.after;
       if(reportElement){
-        reportElement.textContent=(report.passed?"ТЕСТ ПРОЙДЕН":"ТЕСТ НЕ ПРОЙДЕН")+
-          " · проверок "+passedChecks+"/"+Object.keys(report.checks).length+
-          ". Ответ одиночной связи: до "+p.responseBefore.toFixed(4)+
-          ", после +reward "+p.responseAfter.toFixed(4)+
-          ", после −reward "+n.responseAfter.toFixed(4)+
-          ", после нейтральной оценки "+z.responseAfter.toFixed(4)+
-          ". Две ассоциации A→X и B→Y: порядок A-B — "+
+        reportElement.textContent=(report.passed&&competition.diagnosed?"БАЗОВЫЕ ТЕСТЫ ПРОЙДЕНЫ · ОГРАНИЧЕНИЕ ОБНАРУЖЕНО":"ЕСТЬ НЕПРОЙДЕННЫЕ ПРОВЕРКИ")+
+          " · подкрепление "+passedChecks+"/"+Object.keys(report.checks).length+
+          ". Две ассоциации A→X/B→Y: AB "+
           ab.patterns.A.responseAfter.toFixed(3)+" / "+ab.patterns.B.responseAfter.toFixed(3)+
-          "; порядок B-A — "+ba.patterns.A.responseAfter.toFixed(3)+" / "+
-          ba.patterns.B.responseAfter.toFixed(3)+
-          ". Изменение веса первой связи после второго эпизода: "+
-          ab.firstAssociationRetention.weightDelta.toFixed(5)+" и "+
-          ba.firstAssociationRetention.weightDelta.toFixed(5)+
-          ". Использованы изолированные тестовые сети, основная сеть не изменялась.";
+          ", BA "+ba.patterns.A.responseAfter.toFixed(3)+" / "+ba.patterns.B.responseAfter.toFixed(3)+
+          ". Общий узел: вход A → X/Y "+
+          (shared?shared.A.outputX.toFixed(3)+" / "+shared.A.outputY.toFixed(3):"—")+
+          "; вход B → X/Y "+
+          (shared?shared.B.outputX.toFixed(3)+" / "+shared.B.outputY.toFixed(3):"—")+
+          ". Диагностика: "+(competition.diagnosed?"обнаружено схлопывание двух входов в одинаковые выходы":"не воспроизведено")+
+          ". Всё выполняется на изолированных WASM-сетях; сеть пользователя не меняется.";
       }
     }catch(error){
       if(reportElement)reportElement.textContent="Контрольный тест завершился ошибкой: "+error.message;
