@@ -205,9 +205,11 @@
   const handleCanvasResize = () => { resize(); scheduleFrame(); };
   let canvasResizeObserver = null;
   function connectCanvasResizeObserver() {
-    if (typeof ResizeObserver !== "function" || canvasResizeObserver) return;
-    canvasResizeObserver = new ResizeObserver(handleCanvasResize);
-    canvasResizeObserver.observe(canvas);
+    if (typeof ResizeObserver === "function") {
+      if (canvasResizeObserver) return;
+      canvasResizeObserver = new ResizeObserver(handleCanvasResize);
+      canvasResizeObserver.observe(canvas);
+    }
   }
   function disconnectCanvasResizeObserver() {
     if (!canvasResizeObserver) return;
