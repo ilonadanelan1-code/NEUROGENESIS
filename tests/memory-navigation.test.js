@@ -1284,6 +1284,21 @@ for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","rea
     "the backup must include the " + key + " store");
 assert.equal(exportedBackup.cognitiveCycles.length,window.NGMemory.cognitiveCycles().length,
   "the backup must export the complete sanitized cognitive-cycle history");
+assert.ok(exportedBackup.dialogContext && Array.isArray(exportedBackup.dialogContext.threads),
+  "the backup must include the complete dialogue-topic state");
+assert.ok(exportedBackup.dialogContext.threads.every(thread=>Array.isArray(thread.summaryParts)),
+  "every exported topic should carry its bounded extractive summary parts");
+const exportedActiveTopic=exportedBackup.dialogContext.threads.find(thread=>
+  thread.id===exportedBackup.dialogContext.activeThreadId);
+assert.ok(exportedActiveTopic && exportedActiveTopic.summaryParts.length>0,
+  "the active conversation summary should be present in the exported backup");
+const summaryBeforeImport=window.NGMemory.dialogContext().activeThread.contextSummary;
+assert.ok(summaryBeforeImport.length>0);
+const importInput=document.getElementById("memory-import-file");
+importInput.files=[{async text(){return JSON.stringify({...exportedBackup,memories:[],dialog:[]});}}];
+await importInput.dispatch("change");
+assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
+  "importing a v2 backup must restore and preserve the active topic summary");
 assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
 assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
 assert.ok(downloadLink.download.endsWith(".json"));
