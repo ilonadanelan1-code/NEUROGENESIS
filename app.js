@@ -1214,6 +1214,11 @@
     wasmLearnSequence(learningRate = 0.05, reward = 1, weightDecay = 0) {
       return wasmShadow ? wasmShadow.learnFromReward(learningRate, reward, weightDecay) : 0;
     },
+    wasmLearnContrastiveReward(learningRate, positiveNeuronId, negativeNeuronId) {
+      return wasmShadow
+        ? wasmShadow.learnContrastiveReward(learningRate, positiveNeuronId, negativeNeuronId)
+        : 0;
+    },
     wasmResetSequence() {
       return wasmShadow ? wasmShadow.resetEligibility() : false;
     },
