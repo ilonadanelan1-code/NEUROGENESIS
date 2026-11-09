@@ -322,7 +322,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       {subject:"Недостаток сна",object:"снижению концентрации",paths:[[validImportedEdge]]},
       {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]}
     ],
-    reviews:[],modelHistory:[{at:importTime,edges:[],alternatives:[
+    reviews:[{claimId:"missing-import-source",kind:"counterexample",phase:"subsequent",
+      subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
+      edgeObject:"снижению концентрации",at:importTime+10,evidence:"Архивный контрпример без исходной карточки"}],
+    modelHistory:[{at:importTime,edges:[],alternatives:[
       {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]}
     ]}]
   };
@@ -368,6 +371,11 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "valid archived hypotheses must still receive lifecycle records");
   assert.ok(!importedLifecycles.some(item=>item.subject==="что усталость"||item.subject==="В отчёте говорится, что усталость"),
     "excluded archive subjects must not receive active lifecycle records");
+  const validImportedLifecycle=importedLifecycles.find(item=>item.subject==="Недостаток сна"&&item.object==="снижению концентрации");
+  assert.ok(validImportedLifecycle);
+  assert.equal(validImportedLifecycle.state,"new",
+    "an archived review without a matching imported source claim must not challenge the valid conclusion");
+  assert.equal(validImportedLifecycle.challengingClaimIds.length,0);
 
   const beforeCount = window.NGMemory.count();
   const beforeClaims = window.NGMemory.claims().length;
