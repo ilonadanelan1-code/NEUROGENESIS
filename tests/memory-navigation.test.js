@@ -1119,6 +1119,9 @@ assert.ok(researchFocus.reasons.length>0,
   "the selected research question should explain its priority");
 
 
+window.NGMemory.ask("Над чем сейчас работаешь?");
+assert.match(feed.children[feed.children.length-1].textContent,/ЦЕЛИ И САМОКОНТРОЛЬ/u,
+  "the natural phrasing without ты should open the research-goal report");
 const goalReport = window.NGMemory.goalReport();
 assert.match(goalReport,/ЦЕЛИ И САМОКОНТРОЛЬ/u);
 assert.ok(Array.isArray(window.NGMemory.goals()),"goal records should be exposed through the memory API");

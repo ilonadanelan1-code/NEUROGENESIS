@@ -34,19 +34,24 @@ const inquiries = [
     createdAt:now-40*86400000,updatedAt:now-40*86400000,lastAskedAt:0},
   {id:"Q5",kind:"duplicate_observation",edgeSubject:"эпизод А",edgeObject:"эпизод Б",
     question:"Один ли это эпизод?",status:"answered",assessment:"duplicate_same_event",
-    resolution:"same_event",createdAt:now-500000,updatedAt:now-100000}
+    resolution:"same_event",createdAt:now-500000,updatedAt:now-100000},
+  {id:"Q6",kind:"duplicate_observation",edgeSubject:"сон",edgeObject:"усталость",
+    question:"Это один эпизод или разные?",status:"open",assessment:"unassessed",
+    sourceClaimIds:["o3","o4"],createdAt:now-400000,updatedAt:now-400000,lastAskedAt:0}
 ];
 const memories = [{
   id:"m1",
   claims:[
     {id:"c1",kind:"causal",subject:"Недостаток сна",object:"усталость"},
     {id:"o1",kind:"observation",subject:"Недостаток сна",object:"усталость",eventRef:"event-a"},
-    {id:"o2",kind:"observation",subject:"Недостаток сна",object:"усталость",eventRef:"event-b"}
+    {id:"o2",kind:"observation",subject:"Недостаток сна",object:"усталость",eventRef:"event-b"},
+    {id:"o3",kind:"observation",subject:"сон",object:"усталость"},
+    {id:"o4",kind:"observation",subject:"сон",object:"усталость",observationCase:{eventRef:""}}
   ]
 }];
 const focus = {item:{id:"Q1"},score:.82,reasons:["влияние на другие выводы"]};
 const initial = window.NGGoals.reconcile({inquiries,memories,focus,now});
-assert.equal(initial.total,5);
+assert.equal(initial.total,6);
 const rows = window.NGGoals.list();
 const q1 = rows.find(item => item.inquiryId === "Q1");
 assert.equal(q1.status,"waiting_user");
@@ -64,12 +69,19 @@ assert.match(q2.blockers.join(" "),/Контекст/u);
 assert.equal(rows.find(item=>item.inquiryId==="Q3").status,"paused");
 assert.equal(rows.find(item=>item.inquiryId==="Q4").status,"stale");
 assert.equal(rows.find(item=>item.inquiryId==="Q5").status,"completed");
+const q6 = rows.find(item => item.inquiryId === "Q6");
+assert.equal(q6.status,"active");
+assert.equal(q6.eventCount,0,"missing eventRef must not be counted as a distinct event");
+assert.equal(q6.unknownEventCount,2);
+assert.match(q6.nextAction,/один эпизод.*разные эпизоды/u);
+assert.match(q6.blockers.join(" "),/нельзя определить/u);
+assert.match(window.NGGoals.report(),/явных eventRef/u);
 assert.match(window.NGGoals.report(),/не вероятность истинности/u);
 assert.equal(database.has("neurogenesis.goals.v1"),true);
 const reloadedWindow = {};
 const sandbox2 = {window:reloadedWindow,localStorage,console,Date,Math,Set,Map,JSON};
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox2,{filename:"goals.js"});
-assert.equal(reloadedWindow.NGGoals.list().length,5,"goals must persist across reloads");
+assert.equal(reloadedWindow.NGGoals.list().length,6,"goals must persist across reloads");
 assert.equal(reloadedWindow.NGGoals.list().find(item=>item.inquiryId==="Q1").status,"waiting_user");
 reloadedWindow.NGGoals.merge([{id:"G-Q6",inquiryId:"Q6",title:"Новая цель",status:"active",kind:"missing_observation",createdAt:now,updatedAt:now}]);
 assert.equal(reloadedWindow.NGGoals.list().some(item=>item.inquiryId==="Q6"),true);

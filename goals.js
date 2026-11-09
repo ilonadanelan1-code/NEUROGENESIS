@@ -46,6 +46,7 @@
       evidenceMemoryIds: uniqueStrings(raw.evidenceMemoryIds),
       observationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.observationCount) || 0))),
       eventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.eventCount) || 0))),
+      unknownEventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.unknownEventCount) || 0))),
       milestones: Array.isArray(raw.milestones) ? raw.milestones.filter(x => typeof x === "string").slice(0, 4).map(x => x.slice(0, 80)) : [],
       progress: Math.max(0, Math.min(100, Math.round(Number(raw.progress) || 0))),
       focusScore: Math.max(0, Math.min(100, Math.round(Number(raw.focusScore) || 0))),
@@ -105,13 +106,20 @@
     }
     const rows = [...evidence.values()];
     const observations = rows.filter(claim => claim.kind === "observation");
-    const events = new Set(observations.map(claim =>
-      typeof claim.eventRef === "string" && claim.eventRef ? claim.eventRef : claim.id));
+    const explicitEventRefs = observations.map(claim => {
+      const details = claim.observationCase && typeof claim.observationCase === "object"
+        ? claim.observationCase : {};
+      return typeof claim.eventRef === "string" && claim.eventRef.trim()
+        ? claim.eventRef.trim()
+        : typeof details.eventRef === "string" ? details.eventRef.trim() : "";
+    }).filter(Boolean);
+    const events = new Set(explicitEventRefs);
     return {
       claimIds: [...evidence.keys()].slice(0, 12),
       memoryIds: [...memoryIds].slice(0, 12),
       observationCount: observations.length,
-      eventCount: events.size
+      eventCount: events.size,
+      unknownEventCount: observations.length - explicitEventRefs.length
     };
   }
   function buildGoal(inquiry, memories, focus, now, previous) {
@@ -121,6 +129,8 @@
     if (sourceClaimIds.length) milestones.push("есть исходные утверждения");
     if (inquiry.lastAskedAt > 0) milestones.push("вопрос был задан");
     if (inquiry.status === "answered") milestones.push("получен ответ");
+    if (["duplicate_same_event","duplicate_separate_events"].includes(inquiry.assessment))
+      milestones.push("идентичность эпизодов уточнена");
     if (evidence.observationCount > 0) milestones.push("привязаны прямые наблюдения");
     const progress = Math.round(milestones.length / 4 * 100);
     const focusId = focus && focus.item && focus.item.id;
@@ -134,6 +144,11 @@
     } else if (evidence.observationCount === 0) {
       blockers.push("В привязанных записях пока нет прямой карточки наблюдения для этого звена.");
     }
+    if (inquiry.kind === "duplicate_observation" &&
+        !["duplicate_same_event","duplicate_separate_events"].includes(inquiry.assessment) &&
+        evidence.unknownEventCount > 0) {
+      blockers.push("Для " + evidence.unknownEventCount + " наблюдений не задан eventRef: нельзя определить, один это эпизод или несколько.");
+    }
     let nextAction = "Задать исследовательский вопрос " + inquiry.id + " и уточнить недостающие сведения.";
     if (inquiry.status === "open" && inquiry.lastAskedAt > 0) {
       nextAction = "Ожидается содержательный ответ на " + inquiry.id + ".";
@@ -145,6 +160,8 @@
       nextAction = "Пересмотреть вопрос с учётом ответа и отдельно проверить, появились ли прямые наблюдения.";
     } else if (inquiry.status === "skipped") {
       nextAction = "Вопрос отложен. К нему можно вернуться позднее.";
+    } else if (inquiry.kind === "duplicate_observation") {
+      nextAction = "Ответить на " + inquiry.id + ": «один эпизод» — если все карточки описывают один случай; «разные эпизоды» — если каждая карточка описывает отдельный случай. При неоднозначном ответе группировка не изменится.";
     } else if (evidence.observationCount > 0) {
       nextAction = "Сопоставить связанные карточки наблюдений, не считая их автоматически доказательством.";
     }
@@ -155,7 +172,8 @@
       title: "Уточнить связь «" + cleanText(inquiry.edgeSubject, 100) + " → " + cleanText(inquiry.edgeObject, 100) + "»",
       status, nextAction, blockers, sourceClaimIds, evidenceClaimIds: evidence.claimIds,
       evidenceMemoryIds: evidence.memoryIds, observationCount: evidence.observationCount,
-      eventCount: evidence.eventCount, milestones, progress, focusScore, selected,
+      eventCount: evidence.eventCount, unknownEventCount: evidence.unknownEventCount,
+      milestones, progress, focusScore, selected,
       assessment: cleanText(inquiry.assessment, 64), assessmentReason: cleanText(inquiry.assessmentReason, 420),
       createdAt: previous ? previous.createdAt : safeTime(inquiry.createdAt, now),
       updatedAt: now, lastProgressAt: now
@@ -245,7 +263,7 @@
         lines.push("• " + item.id + " · " + (labels[item.status] || item.status) + " · " + item.title);
         lines.push("  Основание: вопрос " + item.inquiryId + "; исходных утверждений: " + item.sourceClaimIds.length +
           "; связанных записей: " + item.evidenceMemoryIds.length + "; прямых наблюдений: " + item.observationCount +
-          " (" + item.eventCount + " различимых эпизодов).");
+          " · явных eventRef: " + item.eventCount + " · без eventRef: " + item.unknownEventCount + ".");
         lines.push("  Этапы обработки: " + (item.milestones.length ? item.milestones.join("; ") : "пока не начаты") +
           " · служебный прогресс " + item.progress + "/100.");
         if (item.blockers.length) lines.push("  Блокеры: " + item.blockers.join("; "));
