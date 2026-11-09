@@ -48,6 +48,13 @@ assert.match(app, /wasmDiagnostics\(\)/u,
 assert.match(app, /wasmLearn\(learningRate = 0\.05, reward = 1, weightDecay = 0\)/u);
 assert.match(app, /wasmLearningExport\(\)/u);
 assert.match(app, /wasmLearningImport\(rows\)/u);
+assert.match(html, /id="wasm-learn-button"/u);
+assert.match(html, /id="wasm-learning-export"/u);
+assert.match(html, /id="wasm-learning-import"/u);
+assert.match(html, /id="wasm-learning-file"/u);
+assert.match(app, /wasmShadow\.learn\(/u);
+assert.match(app, /NEUROGENESIS_WASM_LEARNED_WEIGHTS/u);
+assert.match(app, /wasmShadow\.restoreLearnedWeights\(payload\.weights\)/u);
 
 const frameStart = app.indexOf("  function frame(time) {");
 const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);
