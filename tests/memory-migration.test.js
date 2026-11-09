@@ -556,6 +556,24 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.goals().filter(item=>item.kind==="discriminating_observations").length,1,
     "alternative routes must share one comparison goal rather than spawning one goal per branch");
 
+  window.NGMemory.ask("пропусти вопрос "+discriminatingInquiry.id);
+  window.NGMemory.refreshInquiries();
+  window.NGMemory.refreshInquiries();
+  let skippedComparison=window.NGMemory.inquiries().find(item=>item.signature===discriminatingInquiry.signature);
+  assert.equal(skippedComparison.status,"skipped",
+    "refreshing the queue must not silently reopen a skipped discriminating question");
+  assert.equal(window.NGMemory.inquiries().filter(item=>item.signature===discriminatingInquiry.signature).length,1,
+    "a skipped question must not be duplicated on repeated queue refreshes");
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id).status,"paused",
+    "the skipped comparison goal must stay paused while its question remains skipped");
+  window.NGMemory.ask("возобнови вопрос "+discriminatingInquiry.id);
+  skippedComparison=window.NGMemory.inquiries().find(item=>item.signature===discriminatingInquiry.signature);
+  assert.equal(skippedComparison.status,"open",
+    "the comparison question must return only after an explicit resume command");
+  assert.equal(skippedComparison.resumeCount,1);
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id).status,"active",
+    "the resumed comparison goal must become active before the question is asked again");
+
   assert.equal(window.NGMemory.remember(
     "Ответ на вопрос "+discriminatingInquiry.id+": Нет прямых наблюдений для сравнения."
   ),true,"the real memory pipeline must accept a discriminating-inquiry answer");
