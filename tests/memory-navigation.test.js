@@ -967,7 +967,7 @@ assert.equal(linkedReady.numericOutcomeMissingCount,0,"a numeric scale requires 
 // Contradictory metadata inside one explicitly linked event must block readiness.
 const conflictEventMemories=[
   ...linkedEventMemories.slice(0,2),
-  eventMemory("linked-a-conflict","linked-a-conflict-claim","Дополнение: другой контекст",true,
+  eventMemory("linked-a-conflict","linked-a-conflict-claim","Дополнение: другой контекст",715,true,
     {subject:"Фактор Тета",object:"результата Каппа",context:"в отпуске",eventRef:"theta-episode-1"}),
   linkedEventMemories[2]
 ];
