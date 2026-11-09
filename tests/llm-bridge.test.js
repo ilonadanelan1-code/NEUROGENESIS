@@ -127,5 +127,13 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
     /HTTPS/u, "public gateways must require HTTPS");
   assert.throws(() => bridge.createHttpAdapter({ endpoint: "https://example.com" }),
     /ключ доступа/u, "the adapter must not connect without an app access token");
+  assert.throws(() => bridge.createHttpAdapter({ endpoint: "https://example.com/api", clientToken: "x" }),
+    /корневой адрес Worker/u, "gateway configuration must reject an API path that would be duplicated");
+  const notFoundAdapter = bridge.createHttpAdapter(
+    { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+    async () => ({ ok: false, status: 404, async json() { return { error: "not_found" }; } })
+  );
+  await assert.rejects(() => notFoundAdapter.health(), /Шлюз вернул 404/u,
+    "a missing Worker route should explain that the gateway base URL or path is wrong");
   console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
