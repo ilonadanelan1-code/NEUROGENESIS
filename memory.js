@@ -957,7 +957,7 @@
         console.warn("Discriminating-observation selection failed:",error);
       }
     }
-    const possibleDuplicates=OBSERVATIONS.uniqueObservationEvents(observationCases()).possibleGroups;
+    const possibleDuplicates=OBSERVATIONS ? OBSERVATIONS.uniqueObservationEvents(observationCases()).possibleGroups : [];
     for(const group of possibleDuplicates) {
       const claimIds=[...new Set(group.claimIds||[])].slice(0,12);
       if(claimIds.length<2)continue;
@@ -1058,18 +1058,29 @@
     };
     return labels[status]?.[field]||labels.not_stated[field];
   }
-  const OBSERVATIONS = window.NGObservationEngine.create({
-    knowledge: KNOWLEDGE,
-    normalise,
-    parseObservationMoment,
-    enrichedTextLooksLikeSameMention,
-    observationFieldStatus,
-    observationFieldStatusLabel
-  });
+  const OBSERVATIONS = KNOWLEDGE && window.NGObservationEngine &&
+    typeof window.NGObservationEngine.create === "function"
+    ? window.NGObservationEngine.create({
+      knowledge: KNOWLEDGE,
+      normalise,
+      parseObservationMoment,
+      enrichedTextLooksLikeSameMention,
+      observationFieldStatus,
+      observationFieldStatusLabel
+    }) : null;
   function reviewReadinessForEdge(subject,object) {
+    if(!OBSERVATIONS)return {
+      subject,object,label:"оценка недоступна: модуль наблюдений не подключён",ready:false,
+      totalCount:0,supportingCount:0,challengingCount:0,
+      contextStatus:"not_stated",timingStatus:"not_stated",criterionStatus:"not_stated",outcomeStatus:"not_stated",
+      numericOutcomeRequired:false,completeEventCount:0,incompleteEventCount:0,
+      identityUnresolvedCount:0,metadataConflictCount:0,possibleDuplicateCount:0,answerIds:[],
+      blockers:["Модуль проверки наблюдений недоступен; это не означает, что наблюдений нет."]
+    };
     return OBSERVATIONS.reviewReadinessForEdge(observationCases(),inquiries,subject,object);
   }
   function observationCases() {
+    if(!KNOWLEDGE||typeof KNOWLEDGE.sanitizeObservationDetails!=="function")return [];
     const seen=new Set(),result=[];
     for(const memory of memories)for(const claim of memory.claims||[]) {
       if(!claim||claim.kind!=="observation"||claim.status==="superseded")continue;
@@ -1121,6 +1132,8 @@
     return moment.secondsOfDay>recordedSeconds;
   }
   function observationTimelineData() {
+    if(!OBSERVATIONS)return {totalCases:0,rawCardCount:0,duplicateMentions:0,possibleDuplicateGroups:0,
+      events:[],unparsed:[],missingCount:0,futureCount:0,recognizedCount:0,unparsedCount:0,unavailable:true};
     const sourceCases=observationCases(),grouped=OBSERVATIONS.uniqueObservationEvents(sourceCases);
     const cases=grouped.events,events=[],unparsed=[];
     let missingCount=0;
@@ -1142,6 +1155,7 @@
   }
   function observationTimelineAnswer() {
     const data=observationTimelineData();
+    if(data.unavailable)return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nМодуль проверки наблюдений не подключён. Я не могу оценить хронологию; это не означает, что карточек наблюдений нет.";
     if(!data.totalCases)return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока нет сохранённых карточек наблюдений.";
     if(!data.events.length) {
       return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока не найдено ни одной даты, которую можно надёжно упорядочить. Укажи время события в формате «время: 2026-11-09 07:15» или дату в формате «дата: 09.11.2026». Описания вроде «вчера вечером» сохраняются, но не превращаются в точную дату автоматически.";
@@ -1184,6 +1198,7 @@
     return observationFieldStatusLabel(field.status);
   }
   function observationCasesAnswer() {
+    if(!OBSERVATIONS)return "ЖУРНАЛ НАБЛЮДЕНИЙ\n\nМодуль проверки наблюдений не подключён. Я не могу сейчас открыть или оценить карточки; это не означает, что их нет.";
     const cases=observationCases();
     if(!cases.length)return "ЖУРНАЛ НАБЛЮДЕНИЙ\n\nПока нет отдельных структурированных наблюдений. Для записи используй форму:\nПри X наблюдалось Y; контекст: ...; время: ...; критерий: ...\n\nДля явно отсутствующей информации можно указать: «не записано», «неизвестно» или «отсутствовало». Неизвестные поля не будут додумываться.";
     let answer="ЖУРНАЛ НАБЛЮДЕНИЙ · "+cases.length+" КАРТОЧЕК\n\n";
@@ -1197,7 +1212,23 @@
     answer+="Метки «событие: ...» или «эпизод: ...» связывают карточки одного эпизода; разные метки не дают системе слить отдельные события. Метод оценки и полученное значение указываются отдельно. Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
     return answer;
   }
+  function emptyObservationReconciliation(subject,object) {
+    const fieldStatusCounts=Object.fromEntries(["context","timing","criterion","outcome"].map(key=>[key,{}]));
+    return {subject,object,cases:[],supportingCount:0,challengingCount:0,duplicateMentions:0,
+      possibleDuplicateGroups:0,explicitDuplicateGroups:0,outcomeMissingCount:0,numericOutcomeRequired:false,
+      completeCases:0,metadataCoverage:0,knownFields:0,fieldCount:0,metadataConflictCount:0,
+      identityUnresolvedCount:0,fieldStatusCounts,alignedPairCount:0,differentMetadataPairCount:0,
+      contextDifferencePairCount:0,criterionDifferencePairCount:0,timingDifferencePairCount:0,
+      timingOnlyPairCount:0,contextOnlyPairCount:0,multiDimensionDifferencePairCount:0,
+      contextTimingDifferencePairCount:0,incompletePairCount:0,oppositePairCount:0,
+      independentVerifiedSources:0,sourceReferenceCount:0,verifiedWithoutSourceRef:0,
+      userReportedUnverifiedCount:0,userRecordCount:0,addedAfterModelCount:0,addedAfterModelIds:[],
+      eventChecks:[],pattern:"оценка недоступна: модуль наблюдений не подключён",
+      recommendation:"Модуль проверки наблюдений недоступен. Не делать вывод о количестве или качестве наблюдений.",
+      oppositePairs:[]};
+  }
   function evidenceReconciliationForEdge(subject,object,baselineAt=0) {
+    if(!OBSERVATIONS)return emptyObservationReconciliation(subject,object);
     return OBSERVATIONS.evidenceReconciliationForEdge(observationCases(),subject,object,baselineAt);
   }
   function trackedObservationEdges() {
