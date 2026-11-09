@@ -291,3 +291,10 @@ select.text-input{color-scheme:dark}
   .llm-config-input{height:34px;font-size:9px}
   .llm-security-note{font-size:7px}
 }
+
+/* Touch accessibility: keep compact mouse controls, enlarge phone/tablet targets. */
+@media (pointer:coarse){
+  button{min-height:44px}
+  .icon-button,.tool-button{width:44px;height:44px;min-width:44px;padding:0}
+  .secondary-button{height:auto;padding-top:7px;padding-bottom:7px}
+}
