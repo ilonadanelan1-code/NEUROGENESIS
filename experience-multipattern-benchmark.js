@@ -204,8 +204,11 @@
       previouslyLearnedResponseSurvivesLaterTask:
         aThenB.checks.firstPatternRetainedAfterSecond &&
         bThenA.checks.firstPatternRetainedAfterSecond,
-      noOrderSpecificFailure: aThenB.passed === bThenA.passed,
-      allTestBrainsAreDisposed: true
+      orderSymmetryIsStable:
+        Math.abs(aThenB.firstPatternAfterSecondTask.margin -
+          bThenA.secondPatternAfterSecondTask.margin) < 1e-4 &&
+        Math.abs(aThenB.secondPatternAfterSecondTask.margin -
+          bThenA.firstPatternAfterSecondTask.margin) < 1e-4
     };
 
     return {
