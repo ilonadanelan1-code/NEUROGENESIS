@@ -358,6 +358,38 @@ assert.match(exchangeFollowUp.query, /задержку и точность си�
 assert.ok(exchangeFollowUp.context.recentExchange.every(row => row.text.length <= 220),
   "each retained exchange fragment must remain bounded");
 
+// "час" must not match the unrelated word "часто" when resolving two open questions.
+let hoursAndFrequency = engine.track(
+  engine.track(engine.empty(), {
+    role: "user", text: "Недостаток сна вызывает дневную усталость", time: 640
+  }),
+  {
+    role: "assistant",
+    text: "Сколько часов ты спал? Как часто это повторяется?",
+    time: 641
+  }
+);
+hoursAndFrequency = engine.track(hoursAndFrequency, {
+  role: "user", text: "Примерно четыре часа", time: 642
+});
+const durationAnswer = hoursAndFrequency.messages[hoursAndFrequency.messages.length - 1];
+assert.equal(durationAnswer.relation, "answer_to_question",
+  "a duration must not become ambiguous merely because another open question asks how often");
+assert.equal(durationAnswer.questionText, "Сколько часов ты спал?",
+  "the duration must be linked to the hours question, not the frequency question");
+assert.deepEqual(
+  Array.from(engine.report(hoursAndFrequency).activeThread.pendingQuestions),
+  ["Как часто это повторяется?"],
+  "answering a duration question must leave the frequency question open"
+);
+hoursAndFrequency = engine.track(hoursAndFrequency, {
+  role: "user", text: "Два раза в неделю", time: 643
+});
+const frequencyAnswer = hoursAndFrequency.messages[hoursAndFrequency.messages.length - 1];
+assert.equal(frequencyAnswer.relation, "answer_to_question",
+  "a frequency response should resolve the remaining frequency question");
+assert.equal(frequencyAnswer.questionText, "Как часто это повторяется?");
+
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));
 assert.equal(roundTrip.activeThreadId, firstThread);
 assert.equal(engine.report(roundTrip).topics.length, 2);
