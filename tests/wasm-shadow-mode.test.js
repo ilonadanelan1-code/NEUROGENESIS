@@ -59,7 +59,7 @@ assert.match(benchmark, /firstAssociationSurvivesSecondEpisode/u);
 assert.match(benchmark, /crossAssociationsRemainUnchanged/u);
 assert.match(benchmark, /function trainDensePattern\(fixture, label\)/u);
 assert.match(benchmark, /function runSharedPathInterference\(runtime\)/u);
-assert.match(benchmark, /positiveRewardPotentiatesOffTargetPaths/u);
+assert.match(benchmark, /positiveRewardStrengthensOffTargetPaths/u);
 assert.match(benchmark, /nonTargetOutputsRemainActive/u);
 assert.match(app, /report\.sharedPathInterference\.orders\.AB/u);
 assert.match(html, /Проверить подкрепление, ассоциации и конкуренцию/u);
