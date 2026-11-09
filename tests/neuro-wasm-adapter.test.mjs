@@ -157,6 +157,13 @@ try {
   assert.equal(shadow.snapshot().neurons.length, beforeFailedRebuild.neurons.length);
   assert.match(shadow.diagnostics().lastError, /unique/u);
 
+  const overlayBeforeFailedRestore = shadow.learnedWeights();
+  assert.equal(shadow.restoreLearnedWeights([{
+    from: "n-source", to: "n-output", baseWeight: 0.6, weight: 0.9
+  }]), false, "a failed snapshot rebuild must reject the imported overlay");
+  assert.deepEqual(shadow.learnedWeights(), overlayBeforeFailedRestore,
+    "failed learned-weight import must preserve the previous overlay");
+
   sourceNetwork.neurons = sourceNetwork.neurons.filter(row => row.id !== "duplicate");
   assert.equal(shadow.rebuild(), true, "the mirror must recover after its source snapshot is repaired");
   assert.equal(shadow.diagnostics().lastError, null);
