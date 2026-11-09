@@ -61,6 +61,35 @@
             <button class="secondary-button" id="run-button"><span>▶</span>Запуск</button>
           </div>
           <p class="control-note" id="mode-note">Выбери нейрон, чтобы изучить его состояние.</p>
+          <details class="llm-settings" id="wasm-learning-panel">
+            <summary><span>ЭКСПЕРИМЕНТАЛЬНОЕ ОБУЧЕНИЕ</span><span id="wasm-learning-state" data-state="loading">ЗАГРУЗКА WASM</span></summary>
+            <div class="llm-settings-body">
+              <p class="llm-security-note">Обучается только отдельная WASM-копия. Основная сеть и её локальные сохранения не меняются. Перед обучением подай импульс или запусти симуляцию.</p>
+              <div class="range-heading">
+                <label class="field-label" for="wasm-learning-rate">СКОРОСТЬ ОБУЧЕНИЯ</label>
+                <strong id="wasm-learning-rate-value">5%</strong>
+              </div>
+              <input class="range-input" id="wasm-learning-rate" type="range" min="0" max="0.5" step="0.01" value="0.05">
+              <div class="range-heading">
+                <label class="field-label" for="wasm-learning-decay">ЗАТУХАНИЕ СВЯЗЕЙ</label>
+                <strong id="wasm-learning-decay-value">0.5%</strong>
+              </div>
+              <input class="range-input" id="wasm-learning-decay" type="range" min="0" max="0.05" step="0.001" value="0.005">
+              <label class="field-label" for="wasm-learning-reward">СИГНАЛ ПОДКРЕПЛЕНИЯ</label>
+              <select class="text-input" id="wasm-learning-reward">
+                <option value="1" selected>Положительный · +1</option>
+                <option value="0">Нейтральный · 0</option>
+                <option value="-1">Отрицательный · −1</option>
+              </select>
+              <div class="llm-settings-actions">
+                <button class="primary-button llm-config-save" id="wasm-learn-button" type="button">Применить обучение</button>
+                <button class="secondary-button llm-config-clear" id="wasm-learning-export" type="button">Экспорт весов</button>
+                <button class="secondary-button llm-config-clear" id="wasm-learning-import" type="button">Импорт весов</button>
+              </div>
+              <input id="wasm-learning-file" type="file" accept="application/json,.json" hidden>
+              <p class="memory-feedback" id="wasm-learning-feedback" aria-live="polite">Обученных связей: 0</p>
+            </div>
+          </details>
         </section>
 
         <section class="section-block inspector-block">
