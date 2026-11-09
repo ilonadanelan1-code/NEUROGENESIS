@@ -839,7 +839,8 @@
   $("delete-button").addEventListener("click",()=>{if(selectedId&&confirm("Удалить выбранный нейрон и все его связи?"))removeNeuron(selectedId);});
   $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;nodesDirty=true;markDirty();syncWasmShadow();}});
   $("neuron-type").addEventListener("change",event=>{const n=currentNeuron();if(n){n.type=event.target.value;nodesDirty=true;markDirty();syncWasmShadow();}});
-  $("neuron-bias").addEventListener("input",event=>{const n=currentNeuron();if(n){n.bias=Number(event.target.value)/100;$("bias-value").textContent=event.target.value+"%";markDirty();syncWasmShadow();}});
+  $("neuron-bias").addEventListener("input",event=>{const n=currentNeuron();if(n){n.bias=Number(event.target.value)/100;$("bias-value").textContent=event.target.value+"%";markDirty();}});
+  $("neuron-bias").addEventListener("change",()=>syncWasmShadow());
   $("search-input").addEventListener("input",event=>{searchTerm=event.target.value.trim().toLowerCase();nodesDirty=true;visualDirty=true;const found=neurons.find(n=>n.name.toLowerCase().includes(searchTerm));if(searchTerm&&found){selectNeuron(found.id);const p=screenAt(found);zoomAt(1.1,p.x,p.y);}});
   document.addEventListener("keydown",event=>{
     if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();saveState();}
