@@ -52,6 +52,8 @@
   let tagTrace = Object.create(null);
   // Graph statistics are expensive to rebuild; keep the UI projection until memory data changes.
   let knowledgeGraphStatsCache = null;
+  let knowledgeGraphStatsDirty = true;
+  function invalidateKnowledgeGraphStats() { knowledgeGraphStatsDirty = true; }
   let libraryOpen = false;
   let libraryLimit = 20;
   let libraryFilter = "";
@@ -938,6 +940,7 @@
       if(isAnswerFragment) {
         memory.claims=[];
         changed=true;
+        invalidateKnowledgeGraphStats();
       }
     }
     return changed;
@@ -2241,6 +2244,7 @@
       memories = [];
       console.warn("Could not load NEUROGENESIS memories:", error);
     }
+    invalidateKnowledgeGraphStats();
     try {
       const savedDialog = JSON.parse(localStorage.getItem(DIALOG_KEY) || "[]");
       dialog = Array.isArray(savedDialog)
@@ -2344,7 +2348,7 @@
     catch (error) { console.warn("NEUROGENESIS research-goal update failed:",error); return null; }
   }
   function persist(options = {}) {
-    updateCount(true);
+    updateCount();
     // Keep archived hypothesis states aligned with current evidence and inquiry status
     // before any persistence path serializes the reasoning archive.
     refreshHypothesisLifecycleArchive();
@@ -2408,7 +2412,7 @@
       return false;
     }
   }
-  function updateCount(refreshKnowledgeGraph = false) {
+  function updateCount() {
     const el = $("memory-count");
     if (el) el.textContent = memories.length + " / " + MAX_MEMORIES + " ЗАПИСЕЙ";
     const manage = $("memory-manage");
@@ -2416,12 +2420,14 @@
     const knowledgeCount = $("knowledge-count");
     if (!knowledgeCount || !KNOWLEDGE) return;
     if (KNOWLEDGE_GRAPH) {
-      if (refreshKnowledgeGraph || !knowledgeGraphStatsCache) {
+      if (knowledgeGraphStatsDirty || !knowledgeGraphStatsCache) {
         try {
           const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
           knowledgeGraphStatsCache = graph && graph.stats ? { ...graph.stats } : null;
+          knowledgeGraphStatsDirty = !knowledgeGraphStatsCache;
         } catch (error) {
           knowledgeGraphStatsCache = null;
+          knowledgeGraphStatsDirty = true;
           console.warn("NEUROGENESIS knowledge graph summary failed:", error);
         }
       }
@@ -3086,6 +3092,7 @@
         if(note)inquiryResponseNotes.push(note);
       }
     }
+    if (saved || repeated) invalidateKnowledgeGraphStats();
     rebuildTagTraceIndex();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]));
     const ok = persist();
@@ -3423,6 +3430,7 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
+    invalidateKnowledgeGraphStats();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     persist();
@@ -3443,6 +3451,7 @@
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
     item.claims = claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:item.id}:claim);
+    invalidateKnowledgeGraphStats();
     ensureClaimTraces(item.claims);
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
@@ -3470,6 +3479,7 @@
     }
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
+    invalidateKnowledgeGraphStats();
     modelDecisions = [];
     modelEvidence = [];
     inquiries = [];
@@ -3808,6 +3818,7 @@
       ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
     ].filter(id => id && !snapshot.traceIds.has(id)));
     memories = snapshot.memories;
+    invalidateKnowledgeGraphStats();
     dialog = snapshot.dialog;
     dialogContext = snapshot.dialogContext;
     modelDecisions = snapshot.modelDecisions;
@@ -3838,7 +3849,7 @@
     }
     try { releaseUnusedTraces([...transientTraceIds]); }
     catch (error) { console.warn("NEUROGENESIS import rollback could not clean temporary neuron traces:", error); }
-    try { renderLibrary(); renderDialog(); updateCount(true); }
+    try { renderLibrary(); renderDialog(); updateCount(); }
     catch (error) { console.warn("NEUROGENESIS import rollback could not refresh the interface:", error); }
     return storageRestored;
   }
@@ -3922,6 +3933,7 @@
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
       clearLegacyInquiryFragmentClaims();
+      if (imported || duplicates) invalidateKnowledgeGraphStats();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
