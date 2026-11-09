@@ -139,6 +139,37 @@ const multiBase={version:1,type:"derived_hypotheses",createdAt:15000,conclusions
     [causal("m1","Недосыпание","Результат")],[causal("m2","Стресс","Результат")]
   ]}],reviews:[],modelHistory:[]};
 const multiCreated=engine.reconcile(multiBase,[],[],[],15000);
+const counterForFirstRoute={id:"route-counter-1",kind:"observation",subject:"Недосыпание",
+  predicate:"наблюдение",object:"Результат",polarity:false,status:"current",
+  evidence:"Результат не наблюдался"};
+const firstRouteReview={claimId:"route-counter-1",kind:"counterexample",phase:"subsequent",
+  subject:"Недосыпание",object:"Результат",edgeSubject:"Недосыпание",edgeObject:"Результат",
+  at:15500,evidence:"Результат не наблюдался"};
+const partiallyChallenged=engine.reconcile({...multiCreated.meta,reviews:[firstRouteReview]},
+  [counterForFirstRoute],[],[],16000);
+const partialLifecycle=partiallyChallenged.meta.conclusions[0].lifecycle;
+assert.equal(partialLifecycle.state,"partially_challenged",
+  "a counterexample on one of two alternative routes must not invalidate the whole hypothesis");
+assert.equal(partialLifecycle.routeReviews.length,2,
+  "the lifecycle must retain an independent assessment for each alternative route");
+assert.equal(partialLifecycle.routeReviews[0].state,"challenged");
+assert.equal(partialLifecycle.routeReviews[1].state,"new",
+  "an untouched alternative route must remain separately visible");
+assert.ok(partialLifecycle.routeReviews[0].challengingClaimIds.includes("route-counter-1"));
+assert.equal(partialLifecycle.challengingClaimIds.length,1,
+  "the aggregate evidence list must point to the exact challenged source record");
+const counterForSecondRoute={...counterForFirstRoute,id:"route-counter-2",subject:"Стресс",
+  evidence:"При стрессе результат не наблюдался"};
+const secondRouteReview={...firstRouteReview,claimId:"route-counter-2",subject:"Стресс",
+  edgeSubject:"Стресс",evidence:"При стрессе результат не наблюдался",at:16500};
+const allRoutesChallenged=engine.reconcile({
+  ...partiallyChallenged.meta,reviews:[firstRouteReview,secondRouteReview]
+},[counterForFirstRoute,counterForSecondRoute],[],[],17000);
+assert.equal(allRoutesChallenged.meta.conclusions[0].lifecycle.state,"challenged",
+  "the whole hypothesis may be marked challenged only when every alternative route has a counterexample");
+assert.ok(allRoutesChallenged.meta.conclusions[0].lifecycle.routeReviews.every(item=>item.state==="challenged"),
+  "all alternative routes must expose their own challenged status");
+
 const multiSuspended=engine.reconcile(multiCreated.meta,[],[
   {edgeSubject:"Недосыпание",edgeObject:"Результат",strategy:"suspend",at:16000},
   {edgeSubject:"Стресс",edgeObject:"Результат",strategy:"conditional",at:17000}
