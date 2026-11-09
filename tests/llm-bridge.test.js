@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 
 const window = {};
-const sandbox = { window, Date, Math, Map, Set, JSON };
+const sandbox = { window, Date, Math, Map, Set, JSON, URL: globalThis.URL };
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 const bridge = window.NGLLMBridge;
 const context = {
