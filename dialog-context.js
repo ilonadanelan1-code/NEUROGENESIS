@@ -126,6 +126,8 @@
       const text = clean(message.text);
       if (!text) return state;
       const time = Math.max(0, Number(message.time) || Date.now());
+      if (role === "user" && !returnTarget(text) && state.lastDecision &&
+          ["unresolved_return","ambiguous_return"].includes(state.lastDecision.kind)) state.lastDecision = null;
       let thread = activeThread(state);
       let relation = role === "assistant" ? "assistant_reply" : "continuation";
       if (role === "user") {
