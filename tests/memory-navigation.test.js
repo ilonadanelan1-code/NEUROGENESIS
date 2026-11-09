@@ -1087,4 +1087,35 @@ assert.match(feed.children[feed.children.length-1].textContent,/КОГНИТИВ
   "the user should be able to inspect the latest completed cycle from the chat");
 
 
-console.log("NEUROGENESIS cognitive-cycle, model-evolution, research-strategy, review-readiness, evidence-gate, experience-reconciliation, event-chronology and archive-sanitization tests: passed.");
+
+// Attention is distributed by relevance plus memory salience, and uncertainty is explicit.
+window.NGMemory.ask("Почему обезвоживание может приводить к усталости?");
+const causalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+const attentionRows=window.NGMemory.attentionSelection("усталость");
+assert.ok(attentionRows.length>0,"attention should retrieve memories relevant to a topic");
+assert.ok(attentionRows[0].score>=attentionRows[0].relevance*0.45,
+  "attention should combine semantic relevance with salience rather than rely on raw text match alone");
+assert.ok(attentionRows[0].reasons.length>0,
+  "attention should explain why a memory was selected");
+assert.ok(causalCycle.attentionDetails.length>0,
+  "a completed cycle should persist the selected attention targets");
+assert.ok(["low","medium","high"].includes(causalCycle.uncertainty.level),
+  "a completed cycle should classify uncertainty");
+assert.ok(causalCycle.uncertainty.supportIndex>=0&&causalCycle.uncertainty.supportIndex<=100,
+  "the support index must remain within its stated heuristic range");
+assert.ok(causalCycle.uncertainty.reasons.some(reason=>/наблюден|независим/u.test(reason)),
+  "causal reasoning should disclose the absence of observations or independent evidence");
+assert.ok(causalCycle.focus===null||causalCycle.focus.score>=0,
+  "the cognitive cycle should expose the selected next research focus when one exists");
+const expandedReport=window.NGMemory.cognitiveCycleReport(1);
+assert.match(expandedReport,/НЕОПРЕДЕЛЁННОСТЬ/u);
+assert.match(expandedReport,/РАСПРЕДЕЛЕНИЕ ВНИМАНИЯ/u);
+const researchFocus=window.NGMemory.nextResearchFocus("обезвоживание усталость");
+assert.ok(researchFocus,"the queue should rank an open research question");
+assert.ok(researchFocus.score>=0&&researchFocus.score<=1,
+  "research focus ranking should be a normalized score, not a probability");
+assert.ok(researchFocus.reasons.length>0,
+  "the selected research question should explain its priority");
+
+
+console.log("NEUROGENESIS attention-ranking, uncertainty-assessment, research-focus, cognitive-cycle and reasoning regression tests: passed.");

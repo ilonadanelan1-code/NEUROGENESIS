@@ -1148,11 +1148,8 @@
       return "ПЛАН ИССЛЕДОВАНИЯ\n\nСейчас нет открытых исследовательских вопросов. Если в памяти появились новые наблюдения, сначала обнови очередь командой «Найди пробелы в знаниях». Полученные ответы можно посмотреть командой «Оцени ответы на вопросы».";
     }
     const baseWeight={contrast_observations:90,clarify_counterexample:72,missing_observation:54};
-    const candidates=refreshed.open.map(item=>{
-      const impact=researchImpactForInquiry(item);
-      const impactBonus=Math.min(3,Math.max(0,impact-1))*8;
-      return {item,impact,score:(baseWeight[item.kind]||40)+impactBonus};
-    }).sort((a,b)=>b.score-a.score||a.item.priority-b.item.priority||a.item.createdAt-b.item.createdAt);
+    const ranked=rankOpenInquiries();
+    const candidates=ranked.map(row=>({item:row.item,impact:row.impact,score:Math.round(row.score*100),reasons:row.reasons}));
     const selected=candidates[0],item=selected.item;
     const kindReason={
       contrast_observations:"Для одного и того же звена сохранены наблюдения с разными результатами. Сначала нужно проверить, были ли случаи сопоставимы.",
@@ -1163,7 +1160,7 @@
     answer+="ЦЕЛЬ\nУточнить звено «"+item.edgeSubject+" → "+item.edgeObject+"», не выдавая рабочую гипотезу за установленный факт.\n\n";
     answer+="ПОЧЕМУ ВЫБРАН ИМЕННО ЭТОТ ШАГ\n"+kindReason+"\n";
     answer+="Затрагивает разных сохранённых выводов: "+selected.impact+". ";
-    answer+="Эвристический приоритет: "+selected.score+" баллов (тип вопроса и охват выводов; это не вероятность истинности связи).\n\n";
+    answer+="Эвристический рейтинг внимания: "+selected.score+"/100. Основания: "+(selected.reasons||[]).join("; ")+". Это приоритет работы, а не вероятность истинности связи.\n\n";
     answer+="СЛЕДУЮЩИЙ ВОПРОС · "+item.id+"\n"+item.question+"\n\n";
     const readiness=reviewReadinessForEdge(item.edgeSubject,item.edgeObject);
     answer+="ТЕКУЩАЯ ГОТОВНОСТЬ К ПЕРЕСМОТРУ\n"+readiness.label+".\n";
@@ -1188,7 +1185,8 @@
   function researchGapsAnswer() {
     const r=refreshInquiryQueue();
     if(!r.open.length)return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых открытых вопросов не получилось сформировать. Возможно, в архиве пока нет подходящих причинных выводов или найденные вопросы уже получили ответы.\n\nОчередь доступна командой «Какие вопросы открыты?».";
-    return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых вопросов: "+r.added+". Открыто: "+r.open.length+". Уже получили ответ: "+r.answered.length+".\n\nПриоритет отражает наличие противоречий и пробелов, а не вероятность истинности гипотез.\n\n"+presentInquiry(r.open[0]);
+    const focus=nextResearchFocus();
+    return "ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН\n\nНовых вопросов: "+r.added+". Открыто: "+r.open.length+". Уже получили ответ: "+r.answered.length+".\n\nВыбранный вопрос ранжирован по типу пробела, влиянию на другие выводы и истории внимания; рейтинг не является вероятностью истинности.\n\n"+presentInquiry(focus?focus.item:r.open[0]);
   }
   function inquiryOverviewAnswer() {
     refreshInquiryQueue();
@@ -2177,6 +2175,25 @@
       intent:typeof raw.intent==="string"?raw.intent.slice(0,48):"general",
       status:["complete","partial","error"].includes(raw.status)?raw.status:"partial",
       phases,
+      attentionDetails:Array.isArray(raw.attentionDetails)?raw.attentionDetails.slice(0,8).map(item=>({
+        memoryId:typeof item.memoryId==="string"?item.memoryId.slice(0,100):"",
+        score:Math.max(0,Math.min(1,Number(item.score)||0)),
+        relevance:Math.max(0,Math.min(1,Number(item.relevance)||0)),
+        reasons:Array.isArray(item.reasons)?item.reasons.filter(x=>typeof x==="string").slice(0,4).map(x=>x.slice(0,100)):[]
+      })):[],
+      uncertainty:{
+        level:["low","medium","high"].includes(raw.uncertainty&&raw.uncertainty.level)?raw.uncertainty.level:"medium",
+        supportIndex:Math.max(0,Math.min(100,Math.round(Number(raw.uncertainty&&raw.uncertainty.supportIndex)||0))),
+        reasons:Array.isArray(raw.uncertainty&&raw.uncertainty.reasons)?raw.uncertainty.reasons.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,160)):["для старого цикла оценка ещё не сохранялась"],
+        evidenceCount:Math.max(0,Number(raw.uncertainty&&raw.uncertainty.evidenceCount)||0),
+        conflictCount:Math.max(0,Number(raw.uncertainty&&raw.uncertainty.conflictCount)||0),
+        independentSources:Math.max(0,Number(raw.uncertainty&&raw.uncertainty.independentSources)||0)
+      },
+      focus:raw.focus&&typeof raw.focus==="object"?{
+        inquiryId:typeof raw.focus.inquiryId==="string"?raw.focus.inquiryId.slice(0,24):"",
+        score:Math.max(0,Math.min(100,Math.round(Number(raw.focus.score)||0))),
+        reasons:Array.isArray(raw.focus.reasons)?raw.focus.reasons.filter(x=>typeof x==="string").slice(0,4).map(x=>x.slice(0,120)):[]
+      }:null,
       metrics:{
         inputTokens:Math.max(0,Number(raw.metrics&&raw.metrics.inputTokens)||0),
         parsedClaims:Math.max(0,Number(raw.metrics&&raw.metrics.parsedClaims)||0),
@@ -2188,7 +2205,10 @@
         claimCount:Math.max(0,Number(raw.metrics&&raw.metrics.claimCount)||0),
         conflictCount:Math.max(0,Number(raw.metrics&&raw.metrics.conflictCount)||0),
         openQuestions:Math.max(0,Number(raw.metrics&&raw.metrics.openQuestions)||0),
-        newQuestions:Math.max(0,Number(raw.metrics&&raw.metrics.newQuestions)||0)
+        newQuestions:Math.max(0,Number(raw.metrics&&raw.metrics.newQuestions)||0),
+        attentionTopScore:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.attentionTopScore)||0))),
+        supportIndex:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.supportIndex)||0))),
+        researchFocusScore:Math.max(0,Math.min(100,Math.round(Number(raw.metrics&&raw.metrics.researchFocusScore)||0)))
       },
       memoryIds:Array.isArray(raw.memoryIds)?raw.memoryIds.filter(x=>typeof x==="string").slice(0,8):[],
       claimIds:Array.isArray(raw.claimIds)?raw.claimIds.filter(x=>typeof x==="string").slice(0,12):[]
@@ -2211,11 +2231,101 @@
     if(/что ты знаешь|расскажи/u.test(q))return "knowledge_query";
     return "general_question";
   }
+  function attentionSelection(query) {
+    const candidates=memories.map(item=>({
+      item,match:matchMemory(query,item),strength:Math.max(0,Math.min(1,Number(item.strength)||0.6)),
+      repetitions:Math.max(1,Number(item.repetitions)||1),updatedAt:Number(item.updatedAt)||Number(item.createdAt)||0
+    })).filter(row=>row.match.score>=0.035).sort((a,b)=>b.match.score-a.match.score).slice(0,24);
+    const candidateClaims=candidates.flatMap(row=>row.item.claims||[]).slice(0,180);
+    const conflicts=KNOWLEDGE&&KNOWLEDGE.findConflicts?KNOWLEDGE.findConflicts(candidateClaims):[];
+    const conflictedIds=new Set(conflicts.flatMap(item=>[item.left&&item.left.id,item.right&&item.right.id]).filter(Boolean));
+    const kindValue={observation:0.15,causal:0.11,rule:0.10,hypothesis:0.08,relationship:0.07,
+      preference:0.06,fact:0.06,identity:0.05,definition:0.04,opinion:0.03};
+    const now=Date.now();
+    return candidates.map(row=>{
+      const claims=row.item.claims||[];
+      const evidenceValue=Math.min(1,Math.max(0,...claims.map(claim=>
+        (kindValue[claim.kind]||0.02)+(claim.kind==="observation"&&claim.polarity===false?0.04:0))));
+      const conflictCount=claims.filter(claim=>claim.id&&conflictedIds.has(claim.id)).length;
+      const recurrence=Math.min(1,Math.log2(1+row.repetitions)/Math.log2(9));
+      const ageDays=row.updatedAt?Math.max(0,(now-row.updatedAt)/86400000):365;
+      const recency=1/(1+ageDays/30),relevance=Math.max(0,Math.min(1,row.match.score));
+      const score=Math.max(0,Math.min(1,relevance*0.56+row.strength*0.10+recurrence*0.06+
+        recency*0.04+evidenceValue*0.12+(conflictCount?0.12:0)));
+      const reasons=[];
+      if(row.match.directHits)reasons.push("прямое совпадение");
+      if(row.match.associativeHits)reasons.push("ассоциативное совпадение");
+      if(conflictCount)reasons.push("содержит утверждения с возможным конфликтом");
+      if(claims.some(claim=>claim.kind==="observation"))reasons.push("содержит карточку наблюдения");
+      if(claims.some(claim=>claim.kind==="causal"||claim.kind==="rule"))reasons.push("связано с причинной моделью");
+      if(row.repetitions>1)reasons.push("повторно использовалось");
+      if(recency>0.75)reasons.push("недавно обновлялось");
+      return {item:row.item,score,relevance,directHits:row.match.directHits,
+        associativeHits:row.match.associativeHits,conflictCount,reasons:reasons.slice(0,4)};
+    }).sort((a,b)=>b.score-a.score||b.relevance-a.relevance).slice(0,8);
+  }
+  function rankOpenInquiries(query="",focusClaimIds=[]) {
+    const open=inquiries.filter(item=>item.status==="open");
+    if(!open.length)return [];
+    const focusIds=new Set((Array.isArray(focusClaimIds)?focusClaimIds:[]).filter(Boolean));
+    const claimsById=new Map(memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&claim.id).map(claim=>[claim.id,claim]));
+    const kindValue={duplicate_observation:1,contrast_observations:0.96,clarify_counterexample:0.84,missing_observation:0.66};
+    const queryText=String(query||"").trim();
+    return open.map(item=>{
+      const linked=(item.sourceClaimIds||[]).map(id=>claimsById.get(id)).filter(Boolean);
+      const searchText=[item.question,item.reason,item.edgeSubject,item.edgeObject,...linked.map(claim=>claim.evidence)].join(" ");
+      const relevance=queryText&&KNOWLEDGE&&KNOWLEDGE.semanticMatch
+        ?KNOWLEDGE.semanticMatch(queryText,searchText).score:0;
+      const priority=item.priority<=-1?1:item.priority===0?0.9:item.priority===1?0.78:0.62;
+      const impact=typeof researchImpactForInquiry==="function"?researchImpactForInquiry(item):0;
+      const impactScore=Math.min(1,Math.max(0,impact-1)/4);
+      const overlap=linked.length?linked.filter(claim=>focusIds.has(claim.id)).length/linked.length:0;
+      const fairness=item.lastAskedAt?Math.min(1,Math.max(0,(Date.now()-item.lastAskedAt)/3600000)):1;
+      const kind=kindValue[item.kind]||0.55;
+      const score=Math.max(0,Math.min(1,kind*0.26+priority*0.18+impactScore*0.18+
+        relevance*0.22+overlap*0.10+fairness*0.06));
+      const reasons=[];
+      if(item.kind==="duplicate_observation")reasons.push("нужно установить идентичность событий");
+      else if(item.kind==="contrast_observations")reasons.push("есть противоположные наблюдения");
+      else if(item.kind==="clarify_counterexample")reasons.push("есть потенциальный контрпример");
+      else reasons.push("не хватает прямых наблюдений");
+      if(impact>1)reasons.push("затрагивает несколько сохранённых выводов");
+      if(relevance>0.08)reasons.push("связан с текущей темой");
+      if(overlap>0)reasons.push("затрагивает новые сведения");
+      if(fairness>0.85)reasons.push("давно не задавался");
+      return {item,score,relevance,impact,reasons:reasons.slice(0,4)};
+    }).sort((a,b)=>b.score-a.score||a.item.createdAt-b.item.createdAt);
+  }
+  function nextResearchFocus(query="",focusClaimIds=[]) {
+    return rankOpenInquiries(query,focusClaimIds)[0]||null;
+  }
+  function assessCognitiveUncertainty(answer,intent,claims,conflicts,attentionCount,mode) {
+    const text=String(answer||""),relevant=Array.isArray(claims)?claims:[];
+    const conflictCount=Array.isArray(conflicts)?conflicts.length:0,reasons=[];
+    let supportIndex=88;
+    const noMatch=/не наш[её]л|не найдено|нет достаточно близкой информации|память пока пуста/u.test(text);
+    const cautious=/возможн|потенциальн|непроверенн|гипотез|предполож/u.test(text);
+    const sensitive=["causal_reasoning","hypothesis_reasoning","research_planning","model_revision","research_gap_scan"].includes(intent);
+    const observations=relevant.filter(claim=>claim.kind==="observation").length;
+    const independentSources=new Set(relevant.map(claim=>claim.independentSourceId||claim.sourceRef).filter(Boolean)).size;
+    if(noMatch){supportIndex-=55;reasons.push("подходящие сведения в памяти не найдены");}
+    if(!attentionCount&&mode==="ask"&&!noMatch){supportIndex-=12;reasons.push("внимание не нашло связанных воспоминаний");}
+    if(conflictCount){supportIndex-=Math.min(36,18+conflictCount*6);reasons.push("в связанных утверждениях обнаружены противоречия");}
+    if(cautious){supportIndex-=10;reasons.push("ответ содержит предварительные или гипотетические выводы");}
+    if(sensitive&&!observations){supportIndex-=22;reasons.push("нет прямых карточек наблюдений для проверки");}
+    if(sensitive&&relevant.length&&independentSources===0){
+      supportIndex-=8;reasons.push("используются пользовательские записи без независимых внешних источников");
+    }
+    if(!reasons.length)reasons.push("прямых препятствий в выбранных данных не обнаружено");
+    supportIndex=Math.max(0,Math.min(100,Math.round(supportIndex)));
+    return {level:supportIndex>=75?"low":supportIndex>=45?"medium":"high",supportIndex,
+      reasons:[...new Set(reasons)].slice(0,6),evidenceCount:relevant.length,conflictCount,independentSources};
+  }
+
   function beginCognitiveCycle(mode,raw) {
     const input=String(raw||"").trim().slice(0,MAX_TEXT);
     const parsed=mode==="remember"&&KNOWLEDGE?KNOWLEDGE.extractClaims(input):[];
-    const attention=memories.map(item=>({item,score:scoreMemory(input,item)}))
-      .filter(hit=>hit.score>=0.08).sort((a,b)=>b.score-a.score).slice(0,8);
+    const attention=attentionSelection(input);
     const before=new Map(memories.map(item=>[item.id,{
       strength:Number(item.strength)||0,
       repetitions:Number(item.repetitions)||1,
@@ -2282,31 +2392,28 @@
     }).map(item=>item.id);
     const newQuestionIds=inquiries.filter(item=>!context.beforeInquiryIds.has(item.id)).map(item=>item.id);
     const knowledgeSummary=KNOWLEDGE&&KNOWLEDGE.summary?KNOWLEDGE.summary(allClaims):{total:allClaims.length};
-    const uncertainty=[];
-    if(/не провер|не могу подтверд|независим.*источник|не является доказательств/u.test(answer))uncertainty.push("нет независимой проверки");
-    if(/недостаточно|не хватает данных|пока нет|не удалось найти|не наш/u.test(answer))uncertainty.push("недостаточно данных");
-    if(/возможн|потенциальн|гипотез|предполож/u.test(answer))uncertainty.push("вывод предварительный");
-    if(relevantConflicts.length)uncertainty.push("обнаружены возможные противоречия");
-    const sourceKinds=[...new Set([...selectedClaims,...newClaims].map(claim=>claim.source||"unknown"))];
+    const uncertainty=assessCognitiveUncertainty(answer,context.intent,claimsToCheck,relevantConflicts,context.attention.length,context.mode);
+    const focus=nextResearchFocus(context.input,newClaims.map(claim=>claim.id));
     const reasoningKind=cognitiveReasoningKind(context.intent,answer,context.mode);
     const phase=(name,status,summary)=>({name,status,summary});
     const phases=[
       phase("perception","complete",
         "Вход распознан; токенов: "+context.inputTokens+"; выделено структурных утверждений: "+context.parsedClaims.length+"."),
       phase("attention",context.attention.length?"complete":"limited",
-        "Отобрано релевантных воспоминаний: "+context.attention.length+"; верхний список ограничен восемью записями."),
+        "Оценены релевантность, сила следа, повторяемость, недавность, тип знания и конфликты; отобрано: "+context.attention.length+" записей."),
       phase("memory",successful?"complete":"limited",
         context.mode==="remember"
           ?"Память: "+context.beforeMemoryCount+" → "+memories.length+"; новых записей: "+newMemoryIds.length+"; обновлено: "+updatedMemoryIds.length+"."
           :"Извлечение завершено; релевантных записей: "+selectedMemoryIds.length+"."),
       phase("reasoning",answer?"complete":"limited",
         "Тип обработки: "+reasoningKind+". Использован встроенный набор правил, а не языковая модель."),
-      phase("verification",relevantConflicts.length||uncertainty.length?"limited":"complete",
-        "Проверено связанных утверждений: "+claimsToCheck.length+"; конфликты: "+relevantConflicts.length+
-          "; независимые внешние источники: 0; "+(uncertainty.length?uncertainty.join(", "):"ограничения отмечены в происхождении данных")+"."),
+      phase("verification",relevantConflicts.length||uncertainty.level!=="low"?"limited":"complete",
+        "Проверено связанных утверждений: "+claimsToCheck.length+"; конфликтов: "+relevantConflicts.length+
+          "; индекс опоры на сохранённые данные: "+uncertainty.supportIndex+"/100 (не вероятность); независимых источников: "+uncertainty.independentSources+"."),
       phase("learning",successful?"complete":"limited",
-        "Изменены следы памяти: "+updatedMemoryIds.length+"; новые исследовательские вопросы: "+newQuestionIds.length+
-          "; обновление причинных решений автоматически не выполнялось."),
+        "Изменены следы памяти: "+updatedMemoryIds.length+"; новых вопросов: "+newQuestionIds.length+
+          "; следующий фокус: "+(focus?focus.item.id:"пока не определён")+
+          "; решения причинной модели автоматически не менялись."),
       phase("model_update",successful?"complete":"limited",
         "Состояние: "+memories.length+" записей, "+knowledgeSummary.total+" структурных утверждений, "+
           currentModelDecisions().length+" решений модели, "+openInquiries().length+" открытых вопросов.")
@@ -2319,8 +2426,13 @@
         inputTokens:context.inputTokens,parsedClaims:context.parsedClaims.length,attentionMatches:context.attention.length,
         memoryBefore:context.beforeMemoryCount,memoryAfter:memories.length,memoryAdded:newMemoryIds.length,
         memoryUpdated:updatedMemoryIds.length,claimCount:allClaims.length,conflictCount:relevantConflicts.length,
-        openQuestions:openInquiries().length,newQuestions:newQuestionIds.length
+        openQuestions:openInquiries().length,newQuestions:newQuestionIds.length,
+        attentionTopScore:context.attention.length?Math.round(context.attention[0].score*100):0,
+        supportIndex:uncertainty.supportIndex,researchFocusScore:focus?Math.round(focus.score*100):0
       },
+      attentionDetails:context.attention.map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
+      uncertainty,
+      focus:focus?{inquiryId:focus.item.id,score:Math.round(focus.score*100),reasons:focus.reasons}:null,
       memoryIds:[...new Set([...selectedMemoryIds,...newMemoryIds,...updatedMemoryIds])].slice(0,8),
       claimIds:[...new Set([...newClaims.map(claim=>claim.id),...selectedClaims.map(claim=>claim.id)].filter(Boolean))].slice(0,12)
     };
@@ -2357,8 +2469,17 @@
         "Состояние: "+cycle.status,
         ...cycle.phases.map(item=>(labels[item.name]||item.name)+" ["+item.status+"]: "+item.summary),
         "Метрики: память "+cycle.metrics.memoryAfter+"/"+MAX_MEMORIES+
-          " · знаний "+cycle.metrics.claimCount+" · релевантных записей "+cycle.metrics.attentionMatches+
-          " · новых вопросов "+cycle.metrics.newQuestions];
+          " · знаний "+cycle.metrics.claimCount+" · записей внимания "+cycle.metrics.attentionMatches+
+          " · новых вопросов "+cycle.metrics.newQuestions,
+        "НЕОПРЕДЕЛЁННОСТЬ: "+({low:"низкая",medium:"средняя",high:"высокая"})[cycle.uncertainty.level]+
+          " · индекс опоры "+cycle.uncertainty.supportIndex+"/100 (эвристика, не вероятность).",
+        ...cycle.uncertainty.reasons.map(reason=>"• "+reason),
+        cycle.focus?"СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: "+cycle.focus.inquiryId+
+          " · рейтинг "+cycle.focus.score+"/100 · "+cycle.focus.reasons.join("; "):
+          "СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: пока нет открытого вопроса.",
+        ...(cycle.attentionDetails.length?["РАСПРЕДЕЛЕНИЕ ВНИМАНИЯ:",
+          ...cycle.attentionDetails.slice(0,5).map((item,index)=>(index+1)+". "+item.memoryId+
+            " · значимость "+Math.round(item.score*100)+"/100 · "+item.reasons.join("; "))]:[])];
       return lines.join("\n");
     }).join("\n\n──────────\n\n");
   }
@@ -2506,7 +2627,7 @@
       say("assistant",researchGapsAnswer());setFeedback("САМОИССЛЕДОВАНИЕ · ПОИСК ПРОБЕЛОВ");return;
     }
     if(/^(?:задай мне вопрос|задай следующий вопрос|следующий исследовательский вопрос|какой вопрос ты хочешь мне задать|что тебе нужно уточнить)$/u.test(lower)) {
-      const r=refreshInquiryQueue();say("assistant",presentInquiry(r.open[0]));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ДЛЯ УТОЧНЕНИЯ");return;
+      const r=refreshInquiryQueue();const focus=nextResearchFocus(query);say("assistant",presentInquiry(focus?focus.item:r.open[0]));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ДЛЯ УТОЧНЕНИЯ");return;
     }
     if(/^(?:какие вопросы открыты|покажи исследовательские вопросы|что ты хочешь узнать|покажи очередь вопросов)$/u.test(lower)) {
       say("assistant",inquiryOverviewAnswer());setFeedback("ИССЛЕДОВАНИЕ · ОЧЕРЕДЬ ВОПРОСОВ");return;
@@ -3208,7 +3329,9 @@
      reconcileExperience: () => experienceReconciliationAnswer(),
     summary: () => KNOWLEDGE ? KNOWLEDGE.summary(memories.flatMap(item => item.claims || [])) : {total:0},
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
-    cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit)
+    cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
+    attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
+    nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; }
 
   };
 })();
