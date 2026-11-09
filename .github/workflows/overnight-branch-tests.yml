@@ -54,6 +54,9 @@ jobs:
           console.log('App assets and memory UI references are valid.');
           NODE
 
+      - name: Check startup asset and DOM contracts
+        run: node tests/startup-contract.test.js
+
       - name: Build and test C++ core
         run: |
           cmake -S engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
