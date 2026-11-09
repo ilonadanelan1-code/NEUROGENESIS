@@ -49,7 +49,8 @@ const memories = [{
     {id:"o1",kind:"observation",subject:"Недостаток сна",object:"усталость",eventRef:"event-a"},
     {id:"o2",kind:"observation",subject:"Недостаток сна",object:"усталость",eventRef:"event-b"},
     {id:"o3",kind:"observation",subject:"сон",object:"усталость"},
-    {id:"o4",kind:"observation",subject:"сон",object:"усталость",observationCase:{eventRef:""}}
+    {id:"o4",kind:"observation",subject:"сон",object:"усталость",observationCase:{eventRef:""}},
+    {id:"o5",kind:"observation",subject:"сон",object:"усталость",polarity:false}
   ]
 }];
 const focus = {item:{id:"Q1"},score:.82,reasons:["влияние на другие выводы"]};
@@ -82,6 +83,9 @@ const q6 = rows.find(item => item.inquiryId === "Q6");
 assert.equal(q6.status,"active");
 assert.equal(q6.eventCount,0,"missing eventRef must not be counted as a distinct event");
 assert.equal(q6.unknownEventCount,2);
+assert.equal(q6.observationCount,2,"duplicate goals must count only the explicitly compared cards");
+assert.equal(q6.evidenceClaimIds.includes("o5"),false,
+  "an unrelated opposite observation for the same edge must not leak into a duplicate-card task");
 assert.match(q6.nextAction,/один эпизод.*разные эпизоды/u);
 assert.match(q6.blockers.join(" "),/нельзя определить/u);
 assert.match(window.NGGoals.report(),/явных eventRef/u);

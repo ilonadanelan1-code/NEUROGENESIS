@@ -101,7 +101,9 @@
       for (const claim of Array.isArray(memory.claims) ? memory.claims : []) {
         if (!claim || typeof claim.id !== "string") continue;
         const linkedById = wanted.has(claim.id);
-        const matchingObservation = claim.kind === "observation" &&
+        // Duplicate checks compare only the cards named by the inquiry.
+        const matchingObservation = inquiry.kind !== "duplicate_observation" &&
+          claim.kind === "observation" &&
           sameEntity(claim.subject, inquiry.edgeSubject) && sameEntity(claim.object, inquiry.edgeObject);
         if (!linkedById && !matchingObservation) continue;
         evidence.set(claim.id, claim);
