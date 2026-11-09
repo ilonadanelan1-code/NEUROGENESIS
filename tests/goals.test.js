@@ -370,4 +370,34 @@ assert.ok(comparisonGoal.evidenceClaimIds.includes("route-stress-after"),
 assert.equal(comparisonGoal.assessment,"gap_confirmed",
   "fresh route evidence must not silently rewrite the historical answer assessment");
 
+// A manually resumed question is active until it is actually presented again.
+// Its previous ask timestamp remains intact for historical inspection.
+const resumedGoalWindow = { NGKnowledge: window.NGKnowledge };
+const resumedGoalSandbox = {
+  window: resumedGoalWindow, localStorage: reevaluationStorage,
+  console, Date, Math, Set, Map, JSON
+};
+vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), resumedGoalSandbox, {
+  filename: "goals-resume.test.js"
+});
+const resumedAt = now + 1100000;
+const resumedInquiry = {
+  id:"Q11",kind:"missing_observation",edgeSubject:"сон",edgeObject:"восстановлению",
+  question:"Есть ли наблюдение?",status:"open",sourceClaimIds:[],
+  createdAt:resumedAt-5000,updatedAt:resumedAt,
+  lastAskedAt:resumedAt-3000,lastResumedAt:resumedAt-1000,resumeCount:1
+};
+resumedGoalWindow.NGGoals.reconcile({inquiries:[resumedInquiry],memories:[],now:resumedAt+100});
+let resumedGoal = resumedGoalWindow.NGGoals.list().find(row=>row.inquiryId==="Q11");
+assert.equal(resumedGoal.status,"active",
+  "a resumed inquiry must be active again until it is asked for a new response");
+assert.match(resumedGoal.nextAction,/повторно задать Q11/u,
+  "a resumed goal must tell the system to present the question again");
+resumedInquiry.lastAskedAt = resumedAt+200;
+resumedInquiry.updatedAt = resumedAt+200;
+resumedGoalWindow.NGGoals.reconcile({inquiries:[resumedInquiry],memories:[],now:resumedAt+300});
+resumedGoal = resumedGoalWindow.NGGoals.list().find(row=>row.inquiryId==="Q11");
+assert.equal(resumedGoal.status,"waiting_user",
+  "after it is presented again, the resumed inquiry must wait for the user");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");
