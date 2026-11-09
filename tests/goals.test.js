@@ -319,4 +319,55 @@ assert.match(reevaluationWindow.NGGoals.report(),/после последней 
 assert.equal(reevaluationInquiries[0].assessment,"gap_confirmed",
   "goal reconciliation must not mutate the source inquiry");
 
+// A discriminating inquiry must watch observations on both alternative routes.
+// New evidence on the second route must reopen the blocked goal for reassessment.
+const comparisonGoalWindow = { NGKnowledge: window.NGKnowledge };
+const comparisonGoalSandbox = {
+  window: comparisonGoalWindow, localStorage: reevaluationStorage,
+  console, Date, Math, Set, Map, JSON
+};
+vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), comparisonGoalSandbox, {
+  filename: "goals-discriminating-routes.test.js"
+});
+const comparisonAssessmentAt = now + 900000;
+comparisonGoalWindow.NGGoals.reconcile({
+  inquiries:[{
+    id:"Q10",kind:"discriminating_observations",edgeSubject:"Недосып",
+    edgeObject:"снижению концентрации",
+    comparisonEdges:[
+      {subject:"Недосып",object:"снижению концентрации"},
+      {subject:"Стресс",object:"снижению концентрации"}
+    ],
+    question:"Сопоставить два альтернативных маршрута",status:"answered",
+    assessment:"gap_confirmed",assessmentReason:"На момент ответа прямых наблюдений для сравнения не было.",
+    sourceClaimIds:["route-sleep-cause","route-stress-cause"],
+    createdAt:comparisonAssessmentAt-2000,updatedAt:comparisonAssessmentAt,
+    lastAskedAt:comparisonAssessmentAt-1000,answeredAt:comparisonAssessmentAt,
+    assessmentAt:comparisonAssessmentAt
+  }],
+  memories:[{id:"comparison-route-memory",createdAt:comparisonAssessmentAt-1000,claims:[
+    {id:"route-sleep-cause",kind:"causal",subject:"Недосып",object:"снижению концентрации",
+      createdAt:comparisonAssessmentAt-1000},
+    {id:"route-stress-cause",kind:"causal",subject:"Стресс",object:"снижению концентрации",
+      createdAt:comparisonAssessmentAt-1000},
+    {id:"route-sleep-before",kind:"observation",subject:"Недосып",object:"снижению концентрации",
+      createdAt:comparisonAssessmentAt-100},
+    {id:"route-stress-after",kind:"observation",subject:"Стресс",object:"снижению концентрации",
+      createdAt:comparisonAssessmentAt+100}
+  ]}],
+  now:comparisonAssessmentAt+1000
+});
+const comparisonGoal = comparisonGoalWindow.NGGoals.list().find(row=>row.inquiryId==="Q10");
+assert.ok(comparisonGoal);
+assert.equal(comparisonGoal.status,"review",
+  "fresh evidence on either comparison route must move a blocked discriminating goal to review");
+assert.equal(comparisonGoal.observationCount,2,
+  "a discriminating goal must include observations from both compared route edges");
+assert.equal(comparisonGoal.observationsAfterAssessment,1,
+  "an observation on the alternative route must count against the original assessment time");
+assert.ok(comparisonGoal.evidenceClaimIds.includes("route-stress-after"),
+  "the alternative route's new observation must retain its exact source claim link");
+assert.equal(comparisonGoal.assessment,"gap_confirmed",
+  "fresh route evidence must not silently rewrite the historical answer assessment");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");
