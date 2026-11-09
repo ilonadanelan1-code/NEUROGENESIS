@@ -1,4 +1,5 @@
 #include "neuro_core.hpp"
+#include "neuro_wasm.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -56,6 +57,44 @@ int main() {
             "valid time steps must preserve finite source activation");
     require(std::isfinite(brain.find_neuron(output)->activation),
             "valid time steps must preserve finite target activation");
+
+    ng_brain_handle* api_brain = ng_brain_create();
+    require(api_brain != nullptr, "C ABI must allocate an independent brain handle");
+
+    const auto api_input = ng_brain_add_neuron(
+        api_brain, "input", static_cast<int>(NeuronKind::Sensory), 1.0f, 2.0f, 0.8f);
+    const auto api_output = ng_brain_add_neuron(
+        api_brain, "output", static_cast<int>(NeuronKind::Output), 3.0f, 4.0f, 0.75f);
+    require(api_input > 0 && api_output > api_input, "C ABI must return stable neuron IDs");
+    require(ng_brain_add_synapse(api_brain, api_input, api_output, 0.5f) == 1,
+            "C ABI must expose synapse creation");
+    require(ng_brain_stimulate(api_brain, api_input, 0.4f) == 1,
+            "C ABI must expose neuron stimulation");
+    ng_brain_step(api_brain, 0.1f);
+
+    require(ng_brain_neuron_count(api_brain) == 2,
+            "C ABI must expose the neuron count");
+    require(ng_brain_synapse_count(api_brain) == 1,
+            "C ABI must expose the synapse count");
+    require(ng_brain_neuron_id_at(api_brain, 0) == api_input,
+            "C ABI neuron indices must preserve insertion order");
+    require(ng_brain_neuron_kind_at(api_brain, 0) == static_cast<int>(NeuronKind::Sensory),
+            "C ABI must preserve the neuron kind");
+    require(ng_brain_neuron_activation_at(api_brain, 0) > 0.33f &&
+            ng_brain_neuron_activation_at(api_brain, 0) < 0.34f,
+            "C ABI must expose the updated source activation");
+    require(ng_brain_neuron_activation_at(api_brain, 1) > 0.14f &&
+            ng_brain_neuron_activation_at(api_brain, 1) < 0.16f,
+            "C ABI must expose propagated target activation");
+    require(ng_brain_synapse_signal_at(api_brain, 0) > 0.19f,
+            "C ABI must expose propagated synaptic signal");
+    require(ng_brain_neuron_id_at(api_brain, 99) == 0,
+            "invalid C ABI indices must return a safe sentinel");
+    require(std::isnan(ng_brain_neuron_activation_at(api_brain, 99)),
+            "invalid C ABI float reads must return NaN");
+    require(ng_brain_neuron_count(nullptr) == 0,
+            "null C ABI handles must be safe to inspect");
+    ng_brain_destroy(api_brain);
 
     std::cout << "NEUROGENESIS C++ core: finite-input guards passed.\n";
     return EXIT_SUCCESS;
