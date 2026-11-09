@@ -384,7 +384,7 @@
         return candidate.map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,
           subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
       }).filter(path=>path&&path.length):[];
-      const lifecycle=HYPOTHESIS_LIFECYCLE&&typeof HYPOTHESIS_LIFECYCLE.create==="function"
+      const lifecycle=KNOWLEDGE&&HYPOTHESIS_LIFECYCLE&&typeof HYPOTHESIS_LIFECYCLE.create==="function"
         ?HYPOTHESIS_LIFECYCLE.create(KNOWLEDGE).sanitize(item.lifecycle):null;
       return paths.length?{subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths,lifecycle}:null;
     }).filter(Boolean);
