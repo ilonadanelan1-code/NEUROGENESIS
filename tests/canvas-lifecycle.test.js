@@ -40,6 +40,17 @@ assert.match(lifecycle, /canvasResizeObserver\.observe\(canvas\)/u,
 assert.match(lifecycle, /window\.addEventListener\("resize", handleCanvasResize\)/u,
   "the legacy window-resize fallback must remain available");
 
+const observerLifecycle = lifecycle.slice(
+  lifecycle.indexOf("  function connectCanvasResizeObserver()"),
+  lifecycle.indexOf("  function suspendRendering()")
+);
+assert.match(observerLifecycle, /try\s*\{[\s\S]*?observer\.observe\(canvas\)/u,
+  "a browser with a broken ResizeObserver implementation must fall back instead of crashing");
+assert.match(observerLifecycle, /catch\s*\(error\)[\s\S]*?canvasResizeObserver\s*=\s*null/u,
+  "a failed observer must not leave a stale observer reference");
+assert.match(observerLifecycle, /observer\.disconnect\(\)/u,
+  "a partially initialized observer must be disconnected after observe() fails");
+
 const frameStart = app.indexOf("  function frame(time) {");
 const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);
 assert.notEqual(frameStart, -1, "the canvas frame loop must exist");
