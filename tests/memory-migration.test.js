@@ -367,12 +367,14 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const importInput=document.getElementById("memory-import-file");
   const importTime=1794159000000;
   const validImportedEdge={id:"valid-import-edge",subject:"Недостаток сна",object:"снижению концентрации"};
+  const observationReviewEdge={id:"observation-review-edge",subject:"Недосып",object:"снижению концентрации"};
   const reportedEvidenceEdge={id:"reported-evidence-edge",subject:"Усталость",object:"снижению концентрации",
     evidence:"По данным исследования, усталость приводит к снижению концентрации"};
   const importedReasoning={
     version:1,type:"derived_hypotheses",createdAt:importTime,status:"current",
     conclusions:[
       {subject:"Недостаток сна",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Недосып",object:"снижению концентрации",paths:[[observationReviewEdge]]},
       {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
       {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
     ],
@@ -423,7 +425,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
     inquiries:[{
       id:"Q810",signature:"import-lifecycle-persistence-test",kind:"missing_observation",
-      edgeSubject:"Недостаток сна",edgeObject:"снижению концентрации",
+      edgeSubject:"Недосып",edgeObject:"снижению концентрации",
       question:"Есть ли отдельное наблюдение для этой связи?",
       reason:"Проверка синхронизации статуса гипотезы.",priority:1,status:"open",
       sourceClaimIds:["valid-import-causal"],createdAt:importTime+50,updatedAt:importTime+50
@@ -449,7 +451,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   await importInput.dispatch("change");
   const storedLifecycleAfterImport = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
     .find(item=>item.time===importTime).reasoning.conclusions
-    .find(item=>item.subject==="Недостаток сна").lifecycle;
+    .find(item=>item.subject==="Недосып").lifecycle;
   assert.ok(storedLifecycleAfterImport,
     "the archive lifecycle must be synchronized during import persistence, without opening its report");
   assert.equal(storedLifecycleAfterImport.state,"under_review",
@@ -459,7 +461,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     .find(item=>item.id==="Q810");
   const storedLifecycleAfterSkip = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
     .find(item=>item.time===importTime).reasoning.conclusions
-    .find(item=>item.subject==="Недостаток сна").lifecycle;
+    .find(item=>item.subject==="Недосып").lifecycle;
   assert.equal(storedInquiryAfterSkip.status,"skipped",
     "the inquiry command must update the persisted inquiry status");
   assert.equal(storedLifecycleAfterSkip.state,"new",
@@ -467,6 +469,29 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(storedLifecycleAfterSkip.events.some(item=>item.kind==="state_changed"&&
     item.fromState==="under_review"&&item.toState==="new"),
     "the lifecycle event history must persist the inquiry-driven state transition");
+  const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
+  const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
+  assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
+    parsedNegativeObservation.polarity===false,
+    "the integration input must be parsed as a direct counter-observation");
+  assert.equal(window.NGMemory.remember(negativeObservationText),true,
+    "the direct counter-observation must pass through the real memory-write pipeline");
+  const storedObservationMemory=JSON.parse(database.get("neurogenesis.memories.v1"))
+    .flatMap(item=>item.claims||[]).find(item=>item.id===parsedNegativeObservation.id);
+  assert.ok(storedObservationMemory,
+    "the counter-observation source claim must be saved in durable memory");
+  const storedLifecycleAfterObservation=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.equal(storedLifecycleAfterObservation.state,"challenged",
+    "a new matching counter-observation must immediately move the archived hypothesis to challenged");
+  assert.ok(storedLifecycleAfterObservation.challengingClaimIds.includes(parsedNegativeObservation.id),
+    "the challenged state must point to the exact counter-observation source claim");
+  assert.ok(storedLifecycleAfterObservation.events.some(item=>item.kind==="evidence_added"&&
+    item.claimId===parsedNegativeObservation.id),
+    "the lifecycle event log must record the counter-observation");
+  assert.equal(window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="Недосып"),false,
+    "a counter-observation must not silently change the working-model decision");
   const importedCycles=window.NGMemory.cognitiveCycles();
   assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
     "backup import must retain the cognitive-cycle history already stored on this device");
@@ -494,7 +519,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const importedRows=window.NGMemory.reasoningHistory();
   const importedArchiveRow=importedRows.find(item=>item.time===importTime);
   assert.ok(importedArchiveRow);
-  assert.deepEqual(importedArchiveRow.conclusions.map(item=>item.subject),["Недостаток сна"],
+  assert.deepEqual(importedArchiveRow.conclusions.map(item=>item.subject),["Недостаток сна","Недосып"],
     "backup import must preserve valid conclusions while excluding malformed conclusion subjects");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="conclusion"&&item.subject==="В отчёте говорится, что усталость"),
     "the malformed conclusion must be retained as an excluded archive path");
