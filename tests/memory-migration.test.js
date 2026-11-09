@@ -421,7 +421,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
             criterion:{status:"provided",value:"по шкале концентрации"},
             outcome:{status:"provided",value:"4/10"}
           }},
-        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Недосып",predicate:"сопровождался",
+        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Недосып",predicate:"сопровождалось",
           object:"снижению концентрации",evidence:"После короткого сна концентрация снизилась",
           polarity:true,createdAt:importTime+4,observationCase:{
             context:{status:"provided",value:"после короткого сна"},
