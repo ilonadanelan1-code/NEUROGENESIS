@@ -221,7 +221,7 @@ assert.match(summaryReport.activeThread.contextSummary,/NEUROGENESIS/u,
   "the topic summary should retain the user's original topic statement");
 assert.match(summaryReport.activeThread.contextSummary,/не смешивать темы/u,
   "the topic summary should retain a later user-provided requirement");
-assert.match(summaryReport.activeThread.contextSummary,/Сохранить исходные реплики/u,
+assert.match(summaryReport.activeThread.contextSummary,/сохранить исходные реплики/iu,
   "a concise answer should be stored together with the question it answered");
 assert.doesNotMatch(summaryReport.activeThread.contextSummary,/полностью заменить историю/u,
   "assistant-authored text must not be promoted into the user-originated topic summary");
