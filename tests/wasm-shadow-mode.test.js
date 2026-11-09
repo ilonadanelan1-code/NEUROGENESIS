@@ -7,9 +7,10 @@ const app = fs.readFileSync("app.js", "utf8");
 const adapter = fs.readFileSync("neuro-wasm-adapter.js", "utf8");
 const experience = fs.readFileSync("experience-quality.js", "utf8");
 const benchmark = fs.readFileSync("experience-benchmark.js", "utf8");
+const contrastive = fs.readFileSync("contrastive-benchmark.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.36", "the shadow runtime release must have a distinct asset version");
+assert.equal(version, "0.58.37", "the shadow runtime release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -19,8 +20,9 @@ assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("expe
   "the experience manager must load after the WASM adapter");
 assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("experience-benchmark.js"),
   "the benchmark must load after the episode manager");
-assert.ok(normalized.indexOf("experience-benchmark.js") < normalized.indexOf("app.js"),
-  "the benchmark must exist before app startup");
+assert.ok(normalized.indexOf("experience-benchmark.js") < normalized.indexOf("contrastive-benchmark.js"));
+assert.ok(normalized.indexOf("contrastive-benchmark.js") < normalized.indexOf("app.js"),
+  "the contrastive benchmark must exist before app startup");
 assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("app.js"),
   "the experience manager must exist before app startup");
 assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("app.js"),
@@ -61,11 +63,17 @@ assert.match(benchmark, /function trainDensePattern\(fixture, label\)/u);
 assert.match(benchmark, /function runSharedPathInterference\(runtime\)/u);
 assert.match(benchmark, /positiveRewardStrengthensOffTargetPaths/u);
 assert.match(benchmark, /nonTargetOutputsRemainActive/u);
+assert.match(contrastive, /function trainEpisode\(fixture, label, repetition\)/u);
+assert.match(contrastive, /learnContrastiveReward\(LEARNING_RATE, input, target, other\)/u);
+assert.match(contrastive, /bothCrossWeightsDecrease/u);
+assert.match(adapter, /function learnContrastiveReward\(learningRate = 0\.05, inputSourceId, positiveSourceId, negativeSourceId\)/u);
+assert.match(app, /wasmLearnContrastiveReward\(learningRate, inputNeuronId, positiveNeuronId, negativeNeuronId\)/u);
+
 assert.match(app, /report\.sharedPathInterference\.orders\.AB/u);
-assert.match(html, /Проверить подкрепление, ассоциации и конкуренцию/u);
+assert.match(html, /Проверить контрастное обучение и конкуренцию/u);
 assert.match(app, /report\.multiPattern\.orders\.AB/u);
 assert.match(app, /report\.multiPattern\.orders\.BA/u);
-assert.match(html, /Проверить подкрепление, ассоциации и конкуренцию/u);
+assert.match(html, /Проверить контрастное обучение и конкуренцию/u);
 
 assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);
