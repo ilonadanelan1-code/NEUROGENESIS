@@ -4,6 +4,7 @@
   const MEMORY_KEY = "neurogenesis.memories.v1";
   const DIALOG_KEY = "neurogenesis.dialog.v1";
   const DIALOG_CONTEXT_KEY = "neurogenesis.dialog-context.v1";
+  const LLM_CONFIG_KEY = "neurogenesis.llm-config.v1";
   const MODEL_DECISIONS_KEY = "neurogenesis.model-decisions.v1";
   const MODEL_EVIDENCE_KEY = "neurogenesis.model-evidence.v1";
   const REASONING_ARCHIVE_KEY = "neurogenesis.reasoning-archive.v1";
@@ -30,6 +31,10 @@
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
+  let llmConfig = null;
+  let llmHttpAdapter = null;
+  let llmVerified = false;
+  let llmModelName = "";
   let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
@@ -52,6 +57,77 @@
   let libraryListScrollTop = 0;
   let allowDiscardOnMemoryBack = false;
 
+  function readLLMConfig() {
+    try {
+      const raw = localStorage.getItem(LLM_CONFIG_KEY);
+      const value = raw ? JSON.parse(raw) : null;
+      if (value && typeof value.endpoint === "string" && typeof value.clientToken === "string" &&
+          value.endpoint.trim() && value.clientToken.trim()) return { endpoint:value.endpoint.trim(), clientToken:value.clientToken.trim() };
+    } catch (error) { console.warn("NEUROGENESIS LLM configuration could not be loaded:", error); }
+    return null;
+  }
+  function updateLLMConnectionUI(message) {
+    const status = $("llm-connection-status");
+    const endpoint = $("llm-endpoint");
+    const token = $("llm-client-token");
+    if (endpoint && llmConfig && endpoint.value !== llmConfig.endpoint) endpoint.value = llmConfig.endpoint;
+    if (token && llmConfig && !token.value) token.value = llmConfig.clientToken;
+    if (status) {
+      status.textContent = message || (llmVerified ? "ШЛЮЗ ДОСТУПЕН · " + (llmModelName || "МОДЕЛЬ ГОТОВА") :
+        llmConfig ? "НАСТРОЙКИ СОХРАНЕНЫ · НЕ ПРОВЕРЕНО" : "НЕ ПОДКЛЮЧЕНО");
+      status.dataset.state = llmVerified ? "online" : llmConfig ? "configured" : "offline";
+    }
+  }
+  function configureLLM(raw, save = true) {
+    if (!LLM_BRIDGE || !LLM_GATEWAY || typeof LLM_BRIDGE.createHttpAdapter !== "function") {
+      throw new Error("HTTP-адаптер языковой модели недоступен.");
+    }
+    const config = {
+      endpoint: String(raw && raw.endpoint || "").trim(),
+      clientToken: String(raw && raw.clientToken || "").trim()
+    };
+    const adapter = LLM_BRIDGE.createHttpAdapter(config);
+    const status = LLM_GATEWAY.status();
+    if (status.providers.includes("worker-proxy")) LLM_GATEWAY.unregister("worker-proxy");
+    LLM_GATEWAY.register("worker-proxy", adapter);
+    llmConfig = config;
+    llmHttpAdapter = adapter;
+    llmVerified = false;
+    llmModelName = "";
+    if (save) localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(config));
+    updateLLMConnectionUI();
+    return { configured:true, endpoint:config.endpoint };
+  }
+  async function testLLMConnection() {
+    if (!llmHttpAdapter) throw new Error("Сначала укажи адрес и ключ доступа к шлюзу.");
+    updateLLMConnectionUI("ПРОВЕРЯЮ СОЕДИНЕНИЕ…");
+    try {
+      const result = await llmHttpAdapter.health();
+      llmVerified = true;
+      llmModelName = result.model || "OpenAI-compatible";
+      updateLLMConnectionUI();
+      return result;
+    } catch (error) {
+      llmVerified = false;
+      updateLLMConnectionUI("ОШИБКА СОЕДИНЕНИЯ");
+      throw error;
+    }
+  }
+  function clearLLMConfig() {
+    if (LLM_GATEWAY && LLM_GATEWAY.status().providers.includes("worker-proxy")) LLM_GATEWAY.unregister("worker-proxy");
+    llmConfig = null;
+    llmHttpAdapter = null;
+    llmVerified = false;
+    llmModelName = "";
+    try { localStorage.removeItem(LLM_CONFIG_KEY); } catch (_) {
+      try { localStorage.setItem(LLM_CONFIG_KEY, ""); } catch (error) { console.warn("LLM settings could not be cleared:", error); }
+    }
+    const endpoint = $("llm-endpoint"), token = $("llm-client-token");
+    if (endpoint) endpoint.value = "";
+    if (token) token.value = "";
+    updateLLMConnectionUI();
+    return true;
+  }
   function normalise(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/g, "е")
       .replace(/[^a-zа-я0-9]+/giu, " ").trim().replace(/\s+/g, " ");
@@ -3381,12 +3457,65 @@
     }
   }
 
-  function submit(action) {
+  function prepareLLMRequestCore(query) {
+    if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
+    const report = DIALOG_CONTEXT.report(dialogContext);
+    const history = DIALOG_CONTEXT.history(dialogContext, report.activeThread && report.activeThread.id, 10);
+    const resolution = DIALOG_CONTEXT.resolve(dialogContext, query);
+    const evidenceQuery = resolution.applied && resolution.query ? resolution.query : query;
+    const evidence = memories.map(item => ({ item, score:scoreMemory(evidenceQuery, item) }))
+      .filter(row => row.score >= 0.1).sort((a, b) => b.score - a.score).slice(0, 8)
+      .map(row => ({ id:row.item.id, text:row.item.text, kind:"memory", status:"user_supplied" }));
+    return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history }, evidence);
+  }
+  async function askWithLLM(query) {
+    if (!LLM_GATEWAY || !llmHttpAdapter) {
+      say("assistant", "Языковая модель ещё не подключена. Сначала настрой серверный шлюз в блоке «ЯЗЫКОВАЯ МОДЕЛЬ» ниже поля ввода.");
+      setFeedback("LLM OFFLINE · НУЖНО НАСТРОИТЬ СЕРВЕРНЫЙ ШЛЮЗ");
+      return false;
+    }
+    const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
+    const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : { applied:false, query };
+    const plan = DIALOG_MANAGER ? DIALOG_MANAGER.plan(query, { ...(report || {}), resolution }) : null;
+    if (plan && plan.needsClarification) {
+      say("assistant", plan.clarification);
+      setFeedback("ДИАЛОГ · УТОЧНЕНИЕ ПЕРЕД ВЫЗОВОМ МОДЕЛИ");
+      return false;
+    }
+    try {
+      if (!llmVerified) await testLLMConnection();
+      const request = prepareLLMRequestCore(query);
+      if (!request) throw new Error("Не удалось подготовить контекст диалога.");
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТПРАВЛЯЮ КОНТЕКСТ…");
+      const answer = await LLM_GATEWAY.generate(request);
+      say("assistant", answer);
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА");
+      return true;
+    } catch (error) {
+      const message = String(error && error.message || error).slice(0, 240);
+      say("assistant", "Не удалось получить ответ языковой модели. " + message);
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОШИБКА ПОДКЛЮЧЕНИЯ");
+      return false;
+    }
+  }
+  function loadLLMConfiguration() {
+    const saved = readLLMConfig();
+    if (!saved) { updateLLMConnectionUI(); return; }
+    try { configureLLM(saved, false); }
+    catch (error) {
+      llmConfig = null;
+      llmHttpAdapter = null;
+      updateLLMConnectionUI("СОХРАНЁННЫЕ НАСТРОЙКИ НЕКОРРЕКТНЫ");
+      console.warn("NEUROGENESIS LLM configuration is invalid:", error);
+    }
+  }
+  async function submit(action) {
     const input = $("memory-input");
     const value = input ? input.value.trim() : "";
     if (!value) { setFeedback("Сначала введи текст."); return; }
     say("user", value);
     if (action === "remember") rememberText(value);
+    else if (action === "llm") await askWithLLM(value);
     else askMemory(value);
     input.value = "";
     input.focus();
@@ -3394,9 +3523,11 @@
 
   const rememberButton = $("remember-button");
   const askButton = $("ask-button");
+  const llmAskButton = $("llm-ask-button");
   const memoryInput = $("memory-input");
   if (rememberButton) rememberButton.addEventListener("click", () => submit("remember"));
   if (askButton) askButton.addEventListener("click", () => submit("ask"));
+  if (llmAskButton) llmAskButton.addEventListener("click", () => submit("llm"));
   if (memoryInput) memoryInput.addEventListener("keydown", event => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -3508,11 +3639,30 @@
   const clearButton = $("memory-clear");
   if (clearButton) clearButton.addEventListener("click", clearMemory);
 
+  const llmSaveButton = $("llm-save-config");
+  const llmClearButton = $("llm-clear-config");
+  if (llmSaveButton) llmSaveButton.addEventListener("click", async () => {
+    const endpoint = $("llm-endpoint"), token = $("llm-client-token");
+    try {
+      configureLLM({ endpoint:endpoint && endpoint.value, clientToken:token && token.value }, true);
+      await testLLMConnection();
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ШЛЮЗ ПРОВЕРЕН");
+    } catch (error) {
+      setFeedback("НАСТРОЙКИ НЕ ПРОВЕРЕНЫ · " + String(error && error.message || error).slice(0, 180));
+      updateLLMConnectionUI("ПРОВЕРКА НЕ ПРОШЛА");
+    }
+  });
+  if (llmClearButton) llmClearButton.addEventListener("click", () => {
+    clearLLMConfig();
+    setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ПОДКЛЮЧЕНИЕ ОТКЛЮЧЕНО");
+  });
+
   load();
   syncResearchGoals();
   updateCount();
   renderDialog();
   renderLibrary();
+  loadLLMConfiguration();
   setFeedback("ЛОКАЛЬНАЯ ПАМЯТЬ · ДАННЫЕ ОСТАЮТСЯ В ЭТОМ БРАУЗЕРЕ");
   window.NGMemory = {
     count: () => memories.length,
@@ -3529,16 +3679,12 @@
       const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query};
       return DIALOG_MANAGER.plan(query,{...(report || {}),resolution});
     },
-    llmStatus: () => LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]},
-    prepareLLMRequest: query => {
-      if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
-      const report = DIALOG_CONTEXT.report(dialogContext);
-      const history = DIALOG_CONTEXT.history(dialogContext,report.activeThread&&report.activeThread.id,10);
-      const evidence = memories.map(item=>({item,score:scoreMemory(query,item)}))
-        .filter(row=>row.score>=0.1).sort((a,b)=>b.score-a.score).slice(0,8)
-        .map(row=>({id:row.item.id,text:row.item.text,kind:"memory",status:"user_supplied"}));
-      return LLM_BRIDGE.buildRequest(query,{activeThread:report.activeThread,recentMessages:history},evidence);
-    },
+    llmStatus: () => ({ ...(LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]}), configured:!!llmConfig, verified:llmVerified, model:llmModelName || null }),
+    configureLLM: config => configureLLM(config, true),
+    testLLMConnection: () => testLLMConnection(),
+    clearLLMConfig: () => clearLLMConfig(),
+    askLLM: query => askWithLLM(String(query || "")),
+    prepareLLMRequest: query => prepareLLMRequestCore(String(query || "")),
     claims: () => memories.flatMap(item => item.claims || []),
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
