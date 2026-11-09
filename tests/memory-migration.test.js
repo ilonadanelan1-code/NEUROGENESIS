@@ -201,7 +201,8 @@ const window = {
 };
 const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
-  setItem(key, value) { database.set(key, String(value)); }
+  setItem(key, value) { database.set(key, String(value)); },
+  removeItem(key) { database.delete(key); }
 };
 const sandbox = {
   window, document, localStorage, console, Date, Math, Set, Map, JSON,
