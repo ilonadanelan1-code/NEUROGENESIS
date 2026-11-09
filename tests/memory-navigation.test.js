@@ -1012,6 +1012,10 @@ assert.equal(window.NGMemory.observationCases().filter(item=>item.polarity&&
   window.NGKnowledge.sameEntity(item.subject,"Недостатке сна")&&
   window.NGKnowledge.sameEntity(item.object,"усталости")&&!item.details.eventRef).length,0,
   "cleanMemory must not create orphan observations when the source cards already carry explicit event identity");
+assert.equal(window.NGMemory.claims().filter(item=>item.kind==="observation"&&item.polarity&&
+  window.NGKnowledge.sameEntity(item.subject,"Недостатке сна")&&
+  window.NGKnowledge.sameEntity(item.object,"усталости")&&!item.observationCase.eventRef).length,0,
+  "resolving a duplicate group must remove the unlabelled parser clones from the stored source memories too");
 assert.equal(sameEventDossier.possibleDuplicateGroups,0);
 assert.equal(sameEventDossier.explicitDuplicateGroups,1);
 assert.equal(window.NGMemory.refreshInquiries().added,0,
