@@ -103,10 +103,14 @@
       return row;
     }
     function resolveReturn(state, target) {
-      const ranked = state.threads.map(thread => ({
-        thread,
-        score: Math.max(overlap(target, thread.title), overlap(target, thread.keywords.join(" ")))
-      })).filter(row => row.score >= 0.28).sort((a, b) => b.score - a.score);
+      const ranked = state.threads.map(thread => {
+        const transcript = state.messages.filter(message => message.threadId === thread.id).map(message => message.text).join(" ");
+        return {
+          thread,
+          score: Math.max(overlap(target, thread.title), overlap(target, thread.keywords.join(" ")),
+            overlap(target, transcript))
+        };
+      }).filter(row => row.score >= 0.28).sort((a, b) => b.score - a.score);
       if (!ranked.length) return { thread: null, ambiguous: false, candidates: [] };
       const tied = ranked.length > 1 && ranked[0].score - ranked[1].score < 0.12;
       return {
@@ -219,9 +223,12 @@
       const state = sanitize(rawState);
       const thread = activeThread(state);
       const raw = clean(input);
-      if (!thread || !raw || !isShortFollowUp(raw)) return {
-        query: raw, applied: false, reason: "no_confident_reference", threadId: thread && thread.id || "",
-        title: thread && thread.title || "", context: null
+      if (!thread || !raw || !isShortFollowUp(raw) ||
+          (state.lastDecision && ["unresolved_return","ambiguous_return"].includes(state.lastDecision.kind))) return {
+        query: raw, applied: false,
+        reason: state.lastDecision && ["unresolved_return","ambiguous_return"].includes(state.lastDecision.kind)
+          ? "unresolved_topic_reference" : "no_confident_reference",
+        threadId: thread && thread.id || "", title: thread && thread.title || "", context: null
       };
       const previous = state.messages.filter(row => row.threadId === thread.id &&
         !(row.role === "user" && row.text === raw)).slice(-6);
@@ -235,6 +242,7 @@
       };
       const pieces = [raw, "ТЕМА: " + context.title];
       if (context.lastUserText) pieces.push("ПРЕДЫДУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: " + clean(context.lastUserText, 260));
+      if (context.lastAssistantText) pieces.push("ПРЕДЫДУЩИЙ ОТВЕТ АССИСТЕНТА: " + clean(context.lastAssistantText, 260));
       if (context.pendingQuestion) pieces.push("ОТКРЫТЫЙ ВОПРОС: " + clean(context.pendingQuestion, 220));
       return {
         query: pieces.join(" · "), applied: true, reason: "short_or_referential_follow_up",
