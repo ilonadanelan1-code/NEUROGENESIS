@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <unordered_map>
 
 namespace neurogenesis {
 
@@ -47,16 +48,21 @@ void Brain::step(float delta_seconds) {
     if (dt <= 0.0f) return;
 
     std::vector<float> incoming(neurons_.size(), 0.0f);
+    std::unordered_map<std::uint32_t, std::size_t> neuron_index;
+    neuron_index.reserve(neurons_.size());
+    for (std::size_t i = 0; i < neurons_.size(); ++i) {
+        neuron_index.emplace(neurons_[i].id, i);
+    }
+
     for (auto& edge : synapses_) {
-        const auto source = std::find_if(neurons_.begin(), neurons_.end(),
-            [&edge](const Neuron& neuron) { return neuron.id == edge.from; });
-        const auto target = std::find_if(neurons_.begin(), neurons_.end(),
-            [&edge](const Neuron& neuron) { return neuron.id == edge.to; });
-        if (source == neurons_.end() || target == neurons_.end()) continue;
-        const auto index = static_cast<std::size_t>(std::distance(neurons_.begin(), target));
-        incoming[index] += source->activation * edge.weight;
+        const auto source = neuron_index.find(edge.from);
+        const auto target = neuron_index.find(edge.to);
+        if (source == neuron_index.end() || target == neuron_index.end()) continue;
+        const float source_activation = neurons_[source->second].activation;
+        const float transmitted = source_activation * edge.weight;
+        incoming[target->second] += transmitted;
         edge.signal = std::max(0.0f, edge.signal - dt * 2.0f);
-        edge.signal = std::max(edge.signal, source->activation * edge.weight);
+        edge.signal = std::max(edge.signal, transmitted);
     }
 
     for (std::size_t i = 0; i < neurons_.size(); ++i) {
