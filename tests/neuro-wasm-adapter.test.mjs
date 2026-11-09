@@ -41,12 +41,16 @@ try {
   assert.equal(second.id, output);
   assert.equal(second.kind, "output");
   assert.ok(second.activation > 0, "the signal should propagate through the native C++ core");
-  assert.deepEqual(edge, {
+  assert.deepEqual({
+    from: edge.from, to: edge.to, weight: edge.weight, signal: edge.signal
+  }, {
     from: sensory,
     to: output,
     weight: Math.fround(0.5),
     signal: Math.fround(0.2)
   });
+  assert.ok(edge.eligibility > 0 && edge.eligibility <= 1,
+    "the adapter must expose the eligibility trace accumulated during a simulation step");
   assert.equal(brain.getNeuronAt(99), null);
   assert.equal(brain.getSynapseAt(99), null);
 
@@ -58,6 +62,12 @@ try {
   assert.equal(brain.learn(0.5, 1, 0), 1,
     "the WebAssembly core must expose reward-modulated learning");
   assert.ok(brain.getSynapseAt(0).weight > directWeightBeforeLearning);
+  assert.ok(brain.getSynapseAt(0).eligibility > 0,
+    "immediate Hebbian learning must leave the sequence trace available");
+  assert.equal(brain.learnFromReward(0.5, 1, 0), 1,
+    "the adapter must expose delayed reward learning");
+  assert.equal(brain.getSynapseAt(0).eligibility, 0,
+    "applying delayed reward must consume the eligibility trace");
   assert.equal(brain.setSynapseWeight(sensory, output, 0.5), true,
     "the adapter must expose exact synapse-weight restoration");
   assert.equal(brain.getSynapseAt(0).weight, Math.fround(0.5));
@@ -100,6 +110,7 @@ try {
     stimulations: 0,
     rebuilds: 1,
     learningUpdates: 0,
+    sequenceRewards: 0,
     learnedSynapses: 0,
     lastError: null
   });
@@ -108,6 +119,8 @@ try {
   assert.equal(shadow.stimulate("missing-neuron", 0.2), false);
   assert.equal(shadow.step(0.1), true);
 
+  const traceBeforeLearning = shadow.snapshot().synapses[0].eligibility;
+  assert.ok(traceBeforeLearning > 0, "shadow steps must accumulate sequence eligibility");
   const sourceWeightBeforeLearning = shadow.snapshot().synapses[0].weight;
   assert.equal(shadow.learn(0.5, 1, 0), 1,
     "the shadow controller must expose controlled Hebbian learning");
@@ -139,6 +152,8 @@ try {
   assert.equal(shadow.diagnostics().synapses, 2);
   assert.ok(Math.abs(shadow.snapshot().synapses[0].weight - learnedWeight) < 1.0e-6,
     "learned weights must survive structural snapshot rebuilds");
+  assert.ok(Math.abs(shadow.snapshot().synapses[0].eligibility - traceBeforeLearning) < 1.0e-6,
+    "eligibility traces must survive rebuilds when the source edge remains unchanged");
 
   const exportedLearning = shadow.learnedWeights();
   assert.equal(shadow.restoreLearnedWeights(exportedLearning), true,
@@ -169,6 +184,13 @@ try {
   assert.equal(shadow.diagnostics().lastError, null);
   assert.ok(Math.abs(shadow.snapshot().synapses[0].weight - learnedWeight) < 1.0e-6,
     "a repaired snapshot must not discard a valid learned overlay");
+  const beforeSequenceReward = shadow.snapshot().synapses[0].weight;
+  assert.equal(shadow.learnFromReward(0.25, 1, 0), 1,
+    "the shadow controller must apply delayed reward to the retained sequence trace");
+  assert.ok(shadow.snapshot().synapses[0].weight > beforeSequenceReward);
+  assert.equal(shadow.snapshot().synapses[0].eligibility, 0);
+  assert.equal(shadow.diagnostics().sequenceRewards, 1);
+  assert.equal(shadow.resetEligibility(), true);
 } finally {
   shadow.dispose();
 }
@@ -183,6 +205,8 @@ assert.equal(await unavailable.start(), false);
 assert.equal(unavailable.diagnostics().state, "unavailable");
 assert.match(unavailable.diagnostics().lastError, /synthetic module load failure/u);
 assert.equal(unavailable.step(0.1), false);
+assert.equal(unavailable.learnFromReward(0.1, 1, 0), 0);
+assert.equal(unavailable.resetEligibility(), false);
 unavailable.dispose();
 
 console.log("NEUROGENESIS WebAssembly C++ core and JavaScript adapter: passed.");
