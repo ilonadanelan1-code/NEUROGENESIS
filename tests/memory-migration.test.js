@@ -421,6 +421,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       at:importTime+30,claimIds:["bad-import-claim"]}],
     modelEvidence:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",claimId:"bad-import-claim",
       kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
+    inquiries:[{
+      id:"Q810",signature:"import-lifecycle-persistence-test",kind:"missing_observation",
+      edgeSubject:"Недостаток сна",edgeObject:"снижению концентрации",
+      question:"Есть ли отдельное наблюдение для этой связи?",
+      reason:"Проверка синхронизации статуса гипотезы.",priority:1,status:"open",
+      sourceClaimIds:["valid-import-causal"],createdAt:importTime+50,updatedAt:importTime+50
+    }],
     cognitiveCycles:[{
       id:"C700",sequence:700,at:importTime+5000,mode:"remember",intent:"memory_write",status:"complete",
       phases:[{name:"perception",status:"complete",summary:"Импортированный цикл"}],
@@ -440,6 +447,26 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   };
   importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
   await importInput.dispatch("change");
+  const storedLifecycleAfterImport = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недостаток сна").lifecycle;
+  assert.ok(storedLifecycleAfterImport,
+    "the archive lifecycle must be synchronized during import persistence, without opening its report");
+  assert.equal(storedLifecycleAfterImport.state,"under_review",
+    "an imported open inquiry must immediately mark its matching hypothesis as under review");
+  window.NGMemory.ask("пропусти вопрос Q810");
+  const storedInquiryAfterSkip = JSON.parse(database.get("neurogenesis.inquiries.v1"))
+    .find(item=>item.id==="Q810");
+  const storedLifecycleAfterSkip = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недостаток сна").lifecycle;
+  assert.equal(storedInquiryAfterSkip.status,"skipped",
+    "the inquiry command must update the persisted inquiry status");
+  assert.equal(storedLifecycleAfterSkip.state,"new",
+    "the matching hypothesis state must leave under_review immediately after its only inquiry is skipped");
+  assert.ok(storedLifecycleAfterSkip.events.some(item=>item.kind==="state_changed"&&
+    item.fromState==="under_review"&&item.toState==="new"),
+    "the lifecycle event history must persist the inquiry-driven state transition");
   const importedCycles=window.NGMemory.cognitiveCycles();
   assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
     "backup import must retain the cognitive-cycle history already stored on this device");
