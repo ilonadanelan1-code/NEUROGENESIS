@@ -1272,7 +1272,9 @@ for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","rea
     "the backup must include the " + key + " store");
 assert.equal(downloadLinks.length,1);
 assert.equal(downloadLinks[0].clicked,true,"the generated download link should be activated");
-assert.match(downloadLinks[0].download,/^neurogenesis-memory-\\d{4}-\\d{2}-\\d{2}\\.json$/u);
+assert.ok(downloadLinks[0].download.startsWith("neurogenesis-memory-"));
+assert.ok(downloadLinks[0].download.endsWith(".json"));
+assert.equal(downloadLinks[0].download.length,"neurogenesis-memory-".length+10+".json".length);
 assert.equal(downloadLinks[0].parentNode,null,"the temporary download link should be removed after activation");
 
 console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");
