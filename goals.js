@@ -4,7 +4,118 @@
   const MAX_GOALS = 24;
   const STALE_AFTER = 30 * 24 * 60 * 60 * 1000;
   const STATUSES = ["active","waiting_user","blocked","review","paused","completed","stale"];
+  const STORAGE_TRANSACTION_KEY = "neurogenesis.storage-transaction.v1";
   let goals = [];
+
+  function createStorageTransaction() {
+    let depth = 0;
+    let staged = new Map();
+    let ready = true;
+    let lastError = "";
+    const clearKey = key => {
+      if (typeof localStorage.removeItem === "function") localStorage.removeItem(key);
+      else localStorage.setItem(key, "");
+    };
+    const clearJournal = () => clearKey(STORAGE_TRANSACTION_KEY);
+
+    function recover() {
+      let raw;
+      try { raw = localStorage.getItem(STORAGE_TRANSACTION_KEY); }
+      catch (error) {
+        ready = false; lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage recovery could not read its journal:", error);
+        return false;
+      }
+      if (!raw) { ready = true; lastError = ""; return true; }
+      let journal;
+      try { journal = JSON.parse(raw); }
+      catch (error) {
+        ready = false; lastError = "Повреждён журнал транзакции хранилища.";
+        console.warn("NEUROGENESIS storage recovery found an invalid journal:", error);
+        return false;
+      }
+      const rows = journal && journal.version === 1 && Array.isArray(journal.before) ? journal.before : null;
+      if (!rows || rows.some(row => !row || typeof row.key !== "string" ||
+          row.key === STORAGE_TRANSACTION_KEY || !(row.value === null || typeof row.value === "string"))) {
+        ready = false; lastError = "Некорректная структура журнала транзакции.";
+        console.warn("NEUROGENESIS storage recovery refused an invalid journal.");
+        return false;
+      }
+      try {
+        for (const row of rows) clearKey(row.key);
+        for (const row of rows) if (row.value !== null) localStorage.setItem(row.key, row.value);
+        clearJournal();
+        ready = true; lastError = "";
+        return true;
+      } catch (error) {
+        ready = false; lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage recovery is incomplete; its journal was retained:", error);
+        return false;
+      }
+    }
+
+    function run(entries) {
+      if (!ready && !recover()) return false;
+      const targets = new Map();
+      const changed = [];
+      try {
+        for (const row of Array.isArray(entries) ? entries : []) {
+          if (!row || typeof row.key !== "string" || !row.key || row.key === STORAGE_TRANSACTION_KEY)
+            throw new Error("Некорректный ключ транзакции.");
+          targets.set(row.key, String(row.value));
+        }
+        for (const [key, value] of targets) {
+          const previous = localStorage.getItem(key);
+          if (previous !== value) changed.push({ key, value: previous });
+        }
+        if (!changed.length) return true;
+        localStorage.setItem(STORAGE_TRANSACTION_KEY, JSON.stringify({ version: 1, before: changed }));
+        for (const row of changed) localStorage.setItem(row.key, targets.get(row.key));
+        clearJournal();
+        ready = true; lastError = "";
+        return true;
+      } catch (error) {
+        lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage transaction failed; restoring its before-image:", error);
+        try {
+          if (localStorage.getItem(STORAGE_TRANSACTION_KEY)) recover();
+          else ready = true;
+        } catch (recoveryError) {
+          ready = false; lastError += "; rollback: " + String(recoveryError && recoveryError.message || recoveryError);
+        }
+        return false;
+      }
+    }
+
+    function begin() {
+      if (depth === 0) {
+        if (!ready && !recover()) return false;
+        staged = new Map();
+      }
+      depth++;
+      return true;
+    }
+    function stage(key, value) {
+      if (typeof key !== "string" || !key || key === STORAGE_TRANSACTION_KEY) return false;
+      if (depth > 0) { staged.set(key, String(value)); return true; }
+      return run([{ key, value: String(value) }]);
+    }
+    function commit() {
+      if (depth <= 0) return false;
+      depth--;
+      if (depth > 0) return true;
+      const entries = [...staged].map(([key, value]) => ({ key, value }));
+      staged.clear();
+      return run(entries);
+    }
+    function abort() { depth = 0; staged.clear(); }
+    function status() { return { ready, active: depth > 0, pendingWrites: staged.size, error: lastError }; }
+    const api = Object.freeze({ version: 1, key: STORAGE_TRANSACTION_KEY, begin, stage, commit, abort, run, recover, status });
+    window.NGStorageTransaction = api;
+    recover();
+    return api;
+  }
+  createStorageTransaction();
   function safeTime(value, fallback) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -72,10 +183,15 @@
     return list();
   }
   function persist() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(goals.slice(-MAX_GOALS)));
-      return true;
-    } catch (error) {
+    const value = JSON.stringify(goals.slice(-MAX_GOALS));
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.stage === "function") {
+      const ok = transaction.stage(STORAGE_KEY, value);
+      if (!ok) console.warn("NEUROGENESIS research-goal storage transaction was rejected.");
+      return ok;
+    }
+    try { localStorage.setItem(STORAGE_KEY, value); return true; }
+    catch (error) {
       console.warn("NEUROGENESIS research-goal storage failed:", error);
       return false;
     }
@@ -323,7 +439,7 @@
   }
   function clear() {
     goals = [];
-    try { localStorage.removeItem(STORAGE_KEY); } catch (_) { persist(); }
+    persist();
     return snapshot();
   }
   load();
