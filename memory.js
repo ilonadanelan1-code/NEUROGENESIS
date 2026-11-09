@@ -151,6 +151,9 @@
         !["conditional","weaken","suspend","restore"].includes(raw.strategy)) return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
+    if(KNOWLEDGE&&typeof KNOWLEDGE.sanitizeClaims==="function"&&
+       KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edgeSubject,predicate:"приводит к",object:edgeObject,
+         evidence:typeof raw.evidence==="string"?raw.evidence:""}]).length!==1)return null;
     return {
       edgeSubject,edgeObject,strategy:raw.strategy,
       at:safeTime(raw.at,Date.now()),
@@ -309,14 +312,23 @@
       });
     }
   }
+  function archivedCausalExclusionReason(edge) {
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isValidCausalSubject==="function"&&
+       !KNOWLEDGE.isValidCausalSubject(edge&&edge.subject))return "malformed_causal_subject";
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function"&&
+       KNOWLEDGE.isReportedCausalStatement(edge&&edge.evidence||""))return "reported_causal_statement";
+    return "invalid_causal_edge";
+  }
   function isValidArchivedCausalEdge(edge) {
     if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string"||!edge.subject.trim()||!edge.object.trim())return false;
+    const evidence=typeof edge.evidence==="string"?edge.evidence:"";
     if(KNOWLEDGE&&typeof KNOWLEDGE.sanitizeClaims==="function") {
       return KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edge.subject,predicate:"приводит к",
-        object:edge.object,evidence:""}]).length===1;
+        object:edge.object,evidence}]).length===1;
     }
     return !/^(?:что|то\s+что)\s+/iu.test(edge.subject.trim())&&
-      !/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(edge.subject.trim());
+      !/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(edge.subject.trim())&&
+      !/^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено))/iu.test(normalise(evidence));
   }
   function cleanReasoning(raw) {
     if (!raw || typeof raw !== "object" || raw.version !== 1 ||
@@ -331,14 +343,14 @@
           subject:typeof edge.subject==="string"?edge.subject.slice(0,180):"",
           object:typeof edge.object==="string"?edge.object.slice(0,180):""
         })).filter(edge=>edge.subject&&edge.object):[],
-        reason:"malformed_causal_subject"};
+        reason:typeof item.reason==="string"&&item.reason.trim()?item.reason.slice(0,80):"malformed_causal_subject"};
     }).filter(Boolean):[];
     const excludedKeys=new Set(excludedPaths.map(item=>JSON.stringify(item)));
-    const recordExcludedPath=(origin,subject,object,path)=>{
+    const recordExcludedPath=(origin,subject,object,path,reason="malformed_causal_subject")=>{
       const row={origin,subject:String(subject||"").slice(0,180),object:String(object||"").slice(0,180),
         route:(Array.isArray(path)?path:[]).slice(0,3).map(edge=>({
           subject:String(edge&&edge.subject||"").slice(0,180),object:String(edge&&edge.object||"").slice(0,180)
-        })).filter(edge=>edge.subject&&edge.object),reason:"malformed_causal_subject"};
+        })).filter(edge=>edge.subject&&edge.object),reason:String(reason||"invalid_causal_edge").slice(0,80)};
       const key=JSON.stringify(row);
       if(row.subject&&row.object&&!excludedKeys.has(key)){excludedKeys.add(key);excludedPaths.push(row);}
     };
@@ -346,15 +358,17 @@
       if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
       if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
         const sourcePaths=Array.isArray(item.paths)?item.paths:[];
-        if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("conclusion",item.subject,item.object,path);
-        else recordExcludedPath("conclusion",item.subject,item.object,[]);
+        const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
+        if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("conclusion",item.subject,item.object,path,reason);
+        else recordExcludedPath("conclusion",item.subject,item.object,[],reason);
         return null;
       }
       const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
         if(!Array.isArray(path)||!path.length)return null;
         const candidate=path.slice(0,3);
         if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
-          recordExcludedPath("conclusion",item.subject,item.object,candidate);
+          const invalidEdge=candidate.find(edge=>!isValidArchivedCausalEdge(edge));
+          recordExcludedPath("conclusion",item.subject,item.object,candidate,archivedCausalExclusionReason(invalidEdge));
           return null;
         }
         return candidate.map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,
@@ -388,7 +402,7 @@
       const edges=Array.isArray(snapshot.edges)?snapshot.edges.slice(0,12).map(edge=>{
         if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
         if(!isValidArchivedCausalEdge(edge)) {
-          recordExcludedPath("snapshot_edge",edge.subject,edge.object,[edge]);
+          recordExcludedPath("snapshot_edge",edge.subject,edge.object,[edge],archivedCausalExclusionReason(edge));
           return null;
         }
         const options=Array.isArray(edge.revisionOptions)?edge.revisionOptions.slice(0,3).map(option=>{
@@ -407,15 +421,17 @@
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
         if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
           const sourcePaths=Array.isArray(item.paths)?item.paths:[];
-          if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("snapshot_alternative",item.subject,item.object,path);
-          else recordExcludedPath("snapshot_alternative",item.subject,item.object,[]);
+          const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
+          if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("snapshot_alternative",item.subject,item.object,path,reason);
+          else recordExcludedPath("snapshot_alternative",item.subject,item.object,[],reason);
           return null;
         }
         const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
           if(!Array.isArray(path)||!path.length)return null;
           const candidate=path.slice(0,3);
           if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
-            recordExcludedPath("snapshot_alternative",item.subject,item.object,candidate);
+            const invalidEdge=candidate.find(edge=>!isValidArchivedCausalEdge(edge));
+            recordExcludedPath("snapshot_alternative",item.subject,item.object,candidate,archivedCausalExclusionReason(invalidEdge));
             return null;
           }
           return candidate.map(edge=>({subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
@@ -515,9 +531,16 @@
   }
   function reasoningReviewMatchesClaim(finding,claim) {
     if(!finding||!claim||typeof claim.id!=="string"||finding.claimId!==claim.id||!KNOWLEDGE)return false;
+    const sanitized=typeof KNOWLEDGE.sanitizeClaims==="function"?KNOWLEDGE.sanitizeClaims([claim]):[];
+    if(!sanitized.length)return false;
+    claim=sanitized[0];
     if(!finding.subject||!finding.object||!finding.edgeSubject||!finding.edgeObject||
        !KNOWLEDGE.sameEntity(finding.subject,claim.subject)||!KNOWLEDGE.sameEntity(finding.object,claim.object)||
        !KNOWLEDGE.sameEntity(finding.edgeSubject,claim.subject)||!KNOWLEDGE.sameEntity(finding.edgeObject,claim.object))return false;
+    const sourceEvidence=normalise(String(claim.evidence||"").slice(0,240));
+    const reviewEvidence=normalise(String(finding.evidence||"").slice(0,240));
+    if(!sourceEvidence||sourceEvidence!==reviewEvidence)return false;
+    if(claim.kind==="observation"&&String(finding.eventRef||"")!==String(claim.observationCase&&claim.observationCase.eventRef||""))return false;
     if(claim.status==="superseded")return finding.kind==="source_revised"&&claim.kind==="causal";
     const expected=reviewKindForClaim(claim);
     return finding.kind===expected||
@@ -527,7 +550,12 @@
     const byId=new Map((Array.isArray(claims)?claims:[]).filter(claim=>claim&&typeof claim.id==="string")
       .map(claim=>[claim.id,claim]));
     return (meta&&Array.isArray(meta.reviews)?meta.reviews:[])
-      .filter(finding=>reasoningReviewMatchesClaim(finding,byId.get(finding&&finding.claimId)));
+      .filter(finding=>{
+        const claim=byId.get(finding&&finding.claimId);
+        if(!reasoningReviewMatchesClaim(finding,claim))return false;
+        return (meta.conclusions||[]).some(conclusion=>(conclusion.paths||[]).some(path=>path.some(edge=>
+          KNOWLEDGE.sameEntity(edge.subject,finding.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,finding.edgeObject))));
+      });
   }
   function claimSemanticKey(claim) {
     const canonical=value=>KNOWLEDGE&&typeof KNOWLEDGE.canonicalEntity==="function"
@@ -578,6 +606,9 @@
        !["counterexample","opposing_claim","supporting_observation","supporting_claim"].includes(raw.kind))return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isValidCausalSubject==="function"&&!KNOWLEDGE.isValidCausalSubject(edgeSubject))return null;
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function"&&
+       KNOWLEDGE.isReportedCausalStatement(typeof raw.evidence==="string"?raw.evidence:""))return null;
     return {edgeSubject,edgeObject,claimId:raw.claimId.slice(0,100),kind:raw.kind,
       direction:["counterexample","opposing_claim"].includes(raw.kind)?"challenging":"supporting",
       strategy:["conditional","weaken","suspend","restore"].includes(raw.strategy)?raw.strategy:null,

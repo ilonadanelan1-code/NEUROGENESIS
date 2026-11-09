@@ -8,11 +8,11 @@ vm.runInNewContext(fs.readFileSync("discriminating-observations.js","utf8"),sand
 const knowledge=sandbox.window.NGKnowledge;
 const engine=sandbox.window.NGDiscriminatingObservations.create(knowledge);
 function causal(id,subject,object){
-  return {id,kind:"causal",subject,object,polarity:true,status:"current",evidence:subject+" приводит к "+object};
+  return {id,kind:"causal",subject,predicate:"приводит к",object,polarity:true,status:"current",evidence:subject+" приводит к "+object};
 }
 function observation(id,subject,object,polarity=true,complete=false){
   const field=status=>({status,value:status==="provided"?"указано":""});
-  return {id,kind:"observation",subject,object,polarity,status:"current",evidence:id,
+  return {id,kind:"observation",subject,predicate:"наблюдение",object,polarity,status:"current",evidence:id,
     observationCase:complete?{context:field("provided"),timing:field("provided"),criterion:field("provided")}:
       {context:field("not_stated"),timing:field("not_stated"),criterion:field("not_stated")}};
 }
@@ -36,6 +36,15 @@ assert.equal(engine.analyze({subject:"Причины",object:"Усталость
 assert.equal(engine.analyze({subject:"Причины",object:"Усталость",paths:[[sleep]]},[sleep]),null,
   "one route is not a competition");
 assert.equal(engine.analyze({subject:"Причины",object:"Усталость",paths:[]},[]),null);
+const reportedEdge={...causal("reported","Усталость","Снижение концентрации"),
+  evidence:"По данным исследования, усталость приводит к снижению концентрации"};
+assert.equal(engine.analyze({subject:"Причины",object:"Результат",paths:[[reportedEdge],[stress]]},[reportedEdge,stress]),null,
+  "a reporting-only route must not be used to generate an active research inquiry");
+const malformedEdge=causal("malformed","что усталость","Снижение концентрации");
+assert.equal(engine.analyze({subject:"Причины",object:"Результат",paths:[[malformedEdge],[stress]]},[malformedEdge,stress]),null,
+  "a route with one malformed member must be rejected whole rather than shortened");
+assert.equal(engine.analyze({subject:"что усталость",object:"Результат",paths:[[sleep],[stress]]},[sleep,stress]),null,
+  "an invalid archived conclusion subject must not seed a discriminating inquiry");
 const shared=causal("c3","Недосып","Концентрация");
 const left=causal("c4","Концентрация","Ошибки");
 const right=causal("c5","Концентрация","Усталость");

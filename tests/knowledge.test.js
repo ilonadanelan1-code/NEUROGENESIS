@@ -46,6 +46,8 @@ for (const subject of [
 const sourceAttributedCausal="По данным исследования, усталость приводит к снижению концентрации";
 assert.equal(knowledge.extractClaims(sourceAttributedCausal).length,0,
   "a comma-separated source preamble must not be dropped before causal extraction");
+assert.equal(knowledge.isReportedCausalStatement(sourceAttributedCausal),true,
+  "archive validators must be able to distinguish source-attributed evidence from a direct assertion");
 assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim,subject:"усталость",evidence:sourceAttributedCausal}]).length,0,
   "a legacy claim whose evidence is source-attributed must not re-enter active knowledge");
 const validCausalSubject = "Недостаток сна после тренировки";

@@ -54,9 +54,11 @@ const malformedArchiveClaim={id:"archive-malformed",kind:"causal",subject:"чт�
   verification:"unverified",evidence:"что усталость приводит к снижению концентрации"};
 const reportingArchiveClaim={...malformedArchiveClaim,id:"archive-report",
   subject:"В отчёте говорится, что усталость"};
+const reportedEvidenceClaim={...malformedArchiveClaim,id:"archive-reported-evidence",subject:"Усталость",
+  evidence:"По данным исследования, усталость приводит к снижению концентрации"};
 const validArchiveClaim=knowledge.extractClaims("Недостаток сна после тренировки приводит к усталости")[0];
 const defensiveGraph=graphEngine.build([{id:"archive-boundary",text:"Импортированная архивная запись",
-  claims:[malformedArchiveClaim,reportingArchiveClaim,validArchiveClaim]}]);
+  claims:[malformedArchiveClaim,reportingArchiveClaim,reportedEvidenceClaim,validArchiveClaim]}]);
 const defensiveClaims=defensiveGraph.nodes.filter(node=>node.type==="claim");
 assert.equal(defensiveClaims.length,1,
   "the graph must sanitize direct inputs instead of trusting archived memory claims");

@@ -7,7 +7,8 @@ vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),{window},{filename:"kn
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js","utf8"),{window},{filename:"hypothesis-lifecycle.js"});
 const knowledge=window.NGKnowledge;
 const engine=window.NGHypothesisLifecycle.create(knowledge);
-const causal=(id,subject,object)=>({id,kind:"causal",subject,object,polarity:true,status:"current"});
+const causal=(id,subject,object)=>({id,kind:"causal",subject,predicate:"приводит к",object,polarity:true,status:"current",
+  evidence:subject+" приводит к "+object});
 const conclusion={subject:"Причины",object:"Усталость",paths:[[causal("c1","Недостаток сна","Усталость")]]};
 const base={version:1,type:"derived_hypotheses",createdAt:1000,conclusions:[conclusion],reviews:[],modelHistory:[]};
 const original=JSON.stringify(base);
@@ -35,20 +36,26 @@ const forgedPriorMeta={...first.meta,conclusions:[{...first.meta.conclusions[0],
 const forgedPrior=engine.reconcile(forgedPriorMeta,[],[],[],1700);
 assert.equal(forgedPrior.meta.conclusions[0].lifecycle.state,"new",
   "unresolved archived evidence IDs must remain historical references, not active support");
+assert.equal(forgedPrior.meta.conclusions[0].lifecycle.challengingClaimIds.length,0,
+  "unresolved archived evidence IDs must not remain in active evidence counters");
 
 const malformedArchivedEdge=causal("bad-report","В отчёте говорится, что усталость","Снижение концентрации");
 assert.equal(engine.sanitize({...lifecycle,subject:"что усталость"}),null,
   "a malformed archived conclusion must not produce an active lifecycle record");
-assert.equal(engine.sanitize({...lifecycle,routes:[[malformedArchivedEdge]]}).routes.length,0,
-  "malformed archived lifecycle routes must be excluded");
-assert.equal(engine.sanitize({...lifecycle,routes:[[causal("valid","Недостаток сна","Усталость"),malformedArchivedEdge]]}).routes.length,0,
+assert.equal(engine.sanitize({...lifecycle,routes:[[malformedArchivedEdge]]}),null,
+  "a lifecycle without any valid archived route must not remain active");
+assert.equal(engine.sanitize({...lifecycle,routes:[[causal("valid","Недостаток сна","Усталость"),malformedArchivedEdge]]}),null,
   "a route containing one malformed edge must be rejected whole, not shortened");
+const reportedEvidenceEdge={...causal("bad-evidence","Усталость","Снижение концентрации"),
+  evidence:"По данным исследования, усталость приводит к снижению концентрации"};
+assert.equal(engine.sanitize({...lifecycle,routes:[[reportedEvidenceEdge]]}),null,
+  "a report-attributed route must not survive lifecycle sanitization");
 const malformedConclusion=engine.reconcile({...base,conclusions:[{
   subject:"В отчёте говорится, что усталость",object:"Снижение концентрации",
   paths:[[malformedArchivedEdge]]
 }]},[],[],[],1500);
-assert.equal(malformedConclusion.meta.conclusions[0].lifecycle,undefined,
-  "reconciliation must not activate a lifecycle for a reporting-phrase conclusion");
+assert.equal(malformedConclusion.meta.conclusions.length,0,
+  "reconciliation must remove an invalid conclusion from its active projection");
 const question=engine.reconcile(first.meta,[],[],[{id:"Q1",status:"open",edgeSubject:"Недостаток сна",edgeObject:"Усталость"}],2000);
 assert.equal(question.meta.conclusions[0].lifecycle.state,"under_review");
 assert.ok(question.transitions.some(item=>item.from==="new"&&item.to==="under_review"));
@@ -58,9 +65,9 @@ const withSupport=engine.reconcile(support.meta,[causal("o1","Недостато
 // Reviews are the only evidence input: a causal claim is not silently upgraded to an observation.
 assert.equal(withSupport.meta.conclusions[0].lifecycle.state,"new",
   "a causal claim alone must not count as review evidence or keep an inquiry open");
-const supportingObservation={id:"o1",kind:"observation",subject:"Недостаток сна",object:"Усталость",
+const supportingObservation={id:"o1",kind:"observation",subject:"Недостаток сна",predicate:"наблюдение",object:"Усталость",
   polarity:true,status:"current",evidence:"Наблюдалась усталость"};
-const counterObservation={id:"o2",kind:"observation",subject:"Недостаток сна",object:"Усталость",
+const counterObservation={id:"o2",kind:"observation",subject:"Недостаток сна",predicate:"наблюдение",object:"Усталость",
   polarity:false,status:"current",evidence:"Результат не наблюдался"};
 const reviewed={...support.meta,reviews:[{claimId:"o1",kind:"supporting_observation",phase:"subsequent",
   subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
@@ -68,6 +75,14 @@ const reviewed={...support.meta,reviews:[{claimId:"o1",kind:"supporting_observat
 const provisionally=engine.reconcile(reviewed,[supportingObservation],[],[],5000);
 assert.equal(provisionally.meta.conclusions[0].lifecycle.state,"provisionally_supported");
 assert.ok(provisionally.meta.conclusions[0].lifecycle.events.some(item=>item.kind==="evidence_added"&&item.claimId==="o1"));
+const forgedEvidenceReview={...support.meta,reviews:[{claimId:"c-source",kind:"supporting_claim",phase:"subsequent",
+  subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
+  at:4700,evidence:"Архивный текст, не совпадающий с исходной запись"}]};
+const sourceCausal=causal("c-source","Недостаток сна","Усталость");
+const rejectedEvidence=engine.reconcile(forgedEvidenceReview,[sourceCausal],[],[],4800);
+assert.equal(rejectedEvidence.meta.conclusions[0].lifecycle.state,"new",
+  "a review must match the exact source evidence, not merely reuse a real claim ID and edge");
+assert.equal(rejectedEvidence.meta.conclusions[0].lifecycle.supportingClaimIds.length,0);
 
 const challenged={...provisionally.meta,reviews:[...reviewed.reviews,{claimId:"o2",kind:"counterexample",phase:"subsequent",
   subject:"Недостаток сна",object:"Усталость",edgeSubject:"Недостаток сна",edgeObject:"Усталость",
@@ -121,6 +136,13 @@ const same=engine.reconcile(revised.meta,[],[],[],13000);
 assert.equal(same.changed,false,"reconciling an unchanged hypothesis must not add duplicate events");
 assert.equal(same.meta.conclusions[0].lifecycle.events.length,revised.meta.conclusions[0].lifecycle.events.length);
 
+const forgedDecisionMeta={...first.meta,conclusions:[{...first.meta.conclusions[0],lifecycle:{
+  ...lifecycle,state:"restored",decision:{strategy:"restore",edgeSubject:"Недостаток сна",edgeObject:"Усталость",at:1500}
+}}]};
+const forgedDecision=engine.reconcile(forgedDecisionMeta,[],[],[],1600);
+assert.equal(forgedDecision.meta.conclusions[0].lifecycle.state,"new",
+  "a serialized archive decision must not restore a route without a current model-decision record");
+assert.equal(forgedDecision.meta.conclusions[0].lifecycle.decision,null);
 const legacy=engine.reconcile({version:1,type:"causal_chain",createdAt:3000,
  conclusions:[{subject:"A",object:"B",paths:[[causal("x","A","B")]]}]},[],[],[],3000);
 assert.equal(legacy.meta.conclusions[0].lifecycle.state,"new",
