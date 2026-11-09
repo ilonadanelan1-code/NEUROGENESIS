@@ -1,5 +1,6 @@
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
 const MAX_BODY = 32000;
+const MAX_UPSTREAM_BODY = 128000;
 const MAX_MESSAGES = 18;
 const MAX_MESSAGE_CHARS = 5200;
 const UPSTREAM_TIMEOUT_MS = 45000;
@@ -32,10 +33,9 @@ function safeBaseUrl(value) {
   } catch (_) { return null; }
 }
 
-async function readRequestBody(request, maxBytes) {
-  const body = request && request.body;
-  if (!body || typeof body.getReader !== "function") return { tooLarge: false, text: "" };
-  const reader = body.getReader();
+async function readStreamText(stream, maxBytes) {
+  if (!stream || typeof stream.getReader !== "function") return { tooLarge: false, text: "" };
+  const reader = stream.getReader();
   const decoder = new TextDecoder("utf-8");
   const chunks = [];
   let totalBytes = 0;
@@ -58,6 +58,23 @@ async function readRequestBody(request, maxBytes) {
     throw error;
   } finally {
     try { reader.releaseLock(); } catch (_) {}
+  }
+}
+async function readRequestBody(request, maxBytes) {
+  return readStreamText(request && request.body, maxBytes);
+}
+async function readJsonResponse(response, maxBytes) {
+  const declaredLength = Number(response && response.headers && response.headers.get("Content-Length") || 0);
+  if (declaredLength > maxBytes) {
+    try { await response.body.cancel(); } catch (_) {}
+    return { result: null, invalidJson: true };
+  }
+  const body = await readStreamText(response && response.body, maxBytes);
+  if (body.tooLarge) return { result: null, invalidJson: true };
+  try {
+    return { result: JSON.parse(body.text), invalidJson: false };
+  } catch (_) {
+    return { result: null, invalidJson: true };
   }
 }
 
@@ -127,11 +144,8 @@ export default {
         }),
         signal: controller.signal
       });
-      let result = null;
-      let invalidJson = false;
-      try { result = await upstream.json(); }
-      catch (_) { invalidJson = true; }
-      return { upstream, result, invalidJson };
+      const parsed = await readJsonResponse(upstream, MAX_UPSTREAM_BODY);
+      return { upstream, result: parsed.result, invalidJson: parsed.invalidJson };
     })();
     const upstreamDeadline = new Promise((resolve, reject) => {
       timeoutId = setTimeout(() => {
