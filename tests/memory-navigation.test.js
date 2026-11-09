@@ -1055,7 +1055,7 @@ window.NGMemory.remember("Я живу в Казани");
 const savedCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
 assert.ok(savedCycle,"a successful memory write should create a cognitive cycle");
 assert.equal(savedCycle.mode,"remember");
-assert.deepEqual(savedCycle.phases.map(item=>item.name),
+assert.deepEqual(Array.from(savedCycle.phases,item=>item.name),
   ["perception","attention","memory","reasoning","verification","learning","model_update"],
   "every write cycle should traverse the seven ordered cognitive phases");
 assert.equal(savedCycle.phases[0].status,"complete");
@@ -1080,7 +1080,7 @@ const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
 assert.ok(storedCycles.length>=2,"cognitive cycles should persist in local storage");
 const cycleReport=window.NGMemory.cognitiveCycleReport(2);
 assert.match(cycleReport,/КОГНИТИВНЫЙ ЦИКЛ · C/u);
-assert.match(cycleReport,/7\\. Обновление модели/u);
+assert.ok(cycleReport.includes("7. Обновление модели"));
 window.NGMemory.ask("Покажи последний когнитивный цикл");
 assert.match(feed.children[feed.children.length-1].textContent,/КОГНИТИВНЫЙ ЦИКЛ/u,
   "the user should be able to inspect the latest completed cycle from the chat");
