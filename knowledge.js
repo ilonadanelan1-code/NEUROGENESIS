@@ -236,6 +236,10 @@
     if(claim)claim.observationCase=parseObservationDetails(parts.join("; "),"direct_observation");
     return claim;
   }
+  function isReportedCausalStatement(value) {
+    const normalized=normalise(value);
+    return /^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено)|(?:в|по)\s+(?:исследовани[ея]|отчет[еа]|стать[ея]|публикаци[ия]|документ[еа]|источник[еа]|сообщени[ие]|текст[еа])\s+(?:говор[а-я]*|сообща[а-я]*|указыва[а-я]*|отмеча[а-я]*|утвержда[а-я]*|показыва[а-я]*|свидетельству[а-я]*|сказан[а-я]*|указан[а-я]*|отмечен[а-я]*)\s+что)(?:\s|$)/u.test(normalized);
+  }
   function isValidCausalSubject(value) {
     const subject=cleanPart(value,180);
     if(!subject)return false;
@@ -243,7 +247,7 @@
     if(/^(?:что|то\s+что)\s+/u.test(normalized))return false;
     if(/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том\s*)?что(?:\s|$)/u.test(normalized))return false;
     if(/^(?:(?:в\s+)?(?:текст[\p{L}\p{N}_]*|отчет[\p{L}\p{N}_]*|источник[\p{L}\p{N}_]*|сообщение[\p{L}\p{N}_]*|документ[\p{L}\p{N}_]*|запись[\p{L}\p{N}_]*)\s+)?(?:говор[\p{L}\p{N}_]*|сообща[\p{L}\p{N}_]*|указыва[\p{L}\p{N}_]*|отмеча[\p{L}\p{N}_]*|утвержда[\p{L}\p{N}_]*|сказан[\p{L}\p{N}_]*|указан[\p{L}\p{N}_]*|отмечен[\p{L}\p{N}_]*)\s+что(?:\s|$)/u.test(normalized))return false;
-    if(/^(?:согласно|по\s+словам|по\s+данным|как\s+(?:сообщается|указано|отмечено))(?:\s|$)/u.test(normalized))return false;
+    if(isReportedCausalStatement(normalized))return false;
     return true;
   }
   function extractCausal(text) {
@@ -313,8 +317,9 @@
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
-    // Research answers describe or quote claims; they are not fresh assertions.
+    // Research answers and source-attributed reports are context, not fresh assertions.
     if (/^ответ на вопрос\s+#?\s*q\d+\s*:/iu.test(text)) return [];
+    if (isReportedCausalStatement(text)) return [];
     const direct = extractSingleClaim(text);
     if(direct&&direct.kind==="observation"&&direct.observationCase&&["context","timing","criterion"].some(key=>direct.observationCase[key].status!=="not_stated"))return [direct];
     const clauses = text.split(/\s*[,;]\s*/u)
@@ -339,8 +344,8 @@
       const kind = kinds.has(raw.kind) ? raw.kind : null;
       const subject = cleanPart(raw.subject), predicate = cleanPart(raw.predicate,80), object = cleanPart(raw.object,180);
       if (!kind || !subject || !predicate || !object) return null;
-      if (kind === "causal" && !isValidCausalSubject(subject)) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
+      if (kind === "causal" && (!isValidCausalSubject(subject) || isReportedCausalStatement(evidence))) return null;
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
       return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
     }).filter(Boolean);
