@@ -23,6 +23,7 @@ struct Synapse {
     std::uint32_t to{};
     float weight{0.5f};
     float signal{0.0f};
+    float eligibility{0.0f};
 };
 
 class Brain {
@@ -32,13 +33,20 @@ public:
     bool add_synapse(std::uint32_t from, std::uint32_t to, float weight = 0.5f);
     bool set_synapse_weight(std::uint32_t from, std::uint32_t to, float weight);
     bool stimulate(std::uint32_t neuron_id, float strength = 1.0f);
-    void step(float delta_seconds);
+    void step(float delta_seconds, float eligibility_retention = 0.85f);
+    bool set_synapse_eligibility(std::uint32_t from, std::uint32_t to, float value);
+    void reset_eligibility() noexcept;
 
-    // Reward-modulated Hebbian update:
+    // Immediate reward-modulated Hebbian update:
     // delta_weight = rate * reward * pre_activation * post_activation - decay * weight.
     // All inputs are finite-checked and clamped to their documented ranges.
     std::uint32_t learn(float learning_rate, float reward = 1.0f,
                         float weight_decay = 0.0f);
+
+    // Delayed reward update using accumulated eligibility traces.
+    // A valid reward consumes and clears all traces, even when reward is neutral.
+    std::uint32_t learn_from_reward(float learning_rate, float reward,
+                                    float weight_decay = 0.0f);
 
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }
