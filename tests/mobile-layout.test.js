@@ -32,8 +32,12 @@ assert.notEqual(nextSection, -1, "the short-landscape layout section must close"
 const landscapeCss = css.slice(landscapeStart, nextSection);
 assert.ok(landscapeCss.includes(".app-shell{min-height:0}"),
   "short landscape screens must override the shell's 440px minimum height");
-assert.ok(landscapeCss.includes(".side-panel{display:block;padding:0 13px;overflow-y:auto}"),
-  "the landscape control panel must remain vertically scrollable");
+assert.ok(landscapeCss.includes(".workspace{display:grid;flex-direction:initial;grid-template-columns:minmax(0,1fr) 270px}"),
+  "narrow landscape phones must override the portrait flex layout with a two-column grid");
+assert.ok(landscapeCss.includes(".side-panel{display:block;height:auto;flex:initial;padding:0 13px;overflow-y:auto}"),
+  "the landscape control panel must remain vertically scrollable without portrait sizing constraints");
+assert.ok(landscapeCss.includes(".brain-panel{height:auto;min-height:0;flex:initial}"),
+  "the brain panel must not retain portrait flex sizing in landscape mode");
 
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 assert.ok(version, "the displayed app version must be present");
