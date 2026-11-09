@@ -127,10 +127,7 @@
     }
     function latestPendingQuestion(rows) {
       const list = Array.isArray(rows) ? rows : [];
-      for (let index = list.length - 1; index >= 0; index--) {
-        if (!list[index].answered) return list[index];
-      }
-      return list[list.length - 1] || null;
+      return list.find(row => !row.answered) || list[list.length - 1] || null;
     }
     function syncPendingQuestion(thread) {
       thread.pendingQuestions = sanitizePendingQuestions(thread);
