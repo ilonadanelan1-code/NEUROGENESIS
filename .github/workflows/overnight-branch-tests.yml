@@ -63,6 +63,9 @@ jobs:
       - name: Check mobile layout contracts
         run: node tests/mobile-layout.test.js
 
+      - name: Check canvas lifecycle contracts
+        run: node tests/canvas-lifecycle.test.js
+
       - name: Run regression tests
         run: |
           node tests/activation.test.js
