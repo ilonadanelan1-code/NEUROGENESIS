@@ -80,7 +80,8 @@ for (const scenario of [report.aThenB, report.bThenA]) {
     assert.equal(episode.activeNeuronsBeforeReward, 0);
     assert.ok(episode.targetEligibility > 0);
     assert.ok(episode.eligibleSynapses > 0);
-    assert.equal(episode.competingEligibility, 0);
+    assert.ok(episode.competingEligibility > 0,
+      "shared hidden activity must leave traces on the competing output path");
     assert.equal(episode.traceConsumed, true);
   }
 }
