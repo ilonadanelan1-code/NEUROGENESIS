@@ -165,11 +165,215 @@
       return Object.freeze(brain);
     }
 
+    function createBrainFromSnapshot(snapshot) {
+      const source = snapshot && typeof snapshot === "object" ? snapshot : {};
+      const sourceNeurons = Array.isArray(source.neurons) ? source.neurons : [];
+      const sourceSynapses = Array.isArray(source.synapses) ? source.synapses : [];
+      if (sourceNeurons.length > 2000 || sourceSynapses.length > 20000) {
+        throw new RangeError("The WebAssembly shadow snapshot exceeds its safety limits");
+      }
+
+      const coreBrain = createBrain();
+      const sourceToCore = new Map();
+      const coreToSource = new Map();
+      try {
+        for (const row of sourceNeurons) {
+          if (!row || row.id == null) throw new TypeError("Every shadow neuron must have a stable source ID");
+          const sourceId = String(row.id);
+          if (!sourceId || sourceToCore.has(sourceId)) {
+            throw new TypeError("Shadow neuron IDs must be non-empty and unique");
+          }
+          const kind = row.kind ?? row.type ?? "logic";
+          const x = finite(row.x ?? 0, "neuron.x");
+          const y = finite(row.y ?? 0, "neuron.y");
+          const excitability = finite(row.excitability ?? row.bias ?? 0.5, "neuron.excitability");
+          const id = coreBrain.addNeuron(row.name || sourceId, kind, x, y, excitability);
+          sourceToCore.set(sourceId, id);
+          coreToSource.set(id, sourceId);
+
+          const activation = finite(row.activation ?? row.activity ?? 0, "neuron.activation");
+          if (activation > 0) coreBrain.stimulate(id, activation);
+        }
+
+        let acceptedSynapses = 0;
+        for (const row of sourceSynapses) {
+          if (!row) continue;
+          const from = sourceToCore.get(String(row.from));
+          const to = sourceToCore.get(String(row.to));
+          if (!from || !to) continue;
+          const weight = finite(row.weight ?? 0.5, "synapse.weight");
+          if (coreBrain.addSynapse(from, to, weight)) acceptedSynapses++;
+        }
+
+        const mirror = {
+          get neuronCount() { return coreBrain.neuronCount; },
+          get synapseCount() { return coreBrain.synapseCount; },
+          sourceNeuronId(sourceId) {
+            return sourceToCore.get(String(sourceId)) ?? null;
+          },
+          stimulate(sourceId, strength = 1) {
+            const id = sourceToCore.get(String(sourceId));
+            return id == null ? false : coreBrain.stimulate(id, strength);
+          },
+          step(deltaSeconds) {
+            coreBrain.step(deltaSeconds);
+          },
+          snapshot() {
+            const state = coreBrain.snapshot();
+            return {
+              neurons: state.neurons.map(row => ({
+                ...row,
+                id: coreToSource.get(row.id) || null,
+                type: row.kind,
+                bias: row.excitability,
+                activity: row.activation
+              })),
+              synapses: state.synapses.map(row => ({
+                ...row,
+                from: coreToSource.get(row.from) || null,
+                to: coreToSource.get(row.to) || null
+              }))
+            };
+          },
+          dispose() {
+            sourceToCore.clear();
+            coreToSource.clear();
+            coreBrain.dispose();
+          }
+        };
+        return Object.freeze(mirror);
+      } catch (error) {
+        coreBrain.dispose();
+        throw error;
+      }
+    }
+
     return Object.freeze({
       version: 1,
       module,
-      createBrain
+      createBrain,
+      createBrainFromSnapshot
     });
+  }
+
+  function createShadowController(options = {}) {
+    const settings = options && typeof options === "object" ? options : {};
+    const getSnapshot = typeof settings.getSnapshot === "function"
+      ? settings.getSnapshot : () => ({ neurons: [], synapses: [] });
+    let runtime = settings.runtime || null;
+    let brain = null;
+    let state = "idle";
+    let lastError = "";
+    let startPromise = null;
+    let steps = 0;
+    let stimulations = 0;
+    let rebuilds = 0;
+    let disposed = false;
+
+    function fail(error, fallback) {
+      lastError = error && error.message ? String(error.message).slice(0, 240) : fallback;
+    }
+
+    function diagnostics() {
+      return {
+        backend: "wasm-shadow",
+        authority: "javascript",
+        state,
+        neurons: brain ? brain.neuronCount : 0,
+        synapses: brain ? brain.synapseCount : 0,
+        steps,
+        stimulations,
+        rebuilds,
+        lastError: lastError || null
+      };
+    }
+
+    function rebuild() {
+      if (disposed || !runtime) return false;
+      let candidate = null;
+      try {
+        candidate = runtime.createBrainFromSnapshot(getSnapshot());
+        const previous = brain;
+        brain = candidate;
+        candidate = null;
+        if (previous) previous.dispose();
+        rebuilds++;
+        lastError = "";
+        state = "ready";
+        return true;
+      } catch (error) {
+        if (candidate) candidate.dispose();
+        fail(error, "Unable to rebuild the WebAssembly shadow network");
+        return false;
+      }
+    }
+
+    async function start() {
+      if (disposed) return false;
+      if (state === "ready" && brain) return true;
+      if (startPromise) return startPromise;
+      state = "loading";
+      startPromise = (async () => {
+        try {
+          if (!runtime) runtime = await load({
+            moduleUrl: settings.moduleUrl,
+            moduleFactory: settings.moduleFactory,
+            moduleOptions: settings.moduleOptions
+          });
+          if (disposed) return false;
+          const ok = rebuild();
+          if (!ok) state = "error";
+          return ok;
+        } catch (error) {
+          if (!disposed) {
+            fail(error, "WebAssembly shadow runtime could not be loaded");
+            state = "unavailable";
+          }
+          return false;
+        } finally {
+          startPromise = null;
+        }
+      })();
+      return startPromise;
+    }
+
+    function stimulate(sourceId, strength = 1) {
+      if (disposed || state !== "ready" || !brain) return false;
+      try {
+        const ok = brain.stimulate(sourceId, finite(strength, "strength"));
+        if (ok) stimulations++;
+        return ok;
+      } catch (error) {
+        fail(error, "WebAssembly shadow stimulation failed");
+        return false;
+      }
+    }
+
+    function step(deltaSeconds) {
+      if (disposed || state !== "ready" || !brain) return false;
+      try {
+        brain.step(deltaSeconds);
+        steps++;
+        return true;
+      } catch (error) {
+        fail(error, "WebAssembly shadow step failed");
+        return false;
+      }
+    }
+
+    function snapshot() {
+      return brain ? brain.snapshot() : { neurons: [], synapses: [] };
+    }
+
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      if (brain) brain.dispose();
+      brain = null;
+      state = "disposed";
+    }
+
+    return Object.freeze({ start, rebuild, stimulate, step, snapshot, diagnostics, dispose });
   }
 
   async function load(options = {}) {
@@ -186,5 +390,5 @@
     return createRuntime(module);
   }
 
-  root.NGWasm = Object.freeze({ version: 1, load });
+  root.NGWasm = Object.freeze({ version: 1, load, createShadowController });
 })();
