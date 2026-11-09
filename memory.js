@@ -2315,6 +2315,9 @@
   }
   function persist(options = {}) {
     updateCount();
+    // Keep archived hypothesis states aligned with current evidence and inquiry status
+    // before any persistence path serializes the reasoning archive.
+    refreshHypothesisLifecycleArchive();
     const transaction = window.NGStorageTransaction;
     if (transaction && typeof transaction.begin === "function" &&
         typeof transaction.stage === "function" && typeof transaction.commit === "function") {
