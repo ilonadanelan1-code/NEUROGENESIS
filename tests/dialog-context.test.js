@@ -358,6 +358,29 @@ assert.match(exchangeFollowUp.query, /задержку и точность си�
 assert.ok(exchangeFollowUp.context.recentExchange.every(row => row.text.length <= 220),
   "each retained exchange fragment must remain bounded");
 
+// Rephrasing the same open question without a leading conjunction must not duplicate it.
+let repeatedQuestionState = engine.track(
+  engine.track(engine.empty(), {
+    role: "user", text: "Недостаток сна вызывает усталость", time: 650
+  }),
+  {
+    role: "assistant",
+    text: "Сколько часов ты спал? И как часто это повторяется?",
+    time: 651
+  }
+);
+repeatedQuestionState = engine.track(repeatedQuestionState, {
+  role: "user", text: "Примерно четыре часа", time: 652
+});
+repeatedQuestionState = engine.track(repeatedQuestionState, {
+  role: "assistant", text: "Понял. Как часто это повторяется?", time: 653
+});
+assert.deepEqual(
+  Array.from(engine.report(repeatedQuestionState).activeThread.pendingQuestions),
+  ["И как часто это повторяется?"],
+  "a repeated clarification with a removed leading conjunction must remain a single open question"
+);
+
 // "час" must not match the unrelated word "часто" when resolving two open questions.
 let hoursAndFrequency = engine.track(
   engine.track(engine.empty(), {
