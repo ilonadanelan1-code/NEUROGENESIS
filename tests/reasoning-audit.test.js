@@ -60,6 +60,14 @@ const repeatedClaim={...c4,evidence:"Одно и то же общее утвер
 const duplicateEvidence=audit.analyze([[c3],[repeatedClaim]],[c3,repeatedClaim],sourceByClaim);
 assert.ok(duplicateEvidence.repeatedEvidence.some(item=>item.claimCount===2),
   "repeated evidence text must be marked as dependent rather than independent confirmation");
+const malformedRouteClaim=causal("bad-report","В отчёте говорится, что усталость","Снижению концентрации",true,
+  "В отчёте говорится, что усталость приводит к снижению концентрации");
+const filteredArchivePaths=audit.analyze([[malformedRouteClaim,shared],[shared]],[malformedRouteClaim,shared],{c1:"memory-shared"});
+assert.equal(filteredArchivePaths.routeCount,1,
+  "a route containing a malformed archived edge must be excluded as a whole, not shortened into a different route");
+assert.equal(filteredArchivePaths.uniqueClaimCount,1);
+assert.equal(filteredArchivePaths.routes[0].steps[0].subject,"Музыка",
+  "reporting clauses must not appear as active route subjects");
 const empty=audit.analyze([],claims,sourceByClaim);
 assert.equal(empty.routeCount,0);
 assert.equal(audit.format(empty),"");
