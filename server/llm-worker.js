@@ -32,6 +32,35 @@ function safeBaseUrl(value) {
   } catch (_) { return null; }
 }
 
+async function readRequestBody(request, maxBytes) {
+  const body = request && request.body;
+  if (!body || typeof body.getReader !== "function") return { tooLarge: false, text: "" };
+  const reader = body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!part.value) continue;
+      totalBytes += part.value.byteLength;
+      if (totalBytes > maxBytes) {
+        try { await reader.cancel(); } catch (_) {}
+        return { tooLarge: true, text: "" };
+      }
+      chunks.push(decoder.decode(part.value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return { tooLarge: false, text: chunks.join("") };
+  } catch (error) {
+    try { await reader.cancel(); } catch (_) {}
+    throw error;
+  } finally {
+    try { reader.releaseLock(); } catch (_) {}
+  }
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -70,9 +99,9 @@ export default {
 
     let payload;
     try {
-      const raw = await request.text();
-      if (raw.length > MAX_BODY) return json({ error: "request_too_large" }, 413, cors);
-      payload = JSON.parse(raw);
+      const body = await readRequestBody(request, MAX_BODY);
+      if (body.tooLarge) return json({ error: "request_too_large" }, 413, cors);
+      payload = JSON.parse(body.text);
     } catch (_) {
       return json({ error: "invalid_json" }, 400, cors);
     }
