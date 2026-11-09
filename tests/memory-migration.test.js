@@ -493,12 +493,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the lifecycle event log must record the counter-observation");
   assert.equal(storedLifecycleAfterObservation.routeReviews.length,2);
   assert.equal(storedLifecycleAfterObservation.routeReviews[0].state,"challenged");
-  assert.equal(storedLifecycleAfterObservation.routeReviews[1].state,"new",
-    "the untouched alternative route must survive the full memory-write and persistence pipeline");
+  assert.equal(storedLifecycleAfterObservation.routeReviews[1].state,"under_review",
+    "an unaffected alternative route must remain under review when the discriminating question targets it");
+  assert.equal(storedLifecycleAfterObservation.routeReviews[1].challengingClaimIds.length,0,
+    "an open comparison question must not fabricate counter-evidence against the alternative route");
+  assert.ok(storedLifecycleAfterObservation.routeReviews[1].pendingInquiryCount>0,
+    "the selected discriminating question must be linked to its exact route edge");
   const lifecycleReportAfterObservation=window.NGMemory.hypothesisLifecycleReport();
   assert.match(lifecycleReportAfterObservation,/ЧАСТЬ МАРШРУТОВ ОСПАРИВАЕТСЯ/u);
   assert.match(lifecycleReportAfterObservation,/Маршрут 1 · затронут контрпримером/u);
-  assert.match(lifecycleReportAfterObservation,/Маршрут 2 · пока без прямых свидетельств/u);
+  assert.match(lifecycleReportAfterObservation,/Маршрут 2 · есть открытый вопрос/u);
   const routeQuestions=window.NGMemory.inquiries();
   assert.ok(routeQuestions.some(item=>item.kind==="discriminating_observations"&&
     item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
