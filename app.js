@@ -970,16 +970,24 @@
     if(reportElement)reportElement.textContent="Создаю изолированные мини-сети и сравниваю ответ до и после трёх видов подкрепления.";
     try{
       const report=await window.NGExperienceBenchmark.run();
+      const multiPattern=window.NGMultiPatternBenchmark
+        ? await window.NGMultiPatternBenchmark.run()
+        : {passed:false,error:"benchmark-unavailable"};
       const passedChecks=Object.values(report.checks).filter(Boolean).length;
       const p=report.positive,n=report.negative,z=report.neutral;
+      const multiA=multiPattern.aThenB?.firstPatternAfterSecondTask;
+      const multiB=multiPattern.aThenB?.secondPatternAfterSecondTask;
       if(reportElement){
-        reportElement.textContent=(report.passed?"ТЕСТ ПРОЙДЕН":"ТЕСТ НЕ ПРОЙДЕН")+
-          " · проверок "+passedChecks+"/"+Object.keys(report.checks).length+
-          ". Ответ до обучения "+p.responseBefore.toFixed(4)+
-          "; после +reward "+p.responseAfter.toFixed(4)+
-          "; после −reward "+n.responseAfter.toFixed(4)+
-          "; после нейтральной оценки "+z.responseAfter.toFixed(4)+
-          ". Тестовая сеть изолирована от основной.";
+        reportElement.textContent=(report.passed&&multiPattern.passed?"ТЕСТЫ ПРОЙДЕНЫ":"ЕСТЬ НЕПРОЙДЕННЫЕ ПРОВЕРКИ")+
+          " · подкрепление "+passedChecks+"/"+Object.keys(report.checks).length+
+          ". Ответ: до "+p.responseBefore.toFixed(4)+
+          ", после +reward "+p.responseAfter.toFixed(4)+
+          ", после −reward "+n.responseAfter.toFixed(4)+
+          ", нейтральный "+z.responseAfter.toFixed(4)+
+          ". Два паттерна A→X/B→Y: "+(multiPattern.passed?"пройдены":"ошибка")+
+          (multiA&&multiB?"; отрыв сохранённой реакции "+multiA.margin.toFixed(4)+
+            ", новой реакции "+multiB.margin.toFixed(4):"")+
+          ". Порядок задач проверен в обоих вариантах; тестовые сети изолированы от основной.";
       }
     }catch(error){
       if(reportElement)reportElement.textContent="Контрольный тест завершился ошибкой: "+error.message;
@@ -1228,6 +1236,11 @@
     wasmRunExperienceBenchmark() {
       return window.NGExperienceBenchmark
         ? window.NGExperienceBenchmark.run()
+        : Promise.resolve({ passed: false, error: "benchmark-unavailable" });
+    },
+    wasmRunMultiPatternBenchmark() {
+      return window.NGMultiPatternBenchmark
+        ? window.NGMultiPatternBenchmark.run()
         : Promise.resolve({ passed: false, error: "benchmark-unavailable" });
     },
     wasmSnapshot() {
