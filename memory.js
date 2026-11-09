@@ -1501,7 +1501,7 @@
     const meta=cleanReasoning({version:1,type,createdAt,status:"current",conclusions,reviews:[]});
     if(!meta)return null;
     meta.reviews=collectReasoningFindings(meta,claims||[]);
-    return reconcileHypothesisMeta(updateReasoningStatus(meta));
+    return reconcileHypothesisMeta(updateReasoningStatus(meta,claims||[]));
   }
   function baselineReviewNote(meta) {
     if(!meta)return "";
@@ -1525,7 +1525,7 @@
       if(!additions.length)continue;
       meta.reviews.push(...additions);
       meta.reviews=meta.reviews.slice(-48);
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,[...memories.flatMap(item=>item.claims||[]),...freshClaims]);
       entry.reasoning=reconcileHypothesisMeta(meta);
       syncArchivedReasoning(entry);
       for(const finding of additions)findings.push({entry,finding});
@@ -1631,14 +1631,14 @@
         changed=true;
       }
       const previousStatus=meta.status;
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       if(previousStatus!==meta.status)changed=true;
       entry.reasoning=cleanReasoning(meta);
       syncArchivedReasoning(entry);
       for(const conclusion of meta.conclusions) {
         for(const path of conclusion.paths) {
           for(const edge of path) {
-            const findings=meta.reviews.filter(item=>
+            const findings=activeReasoningReviews(meta,allClaims).filter(item=>
               KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)&&
               ["counterexample","opposing_claim","source_revised"].includes(item.kind));
             if(!findings.length)continue;
@@ -1751,7 +1751,7 @@
       if(!meta)continue;
       const additions=collectReasoningFindings(meta,allClaims);
       if(additions.length){meta.reviews.push(...additions);meta.reviews=meta.reviews.slice(-48);changed=true;}
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       const edgeMap=new Map();
       for(const conclusion of meta.conclusions) {
         for(const path of conclusion.paths) for(const edge of path) {
@@ -1760,7 +1760,7 @@
         }
       }
       const edgeStates=[...edgeMap.values()].map(edge=>{
-        const matched=meta.reviews.filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
+        const matched=activeReasoningReviews(meta,allClaims).filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
         const challenged=matched.filter(finding=>finding.kind==="counterexample"||finding.kind==="opposing_claim"||finding.kind==="source_revised");
         const supporting=matched.filter(finding=>finding.kind==="supporting_observation"||finding.kind==="supporting_claim");
         const status=challenged.length?"challenged":supporting.length?"observed":"unobserved";
@@ -1939,7 +1939,7 @@
         changed=true;
       }
       const previousStatus=meta.status;
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       if(previousStatus!==meta.status)changed=true;
       entry.reasoning=reconcileHypothesisMeta(meta);
       syncArchivedReasoning(entry);
@@ -1953,7 +1953,7 @@
     if(challenged.length){
       answer+="Выводы, требующие пересмотра:\n";
       for(const item of challenged){
-        const findings=item.meta.reviews.filter(row=>row.kind!=="supporting_observation"&&row.kind!=="supporting_claim");
+        const findings=activeReasoningReviews(item.meta,allClaims).filter(row=>row.kind!=="supporting_observation"&&row.kind!=="supporting_claim");
         const impacted=item.meta.conclusions.filter(conclusion=>findings.some(finding=>
           conclusion.paths.some(path=>path.some(edge=>
             KNOWLEDGE.sameEntity(edge.subject,finding.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,finding.edgeObject)))));
@@ -1968,7 +1968,7 @@
     }else{
       answer+="В доступной памяти пока не найдены явные контрпримеры или противоположные причинные утверждения для отслеживаемых выводов. Это не подтверждает их истинность: исходные связи остаются непроверенными.";
     }
-    const supporting=audited.flatMap(item=>item.meta.reviews.filter(row=>row.kind==="supporting_observation"||row.kind==="supporting_claim"));
+    const supporting=audited.flatMap(item=>activeReasoningReviews(item.meta,allClaims).filter(row=>row.kind==="supporting_observation"||row.kind==="supporting_claim"));
     if(supporting.length){
       answer+="\n\nНаблюдения и утверждения, согласующиеся с отдельными звеньями: "+supporting.length+
         ". Они не отменяют контрпримеры и не доказывают причинность.";
