@@ -78,7 +78,7 @@
       return candidates.length ? clean(candidates[0], 260) : "";
     };
     const extractQuestions = text => clean(text, MAX_TEXT)
-      .split(/(?<=[?？])\s+/u)
+      .split(/(?<=[.!?？])\s+/u)
       .map(row => clean(row, 260))
       .filter(row => /[?？]\s*$/u.test(row))
       .slice(0, MAX_PENDING_QUESTIONS);
