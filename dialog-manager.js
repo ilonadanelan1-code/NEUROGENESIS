@@ -2,28 +2,28 @@
   "use strict";
 
   const clean = (value, limit = 1200) =>
-    String(value == null ? "" : value).replace(/\\s+/gu, " ").trim().slice(0, limit);
+    String(value == null ? "" : value).replace(/\s+/gu, " ").trim().slice(0, limit);
   const normalise = value => clean(value, 1200).toLowerCase().replace(/ё/g, "е")
     .replace(/[^a-zа-я0-9?]+/giu, " ").trim();
 
   function returnTarget(text) {
-    const match = clean(text).match(/^(?:давай\\s+)?(?:вернемся|вернёмся|возвращаемся|вернуться|вернись)\\s+к\\s+(.+)$/iu);
+    const match = clean(text).match(/^(?:давай\s+)?(?:вернемся|вернёмся|возвращаемся|вернуться|вернись)\s+к\s+(.+)$/iu);
     return match ? clean(match[1], 160).replace(/[.!?]+$/u, "") : "";
   }
   function isTopicSwitch(text) {
-    return /^(?:теперь\\s+)?(?:поговорим|перейдем|перейдём|переключимся|сменим тему)\\s+(?:о|об|к|на)\\b/u.test(normalise(text)) ||
-      /^(?:другая тема|смена темы|давай о другом)\\b/u.test(normalise(text));
+    return /^(?:теперь\s+)?(?:поговорим|перейдем|перейдём|переключимся|сменим тему)\s+(?:о|об|к|на)\b/u.test(normalise(text)) ||
+      /^(?:другая тема|смена темы|давай о другом)\b/u.test(normalise(text));
   }
   function isFollowUp(text) {
     const value = normalise(text);
     if (value.length > 100) return false;
-    return /^(?:(?:а|и|но)\\s+)?(?:почему|зачем|как|что насчет|что насчёт|а если|и если|и что|а что|а это|и это|а дальше|что дальше|потом|тогда|он|она|они|это|эта|этот|тот|та|так|там)\\b/u.test(value) ||
-      /^(?:почему|зачем|как именно|что именно)\\s*[?]$/u.test(value);
+    return /^(?:(?:а|и|но)\s+)?(?:почему|зачем|как|что насчет|что насчёт|а если|и если|и что|а что|а это|и это|а дальше|что дальше|потом|тогда|он|она|они|это|эта|этот|тот|та|так|там)\b/u.test(value) ||
+      /^(?:почему|зачем|как именно|что именно)\s*[?]$/u.test(value);
   }
   function isQuestion(text) {
     const value = normalise(text);
     return /[?]/u.test(value) ||
-      /^(?:кто|что|где|куда|откуда|когда|почему|зачем|как|сколько|какой|какая|какие|можно ли|правда ли|есть ли)\\b/u.test(value);
+      /^(?:кто|что|где|куда|откуда|когда|почему|зачем|как|сколько|какой|какая|какие|можно ли|правда ли|есть ли)\b/u.test(value);
   }
   function classify(input, context = {}) {
     const text = clean(input);
@@ -46,14 +46,14 @@
         returned ? "explicit_topic_return_resolved" : ambiguous ? "multiple_topic_candidates" :
           unresolved ? "topic_not_found" : "explicit_topic_return", { target });
     }
-    if (isTopicSwitch(text) || (last && last.relation === "new_topic" && last.role === "user")) {
+    if (isTopicSwitch(text)) {
       return result("topic_change", "open_topic", 0.95, "explicit_or_detected_topic_change");
     }
-    if (/^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|хай|здарова)(?:\\b|$)/u.test(value)) {
+    if (/^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|хай|здарова)(?:\b|$)/u.test(value)) {
       return result("greeting", "greet", 0.99, "greeting_pattern");
     }
     if (/(?:я имел в виду|я имела в виду|поправка|исправление|я ошибся|я ошиблась|не так понял|не так выразился|точнее говоря)/u.test(value) ||
-        /^(?:нет|не совсем),?\\s/u.test(value)) {
+        /^(?:нет|не совсем),?\s/u.test(value)) {
       return result("correction", "recheck_previous_context", 0.94, "correction_marker");
     }
     if (/(?:не согласен|не согласна|это неверно|это неправильно|я не думаю что|не считаю что|с этим не согласен|с этим не согласна)/u.test(value)) {
