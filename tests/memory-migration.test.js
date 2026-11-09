@@ -1105,5 +1105,75 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
     "closing the memory library must not rebuild an unchanged graph");
 
+
+  const beforeReload = {
+    memoryCount:window.NGMemory.count(),
+    claimCount:window.NGMemory.claims().length,
+    graph:JSON.stringify(window.NGMemory.knowledgeGraphSummary()),
+    inquiries:JSON.stringify(window.NGMemory.inquiries().map(item=>({
+      id:item.id,status:item.status,assessment:item.assessment,
+      sourceClaimIds:item.sourceClaimIds,responseClaimIds:item.responseClaimIds
+    }))),
+    goals:JSON.stringify(window.NGMemory.goals().map(item=>({
+      id:item.id,inquiryId:item.inquiryId,status:item.status,
+      evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds
+    }))),
+    cycles:JSON.stringify(window.NGMemory.cognitiveCycles().map(item=>({
+      id:item.id,sequence:item.sequence,mode:item.mode,status:item.status
+    }))),
+    activeThread:window.NGMemory.dialogContext()?.activeThread?.id||null
+  };
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "a completed write must not leave a transaction journal before reload");
+
+  const reloadedWindow={
+    NGBrain:window.NGBrain,
+    confirm(){return true;},
+    fetch:sandbox.fetch
+  };
+  const reloadedSandbox={...sandbox,window:reloadedWindow};
+  for(const path of [
+    "knowledge.js","goals.js","observation-engine.js","knowledge-graph.js",
+    "reasoning-audit.js","hypothesis-lifecycle.js","discriminating-observations.js",
+    "dialog-context.js","dialog-manager.js","llm-bridge.js","memory.js"
+  ]) {
+    vm.runInNewContext(fs.readFileSync(path,"utf8"),reloadedSandbox,{filename:"reload-"+path});
+  }
+  const afterReload = {
+    memoryCount:reloadedWindow.NGMemory.count(),
+    claimCount:reloadedWindow.NGMemory.claims().length,
+    graph:JSON.stringify(reloadedWindow.NGMemory.knowledgeGraphSummary()),
+    inquiries:JSON.stringify(reloadedWindow.NGMemory.inquiries().map(item=>({
+      id:item.id,status:item.status,assessment:item.assessment,
+      sourceClaimIds:item.sourceClaimIds,responseClaimIds:item.responseClaimIds
+    }))),
+    goals:JSON.stringify(reloadedWindow.NGMemory.goals().map(item=>({
+      id:item.id,inquiryId:item.inquiryId,status:item.status,
+      evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds
+    }))),
+    cycles:JSON.stringify(reloadedWindow.NGMemory.cognitiveCycles().map(item=>({
+      id:item.id,sequence:item.sequence,mode:item.mode,status:item.status
+    }))),
+    activeThread:reloadedWindow.NGMemory.dialogContext()?.activeThread?.id||null
+  };
+  assert.equal(afterReload.memoryCount,beforeReload.memoryCount,
+    "durable memories must survive fresh initialization without duplicates or silent loss");
+  assert.equal(afterReload.claimCount,beforeReload.claimCount,
+    "structured claims must remain consistent with their source memories after reload");
+  assert.equal(afterReload.graph,beforeReload.graph,
+    "the rebuilt graph projection must agree with the pre-reload graph statistics");
+  assert.equal(afterReload.inquiries,beforeReload.inquiries,
+    "inquiry states and their source/response references must survive reload");
+  assert.equal(afterReload.goals,beforeReload.goals,
+    "research goals and their evidence links must be reconciled consistently after reload");
+  assert.equal(afterReload.cycles,beforeReload.cycles,
+    "cognitive-cycle history must retain stable IDs and completion states after reload");
+  assert.equal(afterReload.activeThread,beforeReload.activeThread,
+    "dialogue context must resolve to the same active thread after reload");
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "fresh initialization must not leave a stale transaction journal behind");
+  assert.equal(reloadedWindow.NGStorageTransaction.status().ready,true,
+    "the freshly initialized storage coordinator must remain ready after reconciliation");
+
   console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
