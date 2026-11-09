@@ -629,5 +629,37 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
   assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
   assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
-  console.log("NEUROGENESIS legacy migration and LLM integration: passed.");
+
+  let releaseChat = null;
+  let concurrentChatCalls = 0;
+  window.NGMemory.configureLLM({
+    endpoint:"https://neurogenesis-test.workers.dev",
+    clientToken:"integration-client-token"
+  }, async (url) => {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      concurrentChatCalls++;
+      return new Promise(resolve => {
+        releaseChat = () => resolve({
+          ok:true, status:200,
+          async json() { return { ok:true, reply:"Ответ после ожидания" }; }
+        });
+      });
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
+  });
+  await window.NGMemory.testLLMConnection();
+  const askButton = document.getElementById("llm-ask-button");
+  const firstRequest = window.NGMemory.askLLM("Проверка двойного запуска");
+  assert.equal(askButton.disabled, true, "the LLM action must be disabled while a request is active");
+  assert.equal(typeof releaseChat, "function", "the test must hold the first model response open");
+  assert.equal(await window.NGMemory.askLLM("Повторный клик"), false,
+    "a second request must be rejected while the first one is pending");
+  assert.equal(concurrentChatCalls, 1, "two taps must not create parallel provider requests");
+  releaseChat();
+  assert.equal(await firstRequest, true, "the original request must complete normally");
+  assert.equal(askButton.disabled, false, "the LLM action must be re-enabled after success");
+  console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
