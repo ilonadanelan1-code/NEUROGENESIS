@@ -1119,4 +1119,11 @@ assert.ok(researchFocus.reasons.length>0,
   "the selected research question should explain its priority");
 
 
+const goalReport = window.NGMemory.goalReport();
+assert.match(goalReport,/ЦЕЛИ И САМОКОНТРОЛЬ/u);
+assert.ok(Array.isArray(window.NGMemory.goals()),"goal records should be exposed through the memory API");
+const latestGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
+  "the cognitive cycle should store a compact research-goal snapshot");
+
 console.log("NEUROGENESIS attention-ranking, uncertainty-assessment, research-focus, cognitive-cycle and reasoning regression tests: passed.");

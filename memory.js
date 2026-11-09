@@ -2852,7 +2852,8 @@
     return true;
   }
   function clearMemory() {
-    if (!memories.length && !modelDecisions.length && !inquiries.length) { setFeedback("Память уже пуста."); return; }
+    const hasGoals=window.NGGoals&&typeof window.NGGoals.list==="function"&&window.NGGoals.list().length>0;
+    if (!memories.length && !modelDecisions.length && !inquiries.length && !hasGoals) { setFeedback("Память уже пуста."); return; }
     if (!window.confirm("Удалить все " + memories.length + " записей, исследовательские цели, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
