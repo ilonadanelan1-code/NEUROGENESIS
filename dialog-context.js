@@ -142,8 +142,9 @@
       state.activeThreadId = id;
       return row;
     }
-    function resolveReturn(state, target) {
-      const ranked = state.threads.map(thread => {
+    function resolveReturn(state, target, candidateIds = null) {
+      const allowed = Array.isArray(candidateIds) ? new Set(candidateIds) : null;
+      const ranked = state.threads.filter(thread => !allowed || allowed.has(thread.id)).map(thread => {
         const transcript = state.messages.filter(message => message.threadId === thread.id).map(message => message.text).join(" ");
         return {
           thread,
@@ -167,12 +168,29 @@
       if (!text) return state;
       const time = Math.max(0, Number(message.time) || Date.now());
       if (role === "user" && !returnTarget(text) && state.lastDecision &&
-          ["unresolved_return","ambiguous_return"].includes(state.lastDecision.kind)) state.lastDecision = null;
+          state.lastDecision.kind === "unresolved_return") state.lastDecision = null;
       let thread = activeThread(state);
       let relation = role === "assistant" ? "assistant_reply" : "continuation";
+      let resolvedAmbiguousReturn = false;
+      if (role === "user" && !returnTarget(text) &&
+          state.lastDecision && state.lastDecision.kind === "ambiguous_return") {
+        const match = resolveReturn(state, text, state.lastDecision.candidates);
+        if (match.thread) {
+          thread = match.thread;
+          for (const row of state.threads) row.status = row.id === thread.id ? "active" : "paused";
+          state.activeThreadId = thread.id;
+          relation = "explicit_return";
+          state.lastDecision = { kind: "returned", text, candidates: [thread.id] };
+          resolvedAmbiguousReturn = true;
+        } else if (!match.ambiguous) {
+          state.lastDecision = null;
+        }
+      }
       if (role === "user") {
         const target = returnTarget(text);
-        if (target) {
+        if (resolvedAmbiguousReturn) {
+          // The user's clarification selected one of the previously ambiguous topics.
+        } else if (target) {
           const match = resolveReturn(state, target);
           if (match.ambiguous) {
             state.lastDecision = { kind: "ambiguous_return", text: target, candidates: match.candidates };

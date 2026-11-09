@@ -120,6 +120,36 @@ const sameSubjectOpening = engine.track(backupLike, {
 });
 assert.equal(sameSubjectOpening.activeThreadId, sleepThreadId,
   "a topic opening that clearly overlaps the active subject must stay in that topic");
+// An ambiguous return opens a clarification thread, then the user's choice resumes the selected old thread.
+const ambiguousState = engine.sanitize({
+  activeThreadId:"T50-current",
+  threads:[
+    {id:"T50-current",title:"Текущая несвязанная тема",status:"active",updatedAt:200,lastUserText:"Обсуждаем текущую тему"},
+    {id:"T51-music-tools",title:"Музыка и музыкальные инструменты",status:"paused",updatedAt:50,
+      keywords:["музык","инструмент"],lastUserText:"Музыка и инструменты"},
+    {id:"T52-music-memory",title:"Музыка и воспоминания",status:"paused",updatedAt:40,
+      keywords:["музык","воспомин"],lastUserText:"Музыка и воспоминания"}
+  ],
+  messages:[
+    {id:"M51",threadId:"T51-music-tools",role:"user",text:"Музыка и музыкальные инструменты",time:50},
+    {id:"M52",threadId:"T52-music-memory",role:"user",text:"Музыка и воспоминания",time:40}
+  ]
+});
+const ambiguousRequest = engine.track(ambiguousState, {
+  role:"user",text:"Вернёмся к музыке",time:201
+});
+assert.equal(ambiguousRequest.lastDecision.kind,"ambiguous_return",
+  "a return that matches two prior topics must request a choice");
+assert.equal(ambiguousRequest.activeThreadId === "T50-current",false,
+  "ambiguous return clarification must not remain inside the unrelated active topic");
+const clarifiedReturn = engine.track(ambiguousRequest, {
+  role:"user",text:"Я имею в виду музыку и музыкальные инструменты",time:202
+});
+assert.equal(clarifiedReturn.activeThreadId,"T51-music-tools",
+  "a clear answer to an ambiguous topic choice must resume the matching prior thread");
+assert.equal(clarifiedReturn.lastDecision.kind,"returned");
+assert.equal(clarifiedReturn.messages[clarifiedReturn.messages.length-1].relation,"explicit_return");
+
 const resumed = engine.track(unresolved, { role: "user", text: "Музыка и инструменты мне интересны", time: 9 });
 assert.equal(resumed.lastDecision, null, "an unresolved-reference flag must not poison later turns");
 // The active topic must win by its own update time, not by a newer paused topic.
