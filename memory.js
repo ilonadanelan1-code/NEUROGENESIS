@@ -1160,7 +1160,7 @@
     answer+="ЦЕЛЬ\nУточнить звено «"+item.edgeSubject+" → "+item.edgeObject+"», не выдавая рабочую гипотезу за установленный факт.\n\n";
     answer+="ПОЧЕМУ ВЫБРАН ИМЕННО ЭТОТ ШАГ\n"+kindReason+"\n";
     answer+="Затрагивает разных сохранённых выводов: "+selected.impact+". ";
-    answer+="Эвристический рейтинг внимания: "+selected.score+"/100. Основания: "+(selected.reasons||[]).join("; ")+". Это приоритет работы, а не вероятность истинности связи.\n\n";
+    answer+="Эвристический приоритет внимания: "+selected.score+"/100. Основания: "+(selected.reasons||[]).join("; ")+". Это рейтинг очередности работы, а не вероятность истинности связи.\n\n";
     answer+="СЛЕДУЮЩИЙ ВОПРОС · "+item.id+"\n"+item.question+"\n\n";
     const readiness=reviewReadinessForEdge(item.edgeSubject,item.edgeObject);
     answer+="ТЕКУЩАЯ ГОТОВНОСТЬ К ПЕРЕСМОТРУ\n"+readiness.label+".\n";
