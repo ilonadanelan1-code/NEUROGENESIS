@@ -62,7 +62,7 @@
         for (const row of Array.isArray(entries) ? entries : []) {
           if (!row || typeof row.key !== "string" || !row.key || row.key === STORAGE_TRANSACTION_KEY)
             throw new Error("Некорректный ключ транзакции.");
-          targets.set(row.key, String(row.value));
+          targets.set(row.key, row.value === null ? null : String(row.value));
         }
         for (const [key, value] of targets) {
           const previous = localStorage.getItem(key);
@@ -70,7 +70,11 @@
         }
         if (!changed.length) return true;
         localStorage.setItem(STORAGE_TRANSACTION_KEY, JSON.stringify({ version: 1, before: changed }));
-        for (const row of changed) localStorage.setItem(row.key, targets.get(row.key));
+        for (const row of changed) {
+          const value = targets.get(row.key);
+          if (value === null) clearKey(row.key);
+          else localStorage.setItem(row.key, value);
+        }
         clearJournal();
         ready = true; lastError = "";
         return true;
@@ -97,8 +101,9 @@
     }
     function stage(key, value) {
       if (typeof key !== "string" || !key || key === STORAGE_TRANSACTION_KEY) return false;
-      if (depth > 0) { staged.set(key, String(value)); return true; }
-      return run([{ key, value: String(value) }]);
+      const normalized = value === null ? null : String(value);
+      if (depth > 0) { staged.set(key, normalized); return true; }
+      return run([{ key, value: normalized }]);
     }
     function commit() {
       if (depth <= 0) return false;
@@ -439,7 +444,12 @@
   }
   function clear() {
     goals = [];
-    persist();
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.stage === "function") transaction.stage(STORAGE_KEY, null);
+    else {
+      try { localStorage.removeItem(STORAGE_KEY); }
+      catch (error) { console.warn("NEUROGENESIS research-goal clearing failed:", error); }
+    }
     return snapshot();
   }
   load();
