@@ -169,6 +169,33 @@ assert.equal(allRoutesChallenged.meta.conclusions[0].lifecycle.state,"challenged
   "the whole hypothesis may be marked challenged only when every alternative route has a counterexample");
 assert.ok(allRoutesChallenged.meta.conclusions[0].lifecycle.routeReviews.every(item=>item.state==="challenged"),
   "all alternative routes must expose their own challenged status");
+const reloadedPartial=engine.sanitize(JSON.parse(JSON.stringify(partialLifecycle)));
+assert.equal(reloadedPartial.routeReviews.length,2,
+  "route-specific evidence must survive serialization and migration sanitization");
+assert.equal(engine.summary([partialLifecycle]).counts.partially_challenged,1,
+  "lifecycle summaries must count partial challenges separately from full challenges");
+
+// A counterexample on a shared bottleneck must affect every route that depends on it.
+const sharedBase={version:1,type:"derived_hypotheses",createdAt:18000,conclusions:[{
+  subject:"Причина",object:"Итог",paths:[
+    [causal("shared-a","Недосыпание","Промежуточное звено"),causal("shared-b","Промежуточное звено","Итог")],
+    [causal("shared-a","Недосыпание","Промежуточное звено"),causal("shared-c","Промежуточное звено","Другой фактор"),
+      causal("shared-d","Другой фактор","Итог")]
+  ]}],reviews:[],modelHistory:[]};
+const sharedCreated=engine.reconcile(sharedBase,[],[],[],18000);
+const sharedCounter={id:"shared-counter",kind:"observation",subject:"Недосыпание",
+  predicate:"наблюдение",object:"Промежуточное звено",polarity:false,status:"current",
+  evidence:"Промежуточное звено не наблюдалось"};
+const sharedReview={claimId:"shared-counter",kind:"counterexample",phase:"subsequent",
+  subject:"Недосыпание",object:"Промежуточное звено",edgeSubject:"Недосыпание",
+  edgeObject:"Промежуточное звено",at:18500,evidence:"Промежуточное звено не наблюдалось"};
+const sharedDispute=engine.reconcile({...sharedCreated.meta,reviews:[sharedReview]},
+  [sharedCounter],[],[],19000);
+assert.equal(sharedDispute.meta.conclusions[0].lifecycle.state,"challenged",
+  "a counterexample on an edge shared by every route must challenge all dependent routes");
+assert.ok(sharedDispute.meta.conclusions[0].lifecycle.routeReviews.every(item=>
+  item.state==="challenged"&&item.challengingClaimIds.includes("shared-counter")),
+  "the shared counterexample must be attached to each route that depends on the shared edge");
 
 const multiSuspended=engine.reconcile(multiCreated.meta,[],[
   {edgeSubject:"Недосыпание",edgeObject:"Результат",strategy:"suspend",at:16000},
