@@ -54,7 +54,7 @@
   function createHttpAdapter(config = {}, fetchImpl) {
     const endpoint = clean(config.endpoint, 320).replace(/\\/+$/u, "");
     const token = clean(config.clientToken, 400);
-    const requestFetch = fetchImpl || (typeof fetch === "function" ? (...args) => fetch(...args) : null);
+    const requestFetch = fetchImpl || (typeof fetch === "function" ? fetch : null);
     if (!endpoint || !token) throw new Error("Укажи адрес серверного шлюза и ключ доступа к нему.");
     if (!requestFetch) throw new Error("В этом браузере недоступен fetch.");
     let parsed;
