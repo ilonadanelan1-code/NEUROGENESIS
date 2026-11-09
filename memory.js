@@ -2345,7 +2345,7 @@
   }
   function cognitiveCycleReport(limit=1) {
     const rows=cognitiveCycles.slice(-Math.max(1,Math.min(5,Number(limit)||1))).reverse();
-    if(!rows.length)return "КОГНИТИВНЫЙ ЦИКЛ\\n\\nПока нет завершённых циклов. Сохрани воспоминание или задай системе вопрос.";
+    if(!rows.length)return "КОГНИТИВНЫЙ ЦИКЛ\n\nПока нет завершённых циклов. Сохрани воспоминание или задай системе вопрос.";
     return rows.map(cycle=>{
       const labels={
         perception:"1. Восприятие",attention:"2. Внимание",memory:"3. Память",
@@ -2359,8 +2359,8 @@
         "Метрики: память "+cycle.metrics.memoryAfter+"/"+MAX_MEMORIES+
           " · знаний "+cycle.metrics.claimCount+" · релевантных записей "+cycle.metrics.attentionMatches+
           " · новых вопросов "+cycle.metrics.newQuestions];
-      return lines.join("\\n");
-    }).join("\\n\\n──────────\\n\\n");
+      return lines.join("\n");
+    }).join("\n\n──────────\n\n");
   }
 
   function rememberTextCore(raw) {

@@ -1081,6 +1081,7 @@ assert.ok(storedCycles.length>=2,"cognitive cycles should persist in local stora
 const cycleReport=window.NGMemory.cognitiveCycleReport(2);
 assert.match(cycleReport,/КОГНИТИВНЫЙ ЦИКЛ · C/u);
 assert.ok(cycleReport.includes("7. Обновление модели"));
+assert.ok(cycleReport.includes("\n"),"cycle reports should use real line breaks for mobile readability");
 window.NGMemory.ask("Покажи последний когнитивный цикл");
 assert.match(feed.children[feed.children.length-1].textContent,/КОГНИТИВНЫЙ ЦИКЛ/u,
   "the user should be able to inspect the latest completed cycle from the chat");
