@@ -1,4 +1,5 @@
 #include "neuro_core.hpp"
+#include "neuro_wasm.h"
 
 #include <cmath>
 #include <cstdlib>
