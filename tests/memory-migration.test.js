@@ -782,6 +782,21 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(exportedBackup.goals.some(item=>item.id===initialComparisonGoal.id&&item.status==="review"),
     "the same backup must include the matching reviewed research goal");
 
+  const cycleCountBeforeExportRoundTrip=window.NGMemory.cognitiveCycles().length;
+  const exportedBackupText=await exportedBackupBlob.text();
+  importInput.files=[{async text(){return exportedBackupText;}}];
+  await importInput.dispatch("change");
+  const roundTripCycles=window.NGMemory.cognitiveCycles();
+  assert.equal(roundTripCycles.length,cycleCountBeforeExportRoundTrip,
+    "importing the current export back into the same session must not duplicate cognitive-cycle records");
+  const roundTripReassessment=roundTripCycles.find(item=>item.id===reassessmentCycle.id);
+  assert.ok(roundTripReassessment);
+  assert.ok(roundTripReassessment.goalChanges.items.some(item=>
+    item.goalId===initialComparisonGoal.id&&item.evidenceClaimIds.includes(alternativeObservation.id)),
+    "an export/import round-trip must preserve the exact observation-to-goal link");
+  assert.ok(window.NGMemory.goals().some(item=>item.id===initialComparisonGoal.id&&item.status==="review"),
+    "the round-trip must preserve the goal state corresponding to the imported cycle");
+
   const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
   assert.ok(storedCycles.some(item=>item.at===importTime+5000),
     "restored cognitive cycles must be persisted in local storage");
