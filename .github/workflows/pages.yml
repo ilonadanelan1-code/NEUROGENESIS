@@ -31,11 +31,13 @@ jobs:
           node --check app.js
           node --check knowledge.js
           node --check goals.js
+          node --check observation-engine.js
           node --check memory.js
           node tests/activation.test.js
           node tests/knowledge.test.js
           node tests/memory-migration.test.js
           node tests/goals.test.js
+          node tests/observation-engine.test.js
           node tests/memory-navigation.test.js
 
       - name: Check app asset references
@@ -45,7 +47,7 @@ jobs:
           const html = fs.readFileSync('index.html', 'utf8');
           const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/)?.[1];
           if (!version) throw new Error('Could not read the app version from index.html');
-          for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'goals.js', 'memory.js']) {
+          for (const file of ['styles.css', 'activation.js', 'app.js', 'knowledge.js', 'goals.js', 'observation-engine.js', 'memory.js']) {
             if (!html.includes('./' + file + '?v=' + version)) {
               throw new Error('Missing or stale app reference for ' + version + ': ' + file);
             }

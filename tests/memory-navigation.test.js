@@ -116,7 +116,13 @@ const localStorage = {
 const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox,{filename:"goals.js"});
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+function loadMemory() {
+  if (!window.NGObservationEngine) {
+    vm.runInNewContext(fs.readFileSync("observation-engine.js","utf8"),sandbox,{filename:"observation-engine.js"});
+  }
+  loadMemory();
+}
+loadMemory();
 
 sidePanel.scrollTop = 147;
 const manage = document.getElementById("memory-manage");
@@ -525,7 +531,7 @@ const savedInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
 const legacyInquiry=savedInquiries.find(item=>item.id===secondOpenInquiry.id);
 legacyInquiry.responseText=answerBody.split(".")[0]+".";
 database.set("neurogenesis.inquiries.v1",JSON.stringify(savedInquiries));
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const repairedInquiry=window.NGMemory.inquiries().find(item=>item.id===secondOpenInquiry.id);
 assert.equal(repairedInquiry.responseText,answerBody,"legacy partial inquiry answers should be repaired from the retained dialogue transcript");
 assert.equal(repairedInquiry.assessment,"gap_confirmed","legacy assessments should be reconstructed from restored full responses");
@@ -583,7 +589,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
     sourceClaimIds:["hydration-edge"],createdAt:15,updatedAt:15,lastAskedAt:0,
     responseText:"",responseMemoryId:"",responseClaimIds:[],answeredAt:0}
 ]));
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.ask("Выведи новые гипотезы из памяти");
 const researchAwareReply=feed.children[feed.children.length-1].textContent;
 assert.match(researchAwareReply,/Обезвоживание ⇢ снижению концентрации/u,
@@ -614,7 +620,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.claims().some(claim=>claim.subject==="что усталость"),false,
   "loading a legacy backup must discard the malformed quoted causal claim");
 const migratedLegacyMemories=JSON.parse(database.get("neurogenesis.memories.v1"));
@@ -646,7 +652,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
 ]));
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definition"),false,
   "a structured claim parsed from a legacy inquiry-answer fragment must be removed");
 const cleanedInquiryFragment=JSON.parse(database.get("neurogenesis.memories.v1")).find(item=>item.id==="legacy-q1-fragment");
@@ -670,7 +676,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
 ]));
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.claims().some(claim=>claim.id==="legacy-q1-definition"),true,
   "cleanup must not remove a matching claim from an unrelated memory created outside the inquiry time window");
 
@@ -701,7 +707,7 @@ database.set("neurogenesis.model-decisions.v1",JSON.stringify([
 ]));
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.ask("Покажи историю изменений модели");
 const evolutionReply=feed.children[feed.children.length-1].textContent;
 assert.match(evolutionReply,/ДИНАМИКА ПРИЧИННОЙ МОДЕЛИ/u,
@@ -755,7 +761,7 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify([
   sourceClaimIds:["obs-positive","obs-negative"],createdAt:105,updatedAt:120,lastAskedAt:110,
   responseText:"Обстоятельства двух наблюдений неизвестны. Нет точных дат и времени, информации о продолжительности, сопутствующих условиях и способе определения результата. Нет конкретных зафиксированных естественных наблюдений.",responseMemoryId:"",responseClaimIds:[],answeredAt:120}
 ]));
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const decisionsBeforeReadiness=JSON.stringify(window.NGMemory.modelDecisions());
 window.NGMemory.ask("Оцени готовность пересмотра модели");
 const incompleteReadiness=feed.children[feed.children.length-1].textContent;
@@ -772,7 +778,7 @@ assert.match(incompleteReadiness,/Критерий результата: не у
 const savedReadinessInquiries=JSON.parse(database.get("neurogenesis.inquiries.v1"));
 savedReadinessInquiries[0].responseText="Одно наблюдение было утром, другое вечером; условия различались, результат оценивался по самочувствию.";
 database.set("neurogenesis.inquiries.v1",JSON.stringify(savedReadinessInquiries));
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.ask("Оцени готовность пересмотра модели");
 const completeReadiness=feed.children[feed.children.length-1].textContent;
 assert.match(completeReadiness,/Контекст: не указан · Время: не указано · Критерий результата: не указан/u,
@@ -817,7 +823,7 @@ database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([{
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.observationCases().length,4,"the source journal should retain each distinct memory record while merging parser variants inside each record");
 const reconciliation=window.NGMemory.reconcileEdgeEvidence("Недостаток сна","Усталости",200);
 assert.equal(reconciliation.supportingCount,2,"the dossier should count distinct supporting observations");
@@ -863,7 +869,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.observationCases().length,3,"all original user cards must remain in the raw observation journal");
 const backupReadiness=window.NGMemory.reviewReadinessForEdge("Недостатке сна","усталости");
 assert.equal(backupReadiness.supportingCount,1,"an enriched copy must not become a second supporting event");
@@ -928,7 +934,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.refreshInquiries();
 const separateInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
 assert.ok(separateInquiry,"a second possible duplicate group should generate a new question");
@@ -956,7 +962,7 @@ database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([]));
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const linkedReady=window.NGMemory.reviewReadinessForEdge("Фактор Тета","результата Каппа");
 assert.equal(linkedReady.supportingCount,1,"two explicitly linked cards should describe one supporting event");
 assert.equal(linkedReady.challengingCount,1,"a different eventRef should remain a separate challenging event");
@@ -972,7 +978,7 @@ const conflictEventMemories=[
   linkedEventMemories[2]
 ];
 database.set("neurogenesis.memories.v1",JSON.stringify(conflictEventMemories));
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const conflictReady=window.NGMemory.reviewReadinessForEdge("Фактор Тета","результата Каппа");
 assert.equal(conflictReady.ready,false,"conflicting values inside an explicitly linked event must block readiness");
 assert.ok(conflictReady.metadataConflictCount>0,"metadata conflicts should be surfaced explicitly");
@@ -990,7 +996,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.refreshInquiries();
 const mixedInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
 assert.ok(mixedInquiry,"four repeated cards should trigger an event-identity question");
@@ -1016,7 +1022,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 window.NGMemory.refreshInquiries();
 const invalidGroupingInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
 window.NGMemory.remember("Ответ на вопрос "+invalidGroupingInquiry.id+": группы: 1+2; 3");
@@ -1038,7 +1044,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 assert.equal(window.NGMemory.reconcileEdgeEvidence("Фактор Альфа","Результат Бета").supportingCount,2,
   "different explicit event IDs must preserve separate observations");
 
@@ -1066,7 +1072,7 @@ database.set("neurogenesis.reasoning-archive.v1","[]");
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const timeline=window.NGMemory.observationTimeline();
 assert.equal(timeline.totalCases,5);
 assert.equal(timeline.recognizedCount,3,"only explicit supported calendar dates should enter the chronology");
@@ -1117,7 +1123,7 @@ database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
 database.set("neurogenesis.model-decisions.v1","[]");
 database.set("neurogenesis.model-evidence.v1","[]");
 database.set("neurogenesis.inquiries.v1","[]");
-vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+loadMemory();
 const cleanedArchive=window.NGMemory.reasoningHistory()[0];
 assert.equal(cleanedArchive.conclusions.length,1,"a conclusion with at least one valid route should be preserved");
 assert.equal(cleanedArchive.conclusions[0].paths.length,1,"the valid route should remain");

@@ -137,6 +137,7 @@ const localStorage = {
 };
 const sandbox = { window, document, localStorage, console, Date, Math, Set, Map, JSON };
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
+vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
 assert.equal(window.NGMemory.count(), 6);
