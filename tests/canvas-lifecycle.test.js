@@ -136,4 +136,36 @@ assert.doesNotMatch(frameBody, /requestAnimationFrame\(frame\)/u,
 assert.match(frameBody, /if\(animationActive\)[\s\S]*scheduleFrame\(\)/u,
   "continuous rendering must continue only while simulation activity is running");
 
-console.log("NEUROGENESIS canvas lifecycle contracts: hidden-page suspension, frame cancellation, save flush, observer cleanup and restoration passed.");
+
+const pointerCleanupStart = app.indexOf("  function clearPointerState() {");
+const pointerCleanupEnd = app.indexOf("\n  function suspendRendering()", pointerCleanupStart);
+assert.notEqual(pointerCleanupStart, -1,
+  "pointer interaction cleanup must be defined for page suspension");
+assert.notEqual(pointerCleanupEnd, -1,
+  "pointer interaction cleanup must have a clear boundary");
+const pointerCleanup = app.slice(pointerCleanupStart, pointerCleanupEnd) +
+  "\nglobalThis.__clearPointerState = clearPointerState;";
+const pointerSandbox = {
+  pointers: new Map([[11, { x: 12, y: 20 }], [12, { x: 30, y: 44 }]]),
+  gesture: { distance: 18 },
+  drag: { kind: "pan" }
+};
+vm.runInNewContext(pointerCleanup, pointerSandbox,
+  { filename: "canvas-pointer-cleanup.js" });
+pointerSandbox.__clearPointerState();
+assert.equal(pointerSandbox.pointers.size, 0,
+  "suspending the page must discard active pointer identifiers");
+assert.equal(pointerSandbox.gesture, null,
+  "suspending the page must discard stale pinch-gesture state");
+assert.equal(pointerSandbox.drag, null,
+  "suspending the page must discard stale drag state");
+const suspendStart = app.indexOf("  function suspendRendering() {");
+const suspendEnd = app.indexOf("\n  function resumeRendering()", suspendStart);
+assert.notEqual(suspendStart, -1);
+assert.notEqual(suspendEnd, -1);
+assert.match(app.slice(suspendStart, suspendEnd), /clearPointerState\(\)/u,
+  "pagehide and visibility suspension must clear active pointer state");
+assert.match(app, /canvas\.addEventListener\("lostpointercapture",\s*endPointer\)/u,
+  "unexpected pointer-capture loss must release the corresponding gesture state");
+
+console.log("NEUROGENESIS canvas lifecycle contracts: hidden-page suspension, frame cancellation, save flush, observer cleanup and restoration and pointer-capture recovery passed.");
