@@ -208,6 +208,7 @@ const sandbox = {
 };
 window.fetch = sandbox.fetch;
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
+vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), sandbox, { filename: "goals.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
@@ -471,6 +472,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(storedLifecycleAfterSkip.events.some(item=>item.kind==="state_changed"&&
     item.fromState==="under_review"&&item.toState==="new"),
     "the lifecycle event history must persist the inquiry-driven state transition");
+  const skippedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
+  assert.ok(skippedResearchGoal,"the skipped inquiry must retain its linked research goal");
+  assert.equal(skippedResearchGoal.status,"paused",
+    "skipping a question must pause its goal without deleting its history");
   const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
   const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
   assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
@@ -512,6 +517,53 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const routeResearchPlan=window.NGMemory.researchStrategy();
   assert.match(routeResearchPlan,/два возможных маршрута/u,
     "the research planner must select a discriminating question for the surviving alternative");
+  const discriminatingInquiry=routeQuestions.find(item=>item.kind==="discriminating_observations"&&
+    item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
+    item.comparisonEdges.some(edge=>edge.subject==="Стресс"));
+  assert.ok(discriminatingInquiry,"the route comparison must have one stable inquiry identity");
+  const initialComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.ok(initialComparisonGoal,"a route comparison inquiry must produce one linked research goal");
+  assert.equal(initialComparisonGoal.status,"active",
+    "a new comparison inquiry must begin as an active research goal");
+  assert.equal(window.NGMemory.goals().filter(item=>item.kind==="discriminating_observations").length,1,
+    "alternative routes must share one comparison goal rather than spawning one goal per branch");
+
+  assert.equal(window.NGMemory.remember(
+    "Ответ на вопрос "+discriminatingInquiry.id+": Нет прямых наблюдений для сравнения."
+  ),true,"the real memory pipeline must accept a discriminating-inquiry answer");
+  const answeredComparison=window.NGMemory.inquiries().find(item=>item.id===discriminatingInquiry.id);
+  assert.equal(answeredComparison.status,"answered");
+  assert.equal(answeredComparison.assessment,"gap_confirmed",
+    "an explicit no-observation answer must be recorded as a historical evidence gap");
+  const blockedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.equal(blockedComparisonGoal.status,"blocked",
+    "a confirmed lack of observations must block reassessment until new evidence arrives");
+
+  const alternativeObservationText="При стрессе наблюдалось снижение концентрации";
+  const alternativeObservation=window.NGKnowledge.extractClaims(alternativeObservationText)
+    .find(item=>item.kind==="observation");
+  assert.ok(alternativeObservation&&alternativeObservation.polarity!==false,
+    "the alternative-route integration input must parse as a direct positive observation");
+  assert.equal(window.NGMemory.remember(alternativeObservationText),true,
+    "the alternative-route observation must pass through the durable memory-write pipeline");
+  const reviewedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.equal(reviewedComparisonGoal.status,"review",
+    "new evidence on the second route must unblock the previously blocked comparison goal");
+  assert.equal(reviewedComparisonGoal.observationsAfterAssessment,1,
+    "the alternative-route observation must be counted after the old assessment");
+  assert.ok(reviewedComparisonGoal.evidenceClaimIds.includes(alternativeObservation.id),
+    "the reopened goal must retain the exact source claim from the alternative route");
+  assert.equal(window.NGMemory.inquiries().find(item=>item.id===discriminatingInquiry.id).assessment,"gap_confirmed",
+    "new observations must not overwrite the user's historical answer or its assessment");
+
+  window.NGMemory.refreshInquiries();
+  window.NGMemory.refreshInquiries();
+  const refreshedQuestions=window.NGMemory.inquiries();
+  assert.equal(refreshedQuestions.filter(item=>item.kind==="discriminating_observations"&&
+    item.signature===discriminatingInquiry.signature).length,1,
+    "repeated queue refreshes must not recreate an answered comparison question");
+  assert.equal(window.NGMemory.goals().filter(item=>item.inquiryId===discriminatingInquiry.id).length,1,
+    "repeated reconciliation must not create duplicate goals for the same comparison inquiry");
   assert.equal(window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="Недосып"),false,
     "a counter-observation must not silently change the working-model decision");
   const importedCycles=window.NGMemory.cognitiveCycles();
