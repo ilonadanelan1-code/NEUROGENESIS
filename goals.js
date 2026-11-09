@@ -212,7 +212,8 @@
       return "review";
     }
     if (lastProgressAt > 0 && now - lastProgressAt > STALE_AFTER) return "stale";
-    return inquiry.lastAskedAt > 0 ? "waiting_user" : "active";
+    return safeTime(inquiry.lastAskedAt, 0) > safeTime(inquiry.lastResumedAt, 0)
+      ? "waiting_user" : "active";
   }
   function evidenceFor(inquiry, memories) {
     const wanted = new Set([...(inquiry.sourceClaimIds || []),...(inquiry.responseClaimIds || [])]);
@@ -329,8 +330,12 @@
       blockers.push("Для " + evidence.unknownEventCount + " наблюдений не задан eventRef: нельзя определить, один это эпизод или несколько.");
     }
     let nextAction = "Задать исследовательский вопрос " + inquiry.id + " и уточнить недостающие сведения.";
-    if (inquiry.status === "open" && inquiry.lastAskedAt > 0) {
+    const lastAskedAt = safeTime(inquiry.lastAskedAt, 0);
+    const lastResumedAt = safeTime(inquiry.lastResumedAt, 0);
+    if (inquiry.status === "open" && lastAskedAt > lastResumedAt) {
       nextAction = "Ожидается содержательный ответ на " + inquiry.id + ".";
+    } else if (inquiry.status === "open" && lastResumedAt > 0) {
+      nextAction = "Вопрос возвращён в очередь. Повторно задать " + inquiry.id + ", сохранив прежнюю историю.";
     } else if (needsReassessment) {
       nextAction = "После предыдущей оценки появились " + evidence.observationsAfterAssessment +
         " новых прямых наблюдений. Повторно сопоставить их контекст, время и критерий; прежний ответ и его оценка сохраняются как история.";
