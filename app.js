@@ -195,8 +195,11 @@
     visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
-  new ResizeObserver(() => { resize(); scheduleFrame(); }).observe(canvas);
-  window.addEventListener("resize", () => { resize(); scheduleFrame(); });
+  const handleCanvasResize = () => { resize(); scheduleFrame(); };
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(handleCanvasResize).observe(canvas);
+  }
+  window.addEventListener("resize", handleCanvasResize);
   for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
     document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
   }
