@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const STATES=["new","under_review","provisionally_supported","challenged","conditional","weakened","suspended","revised","restored"];
+  const STATES=["new","under_review","provisionally_supported","partially_challenged","challenged","conditional","weakened","suspended","revised","restored"];
   const EVENT_KINDS=["created","evidence_added","origin_extended","routes_changed","decision_applied","state_changed"];
   const MAX_EVENTS=120,MAX_IDS=48;
   function hash(value) {
@@ -57,6 +57,20 @@
         originClaimIds:uniqueIds(raw.originClaimIds),
         reason:typeof raw.reason==="string"?raw.reason.slice(0,240):""};
     }
+    function cleanRouteReviews(value) {
+      if(!Array.isArray(value))return [];
+      return value.slice(0,3).map((raw,index)=>{
+        if(!raw||typeof raw!=="object")return null;
+        const routeIndex=Number.isInteger(raw.routeIndex)?Math.max(0,Math.min(2,raw.routeIndex)):index;
+        const state=["new","under_review","provisionally_supported","challenged"].includes(raw.state)?raw.state:"new";
+        return {routeIndex,state,signature:typeof raw.signature==="string"?raw.signature.slice(0,32):"",
+          edgeCount:Math.max(1,Math.min(3,Math.floor(Number(raw.edgeCount)||1))),
+          challengedEdgeCount:Math.max(0,Math.min(3,Math.floor(Number(raw.challengedEdgeCount)||0))),
+          pendingInquiryCount:Math.max(0,Math.min(3,Math.floor(Number(raw.pendingInquiryCount)||0))),
+          supportingClaimIds:uniqueIds(raw.supportingClaimIds),
+          challengingClaimIds:uniqueIds(raw.challengingClaimIds)};
+      }).filter(Boolean);
+    }
     function sanitize(raw) {
       if(!raw||typeof raw!=="object"||typeof raw.id!=="string"||!/^H-[a-z0-9]{1,16}$/u.test(raw.id)||
         typeof raw.subject!=="string"||typeof raw.object!=="string"||
@@ -77,6 +91,7 @@
         revision:Math.max(1,Math.min(1000,Math.floor(Number(raw.revision)||1))),
         routeSignature:typeof raw.routeSignature==="string"?raw.routeSignature.slice(0,32):"",
         routes,
+        routeReviews:cleanRouteReviews(raw.routeReviews),
         originClaimIds:uniqueIds(raw.originClaimIds),
         supportingClaimIds:uniqueIds(raw.supportingClaimIds),
         challengingClaimIds:uniqueIds(raw.challengingClaimIds),
@@ -112,7 +127,10 @@
       if(record.decision) {
         return ({conditional:"conditional",weaken:"weakened",suspend:"suspended",restore:"restored"})[record.decision.strategy]||"new";
       }
-      if(activeEvidence.challenging)return "challenged";
+      const challengedRoutes=Math.max(0,Number(activeEvidence.challengedRoutes)||0);
+      const routeCount=Math.max(1,Number(activeEvidence.routeCount)||1);
+      if(challengedRoutes>=routeCount)return "challenged";
+      if(challengedRoutes>0)return "partially_challenged";
       if(pendingInquiry)return "under_review";
       if(activeEvidence.supporting)return "provisionally_supported";
       if(record.revision>1)return "revised";
@@ -179,21 +197,29 @@
         record.originClaimIds=uniqueIds([...record.originClaimIds,...originIds]);
         const routeEdges=[...new Map(routes.flat().map(edge=>[edgeKey(edge),edge])).values()];
         const claimsById=new Map(allClaims.filter(claim=>claim&&typeof claim.id==="string").map(claim=>[claim.id,claim]));
-        const activeEvidence={challenging:false,supporting:false};
         const matchedReviews=(Array.isArray(meta.reviews)?meta.reviews:[]).filter(finding=>{
           const edge=routeEdges.find(item=>knowledge.sameEntity(item.subject,finding&&finding.edgeSubject)&&
             knowledge.sameEntity(item.object,finding&&finding.edgeObject));
           const claim=claimsById.get(finding&&finding.claimId);
           return reviewMatchesClaim(finding,claim,edge);
         });
+        const findingsByEdge=new Map();
+        for(const finding of matchedReviews) {
+          const key=edgeKey({subject:finding.edgeSubject,object:finding.edgeObject});
+          if(!findingsByEdge.has(key))findingsByEdge.set(key,[]);
+          findingsByEdge.get(key).push(finding);
+        }
+        const pendingInquiryEdges=new Set(allInquiries.filter(item=>item&&item.status==="open"&&
+          typeof item.edgeSubject==="string"&&typeof item.edgeObject==="string")
+          .map(item=>edgeKey({subject:item.edgeSubject,object:item.edgeObject})));
         const priorEvidenceIds=new Set([...record.supportingClaimIds,...record.challengingClaimIds]);
         const activeSupportingIds=[],activeChallengingIds=[];
         for(const finding of matchedReviews) {
           const challenging=["counterexample","opposing_claim","source_revised"].includes(finding.kind);
           const supporting=["supporting_observation","supporting_claim"].includes(finding.kind);
           if(!challenging&&!supporting)continue;
-          if(challenging){activeEvidence.challenging=true;activeChallengingIds.push(finding.claimId);}
-          if(supporting){activeEvidence.supporting=true;activeSupportingIds.push(finding.claimId);}
+          if(challenging)activeChallengingIds.push(finding.claimId);
+          if(supporting)activeSupportingIds.push(finding.claimId);
           const eventExists=record.events.some(event=>event.kind==="evidence_added"&&event.claimId===finding.claimId&&
             knowledge.sameEntity(event.edgeSubject,finding.edgeSubject)&&knowledge.sameEntity(event.edgeObject,finding.edgeObject));
           if(priorEvidenceIds.has(finding.claimId)||eventExists)continue;
@@ -204,6 +230,28 @@
         }
         record.supportingClaimIds=uniqueIds(activeSupportingIds);
         record.challengingClaimIds=uniqueIds(activeChallengingIds);
+        const routeReviews=routes.map((path,routeIndex)=>{
+          const supporting=[],challenging=[],pendingEdges=new Set();
+          let challengedEdgeCount=0;
+          for(const edge of path) {
+            const key=edgeKey(edge);
+            const findings=findingsByEdge.get(key)||[];
+            const edgeChallenging=findings.filter(item=>["counterexample","opposing_claim","source_revised"].includes(item.kind));
+            const edgeSupporting=findings.filter(item=>["supporting_observation","supporting_claim"].includes(item.kind));
+            if(edgeChallenging.length)challengedEdgeCount++;
+            if(pendingInquiryEdges.has(key))pendingEdges.add(key);
+            for(const finding of edgeChallenging)challenging.push(finding.claimId);
+            for(const finding of edgeSupporting)supporting.push(finding.claimId);
+          }
+          const pendingInquiryCount=pendingEdges.size;
+          const state=challengedEdgeCount?"challenged":
+            pendingInquiryCount?"under_review":
+            supporting.length?"provisionally_supported":"new";
+          return {routeIndex,state,signature:routeSignature([path]),edgeCount:path.length,
+            challengedEdgeCount,pendingInquiryCount,
+            supportingClaimIds:uniqueIds(supporting),challengingClaimIds:uniqueIds(challenging)};
+        });
+        record.routeReviews=cleanRouteReviews(routeReviews);
         const routeDecisions=allDecisions.filter(item=>item&&["conditional","weaken","suspend","restore"].includes(item.strategy)&&
           routeEdges.some(edge=>knowledge.sameEntity(edge.subject,item.edgeSubject)&&knowledge.sameEntity(edge.object,item.edgeObject)))
           .sort((a,b)=>safeTime(a.at,0)-safeTime(b.at,0));
@@ -229,8 +277,13 @@
         const latestDecision=activeDecisions[0]||null;
         record.decision=latestDecision?{strategy:latestDecision.strategy,edgeSubject:latestDecision.edgeSubject,
           edgeObject:latestDecision.edgeObject,at:safeTime(latestDecision.at,at)}:null;
-        const pendingInquiry=allInquiries.some(item=>item&&item.status==="open"&&
-          routeEdges.some(edge=>knowledge.sameEntity(edge.subject,item.edgeSubject)&&knowledge.sameEntity(edge.object,item.edgeObject)));
+        const pendingInquiry=routeReviews.some(item=>item.pendingInquiryCount>0);
+        const activeEvidence={
+          supporting:activeSupportingIds.length>0,
+          challenging:activeChallengingIds.length>0,
+          challengedRoutes:routeReviews.filter(item=>item.state==="challenged").length,
+          routeCount:routeReviews.length
+        };
         const nextState=stateFor(record,routeDecisions,pendingInquiry,activeEvidence);
         const oldState=prior?record.state:"new";
         if(prior&&oldState!==nextState) {
