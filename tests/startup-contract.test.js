@@ -35,6 +35,8 @@ function before(first, second) {
   assert.ok(a < b, first + " must load before " + second);
 }
 before("activation.js", "app.js");
+before("neuro-wasm-adapter.js", "experience-quality.js");
+before("experience-quality.js", "app.js");
 before("app.js", "knowledge.js");
 before("knowledge.js", "goals.js");
 before("knowledge.js", "knowledge-graph.js");

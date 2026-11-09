@@ -5,14 +5,19 @@ const fs = require("node:fs");
 const html = fs.readFileSync("index.html", "utf8");
 const app = fs.readFileSync("app.js", "utf8");
 const adapter = fs.readFileSync("neuro-wasm-adapter.js", "utf8");
+const experience = fs.readFileSync("experience-quality.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.32", "the shadow runtime release must have a distinct asset version");
+assert.equal(version, "0.58.33", "the shadow runtime release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
   "the WASM adapter must be loaded exactly once");
 assert.ok(normalized.indexOf("activation.js") < normalized.indexOf("neuro-wasm-adapter.js"));
+assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("experience-quality.js"),
+  "the experience manager must load after the WASM adapter");
+assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("app.js"),
+  "the experience manager must exist before app startup");
 assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("app.js"),
   "the adapter must exist before the app starts");
 assert.ok(normalized.indexOf("app.js") < normalized.indexOf("knowledge.js"));
@@ -20,7 +25,7 @@ assert.equal(normalized.at(-1), "memory.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
-assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.32"/u);
+assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.33"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
@@ -32,6 +37,12 @@ assert.match(adapter, /authority: "javascript"/u,
 assert.match(adapter, /function learn\(learningRate = 0\.05, reward = 1, weightDecay = 0\)/u);
 assert.match(adapter, /function learnedWeights\(\)/u);
 assert.match(adapter, /function restoreLearnedWeights\(rows\)/u);
+assert.match(experience, /function beginEpisode\(label = ""\)/u);
+assert.match(experience, /function observeStep\(\)/u);
+assert.match(experience, /function evaluate\(reward, learningRate = 0\.05, weightDecay = 0\)/u);
+assert.match(experience, /no-eligible-traces/u);
+assert.match(experience, /changedEligibleSynapses/u);
+assert.match(experience, /changedNonEligibleSynapses/u);
 
 assert.match(app, /function wasmShadowSnapshot\(\)/u);
 assert.match(app, /function syncWasmShadow\(\)/u);
@@ -48,7 +59,14 @@ assert.match(app, /wasmDiagnostics\(\)/u,
 assert.match(app, /wasmLearn\(learningRate = 0\.05, reward = 1, weightDecay = 0\)/u);
 assert.match(app, /wasmLearningExport\(\)/u);
 assert.match(app, /wasmLearningImport\(rows\)/u);
+assert.match(app, /wasmExperienceBegin\(label = ""\)/u);
+assert.match(app, /wasmExperienceEvaluate\(reward, learningRate = 0\.05, weightDecay = 0\)/u);
+assert.match(app, /experienceQuality\.observeStep\(\)/u);
 assert.match(html, /id="wasm-learn-button"/u);
+assert.match(html, /id="wasm-experience-report"/u);
+assert.match(html, /id="wasm-experience-status"/u);
+assert.match(html, /id="wasm-episode-cancel-button"/u);
+assert.match(html, /id="wasm-episode-begin-button"/u);
 assert.match(html, /id="wasm-learning-export"/u);
 assert.match(html, /id="wasm-learning-import"/u);
 assert.match(html, /id="wasm-learning-file"/u);
