@@ -78,7 +78,7 @@
       status.dataset.state = llmVerified ? "online" : llmConfig ? "configured" : "offline";
     }
   }
-  function configureLLM(raw, save = true) {
+  function configureLLM(raw, save = true, fetchImpl = null) {
     if (!LLM_BRIDGE || !LLM_GATEWAY || typeof LLM_BRIDGE.createHttpAdapter !== "function") {
       throw new Error("HTTP-адаптер языковой модели недоступен.");
     }
@@ -86,7 +86,7 @@
       endpoint: String(raw && raw.endpoint || "").trim(),
       clientToken: String(raw && raw.clientToken || "").trim()
     };
-    const fetcher = typeof window.fetch === "function" ? window.fetch.bind(window) : (typeof fetch === "function" ? fetch : null);
+    const fetcher = fetchImpl || (typeof window.fetch === "function" ? window.fetch.bind(window) : (typeof fetch === "function" ? fetch : null));
     const adapter = LLM_BRIDGE.createHttpAdapter(config, fetcher);
     const status = LLM_GATEWAY.status();
     if (status.providers.includes("worker-proxy")) LLM_GATEWAY.unregister("worker-proxy");
@@ -3681,7 +3681,7 @@
       return DIALOG_MANAGER.plan(query,{...(report || {}),resolution});
     },
     llmStatus: () => ({ ...(LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]}), configured:!!llmConfig, verified:llmVerified, model:llmModelName || null }),
-    configureLLM: config => configureLLM(config, true),
+    configureLLM: (config, fetchImpl) => configureLLM(config, true, fetchImpl),
     testLLMConnection: () => testLLMConnection(),
     clearLLMConfig: () => clearLLMConfig(),
     askLLM: query => askWithLLM(String(query || "")),
