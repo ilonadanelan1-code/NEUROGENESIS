@@ -1011,6 +1011,15 @@ assert.equal(sameEventCases.length,2);
 assert.equal(sameEventCases[0].details.eventRef,sameEventCases[1].details.eventRef,
   "a same-event answer must write one shared eventRef to both source observation claims");
 const sameEventDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
+console.log("DEBUG_SAME_EVENT_CASES",JSON.stringify(window.NGMemory.observationCases().map(item=>({
+  id:item.id,sourceMemoryId:item.sourceMemoryId,subject:item.subject,object:item.object,
+  eventRef:item.details&&item.details.eventRef,evidence:item.evidence,polarity:item.polarity
+}))));
+console.log("DEBUG_SAME_EVENT_DOSSIER",JSON.stringify({supportingCount:sameEventDossier.supportingCount,
+  duplicateMentions:sameEventDossier.duplicateMentions,possibleDuplicateGroups:sameEventDossier.possibleDuplicateGroups,
+  explicitDuplicateGroups:sameEventDossier.explicitDuplicateGroups,
+  cases:sameEventDossier.cases.map(item=>({id:item.id,duplicateConfidence:item.duplicateConfidence,
+    eventRef:item.eventRef,memberIds:item.memberIds,sourceMemoryIds:item.sourceMemoryIds,evidence:item.evidence}))}));
 assert.equal(sameEventDossier.supportingCount,1);
 assert.equal(sameEventDossier.possibleDuplicateGroups,0);
 assert.equal(sameEventDossier.explicitDuplicateGroups,1);
