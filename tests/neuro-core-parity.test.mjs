@@ -88,6 +88,23 @@ function referenceLearnFromReward(state, learningRate, reward, weightDecay) {
   return changed;
 }
 
+function referenceLearnContrastiveReward(state, learningRate, positiveNeuronId, negativeNeuronId) {
+  const rate = f32(Math.max(0, Math.min(1, learningRate)));
+  let changed = 0;
+  for (const edge of state.synapses) {
+    const sign = edge.to === positiveNeuronId ? 1 :
+      edge.to === negativeNeuronId ? -1 : 0;
+    const delta = f32(f32(rate * sign) * edge.eligibility);
+    const updated = f32(Math.max(0, Math.min(1, f32(edge.weight + delta))));
+    if (Math.abs(updated - edge.weight) > 1.0e-7) {
+      edge.weight = updated;
+      changed++;
+    }
+    edge.eligibility = 0;
+  }
+  return changed;
+}
+
 function assertParity(actual, expected, phase) {
   assert.equal(actual.neurons.length, expected.neurons.length, phase + " neuron count");
   assert.equal(actual.synapses.length, expected.synapses.length, phase + " synapse count");
@@ -191,6 +208,54 @@ function referenceStimulate(state, neuronId, strength) {
   if (!neuron) return false;
   neuron.activation = f32(Math.max(0, Math.min(1, f32(neuron.activation + f32(strength)))));
   return true;
+}
+
+const contrastiveBrain = runtime.createBrain();
+try {
+  const state = { neurons: [], synapses: [] };
+  const input = contrastiveBrain.addNeuron("contrastive-input", "sensory", 0, 0, 1);
+  const positive = contrastiveBrain.addNeuron("positive-output", "output", 1, 0, 1);
+  const negative = contrastiveBrain.addNeuron("negative-output", "output", 1, 1, 1);
+  const neutral = contrastiveBrain.addNeuron("neutral-output", "output", 1, 2, 1);
+  state.neurons.push(
+    { id: input, activation: 0, excitability: 1 },
+    { id: positive, activation: 0, excitability: 1 },
+    { id: negative, activation: 0, excitability: 1 },
+    { id: neutral, activation: 0, excitability: 1 }
+  );
+  for (const [target, weight, eligibility] of [
+    [positive, 0.5, 0.8],
+    [negative, 0.4, 0.6],
+    [neutral, 0.3, 0.7]
+  ]) {
+    assert.equal(contrastiveBrain.addSynapse(input, target, weight), true);
+    assert.equal(contrastiveBrain.setSynapseEligibility(input, target, eligibility), true);
+    state.synapses.push({
+      from: input, to: target, weight: f32(weight), signal: 0,
+      eligibility: f32(eligibility)
+    });
+  }
+
+  const expectedChanged = referenceLearnContrastiveReward(state, 0.5, positive, negative);
+  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, positive, negative), expectedChanged,
+    "contrastive reward must match the JavaScript float32 reference");
+  assertParity(contrastiveBrain.snapshot(), state, "contrastive reward");
+  assert.equal(state.synapses[2].weight, f32(0.3),
+    "unassigned destinations must retain their weights");
+  assert.ok(state.synapses.every(edge => edge.eligibility === 0),
+    "all traces must be consumed after a valid contrastive event");
+
+  assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.25), true);
+  const beforeInvalid = contrastiveBrain.snapshot();
+  assert.equal(contrastiveBrain.learnContrastiveReward(Number.NaN, positive, negative), 0);
+  assertParity(contrastiveBrain.snapshot(), {
+    neurons: beforeInvalid.neurons.map(row => ({ ...row, id: row.id })),
+    synapses: beforeInvalid.synapses.map(row => ({ ...row }))
+  }, "invalid contrastive reward");
+  assert.throws(() => contrastiveBrain.learnContrastiveReward(0.2, positive),
+    /finite number/u);
+} finally {
+  contrastiveBrain.dispose();
 }
 
 // Deterministic larger graph: exercise index mapping, accumulated input,
