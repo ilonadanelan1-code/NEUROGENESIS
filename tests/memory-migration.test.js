@@ -413,16 +413,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       claims:[
         {id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
           object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"},
-        {id:"valid-duplicate-observation-a",kind:"observation",subject:"Недосып",predicate:"сопровождался",
-          object:"снижению концентрации",evidence:"После ночной смены концентрация снизилась",
+        {id:"valid-duplicate-observation-a",kind:"observation",subject:"Сон",predicate:"сопровождался",
+          object:"усталостью",evidence:"После ночной смены утром было трудно проснуться",
           polarity:true,createdAt:importTime+3,observationCase:{
             context:{status:"provided",value:"после ночной смены"},
             timing:{status:"provided",value:"утром"},
             criterion:{status:"provided",value:"по шкале концентрации"},
             outcome:{status:"provided",value:"4/10"}
           }},
-        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Недосып",predicate:"сопровождалось",
-          object:"снижению концентрации",evidence:"После короткого сна концентрация снизилась",
+        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Сон",predicate:"сопровождалось",
+          object:"усталостью",evidence:"После дневного сна вечером сохранялась усталость",
           polarity:true,createdAt:importTime+4,observationCase:{
             context:{status:"provided",value:"после короткого сна"},
             timing:{status:"provided",value:"днём"},
@@ -452,7 +452,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       sourceClaimIds:["valid-import-causal"],createdAt:importTime+50,updatedAt:importTime+50
     },{
       id:"Q811",signature:"import-duplicate-completion-cycle-test",kind:"duplicate_observation",
-      edgeSubject:"Недосып",edgeObject:"снижению концентрации",
+      edgeSubject:"Сон",edgeObject:"усталостью",
       question:"Эти две карточки относятся к одному или разным эпизодам?",
       reason:"Проверка завершения цели в истории когнитивного цикла.",priority:1,status:"open",
       sourceClaimIds:["valid-duplicate-observation-a","valid-duplicate-observation-b"],
