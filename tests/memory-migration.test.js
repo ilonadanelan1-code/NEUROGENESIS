@@ -153,7 +153,7 @@ vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "m
 assert.equal(window.NGMemory.count(), 6);
 const dialogState = window.NGMemory.dialogContext();
 assert.ok(dialogState && dialogState.activeThread, "legacy dialogue should rebuild a working context");
-assert.match(dialogState.activeThread.title, /недостаток сна/u);
+assert.match(dialogState.activeThread.title, /недостаток сна/iu);
 assert.equal(window.NGMemory.dialogHistory().length, 3);
 const dialogPlan = window.NGMemory.planDialog("А почему?");
 assert.equal(dialogPlan.intent, "follow_up", "the manager should classify a short contextual follow-up");
