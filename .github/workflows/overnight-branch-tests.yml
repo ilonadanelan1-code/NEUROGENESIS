@@ -57,6 +57,9 @@ jobs:
       - name: Check startup asset and DOM contracts
         run: node tests/startup-contract.test.js
 
+      - name: Check Worker deployment configuration
+        run: node tests/worker-config.test.js
+
       - name: Build and test C++ core
         run: |
           cmake -S engine -B build/engine -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
