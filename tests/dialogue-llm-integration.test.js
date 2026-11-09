@@ -92,9 +92,9 @@ assert.equal(
   "messages from a paused, unrelated topic must not leak into the LLM request"
 );
 assert.equal(
-  request.messages.filter(row => row.role === "user" && row.content === "А почему?").length,
+  request.messages.filter(row => row.role === "user" && row.content.startsWith("А почему?")).length,
   1,
-  "the current user prompt must occur once, not be duplicated in history"
+  "the current user prompt must occur once at the start of the composed user message"
 );
 
 console.log("NEUROGENESIS dialog-context to LLM bridge integration: passed.");
