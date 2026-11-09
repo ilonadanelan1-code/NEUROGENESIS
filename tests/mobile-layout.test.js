@@ -21,6 +21,10 @@ assert.ok(css.includes(".workspace{display:flex;flex-direction:column;overflow:h
   "the portrait phone layout must stack the brain and control panel");
 assert.ok(css.includes("overflow-y:auto"),
   "mobile panels must keep their contents reachable by scrolling");
+assert.match(css, /@media\s*\(pointer:coarse\)\s*\{[\s\S]*?button\s*\{\s*min-height:44px\s*\}/u,
+  "coarse-pointer devices must have at least 44px button targets");
+assert.match(css, /\.icon-button,\.tool-button\{width:44px;height:44px;min-width:44px/u,
+  "canvas and top-bar icon controls must remain comfortably tappable on phones");
 assert.ok(css.includes("#brain-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;"),
   "the interactive brain canvas must keep pointer gestures available");
 
