@@ -720,7 +720,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the plan must identify the exact goal that needs reassessment");
   assert.match(reassessmentPlan,/Наблюдений после прежней оценки: 2/u,
     "the plan must use the existing post-assessment evidence count");
-  assert.match(reassessmentPlan,/прежний ответ сохраняются как история/u,
+  assert.match(reassessmentPlan,/не переписывают старый ответ/u,
     "the plan must preserve the historical assessment instead of silently rewriting it");
   window.NGGoals = priorGoalsManager;
 
