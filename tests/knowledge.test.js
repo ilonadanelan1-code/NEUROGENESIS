@@ -382,6 +382,38 @@ assert.equal(v21MeasuredObservation.observationCase.criterion.value,"по шка
 assert.equal(v21MeasuredObservation.observationCase.outcome.status,"provided");
 assert.equal(v21MeasuredObservation.observationCase.outcome.value,"6/10");
 assert.equal(v21MeasuredObservation.observationCase.eventRef,"сон-эпизод-01");
+
+const eventObservationOne = knowledge.extractClaims(
+  "При недостатке сна наблюдалась усталость; контекст: после тренировки; время: вечером; критерий: по шкале 1–10; событие: sleep-event-A"
+)[0];
+const eventObservationSame = {
+  ...eventObservationOne,
+  id: "observation-sleep-event-A-duplicate"
+};
+const eventObservationSeparate = {
+  ...eventObservationOne,
+  id: "observation-sleep-event-B",
+  observationCase: {
+    ...eventObservationOne.observationCase,
+    eventRef: "sleep-event-B"
+  }
+};
+const mergedEventObservations = knowledge.mergeClaims(
+  [eventObservationOne],
+  [eventObservationSame, eventObservationSeparate]
+);
+assert.equal(mergedEventObservations.length, 2,
+  "identical observation cards from different explicit events must remain separate evidence");
+assert.deepEqual(
+  mergedEventObservations.map(claim => claim.observationCase.eventRef).sort(),
+  ["sleep-event-A", "sleep-event-B"],
+  "event identity must participate in structured-observation deduplication"
+);
+assert.ok(
+  mergedEventObservations.some(claim => claim.id === eventObservationOne.id),
+  "the original evidence identity must be retained when the same event is merged"
+);
+
 const v21Sanitized=knowledge.sanitizeClaims([v21StructuredObservation])[0];
 assert.equal(v21Sanitized.observationCase.context.value,"после тяжёлой тренировки");
 assert.equal(v21Sanitized.observationCase.schema,2);
