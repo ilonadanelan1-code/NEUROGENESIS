@@ -473,7 +473,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
         {goalId:"G-Q77",inquiryId:"Q77",kind:"status_changed",title:"Уточнить связь сна и усталости",
           fromStatus:"blocked",toStatus:"review",assessment:"gap_confirmed",progress:75,
           observationCount:3,observationsAfterAssessment:2,sourceClaimIds:["claim-origin-77"],
-          evidenceClaimIds:["claim-positive-77","claim-negative-77"],evidenceMemoryIds:["memory-77"],
+          evidenceClaimIds:["claim-positive-77","claim-negative-77","claim-extra-1","claim-extra-2","claim-extra-3","claim-extra-4","claim-extra-5"],
+          removedEvidenceClaimIds:["claim-old-1","claim-old-2"],evidenceMemoryIds:["memory-77"],
           nextAction:"Повторно сопоставить новые наблюдения."},
         {goalId:"G-Q78",inquiryId:"Q78",kind:"status_changed",title:"Уточнить идентичность эпизодов",
           fromStatus:"active",toStatus:"completed",assessment:"duplicate_same_event",progress:100,
@@ -737,6 +738,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(restoredReviewDelta.observationsAfterAssessment,2);
   assert.ok(restoredReviewDelta.evidenceClaimIds.includes("claim-negative-77"),
     "backup import must preserve exact evidence claim IDs inside a cycle-level goal delta");
+  assert.equal(restoredReviewDelta.evidenceClaimIds.length,6,
+    "goal-delta evidence links must be capped to keep the cognitive history bounded");
+  assert.equal(restoredReviewDelta.removedEvidenceClaimIds.length,2,
+    "removed evidence links must remain distinguishable from newly added evidence");
   assert.ok(restoredReviewDelta.sourceClaimIds.includes("claim-origin-77"));
   assert.ok(restoredReviewDelta.evidenceMemoryIds.includes("memory-77"));
   const restoredCompletionDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q78");
@@ -746,6 +751,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.deepEqual([...restoredCompletionDelta.evidenceClaimIds].sort(),
     ["claim-event-78-a","claim-event-78-b"],
     "completed-goal history must retain the source observations that closed the task");
+  assert.deepEqual([...restoredCompletionDelta.removedEvidenceClaimIds],[],
+    "a completed goal must not invent removed evidence when no source was withdrawn");
   assert.notEqual(restoredImportedCycle.id,"C700",
     "a cycle imported from another local sequence with a colliding ID must receive a unique ID");
   assert.equal(new Set(importedCycles.map(item=>item.id)).size,importedCycles.length,
