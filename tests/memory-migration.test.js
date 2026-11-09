@@ -356,6 +356,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the malformed conclusion must be retained as an excluded archive path");
   assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_alternative"),
     "malformed snapshot alternatives must also remain excluded rather than becoming routes");
+  const storedImportedArchive=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime);
+  assert.ok(storedImportedArchive.reasoning.reviews.some(item=>item.claimId==="missing-import-source"),
+    "unverified review metadata must remain in the archive for historical inspection");
   const importedDialogRow=importedRows.find(item=>item.time===importTime+1000);
   assert.ok(importedDialogRow&&importedDialogRow.conclusions.length===0,
     "reasoning embedded in imported dialogue must pass through the same archive guard");
