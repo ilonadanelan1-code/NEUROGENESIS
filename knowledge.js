@@ -354,9 +354,14 @@
   function mergeClaims(existing,incoming) {
     const merged=[...sanitizeClaims(existing),...sanitizeClaims(incoming)],seen=new Set();
     const result=[];
+    const claimKey=claim=>JSON.stringify([
+      claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),
+      normalise(claim.object),claim.polarity,
+      ...(claim.kind==="observation"?[normalise(claim.observationCase&&claim.observationCase.eventRef||"")]:[])
+    ]);
     for(const claim of merged){
-      const key=[claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
-      const prior=result.find(item=>[item.kind,canonicalEntity(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
+      const key=claimKey(claim);
+      const prior=result.find(item=>claimKey(item)===key);
       if(prior){
         if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;
         if(prior.kind==="observation"&&claim.observationCase) {
