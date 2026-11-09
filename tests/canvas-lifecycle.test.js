@@ -36,7 +36,7 @@ assert.match(lifecycle, /clearTimeout\(saveTimer\)/u,
   "the pending debounced save must not be left behind during suspension");
 assert.match(lifecycle, /observer\.disconnect\(\)/u,
   "the resize observer must be disconnected on pagehide");
-assert.match(lifecycle, /canvasResizeObserver\.observe\(canvas\)/u,
+assert.match(lifecycle, /observer\.observe\(canvas\)/u,
   "the resize observer must be recreated when the page returns");
 assert.match(lifecycle, /window\.addEventListener\("resize", handleCanvasResize\)/u,
   "the legacy window-resize fallback must remain available");
