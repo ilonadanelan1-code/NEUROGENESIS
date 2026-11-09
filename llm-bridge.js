@@ -12,9 +12,10 @@
     "NEUROGENESIS управляет памятью, знаниями и проверкой выводов. Ты формулируешь ответ, но не изменяешь эти слои самостоятельно."
   ].join("\n");
 
-  function safeHistory(rows, maxMessages = 12) {
+  function safeHistory(rows, maxMessages = 12, threadId = "") {
     return (Array.isArray(rows) ? rows : []).filter(row =>
-      row && (row.role === "user" || row.role === "assistant") && typeof row.text === "string")
+      row && (row.role === "user" || row.role === "assistant") && typeof row.text === "string" &&
+      (!threadId || row.threadId === threadId))
       .slice(-Math.max(0, Math.min(20, Number(maxMessages) || 12)))
       .map(row => ({ role: row.role, content: clean(row.text, 1600) }));
   }
@@ -32,7 +33,8 @@
     const userInput = clean(input, 1600);
     if (!userInput) throw new Error("Пустой запрос к языковой модели.");
     const active = context && context.activeThread || null;
-    let history = safeHistory(context && context.recentMessages, options.maxMessages || 10);
+    const activeThreadId = active && typeof active.id === "string" ? active.id : "";
+    let history = safeHistory(context && context.recentMessages, options.maxMessages || 10, activeThreadId);
     if (history.length && history[history.length - 1].role === "user" &&
         history[history.length - 1].content === userInput) history = history.slice(0, -1);
     const facts = safeEvidence(evidence, options.maxEvidence || 8);
