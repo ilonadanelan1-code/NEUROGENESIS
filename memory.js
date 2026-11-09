@@ -2747,7 +2747,7 @@
     return lines.join("\n");
   }
   function askMemoryCore(raw) {
-    const query = String(raw || "").trim();
+    let query = String(raw || "").trim();
     if (!query) { setFeedback("Напиши вопрос к моей памяти."); return; }
     const lower = normalise(query);
     if(/^(?:покажи последний когнитивный цикл|покажи последний цикл мышления|что происходило в последнем цикле)$/u.test(lower)) {
@@ -2833,6 +2833,10 @@
       if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
       return;
     }
+    const dialogueResolution = DIALOG_CONTEXT
+      ? DIALOG_CONTEXT.resolve(dialogContext, query)
+      : { applied:false, query, title:"", reason:"dialog_context_unavailable" };
+    if (dialogueResolution.applied && dialogueResolution.query) query = dialogueResolution.query;
     const sourceClaims = memories.flatMap(item => item.claims || []);
     const allClaims = claimsForWorkingModel(sourceClaims);
     const hypothesisPriority = KNOWLEDGE && typeof KNOWLEDGE.prioritizeHypotheses==="function" ? KNOWLEDGE.prioritizeHypotheses(query,allClaims) : null;
@@ -2896,7 +2900,10 @@
         isCausalQuery?makeReasoningMeta("causal_chain",causalRecall,sourceClaims):null;
       const modelNote=(isHypothesisPriority||isDerivedHypotheses||isExperimentPlan||isCausalQuery)?formatModelDecisionNote():"";
       const researchNote=(isHypothesisPriority||isDerivedHypotheses)?researchAwareHypothesisNote(isHypothesisPriority?hypothesisPriority:derivedHypotheses):"";
-      const conclusionAnswer=researchNote+(researchNote?"\n\n":"")+structuredAnswer+
+      const continuityNote = dialogueResolution.applied
+        ? "КОНТЕКСТ ДИАЛОГА: продолжаю тему «" + dialogueResolution.title + "». Короткий или ссылочный вопрос сопоставлен с предыдущими репликами этой темы.\n\n"
+        : "";
+      const conclusionAnswer=continuityNote+researchNote+(researchNote?"\n\n":"")+structuredAnswer+
         (isCausalQuery&&causalAuditText?"\n\n"+causalAuditText:"")+
         (graphNote?"\n\n"+graphNote:"")+modelNote+baselineReviewNote(conclusionMeta);
       say("assistant", conclusionAnswer, conclusionMeta);
@@ -2921,7 +2928,9 @@
       return {item,score:Math.max(base,graphHit?graphHit.score:0),graphPathType:graphHit?graphHit.pathType:null};
     }).filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
     if (!ranked.length) {
-      say("assistant", "Я пока не нашёл в своей памяти достаточно близкой информации.\n\nЯ не буду выдумывать ответ. Расскажи мне об этом через «Запомнить», и я смогу использовать эти сведения в следующих вопросах.");
+      say("assistant", dialogueResolution.applied
+        ? "Я понял, что это продолжение темы «" + dialogueResolution.title + "», но в локальной памяти пока нет достаточно близких сведений, чтобы надёжно ответить. Уточни, какой именно аспект ты имеешь в виду, или добавь нужные сведения через «Запомнить»."
+        : "Я пока не нашёл в своей памяти достаточно близкой информации.\n\nЯ не буду выдумывать ответ. Расскажи мне об этом через «Запомнить», и я смогу использовать эти сведения в следующих вопросах.");
       setFeedback("ПОИСК ЗАВЕРШЁН · НАДЁЖНЫХ СОВПАДЕНИЙ НЕТ");
       return;
     }
@@ -3262,6 +3271,7 @@
         exportedAt: new Date().toISOString(),
         memories,
         dialog,
+        dialogContext: DIALOG_CONTEXT && dialogContext ? DIALOG_CONTEXT.sanitize(dialogContext) : null,
         modelDecisions,
         modelEvidence,
         reasoningArchive,
@@ -3330,6 +3340,11 @@
         const restored = data.dialog.filter(item => item && typeof item.text === "string")
           .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(item.time, Date.now()), reasoning: cleanReasoning(item.reasoning) }));
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
+      }
+      if (DIALOG_CONTEXT) {
+        dialogContext = data.dialogContext
+          ? DIALOG_CONTEXT.merge(dialogContext, data.dialogContext)
+          : DIALOG_CONTEXT.rebuild(dialog);
       }
       if(Array.isArray(data.modelDecisions))modelDecisions=mergeModelDecisionHistory(modelDecisions,data.modelDecisions);
       if(Array.isArray(data.modelEvidence))modelEvidence=mergeModelEvidenceHistory(modelEvidence,data.modelEvidence);
@@ -3493,6 +3508,19 @@
       .sort((a, b) => b.score - a.score).slice(0, 5),
     ask: query => askMemory(query),
     remember: text => rememberText(text),
+    dialogContext: () => DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null,
+    dialogHistory: (threadId, limit=12) => DIALOG_CONTEXT ? DIALOG_CONTEXT.history(dialogContext,threadId,limit) : [],
+    resolveDialogReference: query => DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query},
+    llmStatus: () => LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]},
+    prepareLLMRequest: query => {
+      if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
+      const report = DIALOG_CONTEXT.report(dialogContext);
+      const history = DIALOG_CONTEXT.history(dialogContext,report.activeThread&&report.activeThread.id,10);
+      const evidence = memories.map(item=>({item,score:scoreMemory(query,item)}))
+        .filter(row=>row.score>=0.1).sort((a,b)=>b.score-a.score).slice(0,8)
+        .map(row=>({id:row.item.id,text:row.item.text,kind:"memory",status:"user_supplied"}));
+      return LLM_BRIDGE.buildRequest(query,{activeThread:report.activeThread,recentMessages:history},evidence);
+    },
     claims: () => memories.flatMap(item => item.claims || []),
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
