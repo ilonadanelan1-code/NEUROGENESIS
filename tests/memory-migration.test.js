@@ -473,6 +473,36 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     item.fromState==="under_review"&&item.toState==="new"),
     "the lifecycle event history must persist the inquiry-driven state transition");
   const skippedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
+  assert.ok(skippedResearchGoal,"a skipped inquiry must keep its linked research goal");
+  assert.equal(skippedResearchGoal.status,"paused",
+    "skipping a question must pause its goal without deleting its history");
+  window.NGMemory.ask("возобнови вопрос Q810");
+  const resumedInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q810");
+  assert.equal(resumedInquiry.status,"open",
+    "the explicit resume command must return the skipped question to the open queue");
+  assert.ok(resumedInquiry.lastResumedAt>0,
+    "the resume event must have its own timestamp rather than erasing the old ask time");
+  assert.equal(resumedInquiry.resumeCount,1,
+    "the inquiry must record the number of explicit resumptions");
+  const storedLifecycleAfterResume=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.equal(storedLifecycleAfterResume.state,"under_review",
+    "resuming an inquiry must put its matching hypothesis back under review");
+  assert.ok(storedLifecycleAfterResume.events.some(item=>item.kind==="state_changed"&&
+    item.fromState==="new"&&item.toState==="under_review"),
+    "the lifecycle event history must retain the resumption transition");
+  const resumedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
+  assert.equal(resumedResearchGoal.status,"active",
+    "a resumed inquiry must become active until it is explicitly asked again");
+  assert.match(resumedResearchGoal.nextAction,/повторно задать Q810/u,
+    "the resumed goal must instruct the planner to present the question again");
+  window.NGMemory.ask("пропусти вопрос Q810");
+  assert.equal(window.NGMemory.inquiries().find(item=>item.id==="Q810").status,"skipped",
+    "a resumed inquiry can be skipped again without losing its prior history");
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId==="Q810").status,"paused",
+    "skipping the resumed inquiry again must pause the same goal");
+  const skippedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
   assert.ok(skippedResearchGoal,"the skipped inquiry must retain its linked research goal");
   assert.equal(skippedResearchGoal.status,"paused",
     "skipping a question must pause its goal without deleting its history");
