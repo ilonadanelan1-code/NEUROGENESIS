@@ -404,9 +404,9 @@ const mergedEventObservations = knowledge.mergeClaims(
 );
 assert.equal(mergedEventObservations.length, 2,
   "identical observation cards from different explicit events must remain separate evidence");
-assert.deepEqual(
-  mergedEventObservations.map(claim => claim.observationCase.eventRef).sort(),
-  ["sleep-event-A", "sleep-event-B"],
+assert.equal(
+  [...mergedEventObservations.map(claim => claim.observationCase.eventRef)].sort().join("|"),
+  "sleep-event-A|sleep-event-B",
   "event identity must participate in structured-observation deduplication"
 );
 assert.ok(
