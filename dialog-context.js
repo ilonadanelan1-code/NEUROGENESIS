@@ -106,7 +106,13 @@
             ? row.relation : "continuation"
         }));
       result.activeThreadId = ids.has(source.activeThreadId) ? source.activeThreadId : "";
-      if (!result.activeThreadId && result.threads.length) result.activeThreadId = result.threads[result.threads.length - 1].id;
+      if (!result.activeThreadId && result.threads.length) {
+        const indicated = result.threads.slice().reverse().find(row => row.status === "active");
+        result.activeThreadId = (indicated || result.threads[result.threads.length - 1]).id;
+      }
+      result.threads = result.threads.map(row => ({
+        ...row, status:row.id === result.activeThreadId ? "active" : "paused"
+      }));
       const seq = result.threads.map(row => Number((row.id.match(/^T(\d+)/u) || [])[1]) || 0);
       result.nextSequence = Math.max(result.nextSequence, 1, ...seq.map(n => n + 1));
       if (source.lastDecision && typeof source.lastDecision.kind === "string") {
@@ -170,6 +176,8 @@
           const match = resolveReturn(state, target);
           if (match.ambiguous) {
             state.lastDecision = { kind: "ambiguous_return", text: target, candidates: match.candidates };
+            thread = createThread(state, text, time);
+            relation = "new_topic";
           } else if (match.thread) {
             thread = match.thread;
             for (const row of state.threads) row.status = row.id === thread.id ? "active" : "paused";
@@ -178,7 +186,8 @@
             state.lastDecision = { kind: "returned", text: target, candidates: [thread.id] };
           } else {
             state.lastDecision = { kind: "unresolved_return", text: target, candidates: [] };
-            if (!thread) thread = createThread(state, text, time);
+            thread = createThread(state, text, time);
+            relation = "new_topic";
           }
         } else if (isExplicitSwitch(text)) {
           thread = createThread(state, text, time);
@@ -260,11 +269,13 @@
       const valid = new Set(mergedThreads.map(row => row.id));
       const mergedMessages = [...messages.values()].filter(row => valid.has(row.threadId))
         .sort((x, y) => x.time - y.time).slice(-MAX_MESSAGES);
-      const recent = b.threads.reduce((best, row) => !best || row.updatedAt > best.updatedAt ? row : best, null);
+      const activeA = activeThread(a), activeB = activeThread(b);
+      const preferRight = !!activeB && (!activeA || activeB.updatedAt >= activeA.updatedAt);
+      const selected = preferRight ? b : a;
       const state = sanitize({
-        version: 1, activeThreadId: recent && recent.updatedAt >= (activeThread( a )?.updatedAt || 0) ? b.activeThreadId : a.activeThreadId,
+        version: 1, activeThreadId: selected.activeThreadId,
         nextSequence: Math.max(a.nextSequence, b.nextSequence), threads: mergedThreads, messages: mergedMessages,
-        lastDecision: b.lastDecision || a.lastDecision
+        lastDecision: selected.lastDecision
       });
       return state;
     }

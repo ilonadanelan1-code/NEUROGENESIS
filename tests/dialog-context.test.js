@@ -34,7 +34,13 @@ const history = engine.history(state, firstThread);
 assert.ok(history.length >= 3, "thread history should remain separate");
 assert.equal(engine.history(state, musicThread).some(row => /недостатку сна/u.test(row.text)), false,
   "messages from another topic must not leak into the music thread");
+const previousSleepLastUserText = state.threads.find(row => row.id === firstThread).lastUserText;
 const unresolved = engine.track(state, { role: "user", text: "Вернёмся к квантовым вычислениям", time: 6 });
+assert.notEqual(unresolved.activeThreadId, firstThread,
+  "an unresolved topic return must open a separate clarification thread");
+assert.equal(unresolved.threads.find(row => row.id === firstThread).lastUserText, previousSleepLastUserText,
+  "an unresolved topic return must not overwrite the unrelated active thread's last user message");
+assert.equal(unresolved.messages[unresolved.messages.length - 1].relation, "new_topic");
 assert.equal(engine.resolve(unresolved, "А почему?").applied, false,
   "an unresolved return must not borrow context from the currently active unrelated topic");
 assert.equal(engine.isLikelyAnswer("Примерно четыре часа", "Сколько часов ты спал?"), true,
@@ -116,6 +122,49 @@ assert.equal(sameSubjectOpening.activeThreadId, sleepThreadId,
   "a topic opening that clearly overlaps the active subject must stay in that topic");
 const resumed = engine.track(unresolved, { role: "user", text: "Музыка и инструменты мне интересны", time: 9 });
 assert.equal(resumed.lastDecision, null, "an unresolved-reference flag must not poison later turns");
+// The active topic must win by its own update time, not by a newer paused topic.
+const mergeLeft = engine.sanitize({
+  activeThreadId:"T10-left",
+  threads:[
+    {id:"T10-left",title:"Текущая тема слева",status:"active",updatedAt:100},
+    {id:"T11-left-paused",title:"Старая приостановленная тема",status:"paused",updatedAt:80}
+  ],
+  messages:[]
+});
+const mergeRight = engine.sanitize({
+  activeThreadId:"T20-right",
+  threads:[
+    {id:"T20-right",title:"Текущая тема справа",status:"active",updatedAt:90},
+    {id:"T21-right-paused",title:"Позже обновлённая старая тема",status:"paused",updatedAt:120}
+  ],
+  messages:[],
+  lastDecision:{kind:"unresolved_return",text:"к чужой теме",candidates:[]}
+});
+const merged = engine.merge(mergeLeft,mergeRight);
+assert.equal(merged.activeThreadId,"T10-left",
+  "merge must compare active-thread timestamps, not the most recently updated paused thread");
+assert.equal(merged.lastDecision,null,
+  "a decision belonging to the non-selected active thread must not leak into the merged context");
+assert.deepEqual(merged.threads.filter(row=>row.status==="active").map(row=>row.id),["T10-left"],
+  "a merged context must have exactly one active thread");
+const normalizedMultipleActive = engine.sanitize({
+  activeThreadId:"T30-selected",
+  threads:[
+    {id:"T30-selected",title:"Выбранная тема",status:"active",updatedAt:1},
+    {id:"T31-extra",title:"Лишняя активная тема",status:"active",updatedAt:2}
+  ]
+});
+assert.deepEqual(normalizedMultipleActive.threads.filter(row=>row.status==="active").map(row=>row.id),["T30-selected"],
+  "sanitization must normalize malformed multiple-active-thread states");
+const inferredActive = engine.sanitize({
+  threads:[
+    {id:"T40-paused",title:"Приостановленная",status:"paused",updatedAt:3},
+    {id:"T41-indicated",title:"Отмеченная активная",status:"active",updatedAt:2}
+  ]
+});
+assert.equal(inferredActive.activeThreadId,"T41-indicated",
+  "when the active ID is missing, an explicitly active thread should be preferred over the last list row");
+
 const roundTrip = engine.sanitize(JSON.parse(JSON.stringify(state)));
 assert.equal(roundTrip.activeThreadId, firstThread);
 assert.equal(engine.report(roundTrip).topics.length, 2);
