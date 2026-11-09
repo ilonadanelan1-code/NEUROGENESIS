@@ -849,7 +849,9 @@
       status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
       sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
-      lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
+      lastAskedAt:safeTime(raw.lastAskedAt,0),lastResumedAt:safeTime(raw.lastResumedAt,0),
+      resumeCount:Math.max(0,Math.min(1000,Math.floor(Number(raw.resumeCount)||0))),
+      responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
       responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",responseDetails,
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0),
@@ -1454,7 +1456,8 @@
     let answer="ИССЛЕДОВАТЕЛЬСКАЯ ОЧЕРЕДЬ\n\nОткрыто: "+open.length+" · Получили ответ: "+answered.length+" · Пропущено: "+skipped.length+"\n";
     if(open.length)answer+="\nОТКРЫТЫЕ ВОПРОСЫ\n"+open.map(x=>"• "+x.id+" — "+x.edgeSubject+" → "+x.edgeObject+" · "+x.question).join("\n");
     if(answered.length)answer+="\n\nПОЛУЧЕННЫЕ ОТВЕТЫ\n"+answered.slice(-8).map(x=>"• "+x.id+" — "+inquiryAssessmentLabel(x)).join("\n");
-    if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ");
+    if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ")+
+      ". Для ручного возврата в очередь используй команду «возобнови вопрос "+skipped[0].id+"».";
     return answer+"\n\nОтветы остаются пользовательскими сведениями. Они не подтверждают причинную связь автоматически.";
   }
   function researchGoalsAnswer() {
@@ -1470,6 +1473,16 @@
     if(!item)return "Не нашёл открытый вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
     item.status="skipped";item.updatedAt=Date.now();persist();
     return "Вопрос "+item.id+" помечен как пропущенный. Его история и источники сохранены.";
+  }
+  function resumeInquiry(id) {
+    const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="skipped");
+    if(!item)return "Не нашёл пропущенный вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
+    const now=Date.now();
+    item.status="open";item.lastResumedAt=now;
+    item.resumeCount=Math.min(1000,(Number(item.resumeCount)||0)+1);
+    item.updatedAt=now;persist();
+    return "ВОПРОС ВОЗВРАЩЁН В ОЧЕРЕДЬ · "+item.id+
+      "\nЕго прежняя история и оценка сохранены. Вопрос ещё не задан повторно; используй «задай следующий вопрос», когда будешь готов.";
   }
   function recordInquiryResponse(id,response,memory,claims) {
     const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
@@ -3070,6 +3083,8 @@
     }
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    const resumedInquiry=lower.match(/^(?:возобнови вопрос|верни вопрос) (q\d+)(?: в очередь)?$/u);
+    if(resumedInquiry) { say("assistant",resumeInquiry(resumedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ВОЗВРАЩЁН");return; }
     if(/^(?:покажи хронологию наблюдений|хронология наблюдений|покажи временную шкалу наблюдений|восстанови последовательность наблюдений)$/u.test(lower)) {
       say("assistant",observationTimelineAnswer());setFeedback("ПАМЯТЬ ОПЫТА · ХРОНОЛОГИЯ");return;
     }
