@@ -1,0 +1,197 @@
+"use strict";
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+
+const app = fs.readFileSync("app.js", "utf8");
+
+function section(startMarker, endMarker) {
+  const start = app.indexOf(startMarker);
+  assert.notEqual(start, -1, "missing section: " + startMarker);
+  const end = app.indexOf(endMarker, start);
+  assert.notEqual(end, -1, "missing section boundary: " + endMarker);
+  return app.slice(start, end);
+}
+
+const scheduler = section("  function scheduleFrame() {", "  function rebuildIndexes()");
+assert.match(scheduler, /pageSuspended\s*\|\|\s*document\.hidden/u,
+  "hidden pages must not enqueue canvas frames");
+assert.match(scheduler, /frameHandle\s*=\s*requestAnimationFrame\(frame\)/u,
+  "the scheduled animation-frame identifier must be retained");
+assert.match(scheduler, /function cancelScheduledFrame\(\)[\s\S]*?cancelAnimationFrame\(frameHandle\)/u,
+  "the pending animation frame must be cancellable");
+assert.match(scheduler, /frameScheduled\s*=\s*false/u,
+  "cancellation must reset the scheduler guard");
+
+const lifecycle = section("  const handleCanvasResize =", "  for (const eventName");
+assert.match(lifecycle, /document\.addEventListener\("visibilitychange", handleVisibilityChange\)/u,
+  "the renderer must respond to document visibility changes");
+assert.match(lifecycle, /window\.addEventListener\("pagehide", handlePageHide\)/u,
+  "the renderer must suspend when the page enters the back-forward cache");
+assert.match(lifecycle, /window\.addEventListener\("pageshow", handlePageShow\)/u,
+  "the renderer must restore after the page is shown again");
+assert.match(lifecycle, /if \(dirty\) saveState\(\)/u,
+  "unsaved network changes must be flushed when rendering is suspended");
+assert.match(lifecycle, /clearTimeout\(saveTimer\)/u,
+  "the pending debounced save must not be left behind during suspension");
+assert.match(lifecycle, /observer\.disconnect\(\)/u,
+  "the resize observer must be disconnected on pagehide");
+assert.match(lifecycle, /observer\.observe\(canvas\)/u,
+  "the resize observer must be recreated when the page returns");
+assert.match(lifecycle, /window\.addEventListener\("resize", handleCanvasResize\)/u,
+  "the legacy window-resize fallback must remain available");
+
+const observerLifecycle = lifecycle.slice(
+  lifecycle.indexOf("  function connectCanvasResizeObserver()"),
+  lifecycle.indexOf("  function suspendRendering()")
+);
+assert.match(observerLifecycle, /try\s*\{[\s\S]*?observer\.observe\(canvas\)/u,
+  "a browser with a broken ResizeObserver implementation must fall back instead of crashing");
+assert.match(observerLifecycle, /catch\s*\(error\)[\s\S]*?canvasResizeObserver\s*=\s*null/u,
+  "a failed observer must not leave a stale observer reference");
+assert.match(observerLifecycle, /observer\.disconnect\(\)/u,
+  "a partially initialized observer must be disconnected after observe() fails");
+
+
+function createObserverHarness(ResizeObserverImpl) {
+  const observerStart = app.indexOf("  const handleCanvasResize =");
+  const observerEnd = app.indexOf("  function suspendRendering()", observerStart);
+  assert.notEqual(observerStart, -1, "ResizeObserver lifecycle helpers must exist");
+  assert.notEqual(observerEnd, -1, "ResizeObserver lifecycle helpers must have a clear boundary");
+  const source = app.slice(observerStart, observerEnd) +
+    "\nglobalThis.__observerApi = { connect: connectCanvasResizeObserver, disconnect: disconnectCanvasResizeObserver };";
+  const warnings = [];
+  const sandbox = {
+    ResizeObserver: ResizeObserverImpl,
+    canvas: {},
+    resize() {},
+    scheduleFrame() {},
+    console: { warn(...args) { warnings.push(args); } }
+  };
+  vm.runInNewContext(source, sandbox, { filename: "canvas-observer-lifecycle.js" });
+  return { api: sandbox.__observerApi, warnings };
+}
+
+let observeCalls = 0, disconnectCalls = 0, constructorCalls = 0;
+class WorkingResizeObserver {
+  constructor(callback) { constructorCalls++; this.callback = callback; }
+  observe() { observeCalls++; }
+  disconnect() { disconnectCalls++; }
+}
+let observerHarness = createObserverHarness(WorkingResizeObserver);
+assert.doesNotThrow(() => observerHarness.api.connect());
+assert.doesNotThrow(() => observerHarness.api.connect(),
+  "duplicate resume events must not create multiple observers");
+assert.equal(constructorCalls, 1);
+assert.equal(observeCalls, 1);
+observerHarness.api.disconnect();
+observerHarness.api.disconnect();
+assert.equal(disconnectCalls, 1,
+  "disconnect must release the active observer only once");
+
+observerHarness = createObserverHarness(undefined);
+assert.doesNotThrow(() => observerHarness.api.connect(),
+  "browsers without ResizeObserver must continue using the window-resize fallback");
+assert.doesNotThrow(() => observerHarness.api.disconnect());
+
+let failedObserveDisconnects = 0;
+class BrokenObserveResizeObserver {
+  observe() { throw new Error("observe failed"); }
+  disconnect() { failedObserveDisconnects++; }
+}
+observerHarness = createObserverHarness(BrokenObserveResizeObserver);
+assert.doesNotThrow(() => observerHarness.api.connect(),
+  "an exception from observe() must not interrupt app startup");
+assert.equal(failedObserveDisconnects, 1,
+  "a partially created observer must be cleaned up after observe() fails");
+assert.equal(observerHarness.warnings.length, 1);
+
+class BrokenConstructorResizeObserver {
+  constructor() { throw new Error("constructor failed"); }
+}
+observerHarness = createObserverHarness(BrokenConstructorResizeObserver);
+assert.doesNotThrow(() => observerHarness.api.connect(),
+  "an exception from the ResizeObserver constructor must use the fallback");
+assert.equal(observerHarness.warnings.length, 1);
+
+class BrokenDisconnectResizeObserver {
+  observe() {}
+  disconnect() { throw new Error("disconnect failed"); }
+}
+observerHarness = createObserverHarness(BrokenDisconnectResizeObserver);
+observerHarness.api.connect();
+assert.doesNotThrow(() => observerHarness.api.disconnect(),
+  "a cleanup exception must not escape during pagehide");
+assert.equal(observerHarness.warnings.length, 1);
+
+const frameStart = app.indexOf("  function frame(time) {");
+const frameEnd = app.indexOf("\n  canvas.addEventListener", frameStart);
+assert.notEqual(frameStart, -1, "the canvas frame loop must exist");
+assert.notEqual(frameEnd, -1, "the canvas frame loop must have a clear boundary");
+const frameBody = app.slice(frameStart, frameEnd);
+assert.match(frameBody, /frameHandle\s*=\s*null[\s\S]*?if \(pageSuspended \|\| document\.hidden\)[\s\S]*?return;/u,
+  "a stale frame callback must exit before advancing simulation state");
+assert.doesNotMatch(frameBody, /requestAnimationFrame\(frame\)/u,
+  "the frame callback must not schedule itself unconditionally while idle");
+assert.match(frameBody, /if\(animationActive\)[\s\S]*scheduleFrame\(\)/u,
+  "continuous rendering must continue only while simulation activity is running");
+
+
+const pointerCleanupStart = app.indexOf("  function clearPointerState() {");
+const pointerCleanupEnd = app.indexOf("\n  function suspendRendering()", pointerCleanupStart);
+assert.notEqual(pointerCleanupStart, -1,
+  "pointer interaction cleanup must be defined for page suspension");
+assert.notEqual(pointerCleanupEnd, -1,
+  "pointer interaction cleanup must have a clear boundary");
+const pointerCleanup = app.slice(pointerCleanupStart, pointerCleanupEnd) +
+  "\nglobalThis.__clearPointerState = clearPointerState;";
+const pointerSandbox = {
+  pointers: new Map([[11, { x: 12, y: 20 }], [12, { x: 30, y: 44 }]]),
+  gesture: { distance: 18 },
+  drag: { kind: "pan" }
+};
+vm.runInNewContext(pointerCleanup, pointerSandbox,
+  { filename: "canvas-pointer-cleanup.js" });
+pointerSandbox.__clearPointerState();
+assert.equal(pointerSandbox.pointers.size, 0,
+  "suspending the page must discard active pointer identifiers");
+assert.equal(pointerSandbox.gesture, null,
+  "suspending the page must discard stale pinch-gesture state");
+assert.equal(pointerSandbox.drag, null,
+  "suspending the page must discard stale drag state");
+
+const endPointerStart = app.indexOf("  function endPointer(event)");
+const endPointerEnd = app.indexOf("\n  canvas.addEventListener(\"pointerup\"", endPointerStart);
+assert.notEqual(endPointerStart, -1,
+  "pointer completion and capture-loss cleanup must exist");
+assert.notEqual(endPointerEnd, -1,
+  "pointer completion cleanup must have a clear boundary");
+const endPointerSource = app.slice(endPointerStart, endPointerEnd) +
+  "\nglobalThis.__endPointer = endPointer;";
+const endPointerSandbox = {
+  pointers: new Map([[21, { x: 10, y: 10 }], [22, { x: 30, y: 30 }]]),
+  gesture: { distance: 28 },
+  drag: null
+};
+vm.runInNewContext(endPointerSource, endPointerSandbox,
+  { filename: "canvas-pointer-end.js" });
+endPointerSandbox.__endPointer({ pointerId: 21 });
+assert.equal(endPointerSandbox.pointers.size, 1,
+  "losing one captured pointer must remove only that pointer");
+assert.equal(endPointerSandbox.gesture, null,
+  "losing one captured pointer must cancel the pinch gesture");
+assert.ok(endPointerSandbox.pointers.has(22),
+  "the remaining pointer must not be removed accidentally");
+endPointerSandbox.__endPointer({ pointerId: 22 });
+assert.equal(endPointerSandbox.pointers.size, 0,
+  "the final pointer release must empty the active pointer set");
+const suspendStart = app.indexOf("  function suspendRendering() {");
+const suspendEnd = app.indexOf("\n  function resumeRendering()", suspendStart);
+assert.notEqual(suspendStart, -1);
+assert.notEqual(suspendEnd, -1);
+assert.match(app.slice(suspendStart, suspendEnd), /clearPointerState\(\)/u,
+  "pagehide and visibility suspension must clear active pointer state");
+assert.match(app, /canvas\.addEventListener\("lostpointercapture",\s*endPointer\)/u,
+  "unexpected pointer-capture loss must release the corresponding gesture state");
+
+console.log("NEUROGENESIS canvas lifecycle contracts: hidden-page suspension, frame cancellation, save flush, observer cleanup and restoration and pointer-capture recovery passed.");

@@ -5,8 +5,11 @@ const vm = require("node:vm");
 
 const window = {};
 const sandbox = { window, Date, Math, Map, Set, JSON };
+vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
+vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
+const contextEngine = window.NGDialogContext.create(window.NGKnowledge);
 vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { filename: "dialog-manager.js" });
-const manager = window.NGDialogManager.create();
+const manager = window.NGDialogManager.create(contextEngine);
 
 const active = {
   activeThread: { id: "T1", title: "Недостаток сна и усталость", pendingQuestion: "" },
@@ -27,6 +30,16 @@ assert.equal(manager.classify("Примерно четыре часа", {
   ...active,
   activeThread: { ...active.activeThread, pendingQuestion: "Сколько часов ты спал?" }
 }).intent, "answer", "short reply to an open question should be recognized as an answer");
+assert.equal(manager.classify("Музыка прекрасна", {
+  ...active,
+  activeThread: { ...active.activeThread, pendingQuestion: "Сколько часов ты спал?" }
+}).intent, "statement",
+  "an unrelated short declarative message must not be misclassified as an answer");
+assert.equal(manager.classify("Да", {
+  ...active,
+  activeThread: { ...active.activeThread, pendingQuestion: "Ты спал сегодня?" }
+}).intent, "answer",
+  "the shared classifier should still accept a clear yes/no answer");
 const pending = {
   ...active,
   activeThread: { ...active.activeThread, pendingQuestion: "Какой аспект контекста тебя интересует?" }

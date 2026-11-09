@@ -49,7 +49,10 @@
         const memory=row.memory;
         const memoryId=cleanText(memory.id,100)||("anonymous-"+createStableId("memory-key",cleanText(memory.text,1200)+"|"+row.index));
         const memoryNodeId=createStableId("memory",memoryId);
-        const claimList=Array.isArray(memory.claims)?memory.claims.filter(item=>item&&typeof item==="object"&&typeof item.kind==="string"):[];
+        const rawClaims=Array.isArray(memory.claims)?memory.claims:[];
+        const claimList=typeof knowledge.sanitizeClaims==="function"
+          ?knowledge.sanitizeClaims(rawClaims,memory.text)
+          :rawClaims.filter(item=>item&&typeof item==="object"&&typeof item.kind==="string");
         addNode({id:memoryNodeId,type:"memory",memoryId,label:cleanText(memory.text,1200)||("Запись "+memoryId),
           createdAt:Number.isFinite(Number(memory.createdAt))?Number(memory.createdAt):null,claimCount:claimList.length});
         claimList.forEach((claim,claimIndex)=>{

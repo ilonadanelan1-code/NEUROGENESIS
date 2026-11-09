@@ -1,0 +1,23 @@
+name: Validate atomic backup import rollback
+
+on:
+  push:
+    branches:
+      - automation/overnight-neurogenesis-20261109
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-import-rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test failed backup import rollback
+        run: node tests/backup-import-transaction.test.js

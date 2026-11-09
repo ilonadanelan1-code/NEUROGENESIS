@@ -2,10 +2,14 @@
   "use strict";
   const clean=(value,limit=180)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
   function create(knowledge) {
-    if(!knowledge||typeof knowledge.sameEntity!=="function"||typeof knowledge.normalise!=="function")
-      throw new Error("NGDiscriminatingObservations requires NGKnowledge comparison methods");
+    if(!knowledge||typeof knowledge.sameEntity!=="function"||typeof knowledge.normalise!=="function"||
+       typeof knowledge.sanitizeClaims!=="function")
+      throw new Error("NGDiscriminatingObservations requires NGKnowledge comparison and sanitization methods");
     const entityKey=value=>knowledge.canonicalEntity?knowledge.canonicalEntity(value):knowledge.normalise(value);
     const edgeKey=edge=>entityKey(edge&&edge.subject)+"=>"+entityKey(edge&&edge.object);
+    const validCausalEdge=edge=>!!(edge&&typeof edge.subject==="string"&&typeof edge.object==="string"&&
+      knowledge.sanitizeClaims([{kind:"causal",subject:edge.subject,predicate:"приводит к",object:edge.object,
+        evidence:typeof edge.evidence==="string"?edge.evidence:""}]).length===1);
     const routeLabel=path=>[path[0].subject,...path.map(edge=>edge.object)].map(value=>clean(value,90)).join(" → ").slice(0,150);
     function observationState(edge,claims) {
       const matches=(claims||[]).filter(claim=>claim&&claim.kind==="observation"&&claim.status!=="superseded"&&
@@ -36,10 +40,15 @@
       return {index,left:left[index],right:right[index]};
     }
     function analyze(conclusion,claims) {
-      if(!conclusion||typeof conclusion.subject!=="string"||typeof conclusion.object!=="string")return null;
-      const paths=(Array.isArray(conclusion.paths)?conclusion.paths:[]).slice(0,3).map(path=>
-        (Array.isArray(path)?path:[]).filter(edge=>edge&&typeof edge.subject==="string"&&typeof edge.object==="string")
-          .slice(0,3)).filter(path=>path.length>=1);
+      if(!conclusion||typeof conclusion.subject!=="string"||typeof conclusion.object!=="string"||
+         !validCausalEdge({subject:conclusion.subject,object:conclusion.object}))return null;
+      const activeClaims=Array.isArray(claims)?claims.flatMap(claim=>knowledge.sanitizeClaims([claim])):[];
+      const paths=(Array.isArray(conclusion.paths)?conclusion.paths:[]).slice(0,3).map(path=>{
+        if(!Array.isArray(path)||!path.length)return null;
+        const candidate=path.slice(0,3);
+        if(candidate.some(edge=>!validCausalEdge(edge)))return null;
+        return candidate;
+      }).filter(path=>path&&path.length>=1);
       if(paths.length<2)return null;
       const uniquePaths=[...new Map(paths.map(path=>[path.map(edgeKey).join("|"),path])).values()];
       if(uniquePaths.length<2)return null;
@@ -49,8 +58,8 @@
       for(let i=0;i<ordered.length;i++)for(let j=i+1;j<ordered.length;j++) {
         const divergence=firstDivergence(ordered[i].path,ordered[j].path);
         if(!divergence)continue;
-        const leftState=observationState(divergence.left,claims);
-        const rightState=observationState(divergence.right,claims);
+        const leftState=observationState(divergence.left,activeClaims);
+        const rightState=observationState(divergence.right,activeClaims);
         const score=(gapScore(leftState)+gapScore(rightState))/2;
         const keys=[edgeKey(divergence.left),edgeKey(divergence.right)].sort();
         pairs.push({left:ordered[i],right:ordered[j],divergence,leftState,rightState,score,
@@ -68,7 +77,7 @@
       const edges=[selected.divergence.left,selected.divergence.right].map(edge=>({
         subject:clean(edge.subject,180),object:clean(edge.object,180)
       }));
-      const sourceClaimIds=[...new Set((claims||[]).filter(claim=>claim&&typeof claim.id==="string"&&
+      const sourceClaimIds=[...new Set(activeClaims.filter(claim=>claim&&typeof claim.id==="string"&&
         claim.status!=="superseded"&&edges.some(edge=>
           knowledge.sameEntity(claim.subject,edge.subject)&&knowledge.sameEntity(claim.object,edge.object))&&
         ["causal","observation"].includes(claim.kind)).map(claim=>claim.id))].slice(0,12);

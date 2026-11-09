@@ -30,6 +30,41 @@ const malformedQuotedClaim={id:"legacy-quoted-cause",kind:"causal",subject:"чт
   verification:"unverified",extractionConfidence:0.88,createdAt:1};
 assert.equal(knowledge.sanitizeClaims([malformedQuotedClaim]).length,0,
   "legacy causal claims with a subordinate-clause subject must be removed during migration");
+
+for (const subject of [
+  "В отчёте говорится, что усталость",
+  "Сообщается, что усталость",
+  "Формулировка о том, что усталость",
+  "По данным исследования, усталость"
+]) {
+  const raw = {...malformedQuotedClaim, subject};
+  assert.equal(knowledge.extractClaims(subject + " приводит к снижению концентрации").length, 0,
+    "reporting clauses must not be extracted as causal subjects: " + subject);
+  assert.equal(knowledge.sanitizeClaims([raw]).length, 0,
+    "reporting clauses must not survive archived-claim sanitization: " + subject);
+}
+const sourceAttributedCausal="По данным исследования, усталость приводит к снижению концентрации";
+assert.equal(knowledge.extractClaims(sourceAttributedCausal).length,0,
+  "a comma-separated source preamble must not be dropped before causal extraction");
+assert.equal(knowledge.isReportedCausalStatement(sourceAttributedCausal),true,
+  "archive validators must be able to distinguish source-attributed evidence from a direct assertion");
+assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim,subject:"усталость",evidence:sourceAttributedCausal}]).length,0,
+  "a legacy claim whose evidence is source-attributed must not re-enter active knowledge");
+for (const reportedPrefix of [
+  "Исследование показало, что усталость",
+  "Исследователи установили, что усталость"
+]) {
+  const reportedSentence = reportedPrefix + " приводит к снижению концентрации";
+  assert.equal(knowledge.extractClaims(reportedSentence).length, 0,
+    "research summaries must not become direct causal claims: " + reportedPrefix);
+  assert.equal(knowledge.isReportedCausalStatement(reportedSentence), true,
+    "archive validation must recognize research-summary phrasing: " + reportedPrefix);
+}
+const validCausalSubject = "Недостаток сна после тренировки";
+assert.equal(knowledge.extractClaims(validCausalSubject + " приводит к усталости").length, 1,
+  "a descriptive causal subject must remain valid");
+assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim, subject:validCausalSubject}]).length, 1,
+  "valid archived causal subjects must not be over-filtered");
 assert.equal(knowledge.summary([v18SleepCause,fatigueCause]).causal,2);
 const causalChain=knowledge.causalEvidence("Как недостаток сна влияет на снижение концентрации?",[v18SleepCause,fatigueCause]);
 assert.ok(causalChain,"two causal memories should form a chain");
@@ -347,6 +382,38 @@ assert.equal(v21MeasuredObservation.observationCase.criterion.value,"по шка
 assert.equal(v21MeasuredObservation.observationCase.outcome.status,"provided");
 assert.equal(v21MeasuredObservation.observationCase.outcome.value,"6/10");
 assert.equal(v21MeasuredObservation.observationCase.eventRef,"сон-эпизод-01");
+
+const eventObservationOne = knowledge.extractClaims(
+  "При недостатке сна наблюдалась усталость; контекст: после тренировки; время: вечером; критерий: по шкале 1–10; событие: sleep-event-A"
+)[0];
+const eventObservationSame = {
+  ...eventObservationOne,
+  id: "observation-sleep-event-A-duplicate"
+};
+const eventObservationSeparate = {
+  ...eventObservationOne,
+  id: "observation-sleep-event-B",
+  observationCase: {
+    ...eventObservationOne.observationCase,
+    eventRef: "sleep-event-B"
+  }
+};
+const mergedEventObservations = knowledge.mergeClaims(
+  [eventObservationOne],
+  [eventObservationSame, eventObservationSeparate]
+);
+assert.equal(mergedEventObservations.length, 2,
+  "identical observation cards from different explicit events must remain separate evidence");
+assert.equal(
+  [...mergedEventObservations.map(claim => claim.observationCase.eventRef)].sort().join("|"),
+  "sleep-event-A|sleep-event-B",
+  "event identity must participate in structured-observation deduplication"
+);
+assert.ok(
+  mergedEventObservations.some(claim => claim.id === eventObservationOne.id),
+  "the original evidence identity must be retained when the same event is merged"
+);
+
 const v21Sanitized=knowledge.sanitizeClaims([v21StructuredObservation])[0];
 assert.equal(v21Sanitized.observationCase.context.value,"после тяжёлой тренировки");
 assert.equal(v21Sanitized.observationCase.schema,2);

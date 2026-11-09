@@ -236,12 +236,26 @@
     if(claim)claim.observationCase=parseObservationDetails(parts.join("; "),"direct_observation");
     return claim;
   }
+  function isReportedCausalStatement(value) {
+    const normalized=normalise(value);
+    return /^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено)|(?:в|по)\s+(?:исследовани[ея]|отчет[еа]|стать[ея]|публикаци[ия]|документ[еа]|источник[еа]|сообщени[ие]|текст[еа])\s+(?:говор[а-я]*|сообща[а-я]*|указыва[а-я]*|отмеча[а-я]*|утвержда[а-я]*|показыва[а-я]*|свидетельству[а-я]*|сказан[а-я]*|указан[а-я]*|отмечен[а-я]*)\s+что)(?:\s|$)/u.test(normalized) ||
+      /^(?:исследовани[ея]|исследовател[ьи]|эксперимент[аы]?|работ[аы]|автор[ыа]|учен(?:ый|ые)|отчет[ыа])\s+(?:показал[аио]?|выявил[аио]?|установил[аио]?|подтвердил[аио]?|обнаружил[аио]?|сообщил[аио]?|отметил[аио]?|указал[аио]?|описал[аио]?|доказал[аио]?)\s+что(?:\s|$)/u.test(normalized);
+  }
+  function isValidCausalSubject(value) {
+    const subject=cleanPart(value,180);
+    if(!subject)return false;
+    const normalized=normalise(subject);
+    if(/^(?:что|то\s+что)\s+/u.test(normalized))return false;
+    if(/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том\s*)?что(?:\s|$)/u.test(normalized))return false;
+    if(/^(?:(?:в\s+)?(?:текст[\p{L}\p{N}_]*|отчет[\p{L}\p{N}_]*|источник[\p{L}\p{N}_]*|сообщение[\p{L}\p{N}_]*|документ[\p{L}\p{N}_]*|запись[\p{L}\p{N}_]*)\s+)?(?:говор[\p{L}\p{N}_]*|сообща[\p{L}\p{N}_]*|указыва[\p{L}\p{N}_]*|отмеча[\p{L}\p{N}_]*|утвержда[\p{L}\p{N}_]*|сказан[\p{L}\p{N}_]*|указан[\p{L}\p{N}_]*|отмечен[\p{L}\p{N}_]*)\s+что(?:\s|$)/u.test(normalized))return false;
+    if(isReportedCausalStatement(normalized))return false;
+    return true;
+  }
   function extractCausal(text) {
     const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
     if(!match)return null;
     const cause=cleanPart(match[1],180),effect=cleanPart(match[6],180);
-    if (/^(?:что|то\s+что)\s+/iu.test(cause) ||
-        /(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(cause)) return null;
+    if(!isValidCausalSubject(cause))return null;
     if(!cause||!effect||cause.split(" ").length>10||effect.split(" ").length>10||sameEntity(cause,effect))return null;
     const relation=match[5];
     const predicate=/вызыв|вызва/u.test(relation)?"вызывает":"приводит к";
@@ -304,8 +318,9 @@
   function extractClaims(input) {
     const text = cleanPart(input,1200);
     if (!text) return [];
-    // Research answers describe or quote claims; they are not fresh assertions.
+    // Research answers and source-attributed reports are context, not fresh assertions.
     if (/^ответ на вопрос\s+#?\s*q\d+\s*:/iu.test(text)) return [];
+    if (isReportedCausalStatement(text)) return [];
     const direct = extractSingleClaim(text);
     if(direct&&direct.kind==="observation"&&direct.observationCase&&["context","timing","criterion"].some(key=>direct.observationCase[key].status!=="not_stated"))return [direct];
     const clauses = text.split(/\s*[,;]\s*/u)
@@ -330,9 +345,8 @@
       const kind = kinds.has(raw.kind) ? raw.kind : null;
       const subject = cleanPart(raw.subject), predicate = cleanPart(raw.predicate,80), object = cleanPart(raw.object,180);
       if (!kind || !subject || !predicate || !object) return null;
-      if (kind === "causal" && (/^(?:что|то\s+что)\s+/iu.test(subject) ||
-          /(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(subject))) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
+      if (kind === "causal" && (!isValidCausalSubject(subject) || isReportedCausalStatement(evidence))) return null;
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
       return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
     }).filter(Boolean);
@@ -340,9 +354,14 @@
   function mergeClaims(existing,incoming) {
     const merged=[...sanitizeClaims(existing),...sanitizeClaims(incoming)],seen=new Set();
     const result=[];
+    const claimKey=claim=>JSON.stringify([
+      claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),
+      normalise(claim.object),claim.polarity,
+      ...(claim.kind==="observation"?[normalise(claim.observationCase&&claim.observationCase.eventRef||"")]:[])
+    ]);
     for(const claim of merged){
-      const key=[claim.kind,canonicalEntity(claim.subject),normalise(claim.predicate),normalise(claim.object),claim.polarity].join("|");
-      const prior=result.find(item=>[item.kind,canonicalEntity(item.subject),normalise(item.predicate),normalise(item.object),item.polarity].join("|")===key);
+      const key=claimKey(claim);
+      const prior=result.find(item=>claimKey(item)===key);
       if(prior){
         if(!prior.traceId&&claim.traceId)prior.traceId=claim.traceId;
         if(prior.kind==="observation"&&claim.observationCase) {
@@ -1041,5 +1060,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:22,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:22,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,isReportedCausalStatement,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();

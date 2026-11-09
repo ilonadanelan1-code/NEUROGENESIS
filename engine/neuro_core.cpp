@@ -9,8 +9,12 @@ namespace neurogenesis {
 std::uint32_t Brain::add_neuron(std::string name, NeuronKind kind, float x, float y,
                                 float excitability) {
     const auto id = next_id_++;
+    const float safe_excitability = std::isfinite(excitability)
+        ? std::clamp(excitability, 0.0f, 1.0f) : 0.5f;
+    const float safe_x = std::isfinite(x) ? x : 0.0f;
+    const float safe_y = std::isfinite(y) ? y : 0.0f;
     neurons_.push_back(Neuron{id, std::move(name), kind, 0.0f,
-                              std::clamp(excitability, 0.0f, 1.0f), x, y});
+                              safe_excitability, safe_x, safe_y});
     return id;
 }
 
@@ -21,7 +25,7 @@ const Neuron* Brain::find_neuron(std::uint32_t id) const noexcept {
 }
 
 bool Brain::add_synapse(std::uint32_t from, std::uint32_t to, float weight) {
-    if (from == to || !find_neuron(from) || !find_neuron(to)) return false;
+    if (!std::isfinite(weight) || from == to || !find_neuron(from) || !find_neuron(to)) return false;
     const auto exists = std::any_of(synapses_.begin(), synapses_.end(),
         [from, to](const Synapse& edge) { return edge.from == from && edge.to == to; });
     if (exists) return false;
@@ -32,12 +36,13 @@ bool Brain::add_synapse(std::uint32_t from, std::uint32_t to, float weight) {
 bool Brain::stimulate(std::uint32_t neuron_id, float strength) {
     auto it = std::find_if(neurons_.begin(), neurons_.end(),
         [neuron_id](const Neuron& neuron) { return neuron.id == neuron_id; });
-    if (it == neurons_.end()) return false;
+    if (it == neurons_.end() || !std::isfinite(strength)) return false;
     it->activation = std::clamp(it->activation + strength, 0.0f, 1.0f);
     return true;
 }
 
 void Brain::step(float delta_seconds) {
+    if (!std::isfinite(delta_seconds)) return;
     const float dt = std::clamp(delta_seconds, 0.0f, 0.25f);
     if (dt <= 0.0f) return;
 

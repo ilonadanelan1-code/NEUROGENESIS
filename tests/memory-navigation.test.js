@@ -26,6 +26,11 @@ class ElementStub {
   dispatch(type, event = {}) {
     for (const fn of this.listeners[type] || []) fn({ target: this, preventDefault() {}, ...event });
   }
+  dispatchLast(type, event = {}) {
+    const handlers = this.listeners[type] || [];
+    const fn = handlers[handlers.length - 1];
+    if (fn) fn({ target: this, preventDefault() {}, ...event });
+  }
   appendChild(child) {
     child.parentNode = this;
     this.children.push(child);
@@ -39,6 +44,7 @@ class ElementStub {
   }
   focus() { this.focused = true; }
   scrollIntoView() {}
+  click() { this.clicked = true; }
   closest(selector) {
     let current = this;
     while (current) {
@@ -51,13 +57,32 @@ class ElementStub {
 }
 
 const elements = new Map();
+const downloadLinks = [];
+const exportedBlobs = [];
+class BlobStub {
+  constructor(parts, options = {}) {
+    this.parts = parts;
+    this.type = options.type || "";
+    this.source = parts.map(part => String(part)).join("");
+  }
+}
+class URLStub extends URL {}
+URLStub.createObjectURL = blob => {
+  exportedBlobs.push(blob);
+  return "blob:neurogenesis-test-" + exportedBlobs.length;
+};
+URLStub.revokeObjectURL = () => {};
 const sidePanel = new ElementStub("aside");
 const document = {
   getElementById(id) {
     if (!elements.has(id)) elements.set(id, new ElementStub(id.includes("button") || id.endsWith("-back") || id.endsWith("-save") || id.endsWith("-cancel") ? "button" : "div"));
     return elements.get(id);
   },
-  createElement(tag) { return new ElementStub(tag); },
+  createElement(tag) {
+    const element = new ElementStub(tag);
+    if (String(tag).toLowerCase() === "a") downloadLinks.push(element);
+    return element;
+  },
   querySelector(selector) { return selector === ".side-panel" ? sidePanel : null; },
   body: new ElementStub("body")
 };
@@ -109,14 +134,22 @@ const window = {
     removeMemoryTraces(ids) { for (const id of ids) neurons.delete(id); }
   }
 };
+let failStorageWriteOnceFor = "";
 const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
-  setItem(key,value) { database.set(key,String(value)); }
+  setItem(key,value) {
+    if (key === failStorageWriteOnceFor) {
+      failStorageWriteOnceFor = "";
+      throw new Error("Injected localStorage quota failure for memory persistence.");
+    }
+    database.set(key,String(value));
+  },
+  removeItem(key) { database.delete(key); }
 };
-const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON};
+const sandbox = {window,document,localStorage,console,Date,Math,Set,Map,JSON,Blob:BlobStub,URL:URLStub,setTimeout(fn){fn();return 1;}};
 vm.runInNewContext(fs.readFileSync("knowledge.js","utf8"),sandbox,{filename:"knowledge.js"});
 vm.runInNewContext(fs.readFileSync("goals.js","utf8"),sandbox,{filename:"goals.js"});
-function loadMemory() {
+function loadMemory(withDialogContext = false) {
   if (!window.NGObservationEngine) {
     vm.runInNewContext(fs.readFileSync("observation-engine.js","utf8"),sandbox,{filename:"observation-engine.js"});
   }
@@ -125,6 +158,9 @@ function loadMemory() {
   }
   if (!window.NGReasoningAudit) {
     vm.runInNewContext(fs.readFileSync("reasoning-audit.js","utf8"),sandbox,{filename:"reasoning-audit.js"});
+  }
+  if (withDialogContext && !window.NGDialogContext) {
+    vm.runInNewContext(fs.readFileSync("dialog-context.js","utf8"),sandbox,{filename:"dialog-context.js"});
   }
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
@@ -874,6 +910,42 @@ const eventMemory=(id,claimId,text,createdAt,polarity,details)=>({
       outcome:{status:details.outcome?"provided":"not_stated",value:details.outcome||"",source:"direct_observation"},
       eventRef:details.eventRef||""}}:{})}]
 });
+const sameSourceRecord = eventMemory(
+  "single-memory-two-events", "single-memory-event-a",
+  "Архивная запись с двумя отдельными событиями", backupTime, true,
+  {subject:"Недостатке сна",object:"усталости",context:"после тренировки",timing:"2026-11-08 18:00",
+   criterion:"по шкале 1–10",outcome:"6/10",eventRef:"single-memory-event-a"}
+);
+sameSourceRecord.claims[0].evidence =
+  "При недостатке сна наблюдалась усталость; событие A и B имеют разные явные идентификаторы";
+sameSourceRecord.claims.push({
+  ...sameSourceRecord.claims[0],
+  id:"single-memory-event-b",
+  observationCase:{
+    ...sameSourceRecord.claims[0].observationCase,
+    eventRef:"single-memory-event-b"
+  }
+});
+database.set("neurogenesis.memories.v1",JSON.stringify([sameSourceRecord]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+loadMemory();
+assert.equal(window.NGMemory.observationCases().length,2,
+  "observation extraction must preserve distinct event IDs even when both claims belong to one memory record");
+const sameMemoryDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
+assert.equal(sameMemoryDossier.supportingCount,2,
+  "two separately identified events inside one memory must be counted independently");
+assert.equal(sameMemoryDossier.duplicateMentions,0,
+  "different explicit event IDs must not be flagged as duplicate mentions");
+assert.deepEqual(
+  [...window.NGMemory.observationCases()].map(item=>item.details.eventRef).sort().join("|"),
+  "single-memory-event-a|single-memory-event-b",
+  "the event references must survive memory loading and observation extraction"
+);
+
 const backupDefectMemories=[
   eventMemory("old-short","old-positive","При недостатке сна наблюдалась усталость",backupTime,true,null),
   eventMemory("new-enriched","new-positive","При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 07:15; критерий: по шкале 1–10",backupTime+1000,true,
@@ -932,6 +1004,18 @@ assert.equal(sameEventCases[0].details.eventRef,sameEventCases[1].details.eventR
   "a same-event answer must write one shared eventRef to both source observation claims");
 const sameEventDossier=window.NGMemory.reconcileEdgeEvidence("Недостатке сна","усталости");
 assert.equal(sameEventDossier.supportingCount,1);
+assert.equal(sameEventDossier.possibleDuplicateGroups,0,
+  "a parser-derived copy without an event ID must not reappear beside explicitly grouped source cards");
+assert.equal(sameEventDossier.explicitDuplicateGroups,1,
+  "the confirmed event group must remain the only positive event after memory reloading");
+assert.equal(window.NGMemory.observationCases().filter(item=>item.polarity&&
+  window.NGKnowledge.sameEntity(item.subject,"Недостатке сна")&&
+  window.NGKnowledge.sameEntity(item.object,"усталости")&&!item.details.eventRef).length,0,
+  "cleanMemory must not create orphan observations when the source cards already carry explicit event identity");
+assert.equal(window.NGMemory.claims().filter(item=>item.kind==="observation"&&item.polarity&&
+  window.NGKnowledge.sameEntity(item.subject,"Недостатке сна")&&
+  window.NGKnowledge.sameEntity(item.object,"усталости")&&!item.observationCase.eventRef).length,0,
+  "resolving a duplicate group must remove the unlabelled parser clones from the stored source memories too");
 assert.equal(sameEventDossier.possibleDuplicateGroups,0);
 assert.equal(sameEventDossier.explicitDuplicateGroups,1);
 assert.equal(window.NGMemory.refreshInquiries().added,0,
@@ -1238,4 +1322,123 @@ const latestGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
 assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
   "the cognitive cycle should store a compact research-goal snapshot");
 
-console.log("NEUROGENESIS attention-ranking, uncertainty-assessment, research-focus, cognitive-cycle and reasoning regression tests: passed.");
+// Load only the dialogue context engine for the backup round-trip check.
+loadMemory(true);
+const summaryInput=document.getElementById("memory-input");
+summaryInput.value="Новая тема: проверка сохранения резюме диалога.";
+document.getElementById("ask-button").dispatchLast("click");
+assert.ok(window.NGMemory.dialogContext().activeThread.contextSummary.length>0,
+  "the backup fixture should start with a non-empty active-topic summary");
+// Backup export must produce a downloadable v2 archive with all durable stores.
+const exportedBlobsBefore=exportedBlobs.length;
+const downloadLinksBefore=downloadLinks.length;
+document.getElementById("memory-export").dispatchLast("click");
+const createdBlobs=exportedBlobs.slice(exportedBlobsBefore);
+const createdLinks=downloadLinks.slice(downloadLinksBefore);
+assert.equal(createdBlobs.length,1,"the active export handler should create one backup blob");
+assert.equal(createdLinks.length,1,"the active export handler should create one download link");
+const exportedBlob=createdBlobs[0];
+const downloadLink=createdLinks[0];
+assert.equal(exportedBlob.type,"application/json;charset=utf-8");
+const exportedBackup=JSON.parse(exportedBlob.source);
+assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
+assert.equal(exportedBackup.version,2);
+assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
+  "the export must include every current durable memory");
+for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","cognitiveCycles","inquiries","goals"])
+  assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
+    "the backup must include the " + key + " store");
+assert.equal(exportedBackup.cognitiveCycles.length,window.NGMemory.cognitiveCycles().length,
+  "the backup must export the complete sanitized cognitive-cycle history");
+assert.ok(exportedBackup.dialogContext && Array.isArray(exportedBackup.dialogContext.threads),
+  "the backup must include the complete dialogue-topic state");
+assert.ok(exportedBackup.dialogContext.threads.every(thread=>Array.isArray(thread.summaryParts)),
+  "every exported topic should carry its bounded extractive summary parts");
+const exportedActiveTopic=exportedBackup.dialogContext.threads.find(thread=>
+  thread.id===exportedBackup.dialogContext.activeThreadId);
+assert.ok(exportedActiveTopic && exportedActiveTopic.summaryParts.length>0,
+  "the active conversation summary should be present in the exported backup");
+const summaryBeforeImport=window.NGMemory.dialogContext().activeThread.contextSummary;
+assert.ok(summaryBeforeImport.length>0);
+const importInput=document.getElementById("memory-import-file");
+importInput.files=[{async text(){return JSON.stringify({...exportedBackup,memories:[],dialog:[]});}}];
+void (async () => {
+  const handlers=importInput.listeners.change||[];
+  const importHandler=handlers[handlers.length-1];
+  assert.equal(typeof importHandler,"function","the memory-import handler should be installed");
+  await importHandler({target:importInput});
+  assert.equal(window.NGMemory.dialogContext().activeThread.contextSummary,summaryBeforeImport,
+    "importing a v2 backup must restore and preserve the active topic summary");
+
+  // Verify the real memory.js persistence entry point: several application
+  // stores are replaced, then the context write fails. All earlier writes
+  // and the staged goals store must return to their exact before-images.
+  const persistentKeys=[
+    "neurogenesis.goals.v1","neurogenesis.memories.v1","neurogenesis.dialog.v1",
+    "neurogenesis.dialog-context.v1","neurogenesis.model-decisions.v1",
+    "neurogenesis.model-evidence.v1","neurogenesis.reasoning-archive.v1",
+    "neurogenesis.inquiries.v1","neurogenesis.cognitive-cycles.v1"
+  ];
+  const beforeImages=new Map(persistentKeys.map((key,index)=>{
+    const value="before-transaction-"+index;
+    database.set(key,value);
+    return [key,value];
+  }));
+  failStorageWriteOnceFor="neurogenesis.dialog-context.v1";
+  assert.equal(window.NGMemory.persist(),false,
+    "memory.js must report a failed multi-key persistence transaction");
+  for(const key of persistentKeys) {
+    assert.equal(database.get(key),beforeImages.get(key),
+      "memory.js must restore the complete before-image for "+key);
+  }
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "a recovered ordinary-save transaction must remove its journal");
+  assert.equal(window.NGStorageTransaction.status().ready,true,
+    "the storage manager must remain usable after ordinary-save rollback");
+})().catch(error=>{console.error(error);process.exitCode=1;});
+assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
+assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
+assert.ok(downloadLink.download.endsWith(".json"));
+assert.equal(downloadLink.download.length,"neurogenesis-memory-".length+10+".json".length);
+assert.equal(downloadLink.parentNode,null,"the temporary download link should be removed after activation");
+
+
+const editedEventText="При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 18:00; критерий: по шкале 1–10; результат: 6/10";
+const editedEventClaim=window.NGKnowledge.extractClaims(editedEventText)[0];
+editedEventClaim.id="edit-preserved-event-claim";
+editedEventClaim.observationCase={
+  ...editedEventClaim.observationCase,
+  eventRef:"edit-preserved-event-01"
+};
+database.set("neurogenesis.memories.v1",JSON.stringify([{
+  id:"edit-preserved-event-memory",text:editedEventText,tags:[],traceIds:[],
+  createdAt:backupTime,updatedAt:backupTime,strength:.65,repetitions:1,recalls:0,
+  claims:[editedEventClaim]
+}]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+database.set("neurogenesis.cognitive-cycles.v1","[]");
+loadMemory();
+document.getElementById("memory-manage").dispatchLast("click");
+const editList=document.getElementById("memory-library-list");
+const editCard=editList.children.find(card=>card.dataset.memoryId==="edit-preserved-event-memory");
+assert.ok(editCard,"the event-linked source record should be available in the memory library");
+const editActions=editCard.children.find(child=>child.className==="memory-entry-actions");
+editList.dispatchLast("click",{target:editActions.children.find(child=>child.dataset.action==="edit")});
+const editInput=document.getElementById("memory-editor-input");
+editInput.value=editedEventText+"; дополнительная пометка: формулировка уточнена";
+editInput.dispatch("input");
+document.getElementById("memory-editor-save").dispatchLast("click");
+const editedEvent=window.NGMemory.claims().find(claim=>claim.id==="edit-preserved-event-claim");
+assert.ok(editedEvent,"editing the source text should retain the structured observation identity");
+assert.equal(editedEvent.observationCase.eventRef,"edit-preserved-event-01",
+  "editing the wording must not discard an explicitly assigned event ID");
+assert.equal(editedEvent.sourceMemoryId,"edit-preserved-event-memory",
+  "the observation must remain linked to the edited source memory");
+assert.equal(window.NGMemory.observationCases().filter(item=>item.details.eventRef==="edit-preserved-event-01").length,1,
+  "the edited memory should expose exactly one observation for the preserved event");
+
+console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");

@@ -1,10 +1,127 @@
 (() => {
   "use strict";
   const STORAGE_KEY = "neurogenesis.goals.v1";
-  const MAX_GOALS = 24;
+  // Keep the goal archive aligned with memory.js MAX_INQUIRIES.
+  const MAX_GOALS = 48;
   const STALE_AFTER = 30 * 24 * 60 * 60 * 1000;
   const STATUSES = ["active","waiting_user","blocked","review","paused","completed","stale"];
+  const STORAGE_TRANSACTION_KEY = "neurogenesis.storage-transaction.v1";
   let goals = [];
+
+  function createStorageTransaction() {
+    let depth = 0;
+    let staged = new Map();
+    let ready = true;
+    let lastError = "";
+    const clearKey = key => {
+      if (typeof localStorage.removeItem === "function") localStorage.removeItem(key);
+      else localStorage.setItem(key, "");
+    };
+    const clearJournal = () => clearKey(STORAGE_TRANSACTION_KEY);
+
+    function recover() {
+      let raw;
+      try { raw = localStorage.getItem(STORAGE_TRANSACTION_KEY); }
+      catch (error) {
+        ready = false; lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage recovery could not read its journal:", error);
+        return false;
+      }
+      if (!raw) { ready = true; lastError = ""; return true; }
+      let journal;
+      try { journal = JSON.parse(raw); }
+      catch (error) {
+        ready = false; lastError = "Повреждён журнал транзакции хранилища.";
+        console.warn("NEUROGENESIS storage recovery found an invalid journal:", error);
+        return false;
+      }
+      const rows = journal && journal.version === 1 && Array.isArray(journal.before) ? journal.before : null;
+      if (!rows || rows.some(row => !row || typeof row.key !== "string" ||
+          row.key === STORAGE_TRANSACTION_KEY || !(row.value === null || typeof row.value === "string"))) {
+        ready = false; lastError = "Некорректная структура журнала транзакции.";
+        console.warn("NEUROGENESIS storage recovery refused an invalid journal.");
+        return false;
+      }
+      try {
+        for (const row of rows) clearKey(row.key);
+        for (const row of rows) if (row.value !== null) localStorage.setItem(row.key, row.value);
+        clearJournal();
+        ready = true; lastError = "";
+        return true;
+      } catch (error) {
+        ready = false; lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage recovery is incomplete; its journal was retained:", error);
+        return false;
+      }
+    }
+
+    function run(entries) {
+      if (!ready && !recover()) return false;
+      const targets = new Map();
+      const changed = [];
+      try {
+        for (const row of Array.isArray(entries) ? entries : []) {
+          if (!row || typeof row.key !== "string" || !row.key || row.key === STORAGE_TRANSACTION_KEY)
+            throw new Error("Некорректный ключ транзакции.");
+          targets.set(row.key, row.value === null ? null : String(row.value));
+        }
+        for (const [key, value] of targets) {
+          const previous = localStorage.getItem(key);
+          if (previous !== value) changed.push({ key, value: previous });
+        }
+        if (!changed.length) return true;
+        localStorage.setItem(STORAGE_TRANSACTION_KEY, JSON.stringify({ version: 1, before: changed }));
+        for (const row of changed) {
+          const value = targets.get(row.key);
+          if (value === null) clearKey(row.key);
+          else localStorage.setItem(row.key, value);
+        }
+        clearJournal();
+        ready = true; lastError = "";
+        return true;
+      } catch (error) {
+        lastError = String(error && error.message || error);
+        console.warn("NEUROGENESIS storage transaction failed; restoring its before-image:", error);
+        try {
+          if (localStorage.getItem(STORAGE_TRANSACTION_KEY)) recover();
+          else ready = true;
+        } catch (recoveryError) {
+          ready = false; lastError += "; rollback: " + String(recoveryError && recoveryError.message || recoveryError);
+        }
+        return false;
+      }
+    }
+
+    function begin() {
+      if (depth === 0) {
+        if (!ready && !recover()) return false;
+        staged = new Map();
+      }
+      depth++;
+      return true;
+    }
+    function stage(key, value) {
+      if (typeof key !== "string" || !key || key === STORAGE_TRANSACTION_KEY) return false;
+      const normalized = value === null ? null : String(value);
+      if (depth > 0) { staged.set(key, normalized); return true; }
+      return run([{ key, value: normalized }]);
+    }
+    function commit() {
+      if (depth <= 0) return false;
+      depth--;
+      if (depth > 0) return true;
+      const entries = [...staged].map(([key, value]) => ({ key, value }));
+      staged.clear();
+      return run(entries);
+    }
+    function abort() { depth = 0; staged.clear(); }
+    function status() { return { ready, active: depth > 0, pendingWrites: staged.size, error: lastError }; }
+    const api = Object.freeze({ version: 1, key: STORAGE_TRANSACTION_KEY, begin, stage, commit, abort, run, recover, status });
+    window.NGStorageTransaction = api;
+    recover();
+    return api;
+  }
+  createStorageTransaction();
   function safeTime(value, fallback) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -45,6 +162,7 @@
       evidenceClaimIds: uniqueStrings(raw.evidenceClaimIds),
       evidenceMemoryIds: uniqueStrings(raw.evidenceMemoryIds),
       observationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.observationCount) || 0))),
+      observationsAfterAssessment: Math.max(0, Math.min(500, Math.floor(Number(raw.observationsAfterAssessment) || 0))),
       eventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.eventCount) || 0))),
       unknownEventCount: Math.max(0, Math.min(500, Math.floor(Number(raw.unknownEventCount) || 0))),
       completeObservationCount: Math.max(0, Math.min(500, Math.floor(Number(raw.completeObservationCount) || 0))),
@@ -72,29 +190,46 @@
     return list();
   }
   function persist() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(goals.slice(-MAX_GOALS)));
-      return true;
-    } catch (error) {
+    const value = JSON.stringify(goals.slice(-MAX_GOALS));
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.stage === "function") {
+      const ok = transaction.stage(STORAGE_KEY, value);
+      if (!ok) console.warn("NEUROGENESIS research-goal storage transaction was rejected.");
+      return ok;
+    }
+    try { localStorage.setItem(STORAGE_KEY, value); return true; }
+    catch (error) {
       console.warn("NEUROGENESIS research-goal storage failed:", error);
       return false;
     }
   }
-  function statusFor(inquiry, now, lastProgressAt) {
+  function statusFor(inquiry, now, lastProgressAt, evidence) {
     if (inquiry.status === "skipped") return "paused";
     if (inquiry.status === "answered") {
       if (["duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events"].includes(inquiry.assessment)) return "completed";
-      if (["insufficient_context","gap_confirmed"].includes(inquiry.assessment)) return "blocked";
+      if (["insufficient_context","gap_confirmed"].includes(inquiry.assessment)) {
+        return evidence && evidence.observationsAfterAssessment > 0 ? "review" : "blocked";
+      }
       return "review";
     }
     if (lastProgressAt > 0 && now - lastProgressAt > STALE_AFTER) return "stale";
-    return inquiry.lastAskedAt > 0 ? "waiting_user" : "active";
+    return safeTime(inquiry.lastAskedAt, 0) > safeTime(inquiry.lastResumedAt, 0)
+      ? "waiting_user" : "active";
   }
   function evidenceFor(inquiry, memories) {
     const wanted = new Set([...(inquiry.sourceClaimIds || []),...(inquiry.responseClaimIds || [])]);
     const evidence = new Map();
     const memoryIds = new Set();
+    const claimRecordedAt = new Map();
     const memoryRows = Array.isArray(memories) ? memories : [];
+    const comparisonEdges = inquiry.kind === "discriminating_observations" &&
+      Array.isArray(inquiry.comparisonEdges)
+      ? inquiry.comparisonEdges.filter(edge => edge && typeof edge.subject === "string" &&
+        typeof edge.object === "string")
+      : [];
+    const evidenceEdges = comparisonEdges.length ? comparisonEdges : [{
+      subject: inquiry.edgeSubject, object: inquiry.edgeObject
+    }];
     if (inquiry.responseMemoryId) memoryIds.add(inquiry.responseMemoryId);
     for (const memory of memoryRows) {
       if (!memory || typeof memory.id !== "string") continue;
@@ -103,15 +238,21 @@
         const linkedById = wanted.has(claim.id);
         // Duplicate checks compare only the cards named by the inquiry.
         const matchingObservation = inquiry.kind !== "duplicate_observation" &&
-          claim.kind === "observation" &&
-          sameEntity(claim.subject, inquiry.edgeSubject) && sameEntity(claim.object, inquiry.edgeObject);
+          claim.kind === "observation" && evidenceEdges.some(edge =>
+            sameEntity(claim.subject, edge.subject) && sameEntity(claim.object, edge.object));
         if (!linkedById && !matchingObservation) continue;
         evidence.set(claim.id, claim);
+        const recordedAt = safeTime(claim.createdAt, safeTime(memory.createdAt, 0));
+        claimRecordedAt.set(claim.id, Math.max(claimRecordedAt.get(claim.id) || 0, recordedAt));
         memoryIds.add(memory.id);
       }
     }
     const rows = [...evidence.values()];
     const observations = rows.filter(claim => claim.kind === "observation");
+    const assessmentAt = safeTime(inquiry.assessmentAt, safeTime(inquiry.answeredAt, 0));
+    const observationsAfterAssessment = assessmentAt
+      ? observations.filter(claim => (claimRecordedAt.get(claim.id) || 0) > assessmentAt).length
+      : 0;
     const explicitEventRefs = observations.map(claim => {
       const details = claim.observationCase && typeof claim.observationCase === "object"
         ? claim.observationCase : {};
@@ -141,6 +282,7 @@
       claimIds: [...evidence.keys()].slice(0, 12),
       memoryIds: [...memoryIds].slice(0, 12),
       observationCount: observations.length,
+      observationsAfterAssessment,
       eventCount: events.size,
       unknownEventCount: observations.length - explicitEventRefs.length,
       completeObservationCount: quality.filter(item=>item.complete).length,
@@ -161,6 +303,7 @@
     if (inquiry.assessment==="duplicate_partitioned_events")
       milestones.push("карточки распределены по группам эпизодов");
     if (evidence.observationCount > 0) milestones.push("привязаны прямые наблюдения");
+    if (evidence.observationsAfterAssessment > 0) milestones.push("после оценки добавлены новые наблюдения");
     const workSteps = [
       sourceClaimIds.length > 0,
       inquiry.lastAskedAt > 0,
@@ -172,9 +315,12 @@
     const selected = focusId === inquiry.id;
     const focusScore = selected ? Math.round(Math.max(0, Math.min(1, Number(focus.score) || 0)) * 100) : 0;
     const blockers = [];
-    if (inquiry.assessment === "insufficient_context") {
+    const needsReassessment = inquiry.status === "answered" &&
+      ["insufficient_context","gap_confirmed"].includes(inquiry.assessment) &&
+      evidence.observationsAfterAssessment > 0;
+    if (inquiry.assessment === "insufficient_context" && !needsReassessment) {
       blockers.push(inquiry.assessmentReason || "Ответ не позволил восстановить контекст сравниваемых случаев.");
-    } else if (inquiry.assessment === "gap_confirmed") {
+    } else if (inquiry.assessment === "gap_confirmed" && !needsReassessment) {
       blockers.push(inquiry.assessmentReason || "В ответе подтверждено отсутствие нужных наблюдений.");
     } else if (evidence.observationCount === 0) {
       blockers.push("В привязанных записях пока нет прямой карточки наблюдения для этого звена.");
@@ -185,8 +331,15 @@
       blockers.push("Для " + evidence.unknownEventCount + " наблюдений не задан eventRef: нельзя определить, один это эпизод или несколько.");
     }
     let nextAction = "Задать исследовательский вопрос " + inquiry.id + " и уточнить недостающие сведения.";
-    if (inquiry.status === "open" && inquiry.lastAskedAt > 0) {
+    const lastAskedAt = safeTime(inquiry.lastAskedAt, 0);
+    const lastResumedAt = safeTime(inquiry.lastResumedAt, 0);
+    if (inquiry.status === "open" && lastAskedAt > lastResumedAt) {
       nextAction = "Ожидается содержательный ответ на " + inquiry.id + ".";
+    } else if (inquiry.status === "open" && lastResumedAt > 0) {
+      nextAction = "Вопрос возвращён в очередь. Повторно задать " + inquiry.id + ", сохранив прежнюю историю.";
+    } else if (needsReassessment) {
+      nextAction = "После предыдущей оценки появились " + evidence.observationsAfterAssessment +
+        " новых прямых наблюдений. Повторно сопоставить их контекст, время и критерий; прежний ответ и его оценка сохраняются как история.";
     } else if (inquiry.status === "answered" && inquiry.assessment === "insufficient_context") {
       nextAction = "Уточнить обстоятельства, время и критерий результата; до этого причинная связь остаётся непроверенной.";
     } else if (inquiry.status === "answered" && inquiry.assessment === "gap_confirmed") {
@@ -201,12 +354,13 @@
       nextAction = "Сопоставить связанные карточки наблюдений, не считая их автоматически доказательством.";
     }
     const previousProgress = previous ? previous.lastProgressAt : safeTime(inquiry.updatedAt, inquiry.createdAt);
-    const status = statusFor(inquiry, now, previousProgress);
+    const status = statusFor(inquiry, now, previousProgress, evidence);
     const candidate = {
       id: "G-" + inquiry.id, inquiryId: inquiry.id, kind: inquiry.kind,
       title: "Уточнить связь «" + cleanText(inquiry.edgeSubject, 100) + " → " + cleanText(inquiry.edgeObject, 100) + "»",
       status, nextAction, blockers, sourceClaimIds, evidenceClaimIds: evidence.claimIds,
       evidenceMemoryIds: evidence.memoryIds, observationCount: evidence.observationCount,
+      observationsAfterAssessment: evidence.observationsAfterAssessment,
       eventCount: evidence.eventCount, unknownEventCount: evidence.unknownEventCount,
       completeObservationCount:evidence.completeObservationCount,
       incompleteObservationCount:evidence.incompleteObservationCount,
@@ -302,6 +456,7 @@
         lines.push("• " + item.id + " · " + (labels[item.status] || item.status) + " · " + item.title);
         lines.push("  Основание: вопрос " + item.inquiryId + "; исходных утверждений: " + item.sourceClaimIds.length +
           "; связанных записей: " + item.evidenceMemoryIds.length + "; прямых наблюдений: " + item.observationCount +
+          " · после последней оценки: " + item.observationsAfterAssessment +
           " · явных eventRef: " + item.eventCount + " · без eventRef: " + item.unknownEventCount + ".");
         lines.push("  Прогресс выполнения работы: " + item.progress + "/100 · " +
           (item.milestones.length ? item.milestones.join("; ") : "этапы пока не начаты") + ".");
@@ -323,7 +478,12 @@
   }
   function clear() {
     goals = [];
-    try { localStorage.removeItem(STORAGE_KEY); } catch (_) { persist(); }
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.stage === "function") transaction.stage(STORAGE_KEY, null);
+    else {
+      try { localStorage.removeItem(STORAGE_KEY); }
+      catch (error) { console.warn("NEUROGENESIS research-goal clearing failed:", error); }
+    }
     return snapshot();
   }
   load();

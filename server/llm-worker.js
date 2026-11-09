@@ -1,7 +1,9 @@
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
 const MAX_BODY = 32000;
+const MAX_UPSTREAM_BODY = 128000;
 const MAX_MESSAGES = 18;
 const MAX_MESSAGE_CHARS = 5200;
+const UPSTREAM_TIMEOUT_MS = 45000;
 
 function json(data, status, cors) {
   return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...cors } });
@@ -31,6 +33,51 @@ function safeBaseUrl(value) {
   } catch (_) { return null; }
 }
 
+async function readStreamText(stream, maxBytes) {
+  if (!stream || typeof stream.getReader !== "function") return { tooLarge: false, text: "" };
+  const reader = stream.getReader();
+  const decoder = new TextDecoder("utf-8");
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!part.value) continue;
+      totalBytes += part.value.byteLength;
+      if (totalBytes > maxBytes) {
+        try { await reader.cancel(); } catch (_) {}
+        return { tooLarge: true, text: "" };
+      }
+      chunks.push(decoder.decode(part.value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return { tooLarge: false, text: chunks.join("") };
+  } catch (error) {
+    try { await reader.cancel(); } catch (_) {}
+    throw error;
+  } finally {
+    try { reader.releaseLock(); } catch (_) {}
+  }
+}
+async function readRequestBody(request, maxBytes) {
+  return readStreamText(request && request.body, maxBytes);
+}
+async function readJsonResponse(response, maxBytes) {
+  const declaredLength = Number(response && response.headers && response.headers.get("Content-Length") || 0);
+  if (declaredLength > maxBytes) {
+    try { await response.body.cancel(); } catch (_) {}
+    return { result: null, invalidJson: true };
+  }
+  const body = await readStreamText(response && response.body, maxBytes);
+  if (body.tooLarge) return { result: null, invalidJson: true };
+  try {
+    return { result: JSON.parse(body.text), invalidJson: false };
+  } catch (_) {
+    return { result: null, invalidJson: true };
+  }
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -40,6 +87,13 @@ export default {
 
     if (origin && (!allowedOrigin || origin !== allowedOrigin)) return json({ error: "origin_not_allowed" }, 403, cors);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    if (url.pathname === "/" && request.method === "GET") {
+      return json({
+        ok: true,
+        service: "NEUROGENESIS LLM proxy",
+        endpoints: { health: "GET /api/health", chat: "POST /api/chat" }
+      }, 200, cors);
+    }
     if (url.pathname === "/api/health" && request.method === "GET") {
       if (!env.APP_TOKEN || request.headers.get("Authorization") !== "Bearer " + env.APP_TOKEN) {
         return json({ error: "unauthorized" }, 401, cors);
@@ -62,18 +116,20 @@ export default {
 
     let payload;
     try {
-      const raw = await request.text();
-      if (raw.length > MAX_BODY) return json({ error: "request_too_large" }, 413, cors);
-      payload = JSON.parse(raw);
+      const body = await readRequestBody(request, MAX_BODY);
+      if (body.tooLarge) return json({ error: "request_too_large" }, 413, cors);
+      payload = JSON.parse(body.text);
     } catch (_) {
       return json({ error: "invalid_json" }, 400, cors);
     }
     const messages = cleanMessages(payload && payload.messages);
     if (!messages) return json({ error: "invalid_messages" }, 400, cors);
 
-    let upstream;
-    try {
-      upstream = await fetch(base + "/chat/completions", {
+    const controller = new AbortController();
+    let timeoutId = null;
+    let timedOut = false;
+    const upstreamOperation = (async () => {
+      const upstream = await fetch(base + "/chat/completions", {
         method: "POST",
         headers: {
           "Authorization": "Bearer " + env.UPSTREAM_API_KEY,
@@ -85,15 +141,36 @@ export default {
           temperature: 0.7,
           max_tokens: 900,
           stream: false
-        })
+        }),
+        signal: controller.signal
       });
-    } catch (_) {
-      return json({ error: "upstream_unreachable" }, 502, cors);
-    }
+      const parsed = await readJsonResponse(upstream, MAX_UPSTREAM_BODY);
+      return { upstream, result: parsed.result, invalidJson: parsed.invalidJson };
+    })();
+    const upstreamDeadline = new Promise((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        const error = new Error("Upstream request timed out");
+        error.code = "NG_UPSTREAM_TIMEOUT";
+        reject(error);
+      }, UPSTREAM_TIMEOUT_MS);
+    });
 
-    let result;
-    try { result = await upstream.json(); }
-    catch (_) { return json({ error: "invalid_upstream_response" }, 502, cors); }
+    let upstreamResult;
+    try {
+      upstreamResult = await Promise.race([upstreamOperation, upstreamDeadline]);
+    } catch (error) {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      if (timedOut || error && error.code === "NG_UPSTREAM_TIMEOUT") {
+        return json({ error: "upstream_timeout" }, 504, cors);
+      }
+      return json({ error: "upstream_unreachable" }, 502, cors);
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    }
+    const { upstream, result, invalidJson } = upstreamResult;
+    if (invalidJson) return json({ error: "invalid_upstream_response" }, 502, cors);
     if (!upstream.ok) {
       return json({ error: "upstream_error", upstream_status: upstream.status }, 502, cors);
     }

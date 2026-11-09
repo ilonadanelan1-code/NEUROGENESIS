@@ -7,8 +7,28 @@
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
   const $ = (id) => document.getElementById(id);
   const canvas = $("brain-canvas");
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-  if (!ctx) { $("system-status").textContent = "CANVAS НЕ ПОДДЕРЖИВАЕТСЯ"; return; }
+  const systemStatus = $("system-status");
+  function reportCanvasStartupFailure(message, error) {
+    if (systemStatus) systemStatus.textContent = message;
+    if (error && typeof console !== "undefined" && typeof console.error === "function") {
+      console.error("NEUROGENESIS canvas startup failed:", error);
+    }
+  }
+  if (!canvas || typeof canvas.getContext !== "function") {
+    reportCanvasStartupFailure("CANVAS НЕ НАЙДЕН");
+    return;
+  }
+  let ctx = null;
+  try {
+    ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+  } catch (error) {
+    reportCanvasStartupFailure("CANVAS НЕ УДАЛОСЬ ИНИЦИАЛИЗИРОВАТЬ", error);
+    return;
+  }
+  if (!ctx) {
+    reportCanvasStartupFailure("CANVAS НЕ ПОДДЕРЖИВАЕТСЯ");
+    return;
+  }
 
   let neurons = [];
   let synapses = [];
@@ -29,6 +49,10 @@
   let visualDirty = true;
   let fpsFrames = 0;
   let fpsLast = 0;
+  let frameScheduled = false;
+  let frameHandle = null;
+  let pageSuspended = typeof document.hidden === "boolean" && document.hidden;
+  let animationWasActive = false;
   const activeNeuronIds = new Set();
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
@@ -39,14 +63,36 @@
   const backgroundLayer = document.createElement("canvas");
   const connectionLayer = document.createElement("canvas");
   const nodeLayer = document.createElement("canvas");
-  const backgroundCtx = backgroundLayer.getContext("2d", {alpha:false});
-  const connectionCtx = connectionLayer.getContext("2d", {alpha:true});
-  const nodeCtx = nodeLayer.getContext("2d", {alpha:true});
+  let backgroundCtx = null;
+  let connectionCtx = null;
+  let nodeCtx = null;
+  try {
+    backgroundCtx = backgroundLayer.getContext("2d", {alpha:false});
+    connectionCtx = connectionLayer.getContext("2d", {alpha:true});
+    nodeCtx = nodeLayer.getContext("2d", {alpha:true});
+  } catch (error) {
+    reportCanvasStartupFailure("ГРАФИЧЕСКИЕ СЛОИ НЕ УДАЛОСЬ СОЗДАТЬ", error);
+    return;
+  }
+  if (!backgroundCtx || !connectionCtx || !nodeCtx) {
+    reportCanvasStartupFailure("НЕ УДАЛОСЬ СОЗДАТЬ ВСЕ ГРАФИЧЕСКИЕ СЛОИ");
+    return;
+  }
   const neuronSprites = new Map();
   let backgroundDirty = true;
   let connectionsDirty = true;
   let nodesDirty = true;
   const curveByKey = new Map();
+  function scheduleFrame() {
+    if (pageSuspended || document.hidden || frameScheduled) return;
+    frameScheduled = true;
+    frameHandle = requestAnimationFrame(frame);
+  }
+  function cancelScheduledFrame() {
+    if (frameHandle !== null) window.cancelAnimationFrame(frameHandle);
+    frameHandle = null;
+    frameScheduled = false;
+  }
   function rebuildIndexes() {
     neuronById.clear();
     synapseByKey.clear();
@@ -135,6 +181,7 @@
     $("save-status").textContent = "Есть несохранённые изменения";
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveState, 700);
+    scheduleFrame();
   }
   function saveState() {
     try {
@@ -187,8 +234,90 @@
     visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
-  new ResizeObserver(resize).observe(canvas);
-  window.addEventListener("resize", resize);
+  const handleCanvasResize = () => { resize(); scheduleFrame(); };
+  let canvasResizeObserver = null;
+  function connectCanvasResizeObserver() {
+    if (typeof ResizeObserver === "function") {
+      if (canvasResizeObserver) return;
+      let observer = null;
+      try {
+        observer = new ResizeObserver(handleCanvasResize);
+        observer.observe(canvas);
+        canvasResizeObserver = observer;
+      } catch (error) {
+        if (observer && typeof observer.disconnect === "function") {
+          try { observer.disconnect(); } catch (disconnectError) {
+            console.warn("Could not disconnect failed ResizeObserver:", disconnectError);
+          }
+        }
+        canvasResizeObserver = null;
+        console.warn("ResizeObserver failed; using the window-resize fallback:", error);
+      }
+    }
+  }
+  function disconnectCanvasResizeObserver() {
+    const observer = canvasResizeObserver;
+    canvasResizeObserver = null;
+    if (!observer || typeof observer.disconnect !== "function") return;
+    try { observer.disconnect(); } catch (error) {
+      console.warn("Could not disconnect ResizeObserver:", error);
+    }
+  }
+  function clearPointerState() {
+    pointers.clear();
+    gesture = null;
+    drag = null;
+  }
+  function suspendRendering() {
+    pageSuspended = true;
+    clearPointerState();
+    cancelScheduledFrame();
+    lastFrame = 0;
+    animationWasActive = false;
+    fpsFrames = 0;
+    fpsLast = 0;
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = 0;
+    }
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = 0;
+    }
+    if (dirty) saveState();
+  }
+  function resumeRendering() {
+    if (document.hidden) return;
+    pageSuspended = false;
+    lastFrame = 0;
+    visualDirty = true;
+    backgroundDirty = true;
+    connectionsDirty = true;
+    nodesDirty = true;
+    connectCanvasResizeObserver();
+    resize();
+    scheduleFrame();
+  }
+  function handleVisibilityChange() {
+    if (document.hidden) suspendRendering();
+    else resumeRendering();
+  }
+  function handlePageHide() {
+    suspendRendering();
+    disconnectCanvasResizeObserver();
+  }
+  function handlePageShow() {
+    connectCanvasResizeObserver();
+    resumeRendering();
+  }
+  connectCanvasResizeObserver();
+  window.addEventListener("resize", handleCanvasResize);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", handlePageHide);
+  window.addEventListener("pageshow", handlePageShow);
+  for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
+    document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
+  }
 
   function worldAt(point) { return { x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom }; }
   function screenAt(point) { return { x: point.x * view.zoom + view.x, y: point.y * view.zoom + view.y }; }
@@ -199,6 +328,7 @@
     view.x = px - before.x * view.zoom; view.y = py - before.y * view.zoom;
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
+    scheduleFrame();
   }
   function fitNetwork() {
     if (!neurons.length) return;
@@ -210,6 +340,7 @@
     view.y = height/2 - ((minY+maxY)/2) * view.zoom;
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom*100) + "%";
+    scheduleFrame();
   }
 
   function hitTest(point) {
@@ -225,6 +356,7 @@
     nodesDirty = true;
     visualDirty = true;
     renderInspector(); updateMetrics();
+    scheduleFrame();
   }
   function addNeuron(x, y, type = "logic") {
     const n = makeNeuron("Новый нейрон " + nextId, type, x, y, .5);
@@ -264,6 +396,7 @@
       emitted++;
     }
     updateMetrics();
+    scheduleFrame();
   }
   function stimulateRandom() {
     if (!neurons.length) return;
@@ -536,14 +669,11 @@
 
   function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
   function frame(time) {
-    requestAnimationFrame(frame);
-    fpsFrames++;
-    if(!fpsLast)fpsLast=time;
-    if(time-fpsLast>=500){
-      const fps=Math.round(fpsFrames*1000/(time-fpsLast));
-      const fpsEl=$("fps-value");
-      if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
-      fpsFrames=0;fpsLast=time;
+    frameScheduled = false;
+    frameHandle = null;
+    if (pageSuspended || document.hidden) {
+      pageSuspended = true;
+      return;
     }
     const dt=Math.min(50,time-lastFrame||16);lastFrame=time;
     if(running && time-lastStimulus>1850){const n=neurons[Math.floor(Math.random()*neurons.length)];if(n)activate(n.id,.35);lastStimulus=time;}
@@ -566,6 +696,22 @@
     if(visualDirty||animationActive){
       drawBackground();drawConnections();drawNeurons();
       visualDirty=false;
+    }
+    if(animationActive){
+      if(!animationWasActive){fpsFrames=0;fpsLast=time;}
+      animationWasActive=true;
+      fpsFrames++;
+      if(time-fpsLast>=500){
+        const fps=Math.round(fpsFrames*1000/(time-fpsLast));
+        const fpsEl=$("fps-value");
+        if(fpsEl){fpsEl.textContent=fps+" FPS";fpsEl.dataset.level=fps>=55?"good":fps>=40?"mid":"low";}
+        fpsFrames=0;fpsLast=time;
+      }
+      scheduleFrame();
+    }else{
+      animationWasActive=false;fpsFrames=0;fpsLast=0;
+      const fpsEl=$("fps-value");
+      if(fpsEl){fpsEl.textContent="— FPS";fpsEl.dataset.level="idle";}
     }
     if((animationActive||visualDirty)&&time-lastMetricsUpdate>250){updateMetrics();lastMetricsUpdate=time;}
   }
@@ -610,7 +756,9 @@
     }
   });
   function endPointer(event){pointers.delete(event.pointerId);if(pointers.size<2)gesture=null;if(pointers.size===0)drag=null;}
-  canvas.addEventListener("pointerup",endPointer);canvas.addEventListener("pointercancel",endPointer);
+  canvas.addEventListener("pointerup",endPointer);
+  canvas.addEventListener("pointercancel",endPointer);
+  canvas.addEventListener("lostpointercapture",endPointer);
   canvas.addEventListener("wheel",event=>{event.preventDefault();const p=pointerPoint(event);zoomAt(event.deltaY<0?1.14:1/1.14,p.x,p.y);},{passive:false});
   canvas.addEventListener("dblclick",event=>{const p=pointerPoint(event),w=worldAt(p);addNeuron(w.x,w.y);});
 
@@ -740,6 +888,7 @@
       const anchor = neurons.find(n => n.name === "Долгая память");
       if (anchor) activate(anchor.id, .35);
       visualDirty = true;
+      scheduleFrame();
       return spread.length;
     }
   };
@@ -748,5 +897,5 @@
   loadState();
   if(!neurons.length){seedNetwork();fitNetwork();}
   requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});
-  requestAnimationFrame(frame);
+  scheduleFrame();
 })();

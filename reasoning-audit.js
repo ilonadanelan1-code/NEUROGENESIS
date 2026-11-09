@@ -6,8 +6,19 @@
        typeof knowledge.normalise!=="function")throw new Error("NGReasoningAudit requires NGKnowledge comparison methods");
     const entityKey=value=>knowledge.canonicalEntity?knowledge.canonicalEntity(value):knowledge.normalise(value);
     const edgeKey=edge=>entityKey(edge&&edge.subject)+"=>"+entityKey(edge&&edge.object);
+    const validCausalEdge=edge=>{
+      if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string"||
+         !edge.subject.trim()||!edge.object.trim())return false;
+      if(typeof knowledge.sanitizeClaims==="function")return knowledge.sanitizeClaims([{
+        kind:"causal",subject:edge.subject,predicate:edge.predicate||"приводит к",
+        object:edge.object,evidence:edge.evidence||""
+      }]).length===1;
+      return true;
+    };
     function analyze(paths,inputClaims,sourceMemoryByClaim={}) {
-      const claims=Array.isArray(inputClaims)?inputClaims:[];
+      const rawClaims=Array.isArray(inputClaims)?inputClaims:[];
+      const claims=typeof knowledge.sanitizeClaims==="function"
+        ?rawClaims.flatMap(claim=>knowledge.sanitizeClaims([claim])):rawClaims;
       const pathsInput=Array.isArray(paths)?paths.slice(0,8):[];
       const byId=new Map(claims.filter(c=>c&&typeof c.id==="string").map(c=>[c.id,c]));
       const sourceFor=claim=>{
@@ -16,9 +27,12 @@
         const value=mapped||claim.sourceMemoryId||null;
         return typeof value==="string"&&value.trim()?value.trim():null;
       };
-      const normalizedPaths=pathsInput.map(path=>(Array.isArray(path)?path:[])
-        .filter(edge=>edge&&typeof edge.subject==="string"&&typeof edge.object==="string").slice(0,3))
-        .filter(path=>path.length);
+      const normalizedPaths=pathsInput.map(path=>{
+        if(!Array.isArray(path)||!path.length)return null;
+        const candidate=path.slice(0,3);
+        if(candidate.some(edge=>!validCausalEdge(edge)))return null;
+        return candidate;
+      }).filter(Boolean);
       const usedEdgeKeys=new Set(normalizedPaths.flat().map(edgeKey));
       const relevantCausal=claims.filter(c=>c&&c.kind==="causal"&&c.status!=="superseded"&&usedEdgeKeys.has(edgeKey(c)));
       const conflictRows=(()=>{try{return knowledge.findConflicts(relevantCausal)||[];}catch(_){return [];}})();

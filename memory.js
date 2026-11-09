@@ -27,7 +27,7 @@
   const DIALOG_CONTEXT = window.NGDialogContext && typeof window.NGDialogContext.create === "function"
     ? window.NGDialogContext.create(KNOWLEDGE) : null;
   const DIALOG_MANAGER = window.NGDialogManager && typeof window.NGDialogManager.create === "function"
-    ? window.NGDialogManager.create() : null;
+    ? window.NGDialogManager.create(DIALOG_CONTEXT) : null;
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
@@ -35,6 +35,7 @@
   let llmHttpAdapter = null;
   let llmVerified = false;
   let llmModelName = "";
+  let llmRequestInFlight = false;
   let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
@@ -49,6 +50,10 @@
   let cognitiveCycles = [];
   let nextCognitiveCycleNumber = 1;
   let tagTrace = Object.create(null);
+  // Graph statistics are expensive to rebuild; keep the UI projection until memory data changes.
+  let knowledgeGraphStatsCache = null;
+  let knowledgeGraphStatsDirty = true;
+  function invalidateKnowledgeGraphStats() { knowledgeGraphStatsDirty = true; }
   let libraryOpen = false;
   let libraryLimit = 20;
   let libraryFilter = "";
@@ -151,6 +156,8 @@
         !["conditional","weaken","suspend","restore"].includes(raw.strategy)) return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
+    if(!isValidArchivedCausalEdge({subject:edgeSubject,object:edgeObject,
+       evidence:typeof raw.evidence==="string"?raw.evidence:""}))return null;
     return {
       edgeSubject,edgeObject,strategy:raw.strategy,
       at:safeTime(raw.at,Date.now()),
@@ -268,6 +275,33 @@
       decisions.slice(-8).map(item=>"• "+item.edgeSubject+" → "+item.edgeObject+" — "+description[item.strategy]).join("\n")+
       "\nИсходные воспоминания и наблюдения не изменены.";
   }
+  function mergeExtractedMemoryClaims(existing, extracted) {
+    if(!KNOWLEDGE)return [];
+    const stored=KNOWLEDGE.sanitizeClaims(existing);
+    const parsed=KNOWLEDGE.sanitizeClaims(extracted);
+    const prepared=[];
+    for(let claim of parsed) {
+      if(claim.kind!=="observation"||String(claim.observationCase&&claim.observationCase.eventRef||"").trim()) {
+        prepared.push(claim);
+        continue;
+      }
+      const matching=stored.filter(prior=>prior&&prior.kind==="observation"&&
+        prior.polarity===claim.polarity&&KNOWLEDGE.sameEntity(prior.subject,claim.subject)&&
+        KNOWLEDGE.sameEntity(prior.object,claim.object)&&
+        enrichedTextLooksLikeSameMention(prior.evidence||"",claim.evidence||""));
+      const explicitRefs=[...new Set(matching.map(prior=>
+        String(prior.observationCase&&prior.observationCase.eventRef||"").trim()).filter(Boolean))];
+      if(explicitRefs.length>1)continue;
+      if(explicitRefs.length===1) {
+        claim={...claim,observationCase:{
+          ...KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
+          eventRef:explicitRefs[0]
+        }};
+      }
+      prepared.push(claim);
+    }
+    return KNOWLEDGE.mergeClaims(stored,prepared);
+  }
   function cleanMemory(raw) {
     if (!raw || typeof raw.text !== "string") return null;
     const text = raw.text.trim().slice(0, MAX_TEXT);
@@ -283,7 +317,9 @@
       return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
     });
     const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
-    const claims = KNOWLEDGE ? (extractedClaims.length ? KNOWLEDGE.mergeClaims(raw.claims, extractedClaims) : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
+    const claims = KNOWLEDGE ? (extractedClaims.length
+      ? mergeExtractedMemoryClaims(raw.claims, extractedClaims)
+      : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
     const id=typeof raw.id==="string"&&raw.id?raw.id.slice(0,80):makeId();
     const linkedClaims=claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:id}:claim);
     return {
@@ -309,14 +345,33 @@
       });
     }
   }
+  function isReportedArchivedCausalStatement(value) {
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isReportedCausalStatement==="function")
+      return KNOWLEDGE.isReportedCausalStatement(value);
+    const normalized=normalise(value);
+    return /^(?:согласно|по\s+(?:словам|данным|результатам|информации|сведениям|материалам|тексту)|как\s+(?:сообщается|указано|отмечено)|(?:в|по)\s+(?:исследовани[ея]|отчет[еа]|стать[ея]|публикаци[ия]|документ[еа]|источник[еа]|сообщени[ие]|текст[еа])\s+(?:говор[а-я]*|сообща[а-я]*|указыва[а-я]*|отмеча[а-я]*|утвержда[а-я]*|показыва[а-я]*|свидетельству[а-я]*|сказан[а-я]*|указан[а-я]*|отмечен[а-я]*)\s+что|(?:исследовани[ея]|исследовател[ьи]|эксперимент[аы]?|работ[аы]|автор[ыа]|учен(?:ый|ые)|отчет[ыа])\s+(?:показал[аио]?|выявил[аио]?|установил[аио]?|подтвердил[аио]?|обнаружил[аио]?|сообщил[аио]?|отметил[аио]?|указал[аио]?|описал[аио]?|доказал[аио]?)\s+что)(?:\s|$)/u.test(normalized);
+  }
+  function archivedCausalExclusionReason(edge) {
+    const subject=String(edge&&edge.subject||"");
+    const evidence=String(edge&&edge.evidence||"");
+    if(KNOWLEDGE&&typeof KNOWLEDGE.isValidCausalSubject==="function"&&
+       !KNOWLEDGE.isValidCausalSubject(subject))return "malformed_causal_subject";
+    if(!KNOWLEDGE&&/^(?:что|то\s+что)\s+/iu.test(normalise(subject)))return "malformed_causal_subject";
+    if(isReportedArchivedCausalStatement(subject)||isReportedArchivedCausalStatement(evidence))
+      return "reported_causal_statement";
+    return "invalid_causal_edge";
+  }
   function isValidArchivedCausalEdge(edge) {
     if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string"||!edge.subject.trim()||!edge.object.trim())return false;
+    const evidence=typeof edge.evidence==="string"?edge.evidence:"";
     if(KNOWLEDGE&&typeof KNOWLEDGE.sanitizeClaims==="function") {
       return KNOWLEDGE.sanitizeClaims([{kind:"causal",subject:edge.subject,predicate:"приводит к",
-        object:edge.object,evidence:""}]).length===1;
+        object:edge.object,evidence}]).length===1;
     }
-    return !/^(?:что|то\s+что)\s+/iu.test(edge.subject.trim())&&
-      !/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(edge.subject.trim());
+    const subject=normalise(edge.subject);
+    if(/^(?:что|то что)\s+/u.test(subject))return false;
+    if(/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том\s*)?что(?:\s|$)/u.test(subject))return false;
+    return !isReportedArchivedCausalStatement(subject)&&!isReportedArchivedCausalStatement(evidence);
   }
   function cleanReasoning(raw) {
     if (!raw || typeof raw !== "object" || raw.version !== 1 ||
@@ -331,30 +386,38 @@
           subject:typeof edge.subject==="string"?edge.subject.slice(0,180):"",
           object:typeof edge.object==="string"?edge.object.slice(0,180):""
         })).filter(edge=>edge.subject&&edge.object):[],
-        reason:"malformed_causal_subject"};
+        reason:typeof item.reason==="string"&&item.reason.trim()?item.reason.slice(0,80):"malformed_causal_subject"};
     }).filter(Boolean):[];
     const excludedKeys=new Set(excludedPaths.map(item=>JSON.stringify(item)));
-    const recordExcludedPath=(origin,subject,object,path)=>{
+    const recordExcludedPath=(origin,subject,object,path,reason="malformed_causal_subject")=>{
       const row={origin,subject:String(subject||"").slice(0,180),object:String(object||"").slice(0,180),
         route:(Array.isArray(path)?path:[]).slice(0,3).map(edge=>({
           subject:String(edge&&edge.subject||"").slice(0,180),object:String(edge&&edge.object||"").slice(0,180)
-        })).filter(edge=>edge.subject&&edge.object),reason:"malformed_causal_subject"};
+        })).filter(edge=>edge.subject&&edge.object),reason:String(reason||"invalid_causal_edge").slice(0,80)};
       const key=JSON.stringify(row);
       if(row.subject&&row.object&&!excludedKeys.has(key)){excludedKeys.add(key);excludedPaths.push(row);}
     };
     const conclusions=raw.conclusions.slice(0,8).map(item=>{
       if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+      if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object,evidence:item.evidence})) {
+        const sourcePaths=Array.isArray(item.paths)?item.paths:[];
+        const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
+        if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("conclusion",item.subject,item.object,path,reason);
+        else recordExcludedPath("conclusion",item.subject,item.object,[],reason);
+        return null;
+      }
       const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
         if(!Array.isArray(path)||!path.length)return null;
         const candidate=path.slice(0,3);
         if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
-          recordExcludedPath("conclusion",item.subject,item.object,candidate);
+          const invalidEdge=candidate.find(edge=>!isValidArchivedCausalEdge(edge));
+          recordExcludedPath("conclusion",item.subject,item.object,candidate,archivedCausalExclusionReason(invalidEdge));
           return null;
         }
         return candidate.map(edge=>({id:typeof edge.id==="string"?edge.id.slice(0,100):null,
           subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
       }).filter(path=>path&&path.length):[];
-      const lifecycle=HYPOTHESIS_LIFECYCLE&&typeof HYPOTHESIS_LIFECYCLE.create==="function"
+      const lifecycle=KNOWLEDGE&&HYPOTHESIS_LIFECYCLE&&typeof HYPOTHESIS_LIFECYCLE.create==="function"
         ?HYPOTHESIS_LIFECYCLE.create(KNOWLEDGE).sanitize(item.lifecycle):null;
       return paths.length?{subject:item.subject.slice(0,180),object:item.object.slice(0,180),paths,lifecycle}:null;
     }).filter(Boolean);
@@ -382,7 +445,7 @@
       const edges=Array.isArray(snapshot.edges)?snapshot.edges.slice(0,12).map(edge=>{
         if(!edge||typeof edge.subject!=="string"||typeof edge.object!=="string")return null;
         if(!isValidArchivedCausalEdge(edge)) {
-          recordExcludedPath("snapshot_edge",edge.subject,edge.object,[edge]);
+          recordExcludedPath("snapshot_edge",edge.subject,edge.object,[edge],archivedCausalExclusionReason(edge));
           return null;
         }
         const options=Array.isArray(edge.revisionOptions)?edge.revisionOptions.slice(0,3).map(option=>{
@@ -399,11 +462,19 @@
       }).filter(Boolean):[];
       const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+        if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object,evidence:item.evidence})) {
+          const sourcePaths=Array.isArray(item.paths)?item.paths:[];
+          const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
+          if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("snapshot_alternative",item.subject,item.object,path,reason);
+          else recordExcludedPath("snapshot_alternative",item.subject,item.object,[],reason);
+          return null;
+        }
         const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
           if(!Array.isArray(path)||!path.length)return null;
           const candidate=path.slice(0,3);
           if(candidate.some(edge=>!isValidArchivedCausalEdge(edge))) {
-            recordExcludedPath("snapshot_alternative",item.subject,item.object,candidate);
+            const invalidEdge=candidate.find(edge=>!isValidArchivedCausalEdge(edge));
+            recordExcludedPath("snapshot_alternative",item.subject,item.object,candidate,archivedCausalExclusionReason(invalidEdge));
             return null;
           }
           return candidate.map(edge=>({subject:edge.subject.slice(0,180),object:edge.object.slice(0,180)}));
@@ -452,8 +523,8 @@
     const rows=hypothesisLifecycleRows().sort((a,b)=>b.updatedAt-a.updatedAt);
     if(!rows.length)return "ЖИЗНЕННЫЙ ЦИКЛ ГИПОТЕЗ\n\nПока нет архивных причинных выводов, для которых можно вести историю состояний. Сначала попроси вывести причинную цепочку или новые гипотезы.";
     const labels={new:"НОВАЯ",under_review:"ПРОВЕРЯЕТСЯ",provisionally_supported:"ЕСТЬ ПРЕДВАРИТЕЛЬНО СОГЛАСУЮЩИЕСЯ ЗАПИСИ",
-      challenged:"ОСПАРИВАЕТСЯ",conditional:"УСЛОВНАЯ",weakened:"ОСЛАБЛЕНА",suspended:"ПРИОСТАНОВЛЕНА",
-      revised:"МАРШРУТ ПЕРЕСМОТРЕН",restored:"ВОЗВРАЩЕНА В АКТИВНУЮ МОДЕЛЬ"};
+      partially_challenged:"ЧАСТЬ МАРШРУТОВ ОСПАРИВАЕТСЯ",challenged:"ОСПАРИВАЕТСЯ",conditional:"УСЛОВНАЯ",
+      weakened:"ОСЛАБЛЕНА",suspended:"ПРИОСТАНОВЛЕНА",revised:"МАРШРУТ ПЕРЕСМОТРЕН",restored:"ВОЗВРАЩЕНА В АКТИВНУЮ МОДЕЛЬ"};
     const counts=HYPOTHESIS_LIFECYCLE.create(KNOWLEDGE).summary(rows).counts;
     let answer="ЖИЗНЕННЫЙ ЦИКЛ ГИПОТЕЗ\n\nВсего отслеживается: "+rows.length+".\n";
     for(const [state,label] of Object.entries(labels))if(counts[state])answer+="• "+label+": "+counts[state]+"\n";
@@ -464,6 +535,21 @@
       answer+="Версия маршрута: "+item.revision+" · исходных причинных записей: "+item.originClaimIds.length+
         " · согласующихся свидетельств: "+item.supportingClaimIds.length+
         " · оспаривающих свидетельств: "+item.challengingClaimIds.length+"\n";
+      if(item.routes.length>1&&item.routeReviews&&item.routeReviews.length) {
+        const routeLabels={new:"пока без прямых свидетельств",under_review:"есть открытый вопрос",
+          provisionally_supported:"есть согласующиеся записи",challenged:"затронут контрпримером"};
+        answer+="АЛЬТЕРНАТИВНЫЕ МАРШРУТЫ\n";
+        for(const route of item.routeReviews) {
+          const path=item.routes[route.routeIndex]||[];
+          answer+="• Маршрут "+(route.routeIndex+1)+" · "+(routeLabels[route.state]||route.state)+
+            ": "+path.map(edge=>edge.subject+" → "+edge.object).join(" → ")+"\n";
+          if(route.challengingClaimIds.length)answer+="  Оспаривающие карточки: "+route.challengingClaimIds.join(", ")+"\n";
+          if(route.supportingClaimIds.length)answer+="  Согласующиеся карточки: "+route.supportingClaimIds.join(", ")+"\n";
+          if(route.pendingInquiryCount)answer+="  Открытых вопросов по звеньям маршрута: "+route.pendingInquiryCount+"\n";
+        }
+        if(item.state==="partially_challenged")
+          answer+="Вывод не перечёркнут целиком: свидетельство затронуло только часть маршрутов; остальные сохраняются как альтернативы, но ещё не считаются доказанными.\n";
+      }
       if(item.decision)answer+="Активное решение, влияющее на гипотезу: "+({conditional:"условная связь",weaken:"ослабить связь",suspend:"временно приостановить",restore:"вернуть в активную модель"})[item.decision.strategy]+
         " · "+item.decision.edgeSubject+" → "+item.decision.edgeObject+"\n";
       const recent=item.events.slice(-4);
@@ -473,7 +559,7 @@
         return kind+(event.toState?" ("+(labels[event.toState]||event.toState)+")":"");
       }).join(" → ")+"\n";
     }
-    answer+="\nСтатус «есть предварительно согласующиеся записи» не означает доказанность. Сведения остаются пользовательскими и требуют проверки. Решения рабочей модели фиксируются отдельно от исходных воспоминаний; история переходов сохраняется.";
+    answer+="\nСтатус «есть предварительно согласующиеся записи» не означает доказанность. «Часть маршрутов оспаривается» означает, что контрпример затронул одну или несколько альтернатив, но не все; сохранённый альтернативный маршрут сам по себе также не доказан. Сведения остаются пользовательскими и требуют проверки. Решения рабочей модели фиксируются отдельно от исходных воспоминаний; история переходов сохраняется.";
     return answer;
   }
   function mergeSimilarReasoningReviews(input) {
@@ -500,6 +586,34 @@
     if(claim.kind==="causal"&&claim.polarity===false)return "opposing_claim";
     if(claim.kind==="observation")return claim.polarity===false?"counterexample":"supporting_observation";
     return null;
+  }
+  function reasoningReviewMatchesClaim(finding,claim) {
+    if(!finding||!claim||typeof claim.id!=="string"||finding.claimId!==claim.id||!KNOWLEDGE)return false;
+    const sanitized=typeof KNOWLEDGE.sanitizeClaims==="function"?KNOWLEDGE.sanitizeClaims([claim]):[];
+    if(!sanitized.length)return false;
+    claim=sanitized[0];
+    if(!finding.subject||!finding.object||!finding.edgeSubject||!finding.edgeObject||
+       !KNOWLEDGE.sameEntity(finding.subject,claim.subject)||!KNOWLEDGE.sameEntity(finding.object,claim.object)||
+       !KNOWLEDGE.sameEntity(finding.edgeSubject,claim.subject)||!KNOWLEDGE.sameEntity(finding.edgeObject,claim.object))return false;
+    const sourceEvidence=normalise(String(claim.evidence||"").slice(0,240));
+    const reviewEvidence=normalise(String(finding.evidence||"").slice(0,240));
+    if(!sourceEvidence||sourceEvidence!==reviewEvidence)return false;
+    if(claim.kind==="observation"&&String(finding.eventRef||"")!==String(claim.observationCase&&claim.observationCase.eventRef||""))return false;
+    if(claim.status==="superseded")return finding.kind==="source_revised"&&claim.kind==="causal";
+    const expected=reviewKindForClaim(claim);
+    return finding.kind===expected||
+      (finding.kind==="supporting_claim"&&claim.kind==="causal"&&claim.polarity!==false);
+  }
+  function activeReasoningReviews(meta,claims=memories.flatMap(item=>item.claims||[])) {
+    const byId=new Map((Array.isArray(claims)?claims:[]).filter(claim=>claim&&typeof claim.id==="string")
+      .map(claim=>[claim.id,claim]));
+    return (meta&&Array.isArray(meta.reviews)?meta.reviews:[])
+      .filter(finding=>{
+        const claim=byId.get(finding&&finding.claimId);
+        if(!reasoningReviewMatchesClaim(finding,claim))return false;
+        return (meta.conclusions||[]).some(conclusion=>(conclusion.paths||[]).some(path=>path.some(edge=>
+          KNOWLEDGE.sameEntity(edge.subject,finding.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,finding.edgeObject))));
+      });
   }
   function claimSemanticKey(claim) {
     const canonical=value=>KNOWLEDGE&&typeof KNOWLEDGE.canonicalEntity==="function"
@@ -550,6 +664,8 @@
        !["counterexample","opposing_claim","supporting_observation","supporting_claim"].includes(raw.kind))return null;
     const edgeSubject=raw.edgeSubject.trim().slice(0,180),edgeObject=raw.edgeObject.trim().slice(0,180);
     if(!edgeSubject||!edgeObject)return null;
+    if(!isValidArchivedCausalEdge({subject:edgeSubject,object:edgeObject,
+       evidence:typeof raw.evidence==="string"?raw.evidence:""}))return null;
     return {edgeSubject,edgeObject,claimId:raw.claimId.slice(0,100),kind:raw.kind,
       direction:["counterexample","opposing_claim"].includes(raw.kind)?"challenging":"supporting",
       strategy:["conditional","weaken","suspend","restore"].includes(raw.strategy)?raw.strategy:null,
@@ -578,18 +694,31 @@
     }
     return unique.sort((a,b)=>a.at-b.at).slice(-MAX_MODEL_EVIDENCE);
   }
+  function cloneArchiveData(value) {
+    if(!value||typeof value!=="object")return null;
+    try { return JSON.parse(JSON.stringify(value)); } catch(_) { return null; }
+  }
+  function reasoningArchiveIdentity(entry) {
+    const source=entry&&entry.sourceReasoning&&typeof entry.sourceReasoning==="object"
+      ?entry.sourceReasoning:entry&&entry.reasoning;
+    if(!source||typeof source!=="object")return "";
+    const createdAt=safeTime(source.createdAt,0);
+    return [safeTime(entry.time,createdAt),createdAt,String(source.type||""),JSON.stringify(source)].join("|");
+  }
   function mergeReasoningArchive(existing,incoming) {
     const unique=new Map();
     for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
       if(!raw||raw.role==="user")continue;
-      const reasoning=cleanReasoning(raw.reasoning);
+      const sourceReasoning=cloneArchiveData(raw.sourceReasoning&&typeof raw.sourceReasoning==="object"
+        ?raw.sourceReasoning:raw.reasoning);
+      const reasoning=cleanReasoning(raw.reasoning)||cleanReasoning(sourceReasoning);
       if(!reasoning)continue;
       const entry={role:"assistant",time:safeTime(raw.time,reasoning.createdAt),
-        text:typeof raw.text==="string"?raw.text.slice(0,MAX_DIALOG_TEXT):"",reasoning};
-      const conclusionKey=reasoning.conclusions.map(item=>item.subject+"|"+item.object+"|"+
-        item.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
-      const key=entry.time+"|"+reasoning.createdAt+"|"+reasoning.type+"|"+conclusionKey;
-      unique.set(key,entry);
+        text:typeof raw.text==="string"?raw.text.slice(0,MAX_DIALOG_TEXT):"",
+        reasoning,sourceReasoning};
+      // Deduplicate by the immutable source snapshot, not by its sanitized projection.
+      // Distinct malformed historical records can share the same empty active view.
+      unique.set(reasoningArchiveIdentity(entry),entry);
     }
     return [...unique.values()].sort((a,b)=>a.time-b.time).slice(-MAX_REASONING_ARCHIVE);
   }
@@ -598,16 +727,14 @@
     if(!reasoning)return;
     const archived=mergeReasoningArchive([], [entry])[0];
     if(!archived)return;
-    const archivedKey=archived.time+"|"+archived.reasoning.createdAt+"|"+archived.reasoning.type+"|"+
-      archived.reasoning.conclusions.map(item=>item.subject+"|"+item.object+"|"+
-        item.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
+    const archivedKey=reasoningArchiveIdentity(archived);
     for(const item of dialog) {
       const candidate=mergeReasoningArchive([], [item])[0];
       if(!candidate)continue;
-      const candidateKey=candidate.time+"|"+candidate.reasoning.createdAt+"|"+candidate.reasoning.type+"|"+
-        candidate.reasoning.conclusions.map(row=>row.subject+"|"+row.object+"|"+
-          row.paths.map(path=>path.map(edge=>edge.subject+">"+edge.object).join(">")).join(";")).join("||");
-      if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
+      if(reasoningArchiveIdentity(candidate)===archivedKey) {
+        item.reasoning=cleanReasoning(reasoning);
+        if(!item.sourceReasoning)item.sourceReasoning=cloneArchiveData(archived.sourceReasoning);
+      }
     }
   }
   function duplicateInquiryGrouping(response, claimIds) {
@@ -673,6 +800,21 @@
         base+"-group-"+(groupIndex+1);
       claim.observationCase={...details,schema:2,eventRef};
     });
+    // Remove parser-derived, unlabelled copies from the same source memory.
+    // Explicitly identified source cards remain untouched, including different events
+    // that happen to share the same wording inside one memory record.
+    for(const memory of memories) {
+      const resolvedInMemory=(memory.claims||[]).filter(claim=>found.includes(claim));
+      if(!resolvedInMemory.length)continue;
+      memory.claims=(memory.claims||[]).filter(claim=>{
+        if(!claim||claim.kind!=="observation"||resolvedInMemory.includes(claim))return true;
+        if(String(claim.observationCase&&claim.observationCase.eventRef||"").trim())return true;
+        const parserClone=resolvedInMemory.some(source=>source!==claim&&source.polarity===claim.polarity&&
+          KNOWLEDGE.sameEntity(source.subject,claim.subject)&&KNOWLEDGE.sameEntity(source.object,claim.object)&&
+          enrichedTextLooksLikeSameMention(source.evidence||"",claim.evidence||""));
+        return !parserClone;
+      });
+    }
     item.resolution=grouping.resolution;
     item.resolvedEventGroups=groups.map(group=>group.slice());
     item.resolvedEventRefs=[...new Set(found.map(claim=>claim.observationCase.eventRef))];
@@ -755,7 +897,9 @@
       status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
       sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
-      lastAskedAt:safeTime(raw.lastAskedAt,0),responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
+      lastAskedAt:safeTime(raw.lastAskedAt,0),lastResumedAt:safeTime(raw.lastResumedAt,0),
+      resumeCount:Math.max(0,Math.min(1000,Math.floor(Number(raw.resumeCount)||0))),
+      responseText:typeof raw.responseText==="string"?raw.responseText.slice(0,MAX_TEXT):"",
       responseMemoryId:typeof raw.responseMemoryId==="string"?raw.responseMemoryId.slice(0,100):"",responseDetails,
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0),
@@ -840,6 +984,7 @@
       if(isAnswerFragment) {
         memory.claims=[];
         changed=true;
+        invalidateKnowledgeGraphStats();
       }
     }
     return changed;
@@ -877,7 +1022,7 @@
         console.warn("Discriminating-observation selection failed:",error);
       }
     }
-    const possibleDuplicates=OBSERVATIONS.uniqueObservationEvents(observationCases()).possibleGroups;
+    const possibleDuplicates=OBSERVATIONS ? OBSERVATIONS.uniqueObservationEvents(observationCases()).possibleGroups : [];
     for(const group of possibleDuplicates) {
       const claimIds=[...new Set(group.claimIds||[])].slice(0,12);
       if(claimIds.length<2)continue;
@@ -978,25 +1123,36 @@
     };
     return labels[status]?.[field]||labels.not_stated[field];
   }
-  const OBSERVATIONS = window.NGObservationEngine.create({
-    knowledge: KNOWLEDGE,
-    normalise,
-    parseObservationMoment,
-    enrichedTextLooksLikeSameMention,
-    observationFieldStatus,
-    observationFieldStatusLabel
-  });
+  const OBSERVATIONS = KNOWLEDGE && window.NGObservationEngine &&
+    typeof window.NGObservationEngine.create === "function"
+    ? window.NGObservationEngine.create({
+      knowledge: KNOWLEDGE,
+      normalise,
+      parseObservationMoment,
+      enrichedTextLooksLikeSameMention,
+      observationFieldStatus,
+      observationFieldStatusLabel
+    }) : null;
   function reviewReadinessForEdge(subject,object) {
+    if(!OBSERVATIONS)return {
+      subject,object,label:"оценка недоступна: модуль наблюдений не подключён",ready:false,
+      totalCount:0,supportingCount:0,challengingCount:0,
+      contextStatus:"not_stated",timingStatus:"not_stated",criterionStatus:"not_stated",outcomeStatus:"not_stated",
+      numericOutcomeRequired:false,completeEventCount:0,incompleteEventCount:0,
+      identityUnresolvedCount:0,metadataConflictCount:0,possibleDuplicateCount:0,answerIds:[],
+      blockers:["Модуль проверки наблюдений недоступен; это не означает, что наблюдений нет."]
+    };
     return OBSERVATIONS.reviewReadinessForEdge(observationCases(),inquiries,subject,object);
   }
   function observationCases() {
+    if(!KNOWLEDGE||typeof KNOWLEDGE.sanitizeObservationDetails!=="function")return [];
     const seen=new Set(),result=[];
     for(const memory of memories)for(const claim of memory.claims||[]) {
       if(!claim||claim.kind!=="observation"||claim.status==="superseded")continue;
-      const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"");
+      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
+      const key=memory.id+"|"+claimSemanticKey(claim)+"|"+normalise(claim.evidence||"")+"|"+normalise(details.eventRef||"");
       if(seen.has(key))continue;
       seen.add(key);
-      const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
       result.push({id:claim.id,sourceMemoryId:memory.id,subject:claim.subject,object:claim.object,
         polarity:claim.polarity!==false,evidence:claim.evidence||"",recordedAt:safeTime(claim.createdAt,memory.createdAt),
         details,sourceRef:details.sourceRef||"",verification:claim.verification||"unverified",
@@ -1041,6 +1197,8 @@
     return moment.secondsOfDay>recordedSeconds;
   }
   function observationTimelineData() {
+    if(!OBSERVATIONS)return {totalCases:0,rawCardCount:0,duplicateMentions:0,possibleDuplicateGroups:0,
+      events:[],unparsed:[],missingCount:0,futureCount:0,recognizedCount:0,unparsedCount:0,unavailable:true};
     const sourceCases=observationCases(),grouped=OBSERVATIONS.uniqueObservationEvents(sourceCases);
     const cases=grouped.events,events=[],unparsed=[];
     let missingCount=0;
@@ -1062,6 +1220,7 @@
   }
   function observationTimelineAnswer() {
     const data=observationTimelineData();
+    if(data.unavailable)return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nМодуль проверки наблюдений не подключён. Я не могу оценить хронологию; это не означает, что карточек наблюдений нет.";
     if(!data.totalCases)return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока нет сохранённых карточек наблюдений.";
     if(!data.events.length) {
       return "ХРОНОЛОГИЯ НАБЛЮДЕНИЙ\n\nПока не найдено ни одной даты, которую можно надёжно упорядочить. Укажи время события в формате «время: 2026-11-09 07:15» или дату в формате «дата: 09.11.2026». Описания вроде «вчера вечером» сохраняются, но не превращаются в точную дату автоматически.";
@@ -1104,6 +1263,7 @@
     return observationFieldStatusLabel(field.status);
   }
   function observationCasesAnswer() {
+    if(!OBSERVATIONS)return "ЖУРНАЛ НАБЛЮДЕНИЙ\n\nМодуль проверки наблюдений не подключён. Я не могу сейчас открыть или оценить карточки; это не означает, что их нет.";
     const cases=observationCases();
     if(!cases.length)return "ЖУРНАЛ НАБЛЮДЕНИЙ\n\nПока нет отдельных структурированных наблюдений. Для записи используй форму:\nПри X наблюдалось Y; контекст: ...; время: ...; критерий: ...\n\nДля явно отсутствующей информации можно указать: «не записано», «неизвестно» или «отсутствовало». Неизвестные поля не будут додумываться.";
     let answer="ЖУРНАЛ НАБЛЮДЕНИЙ · "+cases.length+" КАРТОЧЕК\n\n";
@@ -1117,7 +1277,23 @@
     answer+="Метки «событие: ...» или «эпизод: ...» связывают карточки одного эпизода; разные метки не дают системе слить отдельные события. Метод оценки и полученное значение указываются отдельно. Время записи в память не означает время самого события. Поля заполняются только из явно переданных уточнений; сведения из ответов на вопросы остаются отдельным пользовательским источником, а не новым наблюдением.";
     return answer;
   }
+  function emptyObservationReconciliation(subject,object) {
+    const fieldStatusCounts=Object.fromEntries(["context","timing","criterion","outcome"].map(key=>[key,{}]));
+    return {subject,object,cases:[],supportingCount:0,challengingCount:0,duplicateMentions:0,
+      possibleDuplicateGroups:0,explicitDuplicateGroups:0,outcomeMissingCount:0,numericOutcomeRequired:false,
+      completeCases:0,metadataCoverage:0,knownFields:0,fieldCount:0,metadataConflictCount:0,
+      identityUnresolvedCount:0,fieldStatusCounts,alignedPairCount:0,differentMetadataPairCount:0,
+      contextDifferencePairCount:0,criterionDifferencePairCount:0,timingDifferencePairCount:0,
+      timingOnlyPairCount:0,contextOnlyPairCount:0,multiDimensionDifferencePairCount:0,
+      contextTimingDifferencePairCount:0,incompletePairCount:0,oppositePairCount:0,
+      independentVerifiedSources:0,sourceReferenceCount:0,verifiedWithoutSourceRef:0,
+      userReportedUnverifiedCount:0,userRecordCount:0,addedAfterModelCount:0,addedAfterModelIds:[],
+      eventChecks:[],pattern:"оценка недоступна: модуль наблюдений не подключён",
+      recommendation:"Модуль проверки наблюдений недоступен. Не делать вывод о количестве или качестве наблюдений.",
+      oppositePairs:[]};
+  }
   function evidenceReconciliationForEdge(subject,object,baselineAt=0) {
+    if(!OBSERVATIONS)return emptyObservationReconciliation(subject,object);
     return OBSERVATIONS.evidenceReconciliationForEdge(observationCases(),subject,object,baselineAt);
   }
   function trackedObservationEdges() {
@@ -1236,6 +1412,31 @@
   }
   function researchStrategyAnswer() {
     const refreshed=refreshInquiryQueue();
+    const goalManager=window.NGGoals;
+    const reassessmentGoals=goalManager&&typeof goalManager.list==="function"
+      ?goalManager.list().filter(item=>item&&item.status==="review"&&item.observationsAfterAssessment>0&&
+        ["insufficient_context","gap_confirmed"].includes(item.assessment))
+        .sort((a,b)=>Number(b.selected)-Number(a.selected)||b.focusScore-a.focusScore||
+          b.observationsAfterAssessment-a.observationsAfterAssessment||b.updatedAt-a.updatedAt)
+      :[];
+    if(reassessmentGoals.length) {
+      const goal=reassessmentGoals[0];
+      let answer="ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА\n\n";
+      answer+="ПОЧЕМУ ЭТОТ ШАГ СТАЛ АКТУАЛЬНЫМ\nПосле прежней оценки «"+
+        (goal.assessment==="gap_confirmed"?"пробел в наблюдениях подтверждён":"контекста было недостаточно")+
+        "» появились новые прямые наблюдения. Они не переписывают старый ответ, но дают основание повторно рассмотреть связь.\n\n";
+      answer+="ЦЕЛЬ · "+goal.id+"\n"+goal.title+"\n";
+      answer+="Наблюдений после прежней оценки: "+goal.observationsAfterAssessment+
+        " · всего прямых наблюдений: "+goal.observationCount+
+        " · полностью описано: "+goal.completeObservationCount+
+        " · заполненность полей: "+goal.metadataCoverage+"%.\n\n";
+      answer+="ПРЕЖНЯЯ ОЦЕНКА СОХРАНЕНА\n"+(goal.assessmentReason||"Первоначальная оценка остаётся частью истории.")+"\n\n";
+      if(goal.blockers&&goal.blockers.length)answer+="ОСТАЮЩИЕСЯ ОГРАНИЧЕНИЯ\n"+goal.blockers.join("; ")+".\n\n";
+      answer+="СЛЕДУЮЩИЙ ШАГ\n"+(goal.nextAction||"Повторно сопоставить контекст, время и критерии новых наблюдений.")+"\n\n";
+      if(reassessmentGoals.length>1)answer+="В очереди повторной оценки ещё целей: "+(reassessmentGoals.length-1)+".\n\n";
+      answer+="Новые записи остаются пользовательскими наблюдениями. Их появление само по себе не доказывает и не опровергает причинную связь; решение рабочей модели автоматически не меняется.";
+      return answer;
+    }
     if(!refreshed.open.length) {
       return "ПЛАН ИССЛЕДОВАНИЯ\n\nСейчас нет открытых исследовательских вопросов. Если в памяти появились новые наблюдения, сначала обнови очередь командой «Найди пробелы в знаниях». Полученные ответы можно посмотреть командой «Оцени ответы на вопросы».";
     }
@@ -1304,7 +1505,8 @@
     let answer="ИССЛЕДОВАТЕЛЬСКАЯ ОЧЕРЕДЬ\n\nОткрыто: "+open.length+" · Получили ответ: "+answered.length+" · Пропущено: "+skipped.length+"\n";
     if(open.length)answer+="\nОТКРЫТЫЕ ВОПРОСЫ\n"+open.map(x=>"• "+x.id+" — "+x.edgeSubject+" → "+x.edgeObject+" · "+x.question).join("\n");
     if(answered.length)answer+="\n\nПОЛУЧЕННЫЕ ОТВЕТЫ\n"+answered.slice(-8).map(x=>"• "+x.id+" — "+inquiryAssessmentLabel(x)).join("\n");
-    if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ");
+    if(skipped.length)answer+="\n\nПРОПУЩЕНО: "+skipped.map(x=>x.id).join(", ")+
+      ". Для ручного возврата в очередь используй команду «возобнови вопрос "+skipped[0].id+"».";
     return answer+"\n\nОтветы остаются пользовательскими сведениями. Они не подтверждают причинную связь автоматически.";
   }
   function researchGoalsAnswer() {
@@ -1320,6 +1522,16 @@
     if(!item)return "Не нашёл открытый вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
     item.status="skipped";item.updatedAt=Date.now();persist();
     return "Вопрос "+item.id+" помечен как пропущенный. Его история и источники сохранены.";
+  }
+  function resumeInquiry(id) {
+    const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="skipped");
+    if(!item)return "Не нашёл пропущенный вопрос "+id+". Посмотри очередь командой «Какие вопросы открыты?».";
+    const now=Date.now();
+    item.status="open";item.lastResumedAt=now;
+    item.resumeCount=Math.min(1000,(Number(item.resumeCount)||0)+1);
+    item.updatedAt=now;persist();
+    return "ВОПРОС ВОЗВРАЩЁН В ОЧЕРЕДЬ · "+item.id+
+      "\nЕго прежняя история и оценка сохранены. Вопрос ещё не задан повторно; используй «задай следующий вопрос», когда будешь готов.";
   }
   function recordInquiryResponse(id,response,memory,claims) {
     const item=inquiries.find(x=>x.id.toUpperCase()===String(id||"").toUpperCase()&&x.status==="open");
@@ -1432,7 +1644,8 @@
       }
       for(const edge of matchedEdges.values()){
         const alreadyRecorded=meta.reviews.some(item=>item.claimId===claim.id&&
-          KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
+          KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)&&
+          reasoningReviewMatchesClaim(item,claim));
         const alreadyAdded=additions.some(item=>item.claimId===claim.id&&
           KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object));
         if(alreadyRecorded||alreadyAdded)continue;
@@ -1447,9 +1660,10 @@
     }
     return additions;
   }
-  function updateReasoningStatus(meta) {
-    const challenged=meta.reviews.some(item=>item.kind==="counterexample"||item.kind==="opposing_claim"||item.kind==="source_revised");
-    meta.status=challenged?"challenged":meta.reviews.length?"updated":"current";
+  function updateReasoningStatus(meta,claims=memories.flatMap(item=>item.claims||[])) {
+    const reviews=activeReasoningReviews(meta,claims);
+    const challenged=reviews.some(item=>item.kind==="counterexample"||item.kind==="opposing_claim"||item.kind==="source_revised");
+    meta.status=challenged?"challenged":reviews.length?"updated":"current";
     return meta;
   }
   function makeReasoningMeta(type,result,claims) {
@@ -1471,7 +1685,7 @@
     const meta=cleanReasoning({version:1,type,createdAt,status:"current",conclusions,reviews:[]});
     if(!meta)return null;
     meta.reviews=collectReasoningFindings(meta,claims||[]);
-    return reconcileHypothesisMeta(updateReasoningStatus(meta));
+    return reconcileHypothesisMeta(updateReasoningStatus(meta,claims||[]));
   }
   function baselineReviewNote(meta) {
     if(!meta)return "";
@@ -1495,7 +1709,7 @@
       if(!additions.length)continue;
       meta.reviews.push(...additions);
       meta.reviews=meta.reviews.slice(-48);
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,[...memories.flatMap(item=>item.claims||[]),...freshClaims]);
       entry.reasoning=reconcileHypothesisMeta(meta);
       syncArchivedReasoning(entry);
       for(const finding of additions)findings.push({entry,finding});
@@ -1601,14 +1815,14 @@
         changed=true;
       }
       const previousStatus=meta.status;
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       if(previousStatus!==meta.status)changed=true;
       entry.reasoning=cleanReasoning(meta);
       syncArchivedReasoning(entry);
       for(const conclusion of meta.conclusions) {
         for(const path of conclusion.paths) {
           for(const edge of path) {
-            const findings=meta.reviews.filter(item=>
+            const findings=activeReasoningReviews(meta,allClaims).filter(item=>
               KNOWLEDGE.sameEntity(item.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,edge.object)&&
               ["counterexample","opposing_claim","source_revised"].includes(item.kind));
             if(!findings.length)continue;
@@ -1721,7 +1935,7 @@
       if(!meta)continue;
       const additions=collectReasoningFindings(meta,allClaims);
       if(additions.length){meta.reviews.push(...additions);meta.reviews=meta.reviews.slice(-48);changed=true;}
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       const edgeMap=new Map();
       for(const conclusion of meta.conclusions) {
         for(const path of conclusion.paths) for(const edge of path) {
@@ -1730,7 +1944,7 @@
         }
       }
       const edgeStates=[...edgeMap.values()].map(edge=>{
-        const matched=meta.reviews.filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
+        const matched=activeReasoningReviews(meta,allClaims).filter(finding=>KNOWLEDGE.sameEntity(finding.edgeSubject,edge.subject)&&KNOWLEDGE.sameEntity(finding.edgeObject,edge.object));
         const challenged=matched.filter(finding=>finding.kind==="counterexample"||finding.kind==="opposing_claim"||finding.kind==="source_revised");
         const supporting=matched.filter(finding=>finding.kind==="supporting_observation"||finding.kind==="supporting_claim");
         const status=challenged.length?"challenged":supporting.length?"observed":"unobserved";
@@ -1909,7 +2123,7 @@
         changed=true;
       }
       const previousStatus=meta.status;
-      updateReasoningStatus(meta);
+      updateReasoningStatus(meta,allClaims);
       if(previousStatus!==meta.status)changed=true;
       entry.reasoning=reconcileHypothesisMeta(meta);
       syncArchivedReasoning(entry);
@@ -1923,7 +2137,7 @@
     if(challenged.length){
       answer+="Выводы, требующие пересмотра:\n";
       for(const item of challenged){
-        const findings=item.meta.reviews.filter(row=>row.kind!=="supporting_observation"&&row.kind!=="supporting_claim");
+        const findings=activeReasoningReviews(item.meta,allClaims).filter(row=>row.kind!=="supporting_observation"&&row.kind!=="supporting_claim");
         const impacted=item.meta.conclusions.filter(conclusion=>findings.some(finding=>
           conclusion.paths.some(path=>path.some(edge=>
             KNOWLEDGE.sameEntity(edge.subject,finding.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,finding.edgeObject)))));
@@ -1938,7 +2152,7 @@
     }else{
       answer+="В доступной памяти пока не найдены явные контрпримеры или противоположные причинные утверждения для отслеживаемых выводов. Это не подтверждает их истинность: исходные связи остаются непроверенными.";
     }
-    const supporting=audited.flatMap(item=>item.meta.reviews.filter(row=>row.kind==="supporting_observation"||row.kind==="supporting_claim"));
+    const supporting=audited.flatMap(item=>activeReasoningReviews(item.meta,allClaims).filter(row=>row.kind==="supporting_observation"||row.kind==="supporting_claim"));
     if(supporting.length){
       answer+="\n\nНаблюдения и утверждения, согласующиеся с отдельными звеньями: "+supporting.length+
         ". Они не отменяют контрпримеры и не доказывают причинность.";
@@ -2074,12 +2288,18 @@
       memories = [];
       console.warn("Could not load NEUROGENESIS memories:", error);
     }
+    invalidateKnowledgeGraphStats();
     try {
       const savedDialog = JSON.parse(localStorage.getItem(DIALOG_KEY) || "[]");
       dialog = Array.isArray(savedDialog)
         ? savedDialog.filter(x => x && typeof x.text === "string")
-          .map(x => ({ role: x.role === "user" ? "user" : "assistant", text: x.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(x.time, Date.now()), reasoning: cleanReasoning(x.reasoning) }))
-          .slice(-MAX_DIALOG)
+          .map(x => {
+            const sourceReasoning=cloneArchiveData(x.sourceReasoning&&typeof x.sourceReasoning==="object"
+              ?x.sourceReasoning:x.reasoning);
+            return {role:x.role==="user"?"user":"assistant",text:x.text.slice(0,MAX_DIALOG_TEXT),
+              time:safeTime(x.time,Date.now()),reasoning:cleanReasoning(x.reasoning)||cleanReasoning(sourceReasoning),
+              sourceReasoning};
+          }).slice(-MAX_DIALOG)
         : [];
     } catch (error) {
       dialog = [];
@@ -2119,8 +2339,9 @@
     }
     try {
       const savedCycles=JSON.parse(localStorage.getItem(COGNITIVE_CYCLES_KEY)||"[]");
-      cognitiveCycles=Array.isArray(savedCycles)?savedCycles.map(cleanCognitiveCycle).filter(Boolean).slice(-MAX_COGNITIVE_CYCLES):[];
+      cognitiveCycles=mergeCognitiveCycleHistory([],savedCycles);
       nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
+      if(JSON.stringify(savedCycles)!==JSON.stringify(cognitiveCycles)) memoryMigrated=true;
     } catch(error) {
       cognitiveCycles=[];nextCognitiveCycleNumber=1;
       console.warn("Could not load NEUROGENESIS cognitive cycles:",error);
@@ -2170,54 +2391,70 @@
     try { return manager.reconcile({inquiries,memories,focus,now:Date.now()}); }
     catch (error) { console.warn("NEUROGENESIS research-goal update failed:",error); return null; }
   }
-  function persist() {
+  function persist(options = {}) {
     updateCount();
-    syncResearchGoals();
-    let ok = true;
-    try {
-      localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
-    } catch (error) {
-      ok = false;
-      console.warn("NEUROGENESIS memory storage failed", error);
-    }
-    try {
-      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
-    } catch (error) {
-      ok = false;
-      console.warn("NEUROGENESIS dialogue storage failed", error);
-    }
-    if (DIALOG_CONTEXT && dialogContext) {
+    // Keep archived hypothesis states aligned with current evidence and inquiry status
+    // before any persistence path serializes the reasoning archive.
+    refreshHypothesisLifecycleArchive();
+    const transaction = window.NGStorageTransaction;
+    if (transaction && typeof transaction.begin === "function" &&
+        typeof transaction.stage === "function" && typeof transaction.commit === "function") {
+      if (!transaction.begin()) {
+        const state = transaction.status ? transaction.status() : {};
+        setFeedback("СОХРАНЕНИЕ ОСТАНОВЛЕНО · " +
+          String(state.error || "не удалось восстановить незавершённую транзакцию").slice(0, 140));
+        return false;
+      }
       try {
-        localStorage.setItem(DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext)));
+        if (!options.skipGoalSync) syncResearchGoals();
+        const writes = [
+          [MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES))],
+          [DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG))],
+          [MODEL_DECISIONS_KEY, JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS))],
+          [MODEL_EVIDENCE_KEY, JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE))],
+          [REASONING_ARCHIVE_KEY, JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE))],
+          [INQUIRIES_KEY, JSON.stringify(inquiries.slice(-MAX_INQUIRIES))],
+          [COGNITIVE_CYCLES_KEY, JSON.stringify(cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES))]
+        ];
+        if (DIALOG_CONTEXT && dialogContext) {
+          writes.splice(2, 0, [DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext))]);
+        }
+        for (const [key, value] of writes) {
+          if (!transaction.stage(key, value)) throw new Error("Не удалось подготовить ключ " + key);
+        }
+        const ok = transaction.commit();
+        if (!ok) {
+          const state = transaction.status ? transaction.status() : {};
+          setFeedback("СОХРАНЕНИЕ ОТМЕНЕНО · прежние данные восстановлены. " +
+            String(state.error || "Хранилище недоступно").slice(0, 120) +
+            " Сделай экспорт и освободи место в браузере.");
+        }
+        return ok;
       } catch (error) {
-        ok = false;
-        console.warn("NEUROGENESIS dialogue-context storage failed", error);
+        transaction.abort();
+        console.warn("NEUROGENESIS storage transaction could not be staged:", error);
+        setFeedback("СОХРАНЕНИЕ ОТМЕНЕНО · " + String(error.message || error).slice(0, 140));
+        return false;
       }
     }
+
+    // Compatibility fallback for builds where the goals module has not loaded.
     try {
-      localStorage.setItem(MODEL_DECISIONS_KEY,JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
-    } catch(error) {
-      ok=false;
-      console.warn("NEUROGENESIS model decision storage failed",error);
+      localStorage.setItem(MEMORY_KEY, JSON.stringify(memories.slice(-MAX_MEMORIES)));
+      localStorage.setItem(DIALOG_KEY, JSON.stringify(dialog.slice(-MAX_DIALOG)));
+      if (DIALOG_CONTEXT && dialogContext) localStorage.setItem(DIALOG_CONTEXT_KEY, JSON.stringify(DIALOG_CONTEXT.sanitize(dialogContext)));
+      localStorage.setItem(MODEL_DECISIONS_KEY, JSON.stringify(modelDecisions.slice(-MAX_MODEL_DECISIONS)));
+      localStorage.setItem(MODEL_EVIDENCE_KEY, JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE)));
+      localStorage.setItem(REASONING_ARCHIVE_KEY, JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE)));
+      localStorage.setItem(INQUIRIES_KEY, JSON.stringify(inquiries.slice(-MAX_INQUIRIES)));
+      localStorage.setItem(COGNITIVE_CYCLES_KEY, JSON.stringify(cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES)));
+      if (!options.skipGoalSync) syncResearchGoals();
+      return true;
+    } catch (error) {
+      console.warn("NEUROGENESIS storage fallback failed:", error);
+      setFeedback("Не удалось полностью сохранить данные: " + String(error.message || error).slice(0, 120));
+      return false;
     }
-    try {
-      localStorage.setItem(MODEL_EVIDENCE_KEY,JSON.stringify(modelEvidence.slice(-MAX_MODEL_EVIDENCE)));
-    } catch(error) {
-      ok=false;
-      console.warn("NEUROGENESIS model evidence storage failed",error);
-    }
-    try {
-      localStorage.setItem(REASONING_ARCHIVE_KEY,JSON.stringify(reasoningArchive.slice(-MAX_REASONING_ARCHIVE)));
-    } catch(error) {
-      ok=false;console.warn("NEUROGENESIS reasoning archive storage failed",error);
-    }
-    try {
-      localStorage.setItem(INQUIRIES_KEY,JSON.stringify(inquiries.slice(-MAX_INQUIRIES)));
-    } catch(error) {
-      ok=false;console.warn("NEUROGENESIS inquiry queue storage failed",error);
-    }
-    if (!ok) setFeedback("Не удалось полностью сохранить данные: хранилище браузера заполнено или недоступно. Сделай экспорт резервной копии.");
-    return ok;
   }
   function updateCount() {
     const el = $("memory-count");
@@ -2225,16 +2462,28 @@
     const manage = $("memory-manage");
     if (manage) manage.textContent = libraryOpen ? "Закрыть записи" : "Записи (" + memories.length + ")";
     const knowledgeCount = $("knowledge-count");
-    if (knowledgeCount && KNOWLEDGE) {
-      if (KNOWLEDGE_GRAPH) {
-        const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
-        knowledgeCount.textContent = graph.stats.nodes + " УЗЛОВ · " +
-          graph.stats.edges + " СВЯЗЕЙ · " + graph.stats.conflicts + " КОНФЛИКТОВ";
-      } else {
-        const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
-        knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
+    if (!knowledgeCount || !KNOWLEDGE) return;
+    if (KNOWLEDGE_GRAPH) {
+      if (knowledgeGraphStatsDirty || !knowledgeGraphStatsCache) {
+        try {
+          const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
+          knowledgeGraphStatsCache = graph && graph.stats ? { ...graph.stats } : null;
+          knowledgeGraphStatsDirty = !knowledgeGraphStatsCache;
+        } catch (error) {
+          knowledgeGraphStatsCache = null;
+          knowledgeGraphStatsDirty = true;
+          console.warn("NEUROGENESIS knowledge graph summary failed:", error);
+        }
+      }
+      if (knowledgeGraphStatsCache) {
+        const stats = knowledgeGraphStatsCache;
+        knowledgeCount.textContent = stats.nodes + " УЗЛОВ · " +
+          stats.edges + " СВЯЗЕЙ · " + stats.conflicts + " КОНФЛИКТОВ";
+        return;
       }
     }
+    const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
+    knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
   }
   function setFeedback(message) {
     const el = $("memory-feedback");
@@ -2258,8 +2507,12 @@
   }
   function say(role, text, reasoning) {
     const entry={ role, text: String(text).slice(0, MAX_DIALOG_TEXT), time: Date.now() };
+    const sourceReasoning=reasoning?cloneArchiveData(reasoning):null;
     const clean=reasoning?reconcileHypothesisMeta(reasoning):null;
-    if(clean)entry.reasoning=clean;
+    if(clean) {
+      entry.reasoning=clean;
+      entry.sourceReasoning=sourceReasoning||cloneArchiveData(clean);
+    }
     dialog.push(entry);
     dialog = dialog.slice(-MAX_DIALOG);
     if (DIALOG_CONTEXT && typeof DIALOG_CONTEXT.track === "function") {
@@ -2319,6 +2572,77 @@
     if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
   }
   const COGNITIVE_PHASE_NAMES = ["perception","attention","memory","reasoning","verification","learning","model_update"];
+  const MAX_COGNITIVE_GOAL_CHANGES = 16;
+  function cognitiveGoalSnapshot() {
+    const manager=window.NGGoals;
+    if(!manager||typeof manager.list!=="function")return null;
+    try {
+      return manager.list().filter(item=>item&&typeof item.id==="string").map(item=>({
+        id:item.id,inquiryId:typeof item.inquiryId==="string"?item.inquiryId:"",
+        title:typeof item.title==="string"?item.title.slice(0,180):"",
+        status:typeof item.status==="string"?item.status.slice(0,32):"",
+        assessment:typeof item.assessment==="string"?item.assessment.slice(0,64):"",
+        progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
+        observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
+        observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+        sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+        evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+        evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,8):[],
+        blockers:Array.isArray(item.blockers)?item.blockers.filter(x=>typeof x==="string").slice(0,4):[],
+        nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
+      }));
+    } catch(error) {
+      console.warn("NEUROGENESIS could not snapshot research goals for the cognitive cycle:",error);
+      return null;
+    }
+  }
+  function cognitiveGoalChanges(before,after) {
+    if(!Array.isArray(before)||!Array.isArray(after))return {available:false,total:0,items:[]};
+    const previous=new Map(before.map(item=>[item.id,item]));
+    const current=new Map(after.map(item=>[item.id,item]));
+    const changes=[];
+    for(const item of after) {
+      const old=previous.get(item.id);
+      let kind="";
+      if(!old)kind="created";
+      else if(old.status!==item.status)kind="status_changed";
+      else if(old.assessment!==item.assessment||old.progress!==item.progress||
+          old.observationCount!==item.observationCount||
+          old.observationsAfterAssessment!==item.observationsAfterAssessment||
+          JSON.stringify(old.sourceClaimIds)!==JSON.stringify(item.sourceClaimIds)||
+          JSON.stringify(old.evidenceClaimIds)!==JSON.stringify(item.evidenceClaimIds)||
+          JSON.stringify(old.evidenceMemoryIds)!==JSON.stringify(item.evidenceMemoryIds)||
+          JSON.stringify(old.blockers)!==JSON.stringify(item.blockers)||
+          old.nextAction!==item.nextAction)kind="updated";
+      if(!kind)continue;
+      const addedIds=(values,prior,limit)=>values.filter(id=>!prior.includes(id)).slice(0,limit);
+      const removedIds=(values,next,limit)=>values.filter(id=>!next.includes(id)).slice(0,limit);
+      changes.push({
+        goalId:item.id,inquiryId:item.inquiryId,kind,
+        title:item.title,fromStatus:old?old.status:"",toStatus:item.status,
+        assessment:item.assessment,progress:item.progress,
+        observationCount:item.observationCount,
+        observationsAfterAssessment:item.observationsAfterAssessment,
+        sourceClaimIds:addedIds(item.sourceClaimIds,old?old.sourceClaimIds:[],6),
+        evidenceClaimIds:addedIds(item.evidenceClaimIds,old?old.evidenceClaimIds:[],6),
+        removedEvidenceClaimIds:removedIds(old?old.evidenceClaimIds:[],item.evidenceClaimIds,6),
+        evidenceMemoryIds:addedIds(item.evidenceMemoryIds,old?old.evidenceMemoryIds:[],3),
+        nextAction:item.nextAction
+      });
+    }
+    for(const old of before)if(!current.has(old.id))changes.push({
+      goalId:old.id,inquiryId:old.inquiryId,kind:"removed",
+      title:old.title,fromStatus:old.status,toStatus:"",
+      assessment:old.assessment,progress:old.progress,
+      observationCount:old.observationCount,
+      observationsAfterAssessment:old.observationsAfterAssessment,
+      sourceClaimIds:old.sourceClaimIds.slice(0,6),evidenceClaimIds:[],
+      removedEvidenceClaimIds:old.evidenceClaimIds.slice(0,6),
+      evidenceMemoryIds:old.evidenceMemoryIds.slice(0,3),
+      nextAction:""
+    });
+    return {available:true,total:changes.length,items:changes.slice(-MAX_COGNITIVE_GOAL_CHANGES)};
+  }
   function cleanCognitiveCycle(raw) {
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.phases)) return null;
     const allowed = new Set(COGNITIVE_PHASE_NAMES);
@@ -2333,7 +2657,7 @@
       id:typeof raw.id==="string"?raw.id.slice(0,24):"C"+sequence,
       sequence,
       at:safeTime(raw.at,Date.now()),
-      mode:raw.mode==="remember"?"remember":"ask",
+      mode:["remember","llm"].includes(raw.mode)?raw.mode:"ask",
       intent:typeof raw.intent==="string"?raw.intent.slice(0,48):"general",
       status:["complete","partial","error"].includes(raw.status)?raw.status:"partial",
       phases,
@@ -2366,6 +2690,29 @@
         completed:Math.max(0,Math.floor(Number(raw.goals.completed)||0)),
         focusId:typeof raw.goals.focusId==="string"?raw.goals.focusId.slice(0,24):""
       }:null,
+      goalChanges:raw.goalChanges&&typeof raw.goalChanges==="object"?{
+        available:raw.goalChanges.available===true,
+        total:Math.max(0,Math.min(10000,Math.floor(Number(raw.goalChanges.total)||0))),
+        items:Array.isArray(raw.goalChanges.items)?raw.goalChanges.items.slice(-MAX_COGNITIVE_GOAL_CHANGES)
+          .filter(item=>item&&typeof item.goalId==="string")
+          .map(item=>({
+            goalId:item.goalId.slice(0,32),
+            inquiryId:typeof item.inquiryId==="string"?item.inquiryId.slice(0,24):"",
+            kind:["created","status_changed","updated","removed"].includes(item.kind)?item.kind:"updated",
+            title:typeof item.title==="string"?item.title.slice(0,180):"",
+            fromStatus:typeof item.fromStatus==="string"?item.fromStatus.slice(0,32):"",
+            toStatus:typeof item.toStatus==="string"?item.toStatus.slice(0,32):"",
+            assessment:typeof item.assessment==="string"?item.assessment.slice(0,64):"",
+            progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
+            observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
+            observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+            sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            removedEvidenceClaimIds:Array.isArray(item.removedEvidenceClaimIds)?item.removedEvidenceClaimIds.filter(x=>typeof x==="string").slice(0,6).map(x=>x.slice(0,120)):[],
+            evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,3).map(x=>x.slice(0,100)):[],
+            nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
+          })):[]
+      }:{available:false,total:0,items:[]},
       metrics:{
         inputTokens:Math.max(0,Number(raw.metrics&&raw.metrics.inputTokens)||0),
         parsedClaims:Math.max(0,Number(raw.metrics&&raw.metrics.parsedClaims)||0),
@@ -2388,6 +2735,27 @@
       memoryIds:Array.isArray(raw.memoryIds)?raw.memoryIds.filter(x=>typeof x==="string").slice(0,8):[],
       claimIds:Array.isArray(raw.claimIds)?raw.claimIds.filter(x=>typeof x==="string").slice(0,12):[]
     };
+  }
+  function mergeCognitiveCycleHistory(existing,incoming) {
+    const unique=new Map();
+    for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
+      const item=cleanCognitiveCycle(raw);
+      if(!item)continue;
+      const signature=JSON.stringify(item);
+      if(!unique.has(signature))unique.set(signature,item);
+    }
+    const rows=[...unique.values()].sort((a,b)=>a.at-b.at||a.sequence-b.sequence);
+    let nextSequence=Math.max(1,...rows.map(item=>item.sequence+1));
+    const usedIds=new Set(),usedSequences=new Set();
+    for(const item of rows) {
+      if(usedIds.has(item.id)||usedSequences.has(item.sequence)) {
+        item.sequence=nextSequence++;
+        item.id="C"+item.sequence;
+      }
+      usedIds.add(item.id);
+      usedSequences.add(item.sequence);
+    }
+    return rows.slice(-MAX_COGNITIVE_CYCLES);
   }
   function cognitiveIntent(mode,input) {
     if(mode==="remember")return "memory_write";
@@ -2522,11 +2890,13 @@
       beforeMemoryCount:memories.length,
       beforeClaimIds:new Set(memories.flatMap(item=>item.claims||[]).map(claim=>claim.id).filter(Boolean)),
       beforeInquiryIds:new Set(inquiries.map(item=>item.id)),
-      beforeDialogCount:dialog.length
+      beforeDialogCount:dialog.length,
+      beforeGoals:cognitiveGoalSnapshot()
     };
   }
   function cognitiveReasoningKind(intent,answer,mode) {
     if(mode==="remember")return "memory_encoding";
+    if(mode==="llm")return "language_model_response";
     const text=String(answer||"");
     if(/ВОПРОС ДЛЯ УТОЧНЕНИЯ/u.test(text))return "research_question";
     if(/ХРОНОЛОГИЯ НАБЛЮДЕНИЙ/u.test(text))return "event_timeline";
@@ -2561,7 +2931,7 @@
         (hit.item.claims||[]).some(claim=>claim.id===item.left.id||claim.id===item.right.id)))
     );
     const lastAssistant=[...dialog].reverse().find(item=>item.role==="assistant");
-    const answer=lastAssistant&&lastAssistant.text||"";
+    const answer=error?"":lastAssistant&&lastAssistant.text||"";
     const newMemoryIds=memories.filter(item=>!context.before.has(item.id)).map(item=>item.id);
     const updatedMemoryIds=memories.filter(item=>{
       const old=context.before.get(item.id);
@@ -2573,7 +2943,10 @@
     const knowledgeSummary=KNOWLEDGE&&KNOWLEDGE.summary?KNOWLEDGE.summary(allClaims):{total:allClaims.length};
     const uncertainty=assessCognitiveUncertainty(answer,context.intent,claimsToCheck,relevantConflicts,context.attention.length,context.mode);
     const focus=nextResearchFocus(context.input,newClaims.map(claim=>claim.id));
+    const storageTransaction=window.NGStorageTransaction;
+    const cycleTransactionStarted=!!(storageTransaction&&storageTransaction.begin&&storageTransaction.begin());
     const goalState=syncResearchGoals(focus);
+    const goalChanges=cognitiveGoalChanges(context.beforeGoals,cognitiveGoalSnapshot());
     const reasoningKind=cognitiveReasoningKind(context.intent,answer,context.mode);
     const phase=(name,status,summary)=>({name,status,summary});
     const phases=[
@@ -2584,14 +2957,23 @@
       phase("memory",successful?"complete":"limited",
         context.mode==="remember"
           ?"Память: "+context.beforeMemoryCount+" → "+memories.length+"; новых записей: "+newMemoryIds.length+"; обновлено: "+updatedMemoryIds.length+"."
-          :"Извлечение завершено; релевантных записей: "+selectedMemoryIds.length+"."),
-      phase("reasoning",answer?"complete":"limited",
-        "Тип обработки: "+reasoningKind+". Использован встроенный набор правил, а не языковая модель."),
+          :context.mode==="llm"
+            ?"Для ответа отобрано связанных записей: "+selectedMemoryIds.length+"; долговременная память и структурированные знания не изменялись."
+            :"Извлечение завершено; релевантных записей: "+selectedMemoryIds.length+"."),
+      phase("reasoning",successful&&answer?"complete":"limited",
+        context.mode==="llm"
+          ?(successful?"Тип обработки: "+reasoningKind+". Ответ получен от подключённой языковой модели через шлюз."
+            :"Вызов языковой модели не завершился успешно; содержательный ответ не получен.")
+          :"Тип обработки: "+reasoningKind+". Использован встроенный набор правил, а не языковая модель."),
       phase("verification",relevantConflicts.length||uncertainty.level!=="low"?"limited":"complete",
         "Проверено связанных утверждений: "+claimsToCheck.length+"; конфликтов: "+relevantConflicts.length+
-          "; индекс опоры на сохранённые данные: "+uncertainty.supportIndex+"/100 (не вероятность); независимых источников: "+uncertainty.independentSources+"."),
+          "; индекс опоры на сохранённые данные: "+uncertainty.supportIndex+"/100 (не вероятность); независимых источников: "+uncertainty.independentSources+
+          (context.mode==="llm"?". Ответ модели не считается независимой проверкой и автоматически не становится фактом.":".")),
       phase("learning",successful?"complete":"limited",
-        "Изменены следы памяти: "+updatedMemoryIds.length+"; новых вопросов: "+newQuestionIds.length+
+        (context.mode==="llm"
+          ?"Ответ добавлен в историю диалога; долговременная память и рабочая причинная модель не изменялись. "
+          :"Изменены следы памяти: "+updatedMemoryIds.length+"; ")+
+          "новых вопросов: "+newQuestionIds.length+
           "; следующий фокус: "+(focus?focus.item.id:"пока не определён")+
           "; исследовательских целей: "+(goalState?goalState.total:0)+
           "; решения причинной модели автоматически не менялись."),
@@ -2614,6 +2996,7 @@
         goalCount:goalState?goalState.total:0,activeGoals:goalState?goalState.active:0,blockedGoals:goalState?goalState.blocked:0
       },
       goals:goalState?goalState:null,
+      goalChanges,
       attentionDetails:context.attention.map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
       uncertainty,
       focus:focus?{inquiryId:focus.item.id,score:Math.round(focus.score*100),reasons:focus.reasons}:null,
@@ -2623,8 +3006,15 @@
     const cleaned=cleanCognitiveCycle(cycle);
     if(cleaned)cognitiveCycles.push(cleaned);
     cognitiveCycles=cognitiveCycles.slice(-MAX_COGNITIVE_CYCLES);
-    try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
-    catch(storageError) { console.warn("NEUROGENESIS cognitive cycle storage failed:",storageError); }
+    const cycleSaveOk=persist({skipGoalSync:true});
+    if(cycleTransactionStarted) {
+      if(cycleSaveOk) {
+        if(!storageTransaction.commit()) {
+          const state=storageTransaction.status?storageTransaction.status():{};
+          setFeedback("КОГНИТИВНЫЙ ЦИКЛ НЕ СОХРАНЁН · " + String(state.error||"транзакция отменена").slice(0,120));
+        }
+      } else storageTransaction.abort();
+    }
     return cleaned;
   }
   function runCognitiveCycle(mode,raw,operation) {
@@ -2649,7 +3039,7 @@
         model_update:"7. Обновление модели"
       };
       const lines=["КОГНИТИВНЫЙ ЦИКЛ · "+cycle.id,
-        "Тип: "+(cycle.mode==="remember"?"сохранение информации":"обработка вопроса")+" · намерение: "+cycle.intent,
+        "Тип: "+(cycle.mode==="remember"?"сохранение информации":cycle.mode==="llm"?"обращение к языковой модели":"обработка вопроса")+" · намерение: "+cycle.intent,
         "Состояние: "+cycle.status,
         ...cycle.phases.map(item=>(labels[item.name]||item.name)+" ["+item.status+"]: "+item.summary),
         "Метрики: память "+cycle.metrics.memoryAfter+"/"+MAX_MEMORIES+
@@ -2662,8 +3052,30 @@
           " · рейтинг "+cycle.focus.score+"/100 · "+cycle.focus.reasons.join("; "):
           "СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: пока нет открытого вопроса.",
         ...(cycle.goals?["МОНИТОРИНГ ЦЕЛЕЙ: всего "+cycle.goals.total+" · активных "+cycle.goals.active+
-          " · ждут ответа "+cycle.goals.waiting+" · заблокировано "+cycle.goals.blocked+
-          " · требуют пересмотра "+cycle.goals.review+" · завершено "+cycle.goals.completed]:[]),
+          " · ждут ответа "+cycle.goals.waiting+" · заблокировано/без движения "+cycle.goals.blocked+
+          " · требуют пересмотра "+cycle.goals.review+" · отложено "+cycle.goals.paused+
+          " · завершено "+cycle.goals.completed]:[]),
+        ...(cycle.goalChanges&&cycle.goalChanges.available&&cycle.goalChanges.total?[
+          "ИЗМЕНЕНИЯ ЦЕЛЕЙ В ЭТОМ ЦИКЛЕ · "+cycle.goalChanges.total,
+          ...(cycle.goalChanges.total>cycle.goalChanges.items.length
+            ?["В краткий список включено "+cycle.goalChanges.items.length+" из "+cycle.goalChanges.total+" изменений; более ранние не показаны."]
+            :[]),
+          ...cycle.goalChanges.items.map(item=>{
+            const labels={created:"создана",status_changed:"сменился статус",updated:"обновлена",removed:"перестала отслеживаться"};
+            const statusLabels={active:"активна",waiting_user:"ждёт ответа",blocked:"заблокирована",review:"требует пересмотра",
+              paused:"отложена",completed:"завершена",stale:"без движения"};
+            const transition=item.fromStatus
+              ?(statusLabels[item.fromStatus]||item.fromStatus)+" → "+(statusLabels[item.toStatus]||item.toStatus)
+              :(statusLabels[item.toStatus]||item.toStatus);
+            return "• "+(labels[item.kind]||"изменена")+" · "+item.goalId+
+              (item.inquiryId?" / "+item.inquiryId:"")+" · "+transition+" · "+item.title+
+              (item.observationsAfterAssessment?" · новых наблюдений после оценки: "+item.observationsAfterAssessment:"")+
+              (item.evidenceClaimIds&&item.evidenceClaimIds.length?" · новые источники: "+item.evidenceClaimIds.join(", "):"")+
+              (item.removedEvidenceClaimIds&&item.removedEvidenceClaimIds.length?" · снятые источники: "+item.removedEvidenceClaimIds.join(", "):"")+
+              (item.evidenceMemoryIds&&item.evidenceMemoryIds.length?" · новые записи памяти: "+item.evidenceMemoryIds.join(", "):"")+
+              (item.nextAction?"\n  Следующий шаг: "+item.nextAction:"");
+          })
+        ]:[]),
         ...(cycle.attentionDetails.length?["РАСПРЕДЕЛЕНИЕ ВНИМАНИЯ:",
           ...cycle.attentionDetails.slice(0,5).map((item,index)=>(index+1)+". "+item.memoryId+
             " · значимость "+Math.round(item.score*100)+"/100 · "+item.reasons.join("; "))]:[])];
@@ -2698,7 +3110,7 @@
           item.tags.push(tag);
           item.traceIds.push(ensureTrace(tag));
         }
-        if (KNOWLEDGE) item.claims = KNOWLEDGE.mergeClaims(item.claims, claims);
+        if (KNOWLEDGE) item.claims = mergeExtractedMemoryClaims(item.claims, claims);
         ensureClaimTraces(item.claims);
         repeated++;
         const related = memories.filter(old => old.id !== item.id && old.tags.some(tag => tags.includes(tag))).slice(-4);
@@ -2724,6 +3136,7 @@
         if(note)inquiryResponseNotes.push(note);
       }
     }
+    if (saved || repeated) invalidateKnowledgeGraphStats();
     rebuildTagTraceIndex();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]));
     const ok = persist();
@@ -2852,6 +3265,8 @@
     }
     const skippedInquiry=lower.match(/^пропусти вопрос (q\d+)$/u);
     if(skippedInquiry) { say("assistant",skipInquiry(skippedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ОБНОВЛЁН");return; }
+    const resumedInquiry=lower.match(/^(?:возобнови вопрос|верни вопрос) (q\d+)(?: в очередь)?$/u);
+    if(resumedInquiry) { say("assistant",resumeInquiry(resumedInquiry[1].toUpperCase()));setFeedback("ИССЛЕДОВАНИЕ · ВОПРОС ВОЗВРАЩЁН");return; }
     if(/^(?:покажи хронологию наблюдений|хронология наблюдений|покажи временную шкалу наблюдений|восстанови последовательность наблюдений)$/u.test(lower)) {
       say("assistant",observationTimelineAnswer());setFeedback("ПАМЯТЬ ОПЫТА · ХРОНОЛОГИЯ");return;
     }
@@ -3059,12 +3474,52 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
+    invalidateKnowledgeGraphStats();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     persist();
     renderLibrary();
     say("assistant", "Запись удалена. Общие нейронные следы сохранены, если на них ссылаются другие воспоминания.");
     setFeedback("ЗАПИСЬ УДАЛЕНА · " + memories.length + " ОСТАЛОСЬ");
+  }
+  function reconcileEditedMemoryClaims(existing, parsed, memoryId) {
+    if(!KNOWLEDGE)return [];
+    const previous=KNOWLEDGE.sanitizeClaims(existing);
+    const extracted=KNOWLEDGE.sanitizeClaims(parsed);
+    const result=[];
+    for(const claim of extracted) {
+      if(claim.kind!=="observation") {
+        result.push(claim);
+        continue;
+      }
+      const sameEdge=previous.filter(old=>old&&old.kind==="observation"&&
+        KNOWLEDGE.sameEntity(old.subject,claim.subject)&&KNOWLEDGE.sameEntity(old.object,claim.object)&&
+        normalise(old.predicate)===normalise(claim.predicate));
+      const samePolarity=sameEdge.filter(old=>old.polarity===claim.polarity);
+      const matches=samePolarity.length?samePolarity:sameEdge;
+      const identities=[...new Map(matches.map(old=>[
+        String(old.observationCase&&old.observationCase.eventRef||"").trim(),old
+      ]).filter(([eventRef])=>eventRef).map(([eventRef,old])=>[eventRef,old])).values()];
+      if(!identities.length) {
+        result.push({...claim,sourceMemoryId:memoryId});
+        continue;
+      }
+      for(const prior of identities) {
+        const eventRef=String(prior.observationCase.eventRef).trim();
+        result.push({
+          ...claim,id:prior.id,sourceMemoryId:memoryId,
+          createdAt:prior.createdAt,traceId:prior.traceId||claim.traceId,
+          verification:prior.verification||claim.verification,
+          source:prior.source||claim.source,
+          observationCase:{
+            ...KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
+            eventRef,
+            sourceRef:prior.observationCase.sourceRef||claim.observationCase.sourceRef||""
+          }
+        });
+      }
+    }
+    return KNOWLEDGE.mergeClaims([],result);
   }
   function editMemory(id, text) {
     const item = memories.find(entry => entry.id === id);
@@ -3078,7 +3533,10 @@
     const tags = [...new Set(tokens(value))].slice(0, 6);
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
-    item.claims = claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:item.id}:claim);
+    item.claims = KNOWLEDGE
+      ? reconcileEditedMemoryClaims(item.claims,claims,item.id)
+      : [];
+    invalidateKnowledgeGraphStats();
     ensureClaimTraces(item.claims);
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
@@ -3097,8 +3555,16 @@
     const hasGoals=window.NGGoals&&typeof window.NGGoals.list==="function"&&window.NGGoals.list().length>0;
     if (!memories.length && !modelDecisions.length && !inquiries.length && !hasGoals) { setFeedback("Память уже пуста."); return; }
     if (!window.confirm("Удалить все " + memories.length + " записей, исследовательские цели, решения рабочей модели и их уникальные нейронные следы? История диалога останется.")) return;
+    const storageTransaction=window.NGStorageTransaction;
+    const clearTransactionStarted=!!(storageTransaction&&storageTransaction.begin&&storageTransaction.begin());
+    if(storageTransaction&&!clearTransactionStarted) {
+      const state=storageTransaction.status?storageTransaction.status():{};
+      setFeedback("ОЧИСТКА ОТМЕНЕНА · " + String(state.error||"хранилище не готово").slice(0,120));
+      return;
+    }
     const oldIds = memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
     memories = [];
+    invalidateKnowledgeGraphStats();
     modelDecisions = [];
     modelEvidence = [];
     inquiries = [];
@@ -3106,9 +3572,16 @@
     if(window.NGGoals&&typeof window.NGGoals.clear==="function")window.NGGoals.clear();
     cognitiveCycles = [];
     nextCognitiveCycleNumber = 1;
-    try { localStorage.setItem(COGNITIVE_CYCLES_KEY,"[]"); } catch(error) { console.warn("Could not clear cognitive cycle history:",error); }
     releaseUnusedTraces(oldIds);
-    persist();
+    const clearSaved=persist({skipGoalSync:true});
+    const clearCommitted=clearSaved&&(!clearTransactionStarted||storageTransaction.commit());
+    if(!clearCommitted) {
+      if(clearTransactionStarted)storageTransaction.abort();
+      if(window.NGGoals&&typeof window.NGGoals.load==="function")window.NGGoals.load();
+      load();
+      setFeedback("ОЧИСТКА ОТМЕНЕНА · сохранённые данные восстановлены.");
+      return;
+    }
     renderLibrary();
     say("assistant", "Долговременная память очищена. История этого диалога сохранена.");
     setFeedback("ПАМЯТЬ ОЧИЩЕНА");
@@ -3372,6 +3845,7 @@
         modelDecisions,
         modelEvidence,
         reasoningArchive,
+        cognitiveCycles:mergeCognitiveCycleHistory([],cognitiveCycles),
         inquiries,
         goals:window.NGGoals&&typeof window.NGGoals.export==="function"?window.NGGoals.export():[]
       };
@@ -3390,13 +3864,95 @@
       setFeedback("Экспорт не удался. Браузер не разрешил создать файл.");
     }
   }
+  const IMPORT_STORAGE_KEYS = [
+    MEMORY_KEY, DIALOG_KEY, DIALOG_CONTEXT_KEY, MODEL_DECISIONS_KEY, MODEL_EVIDENCE_KEY,
+    REASONING_ARCHIVE_KEY, INQUIRIES_KEY, COGNITIVE_CYCLES_KEY, "neurogenesis.goals.v1"
+  ];
+  function cloneImportState(value, label) {
+    let serialized;
+    try { serialized = JSON.stringify(value); }
+    catch (error) { throw new Error("Не удалось подготовить безопасный откат импорта (" + label + ")."); }
+    if (typeof serialized !== "string") throw new Error("Не удалось подготовить безопасный откат импорта (" + label + ").");
+    return JSON.parse(serialized);
+  }
+  function captureImportSnapshot() {
+    const storage = IMPORT_STORAGE_KEYS.map(key => [key, localStorage.getItem(key)]);
+    const traceIds = new Set([
+      ...Object.values(tagTrace),
+      ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
+    ].filter(Boolean));
+    return {
+      storage,
+      memories: cloneImportState(memories, "memories"),
+      dialog: cloneImportState(dialog, "dialog"),
+      dialogContext: cloneImportState(dialogContext, "dialog context"),
+      modelDecisions: cloneImportState(modelDecisions, "model decisions"),
+      modelEvidence: cloneImportState(modelEvidence, "model evidence"),
+      reasoningArchive: cloneImportState(reasoningArchive, "reasoning archive"),
+      inquiries: cloneImportState(inquiries, "inquiries"),
+      nextInquiryNumber,
+      cognitiveCycles: cloneImportState(cognitiveCycles, "cognitive cycles"),
+      nextCognitiveCycleNumber,
+      tagTrace: { ...tagTrace },
+      traceIds
+    };
+  }
+  function restoreImportSnapshot(snapshot) {
+    const transientTraceIds = new Set([
+      ...Object.values(tagTrace),
+      ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
+    ].filter(id => id && !snapshot.traceIds.has(id)));
+    memories = snapshot.memories;
+    invalidateKnowledgeGraphStats();
+    dialog = snapshot.dialog;
+    dialogContext = snapshot.dialogContext;
+    modelDecisions = snapshot.modelDecisions;
+    modelEvidence = snapshot.modelEvidence;
+    reasoningArchive = snapshot.reasoningArchive;
+    inquiries = snapshot.inquiries;
+    nextInquiryNumber = snapshot.nextInquiryNumber;
+    cognitiveCycles = snapshot.cognitiveCycles;
+    nextCognitiveCycleNumber = snapshot.nextCognitiveCycleNumber;
+    tagTrace = Object.assign(Object.create(null), snapshot.tagTrace);
+
+    let storageRestored = true;
+    for (const [key, value] of snapshot.storage) {
+      try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      } catch (error) {
+        storageRestored = false;
+        console.warn("NEUROGENESIS import rollback could not restore storage key:", key, error);
+      }
+    }
+    if (window.NGGoals && typeof window.NGGoals.load === "function") {
+      try { window.NGGoals.load(); }
+      catch (error) { storageRestored = false; console.warn("NEUROGENESIS import rollback could not restore research goals:", error); }
+    }
+    if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) {
+      KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry => entry.claims || []));
+    }
+    try { releaseUnusedTraces([...transientTraceIds]); }
+    catch (error) { console.warn("NEUROGENESIS import rollback could not clean temporary neuron traces:", error); }
+    try { renderLibrary(); renderDialog(); updateCount(); }
+    catch (error) { console.warn("NEUROGENESIS import rollback could not refresh the interface:", error); }
+    return storageRestored;
+  }
   async function importBackup(file) {
+    let importSnapshot = null;
+    let importTransactionStarted = false;
+    const importTransaction = window.NGStorageTransaction;
     try {
       const data = JSON.parse(await file.text());
       if (data && data.format && data.format !== "NEUROGENESIS_MEMORY_BACKUP") throw new Error("Это не резервная копия NEUROGENESIS.");
       if (data && Number(data.version) > 2) throw new Error("Версия резервной копии новее поддерживаемой.");
       const incoming = Array.isArray(data) ? data : data && data.memories;
       if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
+      importSnapshot = captureImportSnapshot();
+      if (importTransaction && typeof importTransaction.begin === "function") {
+        if (!importTransaction.begin()) throw new Error("Не удалось начать безопасную транзакцию импорта.");
+        importTransactionStarted = true;
+      }
       let imported = 0, duplicates = 0, skipped = 0;
       for (const raw of incoming) {
         const candidate = cleanMemory(raw);
@@ -3435,7 +3991,13 @@
       }
       if (Array.isArray(data.dialog)) {
         const restored = data.dialog.filter(item => item && typeof item.text === "string")
-          .map(item => ({ role: item.role === "user" ? "user" : "assistant", text: item.text.slice(0, MAX_DIALOG_TEXT), time: safeTime(item.time, Date.now()), reasoning: cleanReasoning(item.reasoning) }));
+          .map(item => {
+            const sourceReasoning=cloneArchiveData(item.sourceReasoning&&typeof item.sourceReasoning==="object"
+              ?item.sourceReasoning:item.reasoning);
+            return {role:item.role==="user"?"user":"assistant",text:item.text.slice(0,MAX_DIALOG_TEXT),
+              time:safeTime(item.time,Date.now()),reasoning:cleanReasoning(item.reasoning)||cleanReasoning(sourceReasoning),
+              sourceReasoning};
+          });
         dialog = [...dialog, ...restored].sort((a, b) => a.time - b.time).slice(-MAX_DIALOG);
       }
       if (DIALOG_CONTEXT) {
@@ -3449,27 +4011,49 @@
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
       if(Array.isArray(data.goals)&&window.NGGoals&&typeof window.NGGoals.merge==="function")window.NGGoals.merge(data.goals);
+      if(Array.isArray(data.cognitiveCycles)) {
+        cognitiveCycles=mergeCognitiveCycleHistory(cognitiveCycles,data.cognitiveCycles);
+        nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
+      }
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
-      clearLegacyInquiryFragmentClaims();
+      const legacyAnswerClaimsCleared = clearLegacyInquiryFragmentClaims();
+      if (imported || duplicates || legacyAnswerClaimsCleared) invalidateKnowledgeGraphStats();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
-      const ok = persist();
+      const ok = persist({skipGoalSync:true});
+      if (!ok) throw new Error("Не удалось полностью сохранить резервную копию. Все изменения импорта отменены.");
+      if (importTransactionStarted) {
+        const committed = importTransaction.commit();
+        importTransactionStarted = false;
+        if (!committed) throw new Error("Не удалось зафиксировать транзакцию импорта. Исходные данные восстановлены.");
+      }
       renderLibrary();
       renderDialog();
       say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
       setFeedback("ИМПОРТ · +" + imported + " · ПОВТОРОВ " + duplicates + " · ПРОПУЩЕНО " + skipped);
     } catch (error) {
+      if (importTransactionStarted && importTransaction && typeof importTransaction.abort === "function") {
+        importTransaction.abort();
+        importTransactionStarted = false;
+      }
+      let rollbackMessage = "";
+      if (importSnapshot) {
+        const restored = restoreImportSnapshot(importSnapshot);
+        rollbackMessage = restored
+          ? " Все изменения отменены, исходные данные восстановлены."
+          : " ВНИМАНИЕ: браузер не подтвердил полное восстановление хранилища.";
+      }
       console.warn("NEUROGENESIS import failed:", error);
-      setFeedback("Не удалось импортировать файл: " + String(error.message || error).slice(0, 100));
+      setFeedback("Не удалось импортировать файл: " + String(error.message || error).slice(0, 100) + rollbackMessage);
     }
   }
 
   function prepareLLMRequestCore(query) {
     if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
     const report = DIALOG_CONTEXT.report(dialogContext);
-    const history = DIALOG_CONTEXT.history(dialogContext, report.activeThread && report.activeThread.id, 10);
+    const history = DIALOG_CONTEXT.history(dialogContext, report.activeThread && report.activeThread.id, 17);
     const resolution = DIALOG_CONTEXT.resolve(dialogContext, query);
     const evidenceQuery = resolution.applied && resolution.query ? resolution.query : query;
     const evidence = memories.map(item => ({ item, score:scoreMemory(evidenceQuery, item) }))
@@ -3478,6 +4062,10 @@
     return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history }, evidence);
   }
   async function askWithLLM(query) {
+    if (llmRequestInFlight) {
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ПРЕДЫДУЩИЙ ЗАПРОС ЕЩЁ ВЫПОЛНЯЕТСЯ");
+      return false;
+    }
     if (!LLM_GATEWAY || !llmHttpAdapter) {
       say("assistant", "Языковая модель ещё не подключена. Сначала настрой серверный шлюз в блоке «ЯЗЫКОВАЯ МОДЕЛЬ» ниже поля ввода.");
       setFeedback("LLM OFFLINE · НУЖНО НАСТРОИТЬ СЕРВЕРНЫЙ ШЛЮЗ");
@@ -3491,20 +4079,32 @@
       setFeedback("ДИАЛОГ · УТОЧНЕНИЕ ПЕРЕД ВЫЗОВОМ МОДЕЛИ");
       return false;
     }
+    llmRequestInFlight = true;
+    const askButton = $("llm-ask-button");
+    if (askButton) askButton.disabled = true;
+    let cycleContext = null;
     try {
+      cycleContext = beginCognitiveCycle("llm", query);
       if (!llmVerified) await testLLMConnection();
       const request = prepareLLMRequestCore(query);
       if (!request) throw new Error("Не удалось подготовить контекст диалога.");
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТПРАВЛЯЮ КОНТЕКСТ…");
       const answer = await LLM_GATEWAY.generate(request);
       say("assistant", answer);
+      try { if(cycleContext)finishCognitiveCycle(cycleContext,true,null); }
+      catch(cycleError) { console.warn("NEUROGENESIS LLM cycle logging failed:",cycleError); }
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА");
       return true;
     } catch (error) {
       const message = String(error && error.message || error).slice(0, 240);
       say("assistant", "Не удалось получить ответ языковой модели. " + message);
+      try { if(cycleContext)finishCognitiveCycle(cycleContext,false,error); }
+      catch(cycleError) { console.warn("NEUROGENESIS failed LLM cycle logging failed:",cycleError); }
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОШИБКА ПОДКЛЮЧЕНИЯ");
       return false;
+    } finally {
+      llmRequestInFlight = false;
+      if (askButton) askButton.disabled = false;
     }
   }
   function loadLLMConfiguration() {
@@ -3731,7 +4331,8 @@
     nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; },
     goals: () => window.NGGoals&&typeof window.NGGoals.list==="function"?window.NGGoals.list():[],
     goalSummary: () => syncResearchGoals(),
-    goalReport: () => researchGoalsAnswer()
+    goalReport: () => researchGoalsAnswer(),
+    persist: () => persist()
 
   };
 })();

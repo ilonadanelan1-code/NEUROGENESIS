@@ -7,7 +7,7 @@
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;background:var(--bg);color:var(--text);overflow:hidden}
 button,input,select{font:inherit}button{color:inherit;cursor:pointer}
-.app-shell{height:100dvh;min-height:440px;display:flex;flex-direction:column;background:radial-gradient(ellipse at 26% 8%,rgba(27,104,128,.18),transparent 42%),radial-gradient(ellipse at 86% 82%,rgba(93,56,150,.10),transparent 38%),#040914}
+.app-shell{height:100vh;height:100dvh;min-height:440px;display:flex;flex-direction:column;background:radial-gradient(ellipse at 26% 8%,rgba(27,104,128,.18),transparent 42%),radial-gradient(ellipse at 86% 82%,rgba(93,56,150,.10),transparent 38%),#040914}
 .topbar{height:70px;flex:0 0 70px;display:flex;align-items:center;gap:17px;padding:0 24px;background:linear-gradient(90deg,rgba(5,12,25,.96),rgba(8,19,34,.9));border-bottom:1px solid rgba(132,209,220,.16);box-shadow:0 10px 35px rgba(0,0,0,.22);z-index:3}
 .brand{display:flex;align-items:center;gap:13px;min-width:240px}
 .brand-mark{width:34px;height:34px;border:1px solid rgba(120,240,223,.6);border-radius:12px;position:relative;display:grid;place-items:center;transform:rotate(45deg);background:radial-gradient(circle,rgba(103,238,218,.18),rgba(13,33,52,.3));box-shadow:0 0 24px rgba(78,229,211,.18),inset 0 0 16px rgba(83,228,214,.12)}
@@ -126,9 +126,12 @@ select.text-input{color-scheme:dark}
   .canvas-hint{display:none}
 }
 @media(max-height:560px) and (orientation:landscape){
-  .topbar{height:49px;flex-basis:49px}.workspace{grid-template-columns:minmax(0,1fr) 270px}
-  .side-panel{display:block;padding:0 13px;overflow-y:auto}.section-block{padding:10px 0}
-  .brain-panel{height:auto}.organism-title{margin:5px 0 8px}.metrics{gap:5px}.metric{padding:6px}
+  .app-shell{min-height:0}
+  .topbar{height:49px;flex-basis:49px}
+  .workspace{display:grid;flex-direction:initial;grid-template-columns:minmax(0,1fr) 270px}
+  .side-panel{display:block;height:auto;flex:initial;padding:0 13px;overflow-y:auto}
+  .section-block{padding:10px 0}
+  .brain-panel{height:auto;min-height:0;flex:initial}.organism-title{margin:5px 0 8px}.metrics{gap:5px}.metric{padding:6px}
   .metric strong{font-size:13px}.primary-button{padding:7px 10px}.secondary-button{height:30px}
   .canvas-topline{top:12px}.canvas-tools{bottom:10px}.canvas-hint{bottom:19px}
 }
@@ -287,4 +290,11 @@ select.text-input{color-scheme:dark}
   .llm-settings-body{padding:8px;gap:6px}
   .llm-config-input{height:34px;font-size:9px}
   .llm-security-note{font-size:7px}
+}
+
+/* Touch accessibility: keep compact mouse controls, enlarge phone/tablet targets. */
+@media (pointer:coarse){
+  button{min-height:44px}
+  .icon-button,.tool-button{width:44px;height:44px;min-width:44px;padding:0}
+  .secondary-button{height:auto;padding-top:7px;padding-bottom:7px}
 }

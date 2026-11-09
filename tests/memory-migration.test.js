@@ -2,6 +2,13 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const { Blob } = require("node:buffer");
+
+let exportedBackupBlob = null;
+class ExportTestURL extends URL {
+  static createObjectURL(blob) { exportedBackupBlob = blob; return "blob:neurogenesis-export-test"; }
+  static revokeObjectURL() {}
+}
 
 const database = new Map();
 const legacyMemories = [
@@ -77,15 +84,60 @@ const legacyMemories = [
 database.set("neurogenesis.memories.v1", JSON.stringify(legacyMemories));
 database.set("neurogenesis.dialog.v1", JSON.stringify([
   {role:"user",text:"Недостаток сна сегодня вызвал у меня усталость",time:1794158201000},
-  {role:"assistant",text:"Сколько часов ты спал?",time:1794158202000},
+  {role:"assistant",text:"Сколько часов ты спал?",time:1794158202000,
+  sourceReasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158202000,status:"current",
+    conclusions:[{subject:"В отчёте говорится, что усталость",object:"снижению концентрации",
+      paths:[[{id:"dialog-source-only-edge",subject:"В отчёте говорится, что усталость",object:"снижению концентрации"}]]}],
+    reviews:[],modelHistory:[]
+  }},
   {role:"user",text:"А почему?",time:1794158203000}
 ]));
+database.set("neurogenesis.cognitive-cycles.v1", JSON.stringify([{
+  id:"C700",sequence:700,at:1794158800000,mode:"ask",intent:"general_question",status:"complete",
+  phases:[{name:"perception",status:"complete",summary:"Локальный сохранённый цикл"}],
+  uncertainty:{level:"low",supportIndex:78,reasons:["локальный источник"],evidenceCount:1,conflictCount:0,independentSources:1},
+  metrics:{inputTokens:4,parsedClaims:1,attentionMatches:1,memoryBefore:6,memoryAfter:6},
+  memoryIds:[],claimIds:[]
+}]));
+
 database.set("neurogenesis.inquiries.v1", JSON.stringify([{
   id:"Q1",signature:"legacy-observation-context-test",kind:"contrast_observations",
   edgeSubject:"Недостаток сна",edgeObject:"усталости",question:"Уточни контекст наблюдений",
   status:"answered",createdAt:1794158300000,updatedAt:1794158300000,answeredAt:1794158300000,
   responseText:"Обстоятельства двух наблюдений не указаны. Даты и время неизвестны. Критерий определения результата не описан."
 }]));
+
+database.set("neurogenesis.reasoning-archive.v1", JSON.stringify([
+  {role:"assistant",time:1794158400000,text:"Старый вывод",reasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158400000,status:"current",
+    conclusions:[{subject:"что усталость",object:"снижению концентрации",
+      paths:[[{id:"legacy-malformed-edge",subject:"что усталость",object:"снижению концентрации"}]]},
+    ],
+    reviews:[],modelHistory:[]
+  }},
+  {role:"assistant",time:1794158500000,text:"Исключённый фрагмент",reasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158500000,status:"current",
+    conclusions:[],reviews:[],modelHistory:[],
+    excludedPaths:[{origin:"conclusion",subject:"что усталость",object:"снижению концентрации",
+      route:[{subject:"что усталость",object:"снижению концентрации"}],reason:"malformed_causal_subject"}]
+  }},
+  {role:"assistant",time:1794158600000,text:"Только исходный снимок",sourceReasoning:{
+    version:1,type:"derived_hypotheses",createdAt:1794158600000,status:"current",
+    conclusions:[
+      {subject:"что усталость",object:"снижению концентрации",
+        paths:[[{id:"archive-source-only-edge",subject:"что усталость",object:"снижению концентрации"}]]},
+      {subject:"Усталость",object:"снижению концентрации",
+        evidence:"Исследование показало, что усталость приводит к снижению концентрации",
+        paths:[[{id:"archive-reported-conclusion",subject:"Усталость",object:"снижению концентрации"}]]}
+    ],
+    reviews:[],modelHistory:[{at:1794158600000,edges:[],alternatives:[
+      {subject:"Перегрузка",object:"усталости",
+        evidence:"Исследование показало, что перегрузка приводит к усталости",
+        paths:[[{subject:"Перегрузка",object:"усталости"}]]}
+    ]}]
+  }}
+]));
 
 class ElementStub {
   constructor() {
@@ -98,12 +150,23 @@ class ElementStub {
     this.scrollHeight = 0;
     this.files = [];
   }
-  addEventListener() {}
+  addEventListener(type, listener) {
+    (this.listeners ||= Object.create(null));
+    (this.listeners[type] ||= []).push(listener);
+  }
+  dispatch(type, event = {}) {
+    const pending = [];
+    for (const listener of this.listeners && this.listeners[type] || []) {
+      pending.push(listener({ target:this, preventDefault() {}, ...event }));
+    }
+    return Promise.all(pending);
+  }
   appendChild(child) { this.children.push(child); return child; }
   append(...children) { this.children.push(...children); }
   remove() {}
   focus() {}
   scrollIntoView() {}
+  click() { this.clicked = true; }
 }
 const elements = new Map();
 const document = {
@@ -112,6 +175,7 @@ const document = {
     return elements.get(id);
   },
   createElement() { return new ElementStub(); },
+  querySelector() { return null; },
   body: new ElementStub()
 };
 const knownNeurons = new Set(["n112", "n113", "n114", "n115", "n116", "n118"]);
@@ -137,10 +201,12 @@ const window = {
 };
 const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
-  setItem(key, value) { database.set(key, String(value)); }
+  setItem(key, value) { database.set(key, String(value)); },
+  removeItem(key) { database.delete(key); }
 };
 const sandbox = {
-  window, document, localStorage, console, Date, Math, Set, Map, JSON, URL,
+  window, document, localStorage, console, Date, Math, Set, Map, JSON,
+  URL:ExportTestURL, Blob, AbortController, setTimeout, clearTimeout,
   async fetch(url, options) {
     if (String(url).endsWith("/api/health")) {
       return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
@@ -153,10 +219,24 @@ const sandbox = {
 };
 window.fetch = sandbox.fetch;
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
+vm.runInNewContext(fs.readFileSync("goals.js", "utf8"), sandbox, { filename: "goals.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
+const originalGraphCreate = window.NGKnowledgeGraph.create;
+let knowledgeGraphBuildCount = 0;
+window.NGKnowledgeGraph.create = knowledge => {
+  const engine = originalGraphCreate(knowledge);
+  return {
+    ...engine,
+    build(memories) {
+      knowledgeGraphBuildCount++;
+      return engine.build(memories);
+    }
+  };
+};
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
+vm.runInNewContext(fs.readFileSync("discriminating-observations.js", "utf8"), sandbox, { filename: "discriminating-observations.js" });
 vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
 vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { filename: "dialog-manager.js" });
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
@@ -176,6 +256,40 @@ assert.equal(preparedRequest.schema, "NEUROGENESIS_LLM_REQUEST_V1");
 assert.equal(preparedRequest.metadata.historyMessages, 2, "the current user turn should not be duplicated in model history");
 assert.equal(window.NGMemory.hypothesisLifecycle().length, 0, "legacy backups without causal archives should load an empty lifecycle safely");
 assert.match(window.NGMemory.hypothesisLifecycleReport(), /Пока нет архивных причинных выводов/u);
+const loadedReasoningHistory=window.NGMemory.reasoningHistory();
+assert.equal(loadedReasoningHistory.length,4,"archive records from saved reasoning and dialogue source snapshots must survive local-storage loading");
+const loadedMalformed=loadedReasoningHistory.find(item=>item.time===1794158400000);
+assert.ok(loadedMalformed);
+assert.equal(loadedMalformed.conclusions.length,0,
+  "a malformed archived conclusion must not survive as an active conclusion");
+assert.ok(loadedMalformed.excludedPaths.some(item=>item.reason==="malformed_causal_subject"&&item.subject==="что усталость"),
+  "the rejected conclusion must remain visible in excludedPaths");
+const loadedExcludedOnly=loadedReasoningHistory.find(item=>item.time===1794158500000);
+assert.ok(loadedExcludedOnly&&loadedExcludedOnly.conclusions.length===0,
+  "an excludedPaths-only archive object must not be promoted to a hypothesis");
+assert.ok(loadedExcludedOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+const loadedArchiveSourceOnly=loadedReasoningHistory.find(item=>item.time===1794158600000);
+assert.ok(loadedArchiveSourceOnly&&loadedArchiveSourceOnly.conclusions.length===0,
+  "a raw sourceReasoning archive snapshot must pass through the same active-projection guard");
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.reason==="reported_causal_statement"&&item.subject==="Усталость"),
+  "a reported-evidence conclusion must be excluded even when its causal subject is otherwise valid");
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.origin==="snapshot_alternative"&&item.reason==="reported_causal_statement"&&item.subject==="Перегрузка"),
+  "a report-attributed snapshot alternative must not enter the active archive projection");
+const loadedDialogSourceOnly=loadedReasoningHistory.find(item=>item.time===1794158202000);
+assert.ok(loadedDialogSourceOnly&&loadedDialogSourceOnly.conclusions.length===0,
+  "reasoning restored from a dialogue sourceReasoning snapshot must not reactivate a malformed route");
+assert.ok(loadedDialogSourceOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+const persistedArchiveAfterLoad=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"));
+const preservedRawArchive=persistedArchiveAfterLoad.find(item=>item.time===1794158600000);
+assert.equal(preservedRawArchive.sourceReasoning.conclusions[0].subject,"что усталость",
+  "the immutable source snapshot must remain intact for historical inspection");
+assert.equal(preservedRawArchive.reasoning.conclusions.length,0,
+  "the active archive projection must keep the malformed source conclusion excluded");
+assert.equal(window.NGMemory.refreshInquiries().added,0,
+  "excludedPaths-only and malformed source snapshots must not seed active research inquiries");
+assert.doesNotMatch(window.NGMemory.modelReviewReadiness(),/что усталость/u,
+  "excluded archive paths must not become tracked causal edges for model review readiness");
 const migratedGraph = window.NGMemory.knowledgeGraph();
 assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
 assert.ok(migratedGraph.stats.claims >= 6,"legacy claims should be projected without rewriting the backup format");
@@ -245,6 +359,634 @@ assert.equal(persistedObservation.claims[0].sourceMemoryId,"mobservation");
 assert.equal(persistedObservation.claims[0].observationCase.schema,2);
 assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
 (async () => {
+  // Exercise the actual remember-button -> submit("remember") path.
+  const rememberInput = document.getElementById("memory-input");
+  const rememberButton = document.getElementById("remember-button");
+  const beforeRememberCount = window.NGMemory.count();
+  const graphBuildsBeforeDialogueSave = knowledgeGraphBuildCount;
+  const filler = "Как дела?";
+  rememberInput.value = filler;
+  await rememberButton.dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, graphBuildsBeforeDialogueSave,
+    "saving a dialogue-only turn must not rebuild the unchanged knowledge graph");
+  assert.equal(window.NGMemory.count(), beforeRememberCount,
+    "small talk submitted through the UI must not create a durable memory");
+  const durableAfterFiller = JSON.parse(database.get("neurogenesis.memories.v1"));
+  assert.equal(durableAfterFiller.some(item => item.text === filler), false,
+    "small talk must be absent from persisted long-term memory");
+  const dialogAfterFiller = JSON.parse(database.get("neurogenesis.dialog.v1"));
+  assert.ok(dialogAfterFiller.some(item => item.role === "user" && item.text === filler),
+    "the small-talk user turn must remain in persisted dialogue history");
+
+  const musicBefore = durableAfterFiller.find(item => item.text === "Музыка прекрасна");
+  assert.ok(musicBefore, "the positive-control memory fixture must exist");
+  const repetitionsBefore = musicBefore.repetitions;
+  rememberInput.value = "Музыка прекрасна";
+  rememberButton.dispatch("click");
+  const durableAfterMusic = JSON.parse(database.get("neurogenesis.memories.v1"));
+  const musicAfter = durableAfterMusic.find(item => item.text === "Музыка прекрасна");
+  assert.ok(musicAfter, "meaningful positive-control text must remain in long-term memory");
+  assert.ok(musicAfter.repetitions > repetitionsBefore,
+    "the real UI remember path must process meaningful text instead of filtering it as small talk");
+  assert.ok(JSON.parse(database.get("neurogenesis.dialog.v1"))
+    .some(item => item.role === "user" && item.text === "Музыка прекрасна"),
+    "the meaningful positive-control turn must remain in dialogue history");
+
+  const importInput=document.getElementById("memory-import-file");
+  const importTime=1794159000000;
+  const validImportedEdge={id:"valid-import-edge",subject:"Недостаток сна",object:"снижению концентрации"};
+  const observationReviewEdge={id:"observation-review-edge",subject:"Недосып",object:"снижению концентрации"};
+  const observationAlternativeEdge={id:"observation-alternative-edge",subject:"Стресс",object:"снижению концентрации"};
+  const reportedEvidenceEdge={id:"reported-evidence-edge",subject:"Усталость",object:"снижению концентрации",
+    evidence:"По данным исследования, усталость приводит к снижению концентрации"};
+  const importedReasoning={
+    version:1,type:"derived_hypotheses",createdAt:importTime,status:"current",
+    conclusions:[
+      {subject:"Недостаток сна",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Недосып",object:"снижению концентрации",paths:[[observationReviewEdge],[observationAlternativeEdge]]},
+      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
+    ],
+    reviews:[
+      {claimId:"missing-import-source",kind:"counterexample",phase:"subsequent",
+        subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
+        edgeObject:"снижению концентрации",at:importTime+10,evidence:"Архивный контрпример без исходной карточки"},
+      {claimId:"valid-import-causal",kind:"supporting_claim",phase:"subsequent",
+        subject:"Недостаток сна",object:"снижению концентрации",edgeSubject:"Недостаток сна",
+        edgeObject:"снижению концентрации",at:importTime+20,evidence:"Архивный текст, не совпадающий с исходной запись"}
+    ],
+    modelHistory:[{at:importTime,edges:[
+      {subject:"что усталость",object:"снижению концентрации",status:"challenged",decision:"restore",claimIds:["bad-import-claim"]}
+    ],alternatives:[
+      {subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[validImportedEdge]]},
+      {subject:"Усталость",object:"снижению концентрации",paths:[[reportedEvidenceEdge]]}
+    ]}]
+  };
+  const importedDialogReasoning={
+    version:1,type:"derived_hypotheses",createdAt:importTime+1000,status:"current",
+    conclusions:[{subject:"что усталость",object:"снижению концентрации",paths:[[
+      {id:"dialog-malformed-edge",subject:"что усталость",object:"снижению концентрации"}
+    ]]}],
+    reviews:[],modelHistory:[]
+  };
+  const importedBackup={
+    format:"NEUROGENESIS_MEMORY_BACKUP",version:2,memories:[{
+      id:"bad-import-memory",text:"Архивная запись без причинного разбора",createdAt:importTime,
+      claims:[{id:"bad-import-claim",kind:"causal",subject:"что усталость",predicate:"приводит к",
+        object:"снижению концентрации",evidence:"что усталость приводит к снижению концентрации"}]
+    },{
+      id:"valid-import-source",text:"Недостаток сна приводит к снижению концентрации",createdAt:importTime+1,
+      claims:[
+        {id:"valid-import-causal",kind:"causal",subject:"Недостаток сна",predicate:"приводит к",
+          object:"снижению концентрации",evidence:"Недостаток сна приводит к снижению концентрации"},
+        {id:"valid-duplicate-observation-a",kind:"observation",subject:"Сон",predicate:"сопровождался",
+          object:"усталостью",evidence:"После ночной смены утром было трудно проснуться",
+          polarity:true,createdAt:importTime+3,observationCase:{
+            context:{status:"provided",value:"после ночной смены"},
+            timing:{status:"provided",value:"утром"},
+            criterion:{status:"provided",value:"по шкале концентрации"},
+            outcome:{status:"provided",value:"4/10"}
+          }},
+        {id:"valid-duplicate-observation-b",kind:"observation",subject:"Сон",predicate:"сопровождалось",
+          object:"усталостью",evidence:"После дневного сна вечером сохранялась усталость",
+          polarity:true,createdAt:importTime+4,observationCase:{
+            context:{status:"provided",value:"после короткого сна"},
+            timing:{status:"provided",value:"днём"},
+            criterion:{status:"provided",value:"по шкале концентрации"},
+            outcome:{status:"provided",value:"5/10"}
+          }}
+      ]
+    }],
+    reasoningArchive:[
+      {role:"assistant",time:importTime,text:"Импортированный архив",reasoning:importedReasoning},
+      {role:"assistant",time:importTime+3000,text:"Архив с исходным снимком",sourceReasoning:{
+        version:1,type:"derived_hypotheses",createdAt:importTime+3000,status:"current",
+        conclusions:[{subject:"что усталость",object:"снижению концентрации",paths:[[
+          {id:"import-source-only-edge",subject:"что усталость",object:"снижению концентрации"}
+        ]]}],reviews:[],modelHistory:[]
+      }}
+    ],
+    modelDecisions:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",strategy:"restore",
+      at:importTime+30,claimIds:["bad-import-claim"]}],
+    modelEvidence:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",claimId:"bad-import-claim",
+      kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
+    inquiries:[{
+      id:"Q810",signature:"import-lifecycle-persistence-test",kind:"missing_observation",
+      edgeSubject:"Недосып",edgeObject:"снижению концентрации",
+      question:"Есть ли отдельное наблюдение для этой связи?",
+      reason:"Проверка синхронизации статуса гипотезы.",priority:1,status:"open",
+      sourceClaimIds:["valid-import-causal"],createdAt:importTime+50,updatedAt:importTime+50
+    },{
+      id:"Q811",signature:"import-duplicate-completion-cycle-test",kind:"duplicate_observation",
+      edgeSubject:"Сон",edgeObject:"усталостью",
+      question:"Эти две карточки относятся к одному или разным эпизодам?",
+      reason:"Проверка завершения цели в истории когнитивного цикла.",priority:1,status:"open",
+      sourceClaimIds:["valid-duplicate-observation-a","valid-duplicate-observation-b"],
+      createdAt:importTime+60,updatedAt:importTime+60
+    }],
+    cognitiveCycles:[{
+      id:"C700",sequence:700,at:importTime+5000,mode:"remember",intent:"memory_write",status:"complete",
+      phases:[{name:"perception",status:"complete",summary:"Импортированный цикл"}],
+      uncertainty:{level:"medium",supportIndex:55,reasons:["данные из резервной копии"],evidenceCount:1,conflictCount:0,independentSources:0},
+      metrics:{inputTokens:3,parsedClaims:1,attentionMatches:0,memoryBefore:0,memoryAfter:1,memoryAdded:1},
+      memoryIds:["valid-import-source"],claimIds:["valid-import-causal"]
+    },{
+      id:"C701",sequence:701,at:importTime+6000,mode:"remember",intent:"memory_write",status:"complete",
+      phases:[{name:"learning",status:"complete",summary:"Цель повторной оценки обновлена"}],
+      uncertainty:{level:"medium",supportIndex:60,reasons:["новое наблюдение"],evidenceCount:2,conflictCount:1,independentSources:0},
+      goals:{total:2,active:0,waiting:0,blocked:0,review:1,paused:0,completed:1,focusId:"G-Q77"},
+      goalChanges:{available:true,total:20,items:[
+        {goalId:"G-Q77",inquiryId:"Q77",kind:"status_changed",title:"Уточнить связь сна и усталости",
+          fromStatus:"blocked",toStatus:"review",assessment:"gap_confirmed",progress:75,
+          observationCount:3,observationsAfterAssessment:2,sourceClaimIds:["claim-origin-77"],
+          evidenceClaimIds:["claim-positive-77","claim-negative-77","claim-extra-1","claim-extra-2","claim-extra-3","claim-extra-4","claim-extra-5"],
+          removedEvidenceClaimIds:["claim-old-1","claim-old-2"],evidenceMemoryIds:["memory-77"],
+          nextAction:"Повторно сопоставить новые наблюдения."},
+        {goalId:"G-Q78",inquiryId:"Q78",kind:"status_changed",title:"Уточнить идентичность эпизодов",
+          fromStatus:"active",toStatus:"completed",assessment:"duplicate_same_event",progress:100,
+          observationCount:2,observationsAfterAssessment:0,sourceClaimIds:["claim-origin-78"],
+          evidenceClaimIds:["claim-event-78-a","claim-event-78-b"],evidenceMemoryIds:["memory-78"],nextAction:""}
+      ]},
+      metrics:{inputTokens:4,parsedClaims:2,attentionMatches:1,memoryBefore:1,memoryAfter:2,memoryAdded:1,
+        goalCount:2,activeGoals:0,blockedGoals:0},
+      memoryIds:["valid-import-source"],claimIds:["valid-import-causal"]
+    }],
+    dialog:[
+      {role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning},
+      {role:"assistant",time:importTime+2000,text:"Диалог с исходным снимком",sourceReasoning:{
+        version:1,type:"derived_hypotheses",createdAt:importTime+2000,status:"current",
+        conclusions:[{subject:"В отчёте говорится, что усталость",object:"снижению концентрации",paths:[[
+          {id:"dialog-import-source-edge",subject:"В отчёте говорится, что усталость",object:"снижению концентрации"}
+        ]]}],reviews:[],modelHistory:[]
+      }}
+    ]
+  };
+  importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
+  await importInput.dispatch("change");
+  assert.match(window.NGMemory.cognitiveCycleReport(5),/В краткий список включено 2 из 20 изменений/u,
+    "the cycle report must disclose truncation while the imported cycle is still among the latest entries");
+  const storedLifecycleAfterImport = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.ok(storedLifecycleAfterImport,
+    "the archive lifecycle must be synchronized during import persistence, without opening its report");
+  assert.equal(storedLifecycleAfterImport.state,"under_review",
+    "an imported open inquiry must immediately mark its matching hypothesis as under review");
+  window.NGMemory.ask("пропусти вопрос Q810");
+  const storedInquiryAfterSkip = JSON.parse(database.get("neurogenesis.inquiries.v1"))
+    .find(item=>item.id==="Q810");
+  const storedLifecycleAfterSkip = JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.equal(storedInquiryAfterSkip.status,"skipped",
+    "the inquiry command must update the persisted inquiry status");
+  assert.equal(storedLifecycleAfterSkip.state,"new",
+    "the matching hypothesis state must leave under_review immediately after its only inquiry is skipped");
+  assert.ok(storedLifecycleAfterSkip.events.some(item=>item.kind==="state_changed"&&
+    item.fromState==="under_review"&&item.toState==="new"),
+    "the lifecycle event history must persist the inquiry-driven state transition");
+  const skippedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
+  assert.ok(skippedResearchGoal,"a skipped inquiry must keep its linked research goal");
+  assert.equal(skippedResearchGoal.status,"paused",
+    "skipping a question must pause its goal without deleting its history");
+  const skipGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(skipGoalCycle.goalChanges.available,
+    "the cognitive cycle must know whether a research-goal comparison was possible");
+  assert.ok(skipGoalCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.fromStatus!=="paused"&&item.toStatus==="paused"),
+    "the cycle must record the exact goal transition caused by skipping Q810");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/отложено/u,
+    "the cycle report must include the paused-goal count");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q810/u,
+    "the cycle report must identify the goal changed by the skip");
+  window.NGMemory.ask("возобнови вопрос Q810");
+  const resumedInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q810");
+  assert.equal(resumedInquiry.status,"open",
+    "the explicit resume command must return the skipped question to the open queue");
+  assert.ok(resumedInquiry.lastResumedAt>0,
+    "the resume event must have its own timestamp rather than erasing the old ask time");
+  assert.equal(resumedInquiry.resumeCount,1,
+    "the inquiry must record the number of explicit resumptions");
+  const storedLifecycleAfterResume=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.equal(storedLifecycleAfterResume.state,"under_review",
+    "resuming an inquiry must put its matching hypothesis back under review");
+  assert.ok(storedLifecycleAfterResume.events.some(item=>item.kind==="state_changed"&&
+    item.fromState==="new"&&item.toState==="under_review"),
+    "the lifecycle event history must retain the resumption transition");
+  const resumedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
+  assert.equal(resumedResearchGoal.status,"active",
+    "a resumed inquiry must become active until it is explicitly asked again");
+  assert.match(resumedResearchGoal.nextAction,/Повторно задать Q810/u,
+    "the resumed goal must instruct the planner to present the question again");
+  const resumeGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(resumeGoalCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.fromStatus==="paused"&&item.toStatus==="active"),
+    "the cycle must retain the exact pause-to-active transition from explicit resumption");
+  window.NGMemory.ask("пропусти вопрос Q810");
+  assert.equal(window.NGMemory.inquiries().find(item=>item.id==="Q810").status,"skipped",
+    "a resumed inquiry can be skipped again without losing its prior history");
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId==="Q810").status,"paused",
+    "skipping the resumed inquiry again must pause the same goal");
+  const secondSkipCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(secondSkipCycle.goalChanges.items.some(item=>item.goalId==="G-Q810"&&
+    item.kind==="status_changed"&&item.toStatus==="paused"),
+    "a repeated skip must be visible as another cycle-level goal transition");
+  const duplicateCompletionGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.ok(duplicateCompletionGoal&&duplicateCompletionGoal.status==="active",
+    "an imported duplicate-card inquiry must immediately create an active goal");
+  assert.equal(window.NGMemory.remember(
+    "Ответ на вопрос Q811: группы: 1+2"
+  ),true,"a valid event-grouping answer must pass through the memory pipeline");
+  const completedDuplicateInquiry=window.NGMemory.inquiries().find(item=>item.id==="Q811");
+  assert.equal(completedDuplicateInquiry.status,"answered");
+  assert.equal(completedDuplicateInquiry.assessment,"duplicate_same_event");
+  const completedDuplicateGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q811");
+  assert.equal(completedDuplicateGoal.status,"completed",
+    "a correctly resolved duplicate-observation inquiry must complete its research goal");
+  const completionCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(completionCycle.goalChanges.items.some(item=>item.goalId==="G-Q811"&&
+    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="completed"),
+    "the cognitive cycle must retain the exact active-to-completed goal transition");
+  assert.match(window.NGMemory.cognitiveCycleReport(),/G-Q811/u);
+  assert.match(window.NGMemory.cognitiveCycleReport(),/завершена/u);
+  const negativeObservationText="При недосыпе не наблюдалось снижение концентрации";
+  const parsedNegativeObservation=window.NGKnowledge.extractClaims(negativeObservationText)[0];
+  assert.ok(parsedNegativeObservation&&parsedNegativeObservation.kind==="observation"&&
+    parsedNegativeObservation.polarity===false,
+    "the integration input must be parsed as a direct counter-observation");
+  assert.equal(window.NGMemory.remember(negativeObservationText),true,
+    "the direct counter-observation must pass through the real memory-write pipeline");
+  const counterObservationCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(counterObservationCycle.goalChanges.available);
+  assert.ok(counterObservationCycle.goalChanges.items.some(item=>item.kind==="created"&&item.inquiryId&&
+    item.goalId==="G-"+item.inquiryId),
+    "a cycle that discovers a fresh research question must record the new linked goal");
+  assert.ok(counterObservationCycle.metrics.newQuestions>0,
+    "a new inquiry created during the cycle must be included in its cognitive metrics");
+  const storedObservationMemory=JSON.parse(database.get("neurogenesis.memories.v1"))
+    .flatMap(item=>item.claims||[]).find(item=>item.id===parsedNegativeObservation.id);
+  assert.ok(storedObservationMemory,
+    "the counter-observation source claim must be saved in durable memory");
+  const storedLifecycleAfterObservation=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime).reasoning.conclusions
+    .find(item=>item.subject==="Недосып").lifecycle;
+  assert.equal(storedLifecycleAfterObservation.state,"partially_challenged",
+    "a new counter-observation must challenge only the affected route when an alternative remains");
+  assert.ok(storedLifecycleAfterObservation.challengingClaimIds.includes(parsedNegativeObservation.id),
+    "the challenged state must point to the exact counter-observation source claim");
+  assert.ok(storedLifecycleAfterObservation.events.some(item=>item.kind==="evidence_added"&&
+    item.claimId===parsedNegativeObservation.id),
+    "the lifecycle event log must record the counter-observation");
+  assert.equal(storedLifecycleAfterObservation.routeReviews.length,2);
+  assert.equal(storedLifecycleAfterObservation.routeReviews[0].state,"challenged");
+  assert.equal(storedLifecycleAfterObservation.routeReviews[1].state,"under_review",
+    "an unaffected alternative route must remain under review when the discriminating question targets it");
+  assert.equal(storedLifecycleAfterObservation.routeReviews[1].challengingClaimIds.length,0,
+    "an open comparison question must not fabricate counter-evidence against the alternative route");
+  assert.ok(storedLifecycleAfterObservation.routeReviews[1].pendingInquiryCount>0,
+    "the selected discriminating question must be linked to its exact route edge");
+  const lifecycleReportAfterObservation=window.NGMemory.hypothesisLifecycleReport();
+  assert.match(lifecycleReportAfterObservation,/ЧАСТЬ МАРШРУТОВ ОСПАРИВАЕТСЯ/u);
+  assert.match(lifecycleReportAfterObservation,/Маршрут 1 · затронут контрпримером/u);
+  assert.match(lifecycleReportAfterObservation,/Маршрут 2 · есть открытый вопрос/u);
+  const routeQuestions=window.NGMemory.inquiries();
+  assert.ok(routeQuestions.some(item=>item.kind==="discriminating_observations"&&
+    item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
+    item.comparisonEdges.some(edge=>edge.subject==="Стресс")),
+    "the existing research queue must offer a targeted comparison of the two alternative routes");
+  const routeResearchPlan=window.NGMemory.researchStrategy();
+  assert.match(routeResearchPlan,/ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА/u,
+    "the planner must prioritize an older goal that has received new direct evidence");
+  assert.match(routeResearchPlan,/G-Q1/u,
+    "the reassessment plan must identify the exact earlier goal before opening a second investigation");
+  const discriminatingInquiry=routeQuestions.find(item=>item.kind==="discriminating_observations"&&
+    item.comparisonEdges.some(edge=>edge.subject==="Недосып")&&
+    item.comparisonEdges.some(edge=>edge.subject==="Стресс"));
+  assert.ok(discriminatingInquiry,"the route comparison must have one stable inquiry identity");
+  const initialComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.ok(initialComparisonGoal,"a route comparison inquiry must produce one linked research goal");
+  assert.equal(initialComparisonGoal.status,"active",
+    "a new comparison inquiry must begin as an active research goal");
+  assert.equal(window.NGMemory.goals().filter(item=>item.kind==="discriminating_observations").length,1,
+    "alternative routes must share one comparison goal rather than spawning one goal per branch");
+
+  window.NGMemory.ask("пропусти вопрос "+discriminatingInquiry.id);
+  window.NGMemory.refreshInquiries();
+  window.NGMemory.refreshInquiries();
+  let skippedComparison=window.NGMemory.inquiries().find(item=>item.signature===discriminatingInquiry.signature);
+  assert.equal(skippedComparison.status,"skipped",
+    "refreshing the queue must not silently reopen a skipped discriminating question");
+  assert.equal(window.NGMemory.inquiries().filter(item=>item.signature===discriminatingInquiry.signature).length,1,
+    "a skipped question must not be duplicated on repeated queue refreshes");
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id).status,"paused",
+    "the skipped comparison goal must stay paused while its question remains skipped");
+  window.NGMemory.ask("возобнови вопрос "+discriminatingInquiry.id);
+  skippedComparison=window.NGMemory.inquiries().find(item=>item.signature===discriminatingInquiry.signature);
+  assert.equal(skippedComparison.status,"open",
+    "the comparison question must return only after an explicit resume command");
+  assert.equal(skippedComparison.resumeCount,1);
+  assert.equal(window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id).status,"active",
+    "the resumed comparison goal must become active before the question is asked again");
+
+  assert.equal(window.NGMemory.remember(
+    "Ответ на вопрос "+discriminatingInquiry.id+": Нет прямых наблюдений для сравнения."
+  ),true,"the real memory pipeline must accept a discriminating-inquiry answer");
+  const answeredComparison=window.NGMemory.inquiries().find(item=>item.id===discriminatingInquiry.id);
+  assert.equal(answeredComparison.status,"answered");
+  assert.equal(answeredComparison.assessment,"gap_confirmed",
+    "an explicit no-observation answer must be recorded as a historical evidence gap");
+  const blockedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.equal(blockedComparisonGoal.status,"blocked",
+    "a confirmed lack of observations must block reassessment until new evidence arrives");
+  const answerGoalCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.ok(answerGoalCycle.goalChanges.items.some(item=>item.goalId===initialComparisonGoal.id&&
+    item.kind==="status_changed"&&item.fromStatus==="active"&&item.toStatus==="blocked"),
+    "the answer cycle must record the comparison goal becoming blocked by the explicit gap assessment");
+
+  const alternativeObservationText="При стрессе наблюдалось снижение концентрации";
+  const alternativeObservation=window.NGKnowledge.extractClaims(alternativeObservationText)
+    .find(item=>item.kind==="observation");
+  assert.ok(alternativeObservation&&alternativeObservation.polarity!==false,
+    "the alternative-route integration input must parse as a direct positive observation");
+  assert.equal(window.NGMemory.remember(alternativeObservationText),true,
+    "the alternative-route observation must pass through the durable memory-write pipeline");
+  const reassessmentCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
+  const reassessmentDelta=reassessmentCycle.goalChanges.items.find(item=>item.goalId===initialComparisonGoal.id&&
+    item.kind==="status_changed"&&item.fromStatus==="blocked"&&item.toStatus==="review");
+  assert.ok(reassessmentDelta,
+    "the new-evidence cycle must record the exact blocked-to-review transition");
+  assert.equal(reassessmentDelta.observationsAfterAssessment,1);
+  assert.ok(reassessmentDelta.evidenceClaimIds.includes(alternativeObservation.id),
+    "the cognitive cycle must preserve the exact alternative-route observation that reopened the goal");
+  assert.match(window.NGMemory.cognitiveCycleReport(),new RegExp(alternativeObservation.id),
+    "the readable cycle report must expose the precise evidence source ID");
+  const reviewedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
+  assert.equal(reviewedComparisonGoal.status,"review",
+    "new evidence on the second route must unblock the previously blocked comparison goal");
+  assert.equal(reviewedComparisonGoal.observationsAfterAssessment,1,
+    "the alternative-route observation must be counted after the old assessment");
+  assert.ok(reviewedComparisonGoal.evidenceClaimIds.includes(alternativeObservation.id),
+    "the reopened goal must retain the exact source claim from the alternative route");
+  assert.equal(window.NGMemory.inquiries().find(item=>item.id===discriminatingInquiry.id).assessment,"gap_confirmed",
+    "new observations must not overwrite the user's historical answer or its assessment");
+
+  window.NGMemory.refreshInquiries();
+  window.NGMemory.refreshInquiries();
+  const refreshedQuestions=window.NGMemory.inquiries();
+  assert.equal(refreshedQuestions.filter(item=>item.kind==="discriminating_observations"&&
+    item.signature===discriminatingInquiry.signature).length,1,
+    "repeated queue refreshes must not recreate an answered comparison question");
+  assert.equal(window.NGMemory.goals().filter(item=>item.inquiryId===discriminatingInquiry.id).length,1,
+    "repeated reconciliation must not create duplicate goals for the same comparison inquiry");
+  assert.equal(window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="Недосып"),false,
+    "a counter-observation must not silently change the working-model decision");
+  const importedCycles=window.NGMemory.cognitiveCycles();
+  const legacyCycle=importedCycles.find(item=>item.at===1794158800000&&item.id==="C700");
+  assert.ok(legacyCycle);
+  assert.equal(legacyCycle.goalChanges.available,false,
+    "legacy imported cycles without a goal-delta history must remain readable and explicitly unavailable");
+  assert.equal(legacyCycle.goalChanges.items.length,0,
+    "legacy cycles must expose an empty goal-change list without fabricating history");
+  assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
+    "backup import must retain the cognitive-cycle history already stored on this device");
+  const restoredImportedCycle=importedCycles.find(item=>item.at===importTime+5000);
+  assert.ok(restoredImportedCycle,
+    "backup import must restore cognitive cycles from the optional v2 field");
+  const restoredGoalDeltaCycle=importedCycles.find(item=>item.at===importTime+6000);
+  assert.ok(restoredGoalDeltaCycle,"backup import must retain the cycle with detailed goal changes");
+  assert.equal(restoredGoalDeltaCycle.goalChanges.available,true);
+  assert.equal(restoredGoalDeltaCycle.goalChanges.total,20);
+  const restoredReviewDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q77");
+  assert.ok(restoredReviewDelta);
+  assert.equal(restoredReviewDelta.kind,"status_changed");
+  assert.equal(restoredReviewDelta.fromStatus,"blocked");
+  assert.equal(restoredReviewDelta.toStatus,"review");
+  assert.equal(restoredReviewDelta.observationsAfterAssessment,2);
+  assert.ok(restoredReviewDelta.evidenceClaimIds.includes("claim-negative-77"),
+    "backup import must preserve exact evidence claim IDs inside a cycle-level goal delta");
+  assert.equal(restoredReviewDelta.evidenceClaimIds.length,6,
+    "goal-delta evidence links must be capped to keep the cognitive history bounded");
+  assert.equal(restoredReviewDelta.removedEvidenceClaimIds.length,2,
+    "removed evidence links must remain distinguishable from newly added evidence");
+  assert.ok(restoredReviewDelta.sourceClaimIds.includes("claim-origin-77"));
+  assert.ok(restoredReviewDelta.evidenceMemoryIds.includes("memory-77"));
+  const restoredCompletionDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q78");
+  assert.ok(restoredCompletionDelta);
+  assert.equal(restoredCompletionDelta.toStatus,"completed",
+    "backup import must retain completed-goal transitions as well as review transitions");
+  assert.deepEqual([...restoredCompletionDelta.evidenceClaimIds].sort(),
+    ["claim-event-78-a","claim-event-78-b"],
+    "completed-goal history must retain the source observations that closed the task");
+  assert.deepEqual([...restoredCompletionDelta.removedEvidenceClaimIds],[],
+    "a completed goal must not invent removed evidence when no source was withdrawn");
+  assert.notEqual(restoredImportedCycle.id,"C700",
+    "a cycle imported from another local sequence with a colliding ID must receive a unique ID");
+  assert.equal(new Set(importedCycles.map(item=>item.id)).size,importedCycles.length,
+    "merged cognitive cycles must have unique IDs");
+  assert.equal(new Set(importedCycles.map(item=>item.sequence)).size,importedCycles.length,
+    "merged cognitive cycles must have unique sequence numbers");
+
+  await document.getElementById("memory-export").dispatch("click");
+  assert.ok(exportedBackupBlob,"the actual export button must create a backup blob");
+  const exportedBackup=JSON.parse(await exportedBackupBlob.text());
+  assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
+  const exportedReassessmentCycle=exportedBackup.cognitiveCycles.find(item=>item.id===reassessmentCycle.id);
+  assert.ok(exportedReassessmentCycle,
+    "the actual backup export must include the cognitive cycle that reopened the comparison goal");
+  assert.ok(exportedReassessmentCycle.goalChanges.items.some(item=>
+    item.goalId===initialComparisonGoal.id&&item.evidenceClaimIds.includes(alternativeObservation.id)),
+    "the exported JSON must preserve the exact observation-to-goal provenance");
+  assert.ok(exportedBackup.goals.some(item=>item.id===initialComparisonGoal.id&&item.status==="review"),
+    "the same backup must include the matching reviewed research goal");
+
+  const cycleCountBeforeExportRoundTrip=window.NGMemory.cognitiveCycles().length;
+  const exportedBackupText=await exportedBackupBlob.text();
+  importInput.files=[{async text(){return exportedBackupText;}}];
+  await importInput.dispatch("change");
+  const roundTripCycles=window.NGMemory.cognitiveCycles();
+  assert.equal(roundTripCycles.length,cycleCountBeforeExportRoundTrip,
+    "importing the current export back into the same session must not duplicate cognitive-cycle records");
+  const roundTripReassessment=roundTripCycles.find(item=>item.id===reassessmentCycle.id);
+  assert.ok(roundTripReassessment);
+  assert.ok(roundTripReassessment.goalChanges.items.some(item=>
+    item.goalId===initialComparisonGoal.id&&item.evidenceClaimIds.includes(alternativeObservation.id)),
+    "an export/import round-trip must preserve the exact observation-to-goal link");
+  assert.ok(window.NGMemory.goals().some(item=>item.id===initialComparisonGoal.id&&item.status==="review"),
+    "the round-trip must preserve the goal state corresponding to the imported cycle");
+
+  const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
+  assert.ok(storedCycles.some(item=>item.at===importTime+5000),
+    "restored cognitive cycles must be persisted in local storage");
+  const persistedGoalDelta=storedCycles.find(item=>item.at===importTime+6000);
+  assert.ok(persistedGoalDelta&&persistedGoalDelta.goalChanges.items.some(item=>
+    item.goalId==="G-Q77"&&item.fromStatus==="blocked"&&item.toStatus==="review"),
+    "detailed goal transitions must also survive durable local-storage persistence");
+  const cycleCountBeforeLegacyImport=window.NGMemory.cognitiveCycles().length;
+  importInput.files=[{async text(){return JSON.stringify({
+    format:"NEUROGENESIS_MEMORY_BACKUP",version:2,memories:[]
+  });}}];
+  await importInput.dispatch("change");
+  assert.equal(window.NGMemory.cognitiveCycles().length,cycleCountBeforeLegacyImport,
+    "a legacy v2 backup without the optional cognitiveCycles field must not erase local cycle history");
+  assert.equal(JSON.parse(database.get("neurogenesis.cognitive-cycles.v1")).length,cycleCountBeforeLegacyImport,
+    "legacy backup import must leave the persisted cognitive-cycle history intact");
+  const importedRows=window.NGMemory.reasoningHistory();
+  const importedArchiveRow=importedRows.find(item=>item.time===importTime);
+  assert.ok(importedArchiveRow);
+  assert.deepEqual(importedArchiveRow.conclusions.map(item=>item.subject),["Недостаток сна","Недосып"],
+    "backup import must preserve valid conclusions while excluding malformed conclusion subjects");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="conclusion"&&item.subject==="В отчёте говорится, что усталость"),
+    "the malformed conclusion must be retained as an excluded archive path");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_edge"&&item.subject==="что усталость"),
+    "malformed model-history edges must remain excluded from active snapshots");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.origin==="snapshot_alternative"),
+    "malformed snapshot alternatives must also remain excluded rather than becoming routes");
+  assert.ok(importedArchiveRow.excludedPaths.some(item=>item.reason==="reported_causal_statement"&&item.subject==="Усталость"),
+    "report-attributed evidence on an otherwise-valid route must remain excluded in the archive projection");
+  const storedImportedArchive=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime);
+  assert.ok(storedImportedArchive.reasoning.reviews.some(item=>item.claimId==="missing-import-source"),
+    "unverified review metadata must remain in the archive for historical inspection");
+  const importedDialogRow=importedRows.find(item=>item.time===importTime+1000);
+  assert.ok(importedDialogRow&&importedDialogRow.conclusions.length===0,
+    "reasoning embedded in imported dialogue must pass through the same archive guard");
+  assert.ok(importedDialogRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const importedSourceArchiveRow=importedRows.find(item=>item.time===importTime+3000);
+  assert.ok(importedSourceArchiveRow&&importedSourceArchiveRow.conclusions.length===0,
+    "backup reasoningArchive sourceReasoning must be sanitized before it can be reused");
+  assert.ok(importedSourceArchiveRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const importedSourceDialogRow=importedRows.find(item=>item.time===importTime+2000);
+  assert.ok(importedSourceDialogRow&&importedSourceDialogRow.conclusions.length===0,
+    "backup dialogue sourceReasoning must be sanitized before it can be reused");
+  assert.ok(importedSourceDialogRow.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+  const persistedImportedSource=JSON.parse(database.get("neurogenesis.reasoning-archive.v1"))
+    .find(item=>item.time===importTime+3000);
+  assert.equal(persistedImportedSource.sourceReasoning.conclusions[0].subject,"что усталость",
+    "backup import must preserve the original malformed source snapshot without activating it");
+  assert.ok(!window.NGMemory.claims().some(claim=>claim.subject==="что усталость"||claim.subject==="В отчёте говорится, что усталость"),
+    "malformed claims from imported memories must not enter active knowledge");
+  const importedGraph=window.NGMemory.knowledgeGraph();
+  assert.ok(!importedGraph.nodes.some(node=>node.type==="claim"&&
+    (node.subject==="что усталость"||node.subject==="В отчёте говорится, что усталость")),
+    "malformed imported claims must not enter the active knowledge graph");
+  const importedLifecycles=window.NGMemory.hypothesisLifecycle();
+  assert.ok(importedLifecycles.some(item=>item.subject==="Недостаток сна"&&item.object==="снижению концентрации"),
+    "valid archived hypotheses must still receive lifecycle records");
+  assert.ok(!importedLifecycles.some(item=>item.subject==="что усталость"||item.subject==="В отчёте говорится, что усталость"),
+    "excluded archive subjects must not receive active lifecycle records");
+  const validImportedLifecycle=importedLifecycles.find(item=>item.subject==="Недостаток сна"&&item.object==="снижению концентрации");
+  assert.ok(validImportedLifecycle);
+  assert.notEqual(validImportedLifecycle.state,"challenged",
+    "an archived review without a matching imported source claim must not challenge the valid conclusion");
+  assert.equal(validImportedLifecycle.challengingClaimIds.length,0);
+  assert.equal(validImportedLifecycle.supportingClaimIds.length,0,
+    "a review that reuses a real source ID but changes its evidence must not become active support");
+  assert.ok(!window.NGMemory.modelDecisions().some(item=>item.edgeSubject==="что усталость"),
+    "an imported restore decision with a malformed causal subject must not enter the active decision ledger");
+  assert.ok(!window.NGMemory.modelEvidence().some(item=>item.edgeSubject==="что усталость"),
+    "report-attributed model evidence with a malformed subject must not be presented as active evidence");
+  const importedRevision=window.NGMemory.modelEvolution();
+  assert.doesNotMatch(importedRevision,/Недостаток сна → снижению концентрации — ПОД ВОПРОСОМ/u,
+    "unverified archived review metadata must not mark a valid route as challenged");
+  assert.match(importedRevision,/Недостаток сна → снижению концентрации — НЕТ ОТДЕЛЬНЫХ НАБЛЮДЕНИЙ/u,
+    "the route should remain unobserved until a matching source claim is available");
+
+  // The archive guard must remain safe even if NGKnowledge did not load.
+  const fallbackDatabase=new Map();
+  const fallbackArchiveTime=1794159100000;
+  const fallbackRawReasoning={
+    version:1,type:"derived_hypotheses",createdAt:fallbackArchiveTime,status:"current",
+    conclusions:[
+      {subject:"Исследование показало, что усталость",object:"снижению концентрации",
+        paths:[[{id:"fallback-reported-subject",subject:"Исследование показало, что усталость",
+          object:"снижению концентрации"}]]},
+      {subject:"Усталость",object:"снижению концентрации",
+        paths:[[{id:"fallback-reported-evidence",subject:"Усталость",object:"снижению концентрации",
+          evidence:"Исследование показало, что усталость приводит к снижению концентрации"}]]},
+      {subject:"Перегрузка",object:"усталости",
+        evidence:"Исследование показало, что перегрузка приводит к усталости",
+        paths:[[{id:"fallback-reported-conclusion",subject:"Перегрузка",object:"усталости"}]]}
+    ],
+    reviews:[],modelHistory:[{at:fallbackArchiveTime,edges:[],alternatives:[
+      {subject:"Недосып",object:"усталости",
+        evidence:"Исследование показало, что недосып приводит к усталости",
+        paths:[[{subject:"Недосып",object:"усталости"}]]}
+    ]}]
+  };
+  fallbackDatabase.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
+    {role:"assistant",time:fallbackArchiveTime,text:"Fallback archive",sourceReasoning:fallbackRawReasoning}
+  ]));
+  fallbackDatabase.set("neurogenesis.model-decisions.v1",JSON.stringify([
+    {edgeSubject:"что усталость",edgeObject:"снижению концентрации",strategy:"restore",at:fallbackArchiveTime,
+      evidence:"Утверждение, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Усталость",edgeObject:"снижению концентрации",strategy:"restore",at:fallbackArchiveTime+1,
+      evidence:"Исследование показало, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Недостаток сна",edgeObject:"усталости",strategy:"restore",at:fallbackArchiveTime+2,
+      evidence:"Недостаток сна привёл к усталости"}
+  ]));
+  fallbackDatabase.set("neurogenesis.model-evidence.v1",JSON.stringify([
+    {edgeSubject:"что усталость",edgeObject:"снижению концентрации",kind:"supporting_claim",
+      claimId:"fallback-bad-subject",signature:"fallback-bad-subject",
+      evidence:"Недостаток сна привёл к усталости"},
+    {edgeSubject:"Усталость",edgeObject:"снижению концентрации",kind:"supporting_claim",
+      claimId:"fallback-reported-evidence",signature:"fallback-reported-evidence",
+      evidence:"Исследование показало, что усталость приводит к снижению концентрации"},
+    {edgeSubject:"Недостаток сна",edgeObject:"усталости",kind:"supporting_claim",
+      claimId:"fallback-valid-evidence",signature:"fallback-valid-evidence",
+      evidence:"Недостаток сна привёл к усталости"}
+  ]));
+  const fallbackLocalStorage={
+    getItem(key){return fallbackDatabase.has(key)?fallbackDatabase.get(key):null;},
+    setItem(key,value){fallbackDatabase.set(key,String(value));},
+    removeItem(key){fallbackDatabase.delete(key);}
+  };
+  const fallbackWindow={...window};
+  delete fallbackWindow.NGKnowledge;
+  // This isolated module instance needs its own DOM; sharing event targets would
+  // register two independent import handlers on the same file input.
+  const fallbackElements=new Map();
+  const fallbackDocument={
+    ...document,
+    getElementById(id) {
+      if(!fallbackElements.has(id))fallbackElements.set(id,new ElementStub());
+      return fallbackElements.get(id);
+    },
+    createElement() { return new ElementStub(); },
+    body:new ElementStub()
+  };
+  const fallbackSandbox={...sandbox,window:fallbackWindow,document:fallbackDocument,localStorage:fallbackLocalStorage};
+  vm.runInNewContext(fs.readFileSync("memory.js","utf8"),fallbackSandbox,{filename:"memory-fallback.js"});
+  const fallbackHistory=fallbackWindow.NGMemory.reasoningHistory();
+  assert.equal(fallbackHistory.length,1);
+  assert.equal(fallbackHistory[0].conclusions.length,0,
+    "reported causal summaries must not become active when the main knowledge validator is unavailable");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Исследование показало, что усталость"),
+    "the fallback archive guard must retain the reporting subject as an excluded historical path");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Усталость"),
+    "the fallback archive guard must reject a valid-looking path whose evidence is only a research report");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Перегрузка"),
+    "the fallback archive guard must reject a valid-looking conclusion with report-only evidence");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.origin==="snapshot_alternative"&&
+    item.reason==="reported_causal_statement"&&item.subject==="Недосып"),
+    "the fallback archive guard must also reject report-attributed snapshot alternatives");
+  const fallbackDecisions=fallbackWindow.NGMemory.modelDecisions();
+  assert.equal(fallbackDecisions.length,1,
+    "the fallback guard must not reactivate malformed or report-attributed restore decisions");
+  assert.equal(fallbackDecisions[0].edgeSubject,"Недостаток сна",
+    "a valid restore decision with direct evidence should remain available without NGKnowledge");
+  const fallbackEvidence=fallbackWindow.NGMemory.modelEvidence();
+  assert.equal(fallbackEvidence.length,1,
+    "the fallback guard must reject malformed subjects and report-attributed model evidence");
+  assert.equal(fallbackEvidence[0].claimId,"fallback-valid-evidence",
+    "a valid direct evidence item should remain available without NGKnowledge");
+  const fallbackPersisted=JSON.parse(fallbackDatabase.get("neurogenesis.reasoning-archive.v1"))[0];
+  assert.equal(fallbackPersisted.sourceReasoning.conclusions[0].subject,"Исследование показало, что усталость",
+    "the raw source snapshot must remain available for historical inspection");
   const beforeCount = window.NGMemory.count();
   const beforeClaims = window.NGMemory.claims().length;
   window.NGMemory.configureLLM({
@@ -262,10 +1004,238 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const health = await window.NGMemory.testLLMConnection();
   assert.equal(health.model, "integration-test-model");
   assert.equal(window.NGMemory.llmStatus().verified, true);
+  const cyclesBeforeLLM = window.NGMemory.cognitiveCycles().length;
   const sent = await window.NGMemory.askLLM("А почему?");
   assert.equal(sent, true, "the integrated LLM request should return a response");
   assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
   assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
   assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
-  console.log("NEUROGENESIS legacy migration and LLM integration: passed.");
+  const successfulLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLM + 1,
+    "a completed external model request must create exactly one cognitive cycle");
+  assert.equal(successfulLLMCycle.mode, "llm",
+    "the cognitive cycle must distinguish language-model requests from local reasoning");
+  assert.equal(successfulLLMCycle.status, "complete");
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "reasoning").summary,
+    /подключённой языковой модели/u);
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "verification").summary,
+    /не считается независимой проверкой/u);
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "memory").summary,
+    /долговременная память и структурированные знания не изменялись/u);
+
+  let releaseChat = null;
+  let concurrentChatCalls = 0;
+  window.NGMemory.configureLLM({
+    endpoint:"https://neurogenesis-test.workers.dev",
+    clientToken:"integration-client-token"
+  }, async (url) => {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      concurrentChatCalls++;
+      return new Promise(resolve => {
+        releaseChat = () => resolve({
+          ok:true, status:200,
+          async json() { return { ok:true, reply:"Ответ после ожидания" }; }
+        });
+      });
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
+  });
+  await window.NGMemory.testLLMConnection();
+  const askButton = document.getElementById("llm-ask-button");
+  const firstRequest = window.NGMemory.askLLM("Проверка двойного запуска");
+  assert.equal(askButton.disabled, true, "the LLM action must be disabled while a request is active");
+  assert.equal(typeof releaseChat, "function", "the test must hold the first model response open");
+  assert.equal(await window.NGMemory.askLLM("Повторный клик"), false,
+    "a second request must be rejected while the first one is pending");
+  assert.equal(concurrentChatCalls, 1, "two taps must not create parallel provider requests");
+  releaseChat();
+  assert.equal(await firstRequest, true, "the original request must complete normally");
+  assert.equal(askButton.disabled, false, "the LLM action must be re-enabled after success");
+  const cyclesBeforeLLMFailure = window.NGMemory.cognitiveCycles().length;
+  window.NGMemory.configureLLM({
+    endpoint:"https://neurogenesis-test.workers.dev",
+    clientToken:"integration-client-token"
+  }, async (url) => {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      return { ok:false, status:503, async json() { return { error:"provider_unavailable" }; } };
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
+  });
+  await window.NGMemory.testLLMConnection();
+  assert.equal(await window.NGMemory.askLLM("Проверь обработку ошибки провайдера"), false,
+    "a failed provider request must not be reported as a successful response");
+  const failedLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLMFailure + 1,
+    "a failed external model request must also be recorded for diagnostics");
+  assert.equal(failedLLMCycle.mode, "llm");
+  assert.equal(failedLLMCycle.status, "error",
+    "a provider failure must be recorded as an error cycle, not as completed reasoning");
+  assert.equal(failedLLMCycle.phases.find(item => item.name === "reasoning").status, "limited");
+  // The existing research planner must prioritize review goals created by new evidence,
+  // even when the question that originally produced the goal is already answered.
+  const priorGoalsManager = window.NGGoals;
+  window.NGGoals = {
+    list() {
+      return [{
+        id:"G-Q77",inquiryId:"Q77",title:"Уточнить связь «Недостаток сна → усталость»",
+        status:"review",assessment:"gap_confirmed",
+        assessmentReason:"На момент прежнего ответа прямых наблюдений не было.",
+        observationsAfterAssessment:2,observationCount:3,completeObservationCount:2,
+        metadataCoverage:75,selected:true,focusScore:88,updatedAt:1794159900000,
+        blockers:[],
+        nextAction:"После предыдущей оценки появились 2 новых прямых наблюдения. Повторно сопоставить их контекст, время и критерий."
+      }];
+    }
+  };
+  const reassessmentPlan = window.NGMemory.researchStrategy();
+  assert.match(reassessmentPlan,/ПЛАН ИССЛЕДОВАНИЯ · ПОВТОРНАЯ ОЦЕНКА/u,
+    "the research planner must route review goals to a reassessment plan");
+  assert.match(reassessmentPlan,/G-Q77/u,
+    "the plan must identify the exact goal that needs reassessment");
+  assert.match(reassessmentPlan,/Наблюдений после прежней оценки: 2/u,
+    "the plan must use the existing post-assessment evidence count");
+  assert.match(reassessmentPlan,/не переписывают старый ответ/u,
+    "the plan must preserve the historical assessment instead of silently rewriting it");
+  window.NGGoals = priorGoalsManager;
+
+  const memoryCountBeforeGraphRefresh = window.NGMemory.count();
+  window.NGMemory.remember("Контрольная запись для проверки обновления статистики графа");
+  assert.equal(window.NGMemory.count(), memoryCountBeforeGraphRefresh + 1,
+    "a new durable memory should still be added before the UI graph cache is refreshed");
+  const buildsAfterMemoryChange = knowledgeGraphBuildCount;
+  assert.ok(buildsAfterMemoryChange > 0,
+    "persisting changed memory must rebuild the knowledge graph statistics");
+  await elements.get("memory-manage").dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
+    "opening the memory library must reuse the already computed graph statistics");
+  await elements.get("memory-manage").dispatch("click");
+  assert.equal(knowledgeGraphBuildCount, buildsAfterMemoryChange,
+    "closing the memory library must not rebuild an unchanged graph");
+
+  // An import may alter existing claims even when it brings no new memories.
+  const cleanupText = "Недостаток сна вызывает усталость при контрольной проверке";
+  window.NGMemory.remember(cleanupText);
+  const cleanupMemory = JSON.parse(database.get("neurogenesis.memories.v1"))
+    .find(item => item.text === cleanupText);
+  assert.ok(cleanupMemory && cleanupMemory.claims.length > 0,
+    "the cleanup fixture must have a structured source claim");
+  const cleanupClaimIds = cleanupMemory.claims.map(item => item.id);
+  const claimsBeforeCleanup = window.NGMemory.claims().length;
+  const buildsBeforeInquiryOnlyImport = knowledgeGraphBuildCount;
+  const cleanupAnsweredAt = Math.max(Date.now(), cleanupMemory.createdAt) + 100;
+  importInput.files=[{async text(){return JSON.stringify({
+    format:"NEUROGENESIS_MEMORY_BACKUP",
+    version:2,
+    memories:[],
+    inquiries:[{
+      id:"Q998",
+      signature:"graph-cache-cleanup-import",
+      kind:"missing_observation",
+      edgeSubject:"Недостаток сна",
+      edgeObject:"усталости",
+      question:"Уточнить источник этой записи",
+      reason:"Проверка очистки устаревшего фрагмента ответа.",
+      priority:1,
+      status:"answered",
+      assessment:"observations_reported_unverified",
+      assessmentReason:"Текст совпадает с архивным ответом.",
+      sourceClaimIds:cleanupClaimIds,
+      responseText:cleanupText,
+      createdAt:cleanupMemory.createdAt,
+      updatedAt:cleanupAnsweredAt,
+      answeredAt:cleanupAnsweredAt
+    }]
+  });}}];
+  await importInput.dispatch("change");
+  const cleanupMemoriesAfterImport=JSON.parse(database.get("neurogenesis.memories.v1")||"[]");
+  const cleanupMemoryAfterImport=cleanupMemoriesAfterImport.find(item=>item.text===cleanupText);
+  assert.ok(cleanupMemoryAfterImport,
+    "an inquiry-only import must retain the pre-existing memory record; count="+cleanupMemoriesAfterImport.length+
+    "; runtimeCount="+window.NGMemory.count()+
+    "; targetId="+cleanupMemory.id+
+    "; texts="+JSON.stringify(cleanupMemoriesAfterImport.map(item=>item.text).slice(-8))+
+    "; feedback="+document.getElementById("memory-feedback").textContent);
+  assert.deepEqual(cleanupMemoryAfterImport.claims,[],
+    "an inquiry-only import must clear the matching legacy answer fragment from the existing memory");
+  assert.equal(window.NGMemory.claims().length,claimsBeforeCleanup-cleanupClaimIds.length,
+    "the in-memory structured claim list must reflect the fragment cleanup");
+  assert.equal(knowledgeGraphBuildCount,buildsBeforeInquiryOnlyImport+1,
+    "clearing claims during an import with zero new/duplicate memories must invalidate and rebuild graph statistics");
+
+  const beforeReload = {
+    memoryCount:window.NGMemory.count(),
+    claimCount:window.NGMemory.claims().length,
+    graph:JSON.stringify(window.NGMemory.knowledgeGraphSummary()),
+    inquiries:JSON.stringify(window.NGMemory.inquiries().map(item=>({
+      id:item.id,status:item.status,assessment:item.assessment,
+      sourceClaimIds:item.sourceClaimIds,responseClaimIds:item.responseClaimIds
+    }))),
+    goals:JSON.stringify(window.NGMemory.goals().map(item=>({
+      id:item.id,inquiryId:item.inquiryId,status:item.status,
+      evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds
+    }))),
+    cycles:JSON.stringify(window.NGMemory.cognitiveCycles().map(item=>({
+      id:item.id,sequence:item.sequence,mode:item.mode,status:item.status
+    }))),
+    activeThread:window.NGMemory.dialogContext()?.activeThread?.id||null
+  };
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "a completed write must not leave a transaction journal before reload");
+
+  const reloadedWindow={
+    NGBrain:window.NGBrain,
+    confirm(){return true;},
+    fetch:sandbox.fetch
+  };
+  const reloadedSandbox={...sandbox,window:reloadedWindow};
+  for(const path of [
+    "knowledge.js","goals.js","observation-engine.js","knowledge-graph.js",
+    "reasoning-audit.js","hypothesis-lifecycle.js","discriminating-observations.js",
+    "dialog-context.js","dialog-manager.js","llm-bridge.js","memory.js"
+  ]) {
+    vm.runInNewContext(fs.readFileSync(path,"utf8"),reloadedSandbox,{filename:"reload-"+path});
+  }
+  const afterReload = {
+    memoryCount:reloadedWindow.NGMemory.count(),
+    claimCount:reloadedWindow.NGMemory.claims().length,
+    graph:JSON.stringify(reloadedWindow.NGMemory.knowledgeGraphSummary()),
+    inquiries:JSON.stringify(reloadedWindow.NGMemory.inquiries().map(item=>({
+      id:item.id,status:item.status,assessment:item.assessment,
+      sourceClaimIds:item.sourceClaimIds,responseClaimIds:item.responseClaimIds
+    }))),
+    goals:JSON.stringify(reloadedWindow.NGMemory.goals().map(item=>({
+      id:item.id,inquiryId:item.inquiryId,status:item.status,
+      evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds
+    }))),
+    cycles:JSON.stringify(reloadedWindow.NGMemory.cognitiveCycles().map(item=>({
+      id:item.id,sequence:item.sequence,mode:item.mode,status:item.status
+    }))),
+    activeThread:reloadedWindow.NGMemory.dialogContext()?.activeThread?.id||null
+  };
+  assert.equal(afterReload.memoryCount,beforeReload.memoryCount,
+    "durable memories must survive fresh initialization without duplicates or silent loss");
+  assert.equal(afterReload.claimCount,beforeReload.claimCount,
+    "structured claims must remain consistent with their source memories after reload");
+  assert.equal(afterReload.graph,beforeReload.graph,
+    "the rebuilt graph projection must agree with the pre-reload graph statistics");
+  assert.equal(afterReload.inquiries,beforeReload.inquiries,
+    "inquiry states and their source/response references must survive reload");
+  assert.equal(afterReload.goals,beforeReload.goals,
+    "research goals and their evidence links must be reconciled consistently after reload");
+  assert.equal(afterReload.cycles,beforeReload.cycles,
+    "cognitive-cycle history must retain stable IDs and completion states after reload");
+  assert.equal(afterReload.activeThread,beforeReload.activeThread,
+    "dialogue context must resolve to the same active thread after reload");
+  assert.equal(database.has("neurogenesis.storage-transaction.v1"),false,
+    "fresh initialization must not leave a stale transaction journal behind");
+  assert.equal(reloadedWindow.NGStorageTransaction.status().ready,true,
+    "the freshly initialized storage coordinator must remain ready after reconciliation");
+
+  console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
