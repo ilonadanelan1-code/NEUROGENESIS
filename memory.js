@@ -2841,7 +2841,7 @@
       : { applied:false, query, title:"", reason:"dialog_context_unavailable" };
     const dialogueReport = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const dialoguePlan = DIALOG_MANAGER
-      ? DIALOG_MANAGER.plan(query, { context:dialogueReport, resolution:dialogueResolution })
+      ? DIALOG_MANAGER.plan(query, { ...(dialogueReport || {}), resolution:dialogueResolution })
       : null;
     if (dialoguePlan && dialoguePlan.needsClarification) {
       say("assistant", dialoguePlan.clarification);
@@ -3527,7 +3527,7 @@
       if (!DIALOG_MANAGER) return null;
       const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
       const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query};
-      return DIALOG_MANAGER.plan(query,{context:report,resolution});
+      return DIALOG_MANAGER.plan(query,{...(report || {}),resolution});
     },
     llmStatus: () => LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]},
     prepareLLMRequest: query => {
