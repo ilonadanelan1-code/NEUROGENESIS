@@ -1,6 +1,7 @@
 #include "neuro_core.hpp"
 #include "neuro_wasm.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -174,7 +175,7 @@ int main() {
             contrastive_brain.set_synapse_eligibility(contrastive_input, negative_output, 0.6f) &&
             contrastive_brain.set_synapse_eligibility(contrastive_input, neutral_output, 0.7f),
             "contrastive fixture must assign independent eligibility traces");
-    require(contrastive_brain.learn_contrastive_reward(0.5f, positive_output, negative_output) == 2,
+    require(contrastive_brain.learn_contrastive_reward(0.5f, contrastive_input, positive_output, negative_output) == 2,
             "contrastive reward must update only selected positive and negative destinations");
     require(std::abs(contrastive_brain.synapses()[0].weight - 0.9f) < 1.0e-5f,
             "positive destination must be strengthened by its eligibility trace");
@@ -192,10 +193,10 @@ int main() {
     require(contrastive_brain.learn_contrastive_reward(nan, positive_output, negative_output) == 0 &&
             contrastive_brain.synapses()[0].eligibility == invalid_trace,
             "non-finite contrastive rate must reject the event without consuming traces");
-    require(contrastive_brain.learn_contrastive_reward(0.5f, positive_output, positive_output) == 0 &&
+    require(contrastive_brain.learn_contrastive_reward(0.5f, contrastive_input, positive_output, positive_output) == 0 &&
             contrastive_brain.synapses()[0].eligibility == invalid_trace,
             "identical positive and negative targets must be rejected atomically");
-    require(contrastive_brain.learn_contrastive_reward(0.5f, positive_output, 999999) == 0 &&
+    require(contrastive_brain.learn_contrastive_reward(0.5f, contrastive_input, positive_output, 999999) == 0 &&
             contrastive_brain.synapses()[0].eligibility == invalid_trace,
             "unknown contrastive target IDs must be rejected without mutation");
 
@@ -205,7 +206,7 @@ int main() {
     require(contrastive_brain.set_synapse_eligibility(contrastive_input, positive_output, 1.0f) &&
             contrastive_brain.set_synapse_eligibility(contrastive_input, negative_output, 1.0f),
             "contrastive saturation fixture must restore full traces");
-    require(contrastive_brain.learn_contrastive_reward(1.0f, positive_output, negative_output) == 2 &&
+    require(contrastive_brain.learn_contrastive_reward(1.0f, contrastive_input, positive_output, negative_output) == 2 &&
             contrastive_brain.synapses()[0].weight == 1.0f &&
             contrastive_brain.synapses()[1].weight == 0.0f,
             "contrastive updates must clamp both potentiation and weakening to the valid range");
@@ -297,7 +298,7 @@ int main() {
                                              contrastive_api_negative, 0.6f) == 1,
             "contrastive C ABI must expose eligibility assignment");
     require(ng_brain_learn_contrastive_reward(
-                contrastive_api, 0.5f, contrastive_api_positive, contrastive_api_negative) == 2,
+                contrastive_api, 0.5f, contrastive_api_input, contrastive_api_positive, contrastive_api_negative) == 2,
             "contrastive C ABI must update the selected positive and negative destinations");
     require(std::abs(ng_brain_synapse_weight_at(contrastive_api, 0) - 0.9f) < 1.0e-5f &&
             std::abs(ng_brain_synapse_weight_at(contrastive_api, 1) - 0.1f) < 1.0e-5f,
@@ -306,7 +307,7 @@ int main() {
             ng_brain_synapse_eligibility_at(contrastive_api, 1) == 0.0f,
             "contrastive C ABI must consume selected traces");
     require(ng_brain_learn_contrastive_reward(
-                nullptr, 0.5f, contrastive_api_positive, contrastive_api_negative) == 0,
+                nullptr, 0.5f, contrastive_api_input, contrastive_api_positive, contrastive_api_negative) == 0,
             "null contrastive C ABI handles must be safe");
     ng_brain_destroy(contrastive_api);
 
