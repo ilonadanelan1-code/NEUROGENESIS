@@ -456,15 +456,41 @@
       if(candidateKey===archivedKey)item.reasoning=cleanReasoning(reasoning);
     }
   }
-  function duplicateInquiryResolution(response) {
-    const text=String(response||"").toLocaleLowerCase("ru").replace(/ё/gu,"е");
-    const separate=/(?:разн\p{L}*\s+(?:(?:самостоятельн|отдельн|независим)\p{L}*\s+)?(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|два\s+(?:разных|отдельных)\s+(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|отдельн\p{L}+\s+(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|кажд\p{L}+\s+карточк\p{L}+\s+отдельно|не\s+(?:один\s+и\s+тот\s+же|одно\s+и\s+то\s+же))/u.test(text);
-    if(separate)return "separate_events";
-    const same=/(?:один\s+(?:и\s+тот\s+же\s+)?(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|одно\s+(?:и\s+то\s+же|событи\p{L}*|наблюден\p{L}*)|это\s+один\s+и\s+тот\s+же|тот\s+же\s+эпизод|считай\s+(?:их\s+)?одним)/u.test(text);
-    return same?"same_event":null;
+  function duplicateInquiryGrouping(response, claimIds) {
+    const ids=[...new Set((Array.isArray(claimIds)?claimIds:[]).filter(id=>typeof id==="string"&&id))].slice(0,12);
+    const raw=String(response||"").trim().toLocaleLowerCase("ru").replace(/ё/gu,"е");
+    const grouped=raw.match(/^(?:группы|группировка|разбиение)\s*[:—-]\s*([\s\S]+)$/iu);
+    if(grouped&&ids.length>=2) {
+      const parts=grouped[1].split(/[;|]/u).map(part=>part.trim()).filter(Boolean);
+      const groups=[];
+      let valid=parts.length>=1;
+      for(const part of parts) {
+        const match=part.match(/^(\d+(?:\s*(?:,|\+)\s*\d+)*)$/u);
+        if(!match){valid=false;break;}
+        const indexes=match[1].split(/[,+]/u).map(value=>Number(value.trim()));
+        if(indexes.some(index=>!Number.isInteger(index)||index<1||index>ids.length)){valid=false;break;}
+        groups.push(indexes.map(index=>ids[index-1]));
+      }
+      const flattened=groups.flat();
+      if(valid&&flattened.length===ids.length&&new Set(flattened).size===ids.length&&
+         ids.every(id=>flattened.includes(id))) {
+        const resolution=groups.length===1?"same_event":
+          groups.every(group=>group.length===1)?"separate_events":"partitioned_events";
+        return {resolution,groups};
+      }
+    }
+    const separate=/(?:разн\p{L}*\s+(?:(?:самостоятельн|отдельн|независим)\p{L}*\s+)?(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|два\s+(?:разных|отдельных)\s+(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|отдельн\p{L}+\s+(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|кажд\p{L}+\s+карточк\p{L}+\s+отдельно|не\s+(?:один\s+и\s+тот\s+же|одно\s+и\s+то\s+же))/u.test(raw);
+    if(separate)return {resolution:"separate_events",groups:ids.map(id=>[id])};
+    const same=/(?:один\s+(?:и\s+тот\s+же\s+)?(?:эпизод\p{L}*|случа\p{L}*|событи\p{L}*|наблюден\p{L}*)|одно\s+(?:и\s+то\s+же|событи\p{L}*|наблюден\p{L}*)|это\s+один\s+и\s+тот\s+же|тот\s+же\s+эпизод|считай\s+(?:их\s+)?одним)/u.test(raw);
+    return same?{resolution:"same_event",groups:[ids]}:null;
   }
-  function applyDuplicateInquiryResolution(item,resolution) {
-    if(!item||item.kind!=="duplicate_observation"||!["same_event","separate_events"].includes(resolution))return {updated:0,missing:[]};
+  function duplicateInquiryResolution(response, claimIds) {
+    const grouping=duplicateInquiryGrouping(response,claimIds);
+    return grouping?grouping.resolution:null;
+  }
+  function applyDuplicateInquiryResolution(item, grouping) {
+    if(!item||item.kind!=="duplicate_observation"||!grouping||
+       !["same_event","separate_events","partitioned_events"].includes(grouping.resolution))return {updated:0,missing:[]};
     const ids=[...new Set(item.sourceClaimIds||[])];
     const found=[],missing=[];
     for(const id of ids) {
@@ -477,21 +503,33 @@
       if(!match){missing.push(id);continue;}
       found.push(match);
     }
-    if(found.length<2)return {updated:0,missing};
+    if(found.length<2||missing.length)return {updated:0,missing};
+    const groups=Array.isArray(grouping.groups)?grouping.groups:[];
+    const flattened=groups.flat();
+    if(!groups.length||flattened.length!==ids.length||new Set(flattened).size!==ids.length||
+       !ids.every(id=>flattened.includes(id)))return {updated:0,missing:ids};
     const base="ng-"+item.id.toLowerCase()+"-episode";
+    const groupById=new Map();
+    groups.forEach((group,groupIndex)=>group.forEach(id=>groupById.set(id,groupIndex)));
     found.forEach((claim,index)=>{
       const details=KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation");
-      claim.observationCase={...details,schema:2,eventRef:resolution==="same_event"?base:base+"-"+(index+1)};
+      const groupIndex=groupById.get(claim.id);
+      const eventRef=grouping.resolution==="same_event"?base:
+        grouping.resolution==="separate_events"?base+"-"+(index+1):
+        base+"-group-"+(groupIndex+1);
+      claim.observationCase={...details,schema:2,eventRef};
     });
-    item.resolution=resolution;
-    item.resolvedEventRefs=resolution==="same_event"?[base]:found.map((claim,index)=>base+"-"+(index+1));
-    return {updated:found.length,missing};
+    item.resolution=grouping.resolution;
+    item.resolvedEventGroups=groups.map(group=>group.slice());
+    item.resolvedEventRefs=[...new Set(found.map(claim=>claim.observationCase.eventRef))];
+    return {updated:found.length,missing:[]};
   }
   function inquiryAssessmentFor(item) {
     const text=normalise(item&&item.responseText||"");
     if(item&&item.kind==="duplicate_observation") {
       if(item.resolution==="same_event")return {assessment:"duplicate_same_event",reason:"Пользователь уточнил, что карточки относятся к одному эпизоду. Им присвоен общий идентификатор события; число независимых случаев уменьшено. Это уточнение происхождения записей, а не подтверждение причинной связи."};
       if(item.resolution==="separate_events")return {assessment:"duplicate_separate_events",reason:"Пользователь уточнил, что карточки относятся к разным эпизодам. Каждой карточке присвоен отдельный идентификатор события; они учитываются раздельно."};
+      if(item.resolution==="partitioned_events")return {assessment:"duplicate_partitioned_events",reason:"Пользователь распределил карточки по нескольким группам эпизодов. Внутри каждой группы закреплён общий идентификатор, между группами — разные. Это уточнение происхождения записей, а не подтверждение причинной связи."};
       return {assessment:"duplicate_unresolved",reason:"Ответ пока не позволяет однозначно определить, описывают ли карточки один эпизод или разные. Их группировка не изменена; требуется уточнение."};
     }
     if(!text)return {assessment:"unassessed",reason:"Ответ не содержит текста для оценки."};
@@ -525,6 +563,7 @@
       observations_reported_unverified:"наблюдения заявлены, но не проверены",
       duplicate_same_event:"карточки подтверждены как один эпизод",
       duplicate_separate_events:"карточки подтверждены как разные эпизоды",
+      duplicate_partitioned_events:"карточки распределены по нескольким группам эпизодов",
       duplicate_unresolved:"идентичность эпизодов пока не уточнена",
       unassessed:"ответ ещё не оценён"})[item&&item.assessment]||"ответ ещё не оценён";
   }
@@ -563,11 +602,13 @@
       responseClaimIds:Array.isArray(raw.responseClaimIds)?raw.responseClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       answeredAt:safeTime(raw.answeredAt,0),
       assessment:["insufficient_context","gap_confirmed","context_reported_unverified","observations_reported_unverified",
-        "duplicate_same_event","duplicate_separate_events","duplicate_unresolved"].includes(raw.assessment)?raw.assessment:"unassessed",
+        "duplicate_same_event","duplicate_separate_events","duplicate_partitioned_events","duplicate_unresolved"].includes(raw.assessment)?raw.assessment:"unassessed",
       assessmentReason:typeof raw.assessmentReason==="string"?raw.assessmentReason.slice(0,700):"",
       clarificationNote:typeof raw.clarificationNote==="string"?raw.clarificationNote.slice(0,700):"",
-      resolution:["same_event","separate_events"].includes(raw.resolution)?raw.resolution:"",
+      resolution:["same_event","separate_events","partitioned_events"].includes(raw.resolution)?raw.resolution:"",
       resolvedEventRefs:Array.isArray(raw.resolvedEventRefs)?raw.resolvedEventRefs.filter(x=>typeof x==="string").slice(0,12):[],
+      resolvedEventGroups:Array.isArray(raw.resolvedEventGroups)?raw.resolvedEventGroups.slice(0,12).map(group=>
+        Array.isArray(group)?group.filter(id=>typeof id==="string").slice(0,12):[]).filter(group=>group.length):[],
       assessmentAt:safeTime(raw.assessmentAt,0)};
   }
   function mergeInquiryHistory(existing,incoming) {
@@ -665,11 +706,11 @@
       const claimIds=[...new Set(group.claimIds||[])].slice(0,12);
       if(claimIds.length<2)continue;
       const signature="duplicate_observation|"+claimIds.slice().sort().join("|");
-      const examples=(group.members||[]).slice(0,6).map(item=>
-        "• "+item.id+": «"+String(item.evidence||"").slice(0,150)+"»").join("\n");
+      const examples=(group.members||[]).slice(0,12).map((item,index)=>
+        "• "+(index+1)+". "+item.id+": «"+String(item.evidence||"").slice(0,150)+"»").join("\n");
       candidates.push({signature,kind:"duplicate_observation",edgeSubject:group.subject,edgeObject:group.object,
         priority:-1,sourceClaimIds:claimIds,
-        question:"Карточки "+claimIds.join(", ")+" могут описывать один эпизод. Относятся ли все перечисленные карточки к одному и тому же событию или это разные самостоятельные эпизоды?\n"+examples,
+        question:"Карточки могут описывать один эпизод или несколько разных. Ответь «один эпизод» или «разные эпизоды», либо задай смешанное разбиение по номерам: «группы: 1+2; 3; 4+5». Внутри каждой группы карточки относятся к одному событию; каждый номер нужно использовать ровно один раз.\n"+examples,
         reason:"Автоматическая проверка нашла повтор или дополнение формулировки для одного и того же причинного звена. Похожий текст, контекст или время не доказывают идентичность события; перед подсчётом независимых случаев нужно уточнить это у тебя."});
     }
     for(const edge of edges.values()) {
@@ -748,17 +789,64 @@
   }
   function observationFieldStatusLabel(status,field="context") {
     const labels={
-      provided:{context:"указан",timing:"указано",criterion:"указан"},
-      not_stated:{context:"не указан",timing:"не указано",criterion:"не указан"},
-      not_recorded:{context:"не записан",timing:"не записано",criterion:"не записан"},
-      unknown:{context:"неизвестен",timing:"неизвестно",criterion:"неизвестен"},
-      none_reported:{context:"сообщено об отсутствии",timing:"сообщено об отсутствии",criterion:"сообщено об отсутствии"}
+      provided:{context:"указан",timing:"указано",criterion:"указан",outcome:"указано"},
+      not_stated:{context:"не указан",timing:"не указано",criterion:"не указан",outcome:"не указано"},
+      not_recorded:{context:"не записан",timing:"не записано",criterion:"не записан",outcome:"не записано"},
+      unknown:{context:"неизвестен",timing:"неизвестно",criterion:"неизвестен",outcome:"неизвестно"},
+      none_reported:{context:"сообщено об отсутствии",timing:"сообщено об отсутствии",criterion:"сообщено об отсутствии",outcome:"сообщено об отсутствии"},
+      conflict:{context:"значения конфликтуют",timing:"время расходится",criterion:"методы расходятся",outcome:"значения расходятся"}
     };
     return labels[status]?.[field]||labels.not_stated[field];
   }
   function criterionRequiresNumericOutcome(field) {
     if(!field||field.status!=="provided")return false;
     return /шкал|балл|процент|температур|пульс|частот|давлен|уровен|количеств|числов/u.test(normalise(field.value));
+  }
+  function numericOutcomePresent(field) {
+    return !!(field&&field.status==="provided"&&/[+-]?\d+(?:[.,]\d+)?/u.test(String(field.value||"")));
+  }
+  function aggregateEventFieldStatus(events,key) {
+    const statuses=(events||[]).map(item=>item&&item.details&&item.details[key]&&item.details[key].status||"not_stated");
+    if(!statuses.length)return "not_stated";
+    if(statuses.every(status=>status==="provided"))return "provided";
+    if(statuses.includes("conflict"))return "conflict";
+    const rank={not_stated:0,unknown:1,not_recorded:2,none_reported:3,provided:4};
+    return statuses.slice().sort((a,b)=>(rank[a]??0)-(rank[b]??0))[0];
+  }
+  function mergeObservationEventDetails(members) {
+    const first=members[0]&&members[0].details||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation");
+    const result={...first};
+    const fields=["context","timing","criterion","outcome"];
+    for(const key of fields) {
+      const rows=members.map(item=>item.details&&item.details[key]).filter(Boolean);
+      const provided=rows.filter(field=>field.status==="provided");
+      const unique=new Map(provided.map(field=>[normalise(field.value),field]));
+      if(unique.size>1) {
+        result[key]={status:"conflict",value:"",source:"direct_observation",
+          conflictValues:[...unique.values()].map(field=>field.value)};
+      } else if(unique.size===1) {
+        result[key]={...unique.values().next().value};
+      } else {
+        const rank={not_stated:0,unknown:1,not_recorded:2,none_reported:3};
+        const chosen=rows.slice().sort((a,b)=>(rank[b.status]??0)-(rank[a.status]??0))[0];
+        result[key]=chosen?{...chosen}:{status:"not_stated",value:"",source:"direct_observation"};
+      }
+    }
+    return result;
+  }
+  function observationEventQuality(item) {
+    const details=item&&item.details||{};
+    const missingFields=[];
+    for(const key of ["context","timing","criterion"])
+      if(!details[key]||details[key].status!=="provided")missingFields.push(key);
+    const numericRequired=criterionRequiresNumericOutcome(details.criterion);
+    if(numericRequired&&!numericOutcomePresent(details.outcome))missingFields.push("outcome");
+    const metadataConflicts=["context","timing","criterion","outcome"].filter(key=>
+      details[key]&&details[key].status==="conflict");
+    return {id:item&&item.id||"",memberIds:Array.isArray(item&&item.memberIds)?item.memberIds.slice():[item&&item.id].filter(Boolean),
+      numericOutcomeRequired:numericRequired,missingFields,metadataConflicts,
+      identityUnresolved:!!(item&&item.identityUnresolved),
+      complete:missingFields.length===0&&!metadataConflicts.length&&!(item&&item.identityUnresolved)};
   }
   function reviewReadinessForEdge(subject,object) {
     const allCases=observationCases().filter(item=>
@@ -768,30 +856,38 @@
     const challenging=distinct.filter(item=>!item.polarity);
     const relatedAnswers=inquiries.filter(item=>item.status==="answered"&&
       KNOWLEDGE.sameEntity(item.edgeSubject,subject)&&KNOWLEDGE.sameEntity(item.edgeObject,object)&&item.responseText);
-    const detailSources=distinct.map(item=>item.details||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation"))
-      .concat(relatedAnswers.map(item=>item.responseDetails||KNOWLEDGE.parseObservationDetails(item.responseText,"inquiry_response")));
-    const contextStatus=observationFieldStatus(detailSources,"context");
-    const timingStatus=observationFieldStatus(detailSources,"timing");
-    const criterionStatus=observationFieldStatus(detailSources,"criterion");
-    const outcomeStatus=observationFieldStatus(detailSources,"outcome");
-    const context=contextStatus==="provided",timing=timingStatus==="provided",criterion=criterionStatus==="provided";
-    const numericOutcomeRequired=detailSources.some(source=>criterionRequiresNumericOutcome(source&&source.criterion));
+    const checks=distinct.map(observationEventQuality);
+    const contextStatus=aggregateEventFieldStatus(distinct,"context");
+    const timingStatus=aggregateEventFieldStatus(distinct,"timing");
+    const criterionStatus=aggregateEventFieldStatus(distinct,"criterion");
+    const outcomeStatus=aggregateEventFieldStatus(distinct,"outcome");
+    const numericOutcomeRequired=checks.some(item=>item.numericOutcomeRequired);
+    const numericOutcomeMissingCount=checks.filter(item=>item.numericOutcomeRequired&&item.missingFields.includes("outcome")).length;
+    const metadataConflictCount=checks.reduce((sum,item)=>sum+item.metadataConflicts.length,0);
+    const identityUnresolvedCount=checks.filter(item=>item.identityUnresolved).length;
+    const missingByField=key=>checks.filter(item=>item.missingFields.includes(key)).length;
     const blockers=[];
     if(!supporting.length)blockers.push("нет отдельного наблюдения, в котором результат присутствовал");
     if(!challenging.length)blockers.push("нет отдельного наблюдения, в котором результат отсутствовал");
-    if(!context)blockers.push("контекст не указан в структурированном виде");
-    if(!timing)blockers.push("время или временной порядок не указаны в структурированном виде");
-    if(!criterion)blockers.push("не описано, как определялся или измерялся результат (структурированное поле не заполнено)");
-    if(numericOutcomeRequired&&outcomeStatus!=="provided")blockers.push("не записано фактическое числовое значение результата (например, 6/10), хотя указан числовой способ оценки");
-    const ready=blockers.length===0;
+    for(const [key,label] of [["context","контекст"],["timing","время или временной порядок"],["criterion","способ оценки"]]) {
+      const count=missingByField(key);
+      if(count)blockers.push(label+" не указаны в "+count+" из "+distinct.length+" отдельных событий");
+    }
+    if(numericOutcomeMissingCount)blockers.push("не записано фактическое числовое значение результата (например, 6/10) в "+numericOutcomeMissingCount+" событии(ях), хотя указан числовой способ оценки");
+    if(identityUnresolvedCount)blockers.push("идентичность эпизодов не уточнена в "+identityUnresolvedCount+" возможной группе карточек; их нельзя считать установленным числом самостоятельных событий");
+    if(metadataConflictCount)blockers.push("есть "+metadataConflictCount+" конфликтующих значений полей внутри карточек одного явно связанного события");
+    const completeEventCount=checks.filter(item=>item.complete).length;
+    const ready=blockers.length===0&&distinct.length>0;
     const label=ready?"ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА":
       supporting.length&&challenging.length?"ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ":
       distinct.length?"ОДНОСТОРОННИЕ НАБЛЮДЕНИЯ":"НЕТ ПРЯМЫХ НАБЛЮДЕНИЙ";
     return {subject,object,supportingCount:supporting.length,challengingCount:challenging.length,
-      totalCount:distinct.length,context,timing,criterion,contextStatus,timingStatus,criterionStatus,outcomeStatus,
-      numericOutcomeRequired,possibleDuplicateCount:grouped.duplicateMentions,
-      possibleDuplicateGroups:grouped.possibleDuplicateGroups,ready,label,blockers,
-      answerIds:relatedAnswers.map(item=>item.id)};
+      totalCount:distinct.length,context:distinct.length>0&&contextStatus==="provided",
+      timing:distinct.length>0&&timingStatus==="provided",criterion:distinct.length>0&&criterionStatus==="provided",
+      contextStatus,timingStatus,criterionStatus,outcomeStatus,numericOutcomeRequired,numericOutcomeMissingCount,
+      completeEventCount,incompleteEventCount:distinct.length-completeEventCount,metadataConflictCount,identityUnresolvedCount,
+      possibleDuplicateCount:grouped.duplicateMentions,possibleDuplicateGroups:grouped.possibleDuplicateGroups,
+      ready,label,blockers,eventChecks:checks,answerIds:relatedAnswers.map(item=>item.id)};
   }
   function observationCases() {
     const seen=new Set(),result=[];
@@ -851,12 +947,21 @@
       const members=group.members.slice().sort((a,b)=>quality(b)-quality(a)||
         String(b.evidence||"").length-String(a.evidence||"").length||a.recordedAt-b.recordedAt);
       const primary=members[0];
-      const explicit=group.relations.length>0&&group.relations.every(value=>value==="explicit_event_ref");
-      return {...primary,duplicateIds:members.slice(1).map(item=>item.id),
-        duplicateCount:members.length-1,duplicateConfidence:explicit?"explicit":"possible"};
+      const explicitDuplicate=members.length>1&&group.relations.length===members.length-1&&
+        group.relations.every(value=>value==="explicit_event_ref");
+      const identityUnresolved=members.length>1&&!explicitDuplicate;
+      const details=explicitDuplicate?mergeObservationEventDetails(members):
+        (primary.details||KNOWLEDGE.sanitizeObservationDetails(null,"direct_observation"));
+      return {...primary,details,memberIds:members.map(item=>item.id).filter(Boolean),
+        sourceMemoryIds:[...new Set(members.map(item=>item.sourceMemoryId).filter(Boolean))],
+        memberRecordedAt:members.map(item=>item.recordedAt),
+        duplicateIds:members.slice(1).map(item=>item.id),duplicateCount:members.length-1,
+        duplicateConfidence:explicitDuplicate?"explicit":identityUnresolved?"possible":"none",
+        identityUnresolved,eventRef:details.eventRef||""};
     });
     const duplicates=groups.filter(group=>group.members.length>1);
-    const possibleGroups=duplicates.filter(group=>!group.relations.every(value=>value==="explicit_event_ref")).map(group=>{
+    const possibleGroups=duplicates.filter(group=>!(group.members.length>1&&
+      group.relations.length===group.members.length-1&&group.relations.every(value=>value==="explicit_event_ref"))).map(group=>{
       const members=group.members.slice().sort((a,b)=>a.recordedAt-b.recordedAt);
       return {subject:members[0].subject,object:members[0].object,polarity:members[0].polarity,
         claimIds:members.map(item=>item.id).filter(Boolean),
@@ -867,9 +972,9 @@
     return {events:events.sort((a,b)=>a.recordedAt-b.recordedAt),
       duplicateMentions:duplicates.reduce((sum,group)=>sum+group.members.length-1,0),
       possibleDuplicateGroups:possibleGroups.length,possibleGroups,
-      explicitDuplicateGroups:duplicates.filter(group=>group.relations.length&&group.relations.every(value=>value==="explicit_event_ref")).length};
+      explicitDuplicateGroups:duplicates.filter(group=>group.members.length>1&&
+        group.relations.length===group.members.length-1&&group.relations.every(value=>value==="explicit_event_ref")).length};
   }
-
   function parseObservationMoment(value) {
     const raw=String(value||"").trim();
     if(!raw)return null;
@@ -997,11 +1102,11 @@
       const pc=observationValue(positive,"context"),nc=observationValue(negative,"context");
       const pm=observationValue(positive,"criterion"),nm=observationValue(negative,"criterion");
       const pt=observationValue(positive,"timing"),nt=observationValue(negative,"timing");
-      const complete=!!(pc&&nc&&pm&&nm&&pt&&nt),sameContext=!!pc&&pc===nc,sameCriterion=!!pm&&pm===nm;
+      const complete=observationEventQuality(positive).complete&&observationEventQuality(negative).complete;
+      const sameContext=!!pc&&pc===nc,sameCriterion=!!pm&&pm===nm;
       oppositePairs.push({supportingId:positive.id,challengingId:negative.id,contextMatch:sameContext,
         criterionMatch:sameCriterion,timingKnown:!!pt&&!!nt,timingDiff:!!pt&&!!nt&&pt!==nt,
-        status:complete&&sameContext&&sameCriterion?"aligned":
-          complete&&(!sameContext||!sameCriterion)?"different_metadata":"incomplete"});
+        status:!complete?"incomplete":sameContext&&sameCriterion?"aligned":"different_metadata"});
     }
     const aligned=oppositePairs.filter(pair=>pair.status==="aligned");
     const different=oppositePairs.filter(pair=>pair.status==="different_metadata");
@@ -1013,14 +1118,15 @@
     const fields=cases.length*metadataKeys.length;
     const known=cases.reduce((sum,item)=>sum+metadataKeys.filter(key=>
       item.details[key]&&item.details[key].status==="provided").length,0);
-    const completeCases=cases.filter(item=>["context","timing","criterion"].every(key=>
-      item.details[key]&&item.details[key].status==="provided")&&
-      (!criterionRequiresNumericOutcome(item.details.criterion)||item.details.outcome.status==="provided"));
-    const outcomeMissingCount=cases.filter(item=>criterionRequiresNumericOutcome(item.details.criterion)&&
-      item.details.outcome.status!=="provided").length;
-    const independent=cases.filter(item=>item.verification==="independently_verified"||item.verification==="verified");
-    const recordIds=[...new Set(cases.map(item=>item.sourceMemoryId).filter(Boolean))];
-    const addedAfter=baselineAt?cases.filter(item=>item.recordedAt>baselineAt):[];
+    const checks=cases.map(observationEventQuality);
+    const completeCases=checks.filter(item=>item.complete).length;
+    const numericOutcomeRequired=checks.some(item=>item.numericOutcomeRequired);
+    const outcomeMissingCount=checks.filter(item=>item.numericOutcomeRequired&&item.missingFields.includes("outcome")).length;
+    const metadataConflictCount=checks.reduce((sum,item)=>sum+item.metadataConflicts.length,0);
+    const identityUnresolvedCount=checks.filter(item=>item.identityUnresolved).length;
+    const independent=candidates.filter(item=>item.verification==="independently_verified"||item.verification==="verified");
+    const recordIds=[...new Set(candidates.map(item=>item.sourceMemoryId).filter(Boolean))];
+    const addedAfter=cases.filter(item=>(item.memberRecordedAt||[item.recordedAt]).some(at=>baselineAt&&at>baselineAt));
     let pattern="нет прямых наблюдений";
     let recommendation="Нужны естественные наблюдения в обе стороны: как случаи с результатом, так и случаи без него. Не создавать условия специально.";
     if(cases.length&&(!supporting.length||!challenging.length)) {
@@ -1039,17 +1145,20 @@
       pattern="противоположные исходы есть, но сопоставимость случаев не установлена";
       recommendation="Пока не выбирать объяснение. Заполнять контекст, время и критерий для каждого естественного случая; не делать вывод по простому количеству записей.";
     }
+    if(identityUnresolvedCount)recommendation+=" Возможные повторы пока не подтверждены как одно событие или разные события.";
+    if(metadataConflictCount)recommendation+=" Внутри явно связанного эпизода есть несовпадающие значения отдельных полей.";
     return {subject,object,cases,supportingCount:supporting.length,challengingCount:challenging.length,
       duplicateMentions,possibleDuplicateGroups:grouped.possibleDuplicateGroups,
       explicitDuplicateGroups:grouped.explicitDuplicateGroups,outcomeMissingCount,
-      completeCases:completeCases.length,metadataCoverage:fields?Math.round(known/fields*100):0,
-      knownFields:known,fieldCount:fields,alignedPairCount:aligned.length,differentMetadataPairCount:different.length,
+      numericOutcomeRequired,completeCases,metadataCoverage:fields?Math.round(known/fields*100):0,
+      knownFields:known,fieldCount:fields,metadataConflictCount,identityUnresolvedCount,
+      alignedPairCount:aligned.length,differentMetadataPairCount:different.length,
       contextDifferencePairCount:contextDifferences.length,criterionDifferencePairCount:criterionDifferences.length,
       timingDifferencePairCount:timingDifferences.length,incompletePairCount:incomplete.length,
       oppositePairCount:oppositePairs.length,independentVerifiedCount:independent.length,
       independentVerifiedSources:new Set(independent.map(item=>item.sourceMemoryId).filter(Boolean)).size,
       userRecordCount:recordIds.length,addedAfterModelCount:addedAfter.length,addedAfterModelIds:addedAfter.map(item=>item.id),
-      pattern,recommendation,oppositePairs:oppositePairs.slice(0,6)};
+      eventChecks:checks,pattern,recommendation,oppositePairs:oppositePairs.slice(0,6)};
   }
   function trackedObservationEdges() {
     const edges=new Map();
@@ -1072,8 +1181,10 @@
     let answer=(index?index+". ":"")+"Звено: "+row.subject+" → "+row.object+"\n";
     answer+="Наблюдения после группировки возможных повторов/дополнений: согласующиеся — "+d.supportingCount+"; противоположные — "+d.challengingCount+
       "; сгруппировано повторных карточек — "+d.duplicateMentions+" (возможных групп — "+d.possibleDuplicateGroups+").\n";
-    answer+="Заполненность карточек контекст/время/метод/значение: "+d.metadataCoverage+"% ("+d.completeCases+" полных из "+d.cases.length+").\n";
-    if(d.outcomeMissingCount)answer+="Для числового способа оценки не записано фактическое значение результата в "+d.outcomeMissingCount+" карточке(ах).\n";
+    answer+="Заполненность полей по отдельным событиям: "+d.metadataCoverage+"% ("+d.completeCases+" полностью описанных из "+d.cases.length+").\n";
+    if(d.identityUnresolvedCount)answer+="Идентичность эпизодов не уточнена для "+d.identityUnresolvedCount+" возможной группы(групп) карточек; полнота этих событий не засчитывается.\n";
+    if(d.metadataConflictCount)answer+="Конфликтующих значений полей внутри явно связанных событий: "+d.metadataConflictCount+".\n";
+    if(d.outcomeMissingCount)answer+="Для числового способа оценки не записано фактическое числовое значение результата в "+d.outcomeMissingCount+" событии(ях).\n";
     answer+="Отдельных записей памяти: "+d.userRecordCount+"; добавлено в память после сохранения вывода: "+d.addedAfterModelCount+".\n";
     answer+="Независимо подтверждённых источников: "+d.independentVerifiedSources+". Все текущие случаи остаются пользовательскими и непроверенными.\n";
     answer+="Сопоставление: "+d.pattern+".\n";
@@ -1130,8 +1241,11 @@
       answer+="Звено: "+row.subject+" → "+row.object+"\n";
       answer+="Прямые уникальные наблюдения: согласующиеся — "+row.supportingCount+"; противоположные — "+row.challengingCount+".\n";
       answer+="Контекст: "+observationFieldStatusLabel(row.contextStatus,"context")+" · Время: "+observationFieldStatusLabel(row.timingStatus,"timing")+" · Критерий результата: "+observationFieldStatusLabel(row.criterionStatus,"criterion")+".\n";
-      answer+="Фактическое значение: "+observationFieldStatusLabel(row.outcomeStatus,"criterion")+(row.numericOutcomeRequired?" · требуется для указанной числовой шкалы":" · отдельно от метода оценки")+".\n";
-      if(row.possibleDuplicateCount)answer+="Возможные повторы/дополнения: "+row.possibleDuplicateCount+" карточка(и) сгруппированы как один случай до уточнения идентификатора события.\n";
+      answer+="Фактическое значение: "+observationFieldStatusLabel(row.outcomeStatus,"outcome")+(row.numericOutcomeRequired?" · требуется для указанной числовой шкалы":" · отдельно от метода оценки")+".\n";
+      answer+="Полностью описанных событий: "+row.completeEventCount+" из "+row.totalCount+"; с неполными данными: "+row.incompleteEventCount+".\n";
+      if(row.identityUnresolvedCount)answer+="Не разрешена идентичность эпизодов в "+row.identityUnresolvedCount+" возможной группе(ах).\n";
+      if(row.metadataConflictCount)answer+="Обнаружены конфликтующие значения метаданных: "+row.metadataConflictCount+".\n";
+      if(row.possibleDuplicateCount)answer+="Возможные повторы/дополнения: "+row.possibleDuplicateCount+" карточка(и) сгруппированы как один предварительный случай до уточнения идентификатора события.\n";
       if(row.answerIds.length)answer+="Уточнения пользователя: "+row.answerIds.join(", ")+" (контекстные сведения, не независимая проверка).\n";
       answer+="Оценка: "+row.label+".\n";
       if(row.blockers.length)answer+="Что ещё необходимо: "+row.blockers.join("; ")+".\n";
@@ -1139,7 +1253,7 @@
       if(row.ready)answer+="Следующий шаг: можно открыть предметный пересмотр связи и сравнить варианты модели. Автоматического изменения решения не происходит.\n";
       answer+="\n";
     }
-    answer+="Порог означает, что есть и согласующиеся, и противоположные прямые наблюдения, а контекст, время и критерий оценки явно представлены в карточках наблюдений или в атрибутированных уточнениях пользователя. Отдельные слова в тексте сами по себе не заполняют эти поля. Это достаточность для обсуждения пересмотра, а не доказательство причинности: записи остаются пользовательскими и не проверены независимо. Решения меняются только отдельной явной командой.\n";
+    answer+="Порог означает, что есть согласующиеся и противоположные прямые наблюдения, а контекст, время и критерий заполнены для каждого отдельного события. Дополняющие карточки можно объединить только при общем явном eventRef; сведения из ответов на исследовательские вопросы остаются отдельными и не заполняют поля конкретных наблюдений автоматически. Это достаточность для обсуждения пересмотра, а не доказательство причинности: записи остаются пользовательскими и не проверены независимо. Решения меняются только отдельной явной командой.\n";
     return answer;
   }
   function researchStrategyAnswer() {
@@ -1217,13 +1331,14 @@
     if(!item)return "";
     const responseText=String(response||"").trim().slice(0,MAX_TEXT);
     if(item.kind==="duplicate_observation") {
-      const resolution=duplicateInquiryResolution(responseText);
-      if(!resolution) {
+      const grouping=duplicateInquiryGrouping(responseText,item.sourceClaimIds);
+      if(!grouping) {
         item.clarificationNote=responseText.slice(0,700);
         item.updatedAt=Date.now();persist();
-        return "УТОЧНЕНИЕ ПО "+item.id+" ПОКА НЕОДНОЗНАЧНО\nТекст сохранён, но группировка карточек не изменена. Для этого вопроса доступны два однозначных варианта: «один эпизод» (все карточки вместе) или «разные эпизоды» (каждая отдельно). Смешанную группировку я пока не применяю автоматически.";
+        return "УТОЧНЕНИЕ ПО "+item.id+" ПОКА НЕОДНОЗНАЧНО\nТекст сохранён, но группировка карточек не изменена. Используй «один эпизод», «разные эпизоды» или полное разбиение вида «группы: 1+2; 3; 4+5». В разбиении каждый номер карточки должен встретиться ровно один раз.";
       }
-      const applied=applyDuplicateInquiryResolution(item,resolution);
+      const resolution=grouping.resolution;
+      const applied=applyDuplicateInquiryResolution(item,grouping);
       if(applied.updated<2) {
         item.clarificationNote="Не удалось найти исходные карточки для применения ответа: "+applied.missing.join(", ");
         item.updatedAt=Date.now();persist();
@@ -1235,9 +1350,12 @@
       item.responseClaimIds=[];item.answeredAt=Date.now();item.updatedAt=item.answeredAt;
       applyInquiryAssessment(item);persist();
       const same=resolution==="same_event";
-      return "УТОЧНЕНИЕ ПРИМЕНЕНО · "+item.id+"\n"+
-        (same?"Карточкам присвоен общий идентификатор одного события.":"Карточкам присвоены разные идентификаторы событий.")+
-        " Исходные записи и их тексты сохранены; изменена только привязка к эпизодам. Теперь эти карточки "+(same?"не считаются независимыми событиями.":"учитываются как отдельные события.")+
+      const separate=resolution==="separate_events";
+      const description=same?"Карточкам присвоен общий идентификатор одного события.":
+        separate?"Каждой карточке присвоен отдельный идентификатор события.":
+        "Карточки распределены по нескольким группам: внутри группы общий идентификатор, между группами разные.";
+      return "УТОЧНЕНИЕ ПРИМЕНЕНО · "+item.id+"\n"+description+
+        " Исходные записи и их тексты сохранены; изменена только привязка к эпизодам. Число отдельных групп: "+item.resolvedEventRefs.length+"."+
         " Причинная связь от этого не считается подтверждённой.";
     }
     item.status="answered";item.responseText=responseText;

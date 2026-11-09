@@ -775,14 +775,14 @@ database.set("neurogenesis.inquiries.v1",JSON.stringify(savedReadinessInquiries)
 vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 window.NGMemory.ask("Оцени готовность пересмотра модели");
 const completeReadiness=feed.children[feed.children.length-1].textContent;
-assert.match(completeReadiness,/Контекст: указан · Время: указано · Критерий результата: указан/u,
-  "explicitly described differences, time markers and an outcome method should satisfy the metadata checks");
-assert.match(completeReadiness,/ДОСТАТОЧНО ДАННЫХ ДЛЯ ПРЕДМЕТНОГО ПЕРЕСМОТРА/u,
-  "balanced direct observations plus reported context, timing and criterion should open a model-review candidate");
-assert.match(completeReadiness,/согласующиеся — 1; противоположные — 1/u,
-  "the gate should disclose distinct observations in both directions");
-assert.match(completeReadiness,/контекстные сведения, не независимая проверка/u,
-  "answer-derived context must remain explicitly attributed and unverified");
+assert.match(completeReadiness,/Контекст: не указан · Время: не указано · Критерий результата: не указан/u,
+  "an inquiry answer must not fill the metadata fields of individual observation cards");
+assert.match(completeReadiness,/ПРОТИВОРЕЧИЕ ЕСТЬ, НО ДАННЫХ ДЛЯ ПЕРЕСМОТРА ПОКА НЕ ХВАТАЕТ/u,
+  "group-level testimony without per-observation attribution must not open the review gate");
+assert.match(completeReadiness,/Уточнения пользователя: Q1 \(контекстные сведения, не независимая проверка\)/u,
+  "the inquiry response should remain visible as separate contextual testimony");
+assert.match(completeReadiness,/контекст не указан в 2 из 2 отдельных событий/u,
+  "the blocker should identify the individual observations that still lack context");
 assert.equal(JSON.stringify(window.NGMemory.modelDecisions()),decisionsBeforeReadiness,
   "evaluating readiness must not silently change the selected model decision");
 
@@ -823,7 +823,8 @@ const reconciliation=window.NGMemory.reconcileEdgeEvidence("Недостаток
 assert.equal(reconciliation.supportingCount,2,"the dossier should count distinct supporting observations");
 assert.equal(reconciliation.challengingCount,1,"the dossier should count the separate counter-observation");
 assert.equal(reconciliation.duplicateMentions,1,"identical evidence text should be flagged instead of counted as an extra case");
-assert.equal(reconciliation.completeCases,3,"the dossier should measure complete structured cases");
+assert.equal(reconciliation.completeCases,2,"a possible duplicate group must not be counted as a confirmed complete event");
+assert.equal(reconciliation.identityUnresolvedCount,1,"the unresolved event identity should be reported separately");
 assert.equal(reconciliation.metadataCoverage,100,"metadata coverage should count context, timing, method and measured value fields");
 assert.equal(reconciliation.alignedPairCount,1,"same context and criterion with opposite outcomes should be recognized as a comparable pair");
 assert.equal(reconciliation.contextDifferencePairCount,1,"different contexts should be reported as a possible source of heterogeneity");
@@ -887,7 +888,7 @@ const duplicateQueue=window.NGMemory.refreshInquiries();
 const duplicateInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
 assert.ok(duplicateInquiry,"a possible duplicate group should create its own research question even without a causal archive");
 assert.equal(duplicateInquiry.status,"open");
-assert.match(duplicateInquiry.question,/одному и тому же событию или это разные самостоятельные эпизоды/u);
+assert.match(duplicateInquiry.question,/группы: 1\+2; 3; 4\+5/u,"the inquiry should offer a mixed grouping format");
 const duplicateInquiryCount=window.NGMemory.inquiries().length;
 window.NGMemory.remember("Ответ на вопрос "+duplicateInquiry.id+": Не уверен, возможно, это похожие записи.");
 const pendingDuplicate=window.NGMemory.inquiries().find(item=>item.id===duplicateInquiry.id);
@@ -938,6 +939,90 @@ assert.notEqual(separateCases[0].details.eventRef,separateCases[1].details.event
   "a different-episode answer must assign distinct event IDs");
 assert.equal(window.NGMemory.reconcileEdgeEvidence("Фактор Гамма","результатом Дельта").supportingCount,2,
   "separate episodes must be counted independently after clarification");
+
+// A single event can be enriched across cards only when the same explicit eventRef links them.
+const linkedEventMemories=[
+  eventMemory("linked-a","linked-a-claim","При факторе Тета наблюдался результат Каппа; контекст: после тренировки; время: 2026-11-09 08:00; критерий: по шкале 1–10",700,true,
+    {subject:"Фактор Тета",object:"результата Каппа",context:"после тренировки",timing:"2026-11-09 08:00",criterion:"по шкале 1–10",eventRef:"theta-episode-1"}),
+  eventMemory("linked-b","linked-b-claim","Дополнение к наблюдению Тета; результат: 6/10",710,true,
+    {subject:"Фактор Тета",object:"результата Каппа",outcome:"6/10",eventRef:"theta-episode-1"}),
+  eventMemory("linked-negative","linked-negative-claim","При факторе Тета результат Каппа не наблюдался; контекст: без тренировки; время: 2026-11-09 09:00; критерий: по шкале 1–10; результат: 2/10",720,false,
+    {subject:"Фактор Тета",object:"результата Каппа",context:"без тренировки",timing:"2026-11-09 09:00",criterion:"по шкале 1–10",outcome:"2/10",eventRef:"theta-episode-2"})
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(linkedEventMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1",JSON.stringify([]));
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const linkedReady=window.NGMemory.reviewReadinessForEdge("Фактор Тета","результата Каппа");
+assert.equal(linkedReady.supportingCount,1,"two explicitly linked cards should describe one supporting event");
+assert.equal(linkedReady.challengingCount,1,"a different eventRef should remain a separate challenging event");
+assert.equal(linkedReady.completeEventCount,2,"metadata may be combined within an explicit eventRef group");
+assert.equal(linkedReady.ready,true,"both individually identified events should satisfy their required fields");
+assert.equal(linkedReady.numericOutcomeMissingCount,0,"a numeric scale requires an actual numeric outcome value");
+
+// Contradictory metadata inside one explicitly linked event must block readiness.
+const conflictEventMemories=[
+  ...linkedEventMemories.slice(0,2),
+  eventMemory("linked-a-conflict","linked-a-conflict-claim","Дополнение: другой контекст",true,
+    {subject:"Фактор Тета",object:"результата Каппа",context:"в отпуске",eventRef:"theta-episode-1"}),
+  linkedEventMemories[2]
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(conflictEventMemories));
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+const conflictReady=window.NGMemory.reviewReadinessForEdge("Фактор Тета","результата Каппа");
+assert.equal(conflictReady.ready,false,"conflicting values inside an explicitly linked event must block readiness");
+assert.ok(conflictReady.metadataConflictCount>0,"metadata conflicts should be surfaced explicitly");
+
+// A valid mixed partition can group only some cards while keeping the others independent.
+const mixedPartitionMemories=[
+  eventMemory("mixed-a","mixed-a-claim","При факторе Лямбда наблюдался результат Мю",backupTime,true,{subject:"Фактор Лямбда",object:"результата Мю"}),
+  eventMemory("mixed-b","mixed-b-claim","При факторе Лямбда наблюдался результат Мю",backupTime+1000,true,{subject:"Фактор Лямбда",object:"результата Мю"}),
+  eventMemory("mixed-c","mixed-c-claim","При факторе Лямбда наблюдался результат Мю",backupTime+2000,true,{subject:"Фактор Лямбда",object:"результата Мю"}),
+  eventMemory("mixed-d","mixed-d-claim","При факторе Лямбда наблюдался результат Мю",backupTime+3000,true,{subject:"Фактор Лямбда",object:"результата Мю"})
+];
+database.set("neurogenesis.memories.v1",JSON.stringify(mixedPartitionMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+window.NGMemory.refreshInquiries();
+const mixedInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
+assert.ok(mixedInquiry,"four repeated cards should trigger an event-identity question");
+assert.match(mixedInquiry.question,/группы: 1\+2; 3; 4/u,"the question should explain the indexed mixed-partition syntax");
+window.NGMemory.remember("Ответ на вопрос "+mixedInquiry.id+": группы: 1+2; 3; 4");
+const mixedAnswered=window.NGMemory.inquiries().find(item=>item.id===mixedInquiry.id);
+assert.equal(mixedAnswered.status,"answered","a complete mixed partition should resolve the inquiry");
+assert.equal(mixedAnswered.resolution,"partitioned_events");
+assert.equal(mixedAnswered.assessment,"duplicate_partitioned_events");
+assert.equal(mixedAnswered.resolvedEventGroups.length,3);
+const mixedRefs=window.NGMemory.observationCases().map(item=>item.details.eventRef);
+assert.equal(mixedRefs[0],mixedRefs[1],"the first two cards should share one event identity");
+assert.notEqual(mixedRefs[1],mixedRefs[2],"the third card should have a separate event identity");
+assert.notEqual(mixedRefs[2],mixedRefs[3],"the fourth card should have a separate event identity");
+const mixedGroupingReload=JSON.parse(database.get("neurogenesis.inquiries.v1")).find(item=>item.id===mixedInquiry.id);
+assert.equal(mixedGroupingReload.resolution,"partitioned_events","the grouping decision should survive local persistence");
+assert.equal(mixedGroupingReload.resolvedEventGroups.length,3,"the exact grouping should be preserved");
+
+// Invalid mixed grouping must not partially assign event IDs.
+database.set("neurogenesis.memories.v1",JSON.stringify(mixedPartitionMemories));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
+window.NGMemory.refreshInquiries();
+const invalidGroupingInquiry=window.NGMemory.inquiries().find(item=>item.kind==="duplicate_observation");
+window.NGMemory.remember("Ответ на вопрос "+invalidGroupingInquiry.id+": группы: 1+2; 3");
+const invalidGrouping=window.NGMemory.inquiries().find(item=>item.id===invalidGroupingInquiry.id);
+assert.equal(invalidGrouping.status,"open","a partition omitting a card must not resolve the inquiry");
+assert.ok(!window.NGMemory.observationCases().some(item=>item.details.eventRef),
+  "an invalid partition must not partially mutate any event identifier");
 
 // Different explicit IDs protect two truly separate episodes from automatic merging.
 const explicitEventMemories=[
