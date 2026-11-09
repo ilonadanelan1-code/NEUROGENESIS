@@ -50,6 +50,8 @@
   let cognitiveCycles = [];
   let nextCognitiveCycleNumber = 1;
   let tagTrace = Object.create(null);
+  // Graph statistics are expensive to rebuild; keep the UI projection until memory data changes.
+  let knowledgeGraphStatsCache = null;
   let libraryOpen = false;
   let libraryLimit = 20;
   let libraryFilter = "";
@@ -2342,7 +2344,7 @@
     catch (error) { console.warn("NEUROGENESIS research-goal update failed:",error); return null; }
   }
   function persist(options = {}) {
-    updateCount();
+    updateCount(true);
     // Keep archived hypothesis states aligned with current evidence and inquiry status
     // before any persistence path serializes the reasoning archive.
     refreshHypothesisLifecycleArchive();
@@ -2406,22 +2408,32 @@
       return false;
     }
   }
-  function updateCount() {
+  function updateCount(refreshKnowledgeGraph = false) {
     const el = $("memory-count");
     if (el) el.textContent = memories.length + " / " + MAX_MEMORIES + " ЗАПИСЕЙ";
     const manage = $("memory-manage");
     if (manage) manage.textContent = libraryOpen ? "Закрыть записи" : "Записи (" + memories.length + ")";
     const knowledgeCount = $("knowledge-count");
-    if (knowledgeCount && KNOWLEDGE) {
-      if (KNOWLEDGE_GRAPH) {
-        const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
-        knowledgeCount.textContent = graph.stats.nodes + " УЗЛОВ · " +
-          graph.stats.edges + " СВЯЗЕЙ · " + graph.stats.conflicts + " КОНФЛИКТОВ";
-      } else {
-        const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
-        knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
+    if (!knowledgeCount || !KNOWLEDGE) return;
+    if (KNOWLEDGE_GRAPH) {
+      if (refreshKnowledgeGraph || !knowledgeGraphStatsCache) {
+        try {
+          const graph = KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories);
+          knowledgeGraphStatsCache = graph && graph.stats ? { ...graph.stats } : null;
+        } catch (error) {
+          knowledgeGraphStatsCache = null;
+          console.warn("NEUROGENESIS knowledge graph summary failed:", error);
+        }
+      }
+      if (knowledgeGraphStatsCache) {
+        const stats = knowledgeGraphStatsCache;
+        knowledgeCount.textContent = stats.nodes + " УЗЛОВ · " +
+          stats.edges + " СВЯЗЕЙ · " + stats.conflicts + " КОНФЛИКТОВ";
+        return;
       }
     }
+    const summary = KNOWLEDGE.summary(memories.flatMap(item => item.claims || []));
+    knowledgeCount.textContent = summary.total + " СТРУКТУРНЫХ ЗНАНИЙ · " + summary.conflicts + " КОНФЛИКТОВ";
   }
   function setFeedback(message) {
     const el = $("memory-feedback");
@@ -3826,7 +3838,7 @@
     }
     try { releaseUnusedTraces([...transientTraceIds]); }
     catch (error) { console.warn("NEUROGENESIS import rollback could not clean temporary neuron traces:", error); }
-    try { renderLibrary(); renderDialog(); updateCount(); }
+    try { renderLibrary(); renderDialog(); updateCount(true); }
     catch (error) { console.warn("NEUROGENESIS import rollback could not refresh the interface:", error); }
     return storageRestored;
   }
