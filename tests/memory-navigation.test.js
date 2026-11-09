@@ -914,7 +914,8 @@ assert.equal(window.NGMemory.inquiries().length,duplicateInquiryCount);
 
 // The alternative answer assigns different event IDs and keeps both observations independent.
 const separateEpisodeMemories=[
-  eventMemory("separate-a","separate-a-claim","Фактор Гамма сопровождался результатом Дельта",backupTime,true,null),
+  eventMemory("separate-a","separate-a-claim","Фактор Гамма сопровождался результатом Дельта",backupTime,true,
+    {subject:"Фактор Гамма",object:"результатом Дельта"}),
   eventMemory("separate-b","separate-b-claim","Фактор Гамма сопровождался результатом Дельта; контекст: рабочий день; время: 2026-11-08 10:30",backupTime+1000,true,
     {subject:"Фактор Гамма",object:"результатом Дельта",context:"рабочий день",timing:"2026-11-08 10:30",criterion:"обычное наблюдение"})
 ];
