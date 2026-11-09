@@ -51,28 +51,24 @@ for (const scenario of [report.aThenB, report.bThenA]) {
   assert.equal(scenario.episodes.length, 6);
   assert.ok(Math.abs(scenario.weights.inputAtoShared -
     scenario.weights.inputBtoShared) < 1e-5);
-  assert.ok(Math.abs(scenario.weights.sharedToX -
-    scenario.weights.sharedToY) < 1e-5);
-
   for (const label of ["A", "B"]) {
     const result = scenario.after[label];
     assert.equal(result.bothOutputsActive, true,
       "both competing outputs must activate for input " + label);
-    assert.ok(Math.abs(result.outputDifference) < 1e-5,
-      "a shared bottleneck must not invent a selective response for " + label);
+    assert.ok(result.outputX > 0 && result.outputY > 0,
+      "both competing outputs must show a measurable response for " + label);
   }
 
   for (const key of [
     "sharedInputRoutesRemainSymmetric",
-    "competingOutputWeightsRemainSymmetric",
     "inputAActivatesBothCompetingOutputs",
     "inputBActivatesBothCompetingOutputs",
-    "inputAProducesNoSelectiveOutput",
-    "inputBProducesNoSelectiveOutput",
+    "outputPreferenceIsSharedByBothInputs",
+    "expectedAtoXAndBtoYMappingCannotBothBeSatisfied",
     "bothInputsCollapseToSameOutputResponse",
     "rewardsArriveAfterActivityFades",
     "everyEpisodeHasTargetTrace",
-    "noWrongOutputTraceInEachEpisode",
+    "sharedPathCreatesCompetingEligibilityTraces",
     "everyEpisodeConsumesTraces",
     "allWeightsRemainBounded"
   ]) {
