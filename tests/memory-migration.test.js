@@ -472,10 +472,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       goalChanges:{available:true,total:2,items:[
         {goalId:"G-Q77",inquiryId:"Q77",kind:"status_changed",title:"Уточнить связь сна и усталости",
           fromStatus:"blocked",toStatus:"review",assessment:"gap_confirmed",progress:75,
-          observationCount:3,observationsAfterAssessment:2,nextAction:"Повторно сопоставить новые наблюдения."},
+          observationCount:3,observationsAfterAssessment:2,sourceClaimIds:["claim-origin-77"],
+          evidenceClaimIds:["claim-positive-77","claim-negative-77"],evidenceMemoryIds:["memory-77"],
+          nextAction:"Повторно сопоставить новые наблюдения."},
         {goalId:"G-Q78",inquiryId:"Q78",kind:"status_changed",title:"Уточнить идентичность эпизодов",
           fromStatus:"active",toStatus:"completed",assessment:"duplicate_same_event",progress:100,
-          observationCount:2,observationsAfterAssessment:0,nextAction:""}
+          observationCount:2,observationsAfterAssessment:0,sourceClaimIds:["claim-origin-78"],
+          evidenceClaimIds:["claim-event-78-a","claim-event-78-b"],evidenceMemoryIds:["memory-78"],nextAction:""}
       ]},
       metrics:{inputTokens:4,parsedClaims:2,attentionMatches:1,memoryBefore:1,memoryAfter:2,memoryAdded:1,
         goalCount:2,activeGoals:0,blockedGoals:0},
@@ -681,10 +684,15 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.remember(alternativeObservationText),true,
     "the alternative-route observation must pass through the durable memory-write pipeline");
   const reassessmentCycle=window.NGMemory.cognitiveCycles().slice(-1)[0];
-  assert.ok(reassessmentCycle.goalChanges.items.some(item=>item.goalId===initialComparisonGoal.id&&
-    item.kind==="status_changed"&&item.fromStatus==="blocked"&&item.toStatus==="review"&&
-    item.observationsAfterAssessment===1),
-    "the new-evidence cycle must record the exact blocked-to-review transition and evidence count");
+  const reassessmentDelta=reassessmentCycle.goalChanges.items.find(item=>item.goalId===initialComparisonGoal.id&&
+    item.kind==="status_changed"&&item.fromStatus==="blocked"&&item.toStatus==="review");
+  assert.ok(reassessmentDelta,
+    "the new-evidence cycle must record the exact blocked-to-review transition");
+  assert.equal(reassessmentDelta.observationsAfterAssessment,1);
+  assert.ok(reassessmentDelta.evidenceClaimIds.includes(alternativeObservation.id),
+    "the cognitive cycle must preserve the exact alternative-route observation that reopened the goal");
+  assert.match(window.NGMemory.cognitiveCycleReport(),new RegExp(alternativeObservation.id),
+    "the readable cycle report must expose the precise evidence source ID");
   const reviewedComparisonGoal=window.NGMemory.goals().find(item=>item.inquiryId===discriminatingInquiry.id);
   assert.equal(reviewedComparisonGoal.status,"review",
     "new evidence on the second route must unblock the previously blocked comparison goal");
@@ -727,10 +735,17 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(restoredReviewDelta.fromStatus,"blocked");
   assert.equal(restoredReviewDelta.toStatus,"review");
   assert.equal(restoredReviewDelta.observationsAfterAssessment,2);
+  assert.ok(restoredReviewDelta.evidenceClaimIds.includes("claim-negative-77"),
+    "backup import must preserve exact evidence claim IDs inside a cycle-level goal delta");
+  assert.ok(restoredReviewDelta.sourceClaimIds.includes("claim-origin-77"));
+  assert.ok(restoredReviewDelta.evidenceMemoryIds.includes("memory-77"));
   const restoredCompletionDelta=restoredGoalDeltaCycle.goalChanges.items.find(item=>item.goalId==="G-Q78");
   assert.ok(restoredCompletionDelta);
   assert.equal(restoredCompletionDelta.toStatus,"completed",
     "backup import must retain completed-goal transitions as well as review transitions");
+  assert.deepEqual([...restoredCompletionDelta.evidenceClaimIds].sort(),
+    ["claim-event-78-a","claim-event-78-b"],
+    "completed-goal history must retain the source observations that closed the task");
   assert.notEqual(restoredImportedCycle.id,"C700",
     "a cycle imported from another local sequence with a colliding ID must receive a unique ID");
   assert.equal(new Set(importedCycles.map(item=>item.id)).size,importedCycles.length,
