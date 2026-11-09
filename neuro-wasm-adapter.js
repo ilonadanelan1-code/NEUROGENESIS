@@ -31,9 +31,12 @@
       ]),
       addSynapse: wrap("ng_brain_add_synapse", "number", ["number", "number", "number", "number"]),
       setSynapseWeight: wrap("ng_brain_set_synapse_weight", "number", ["number", "number", "number", "number"]),
+      setSynapseEligibility: wrap("ng_brain_set_synapse_eligibility", "number", ["number", "number", "number", "number"]),
+      resetEligibility: wrap("ng_brain_reset_eligibility", null, ["number"]),
       stimulate: wrap("ng_brain_stimulate", "number", ["number", "number", "number"]),
       learn: wrap("ng_brain_learn", "number", ["number", "number", "number", "number"]),
-      step: wrap("ng_brain_step", null, ["number", "number"]),
+      learnFromReward: wrap("ng_brain_learn_from_reward", "number", ["number", "number", "number", "number"]),
+      step: wrap("ng_brain_step", null, ["number", "number", "number"]),
       neuronCount: wrap("ng_brain_neuron_count", "number", ["number"]),
       synapseCount: wrap("ng_brain_synapse_count", "number", ["number"]),
       neuronId: wrap("ng_brain_neuron_id_at", "number", ["number", "number"]),
@@ -45,7 +48,8 @@
       synapseFrom: wrap("ng_brain_synapse_from_at", "number", ["number", "number"]),
       synapseTo: wrap("ng_brain_synapse_to_at", "number", ["number", "number"]),
       synapseWeight: wrap("ng_brain_synapse_weight_at", "number", ["number", "number"]),
-      synapseSignal: wrap("ng_brain_synapse_signal_at", "number", ["number", "number"])
+      synapseSignal: wrap("ng_brain_synapse_signal_at", "number", ["number", "number"]),
+      synapseEligibility: wrap("ng_brain_synapse_eligibility_at", "number", ["number", "number"])
     };
 
     function createBrain() {
@@ -85,7 +89,8 @@
           from: api.synapseFrom(handle, position),
           to: api.synapseTo(handle, position),
           weight: api.synapseWeight(handle, position),
-          signal: api.synapseSignal(handle, position)
+          signal: api.synapseSignal(handle, position),
+          eligibility: api.synapseEligibility(handle, position)
         };
       }
 
@@ -130,9 +135,34 @@
           ) === 1;
         },
 
+        setSynapseEligibility(from, to, value) {
+          live();
+          return api.setSynapseEligibility(
+            handle,
+            Math.floor(finite(from, "from")),
+            Math.floor(finite(to, "to")),
+            finite(value, "eligibility")
+          ) === 1;
+        },
+
+        resetEligibility() {
+          live();
+          api.resetEligibility(handle);
+        },
+
         learn(learningRate = 0.05, reward = 1, weightDecay = 0) {
           live();
           return api.learn(
+            handle,
+            finite(learningRate, "learningRate"),
+            finite(reward, "reward"),
+            finite(weightDecay, "weightDecay")
+          );
+        },
+
+        learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
+          live();
+          return api.learnFromReward(
             handle,
             finite(learningRate, "learningRate"),
             finite(reward, "reward"),
@@ -149,11 +179,13 @@
           ) === 1;
         },
 
-        step(deltaSeconds) {
+        step(deltaSeconds, eligibilityRetention = 0.85) {
           live();
           const delta = finite(deltaSeconds, "deltaSeconds");
+          const retention = finite(eligibilityRetention, "eligibilityRetention");
           if (delta < 0) throw new RangeError("deltaSeconds cannot be negative");
-          api.step(handle, delta);
+          if (retention < 0 || retention > 1) throw new RangeError("eligibilityRetention must be between 0 and 1");
+          api.step(handle, delta, retention);
         },
 
         get neuronCount() {
@@ -224,7 +256,12 @@
           const to = sourceToCore.get(String(row.to));
           if (!from || !to) continue;
           const weight = finite(row.weight ?? 0.5, "synapse.weight");
-          if (coreBrain.addSynapse(from, to, weight)) acceptedSynapses++;
+          if (coreBrain.addSynapse(from, to, weight)) {
+            acceptedSynapses++;
+            if (row.eligibility != null) {
+              coreBrain.setSynapseEligibility(from, to, finite(row.eligibility, "synapse.eligibility"));
+            }
+          }
         }
 
         const mirror = {
@@ -237,16 +274,27 @@
             const id = sourceToCore.get(String(sourceId));
             return id == null ? false : coreBrain.stimulate(id, strength);
           },
-          step(deltaSeconds) {
-            coreBrain.step(deltaSeconds);
+          step(deltaSeconds, eligibilityRetention = 0.85) {
+            coreBrain.step(deltaSeconds, eligibilityRetention);
           },
           setSynapseWeight(sourceFrom, sourceTo, weight) {
             const from = sourceToCore.get(String(sourceFrom));
             const to = sourceToCore.get(String(sourceTo));
             return from != null && to != null && coreBrain.setSynapseWeight(from, to, weight);
           },
+          setSynapseEligibility(sourceFrom, sourceTo, value) {
+            const from = sourceToCore.get(String(sourceFrom));
+            const to = sourceToCore.get(String(sourceTo));
+            return from != null && to != null && coreBrain.setSynapseEligibility(from, to, value);
+          },
+          resetEligibility() {
+            coreBrain.resetEligibility();
+          },
           learn(learningRate = 0.05, reward = 1, weightDecay = 0) {
             return coreBrain.learn(learningRate, reward, weightDecay);
+          },
+          learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
+            return coreBrain.learnFromReward(learningRate, reward, weightDecay);
           },
           snapshot() {
             const state = coreBrain.snapshot();
@@ -299,6 +347,7 @@
     let stimulations = 0;
     let rebuilds = 0;
     let learningUpdates = 0;
+    let sequenceRewards = 0;
     const learningOverlay = new Map();
     let disposed = false;
 
@@ -319,6 +368,7 @@
         stimulations,
         rebuilds,
         learningUpdates,
+        sequenceRewards,
         learnedSynapses: learningOverlay.size,
         lastError: lastError || null
       };
@@ -328,6 +378,8 @@
       if (disposed || !runtime) return false;
       let candidate = null;
       try {
+        const previousSnapshot = brain ? brain.snapshot() : null;
+        const previousEdges = previousSnapshot ? previousSnapshot.synapses : [];
         const source = getSnapshot();
         const sourceEdges = Array.isArray(source && source.synapses) ? source.synapses : [];
         const sourceWeights = new Map();
@@ -348,6 +400,18 @@
           const from = key.slice(0, separator);
           const to = key.slice(separator + 1);
           if (!candidate.setSynapseWeight(from, to, learned.weight)) learningOverlay.delete(key);
+        }
+
+        const candidateWeights = new Map(candidate.snapshot().synapses.map(edge => [
+          edgeKey(edge.from, edge.to), edge.weight
+        ]));
+        for (const edge of previousEdges) {
+          const key = edgeKey(edge.from, edge.to);
+          const nextWeight = candidateWeights.get(key);
+          if (nextWeight != null && Math.abs(nextWeight - edge.weight) <= 1.0e-6 &&
+              Number.isFinite(edge.eligibility) && edge.eligibility > 0) {
+            candidate.setSynapseEligibility(edge.from, edge.to, edge.eligibility);
+          }
         }
 
         const previous = brain;
@@ -406,10 +470,10 @@
       }
     }
 
-    function step(deltaSeconds) {
+    function step(deltaSeconds, eligibilityRetention = 0.85) {
       if (disposed || state !== "ready" || !brain) return false;
       try {
-        brain.step(deltaSeconds);
+        brain.step(deltaSeconds, eligibilityRetention);
         steps++;
         return true;
       } catch (error) {
@@ -418,38 +482,69 @@
       }
     }
 
+    function recordLearningOverlay(changed) {
+      const source = getSnapshot();
+      const sourceEdges = Array.isArray(source && source.synapses) ? source.synapses : [];
+      const baseWeights = new Map();
+      for (const edge of sourceEdges) {
+        if (!edge || edge.from == null || edge.to == null) continue;
+        baseWeights.set(edgeKey(edge.from, edge.to), finite(edge.weight ?? 0.5, "synapse.weight"));
+      }
+      const stateSnapshot = brain.snapshot();
+      for (const edge of stateSnapshot.synapses) {
+        const key = edgeKey(edge.from, edge.to);
+        const baseWeight = baseWeights.get(key);
+        if (baseWeight == null || Math.abs(edge.weight - baseWeight) <= 1.0e-6) {
+          learningOverlay.delete(key);
+        } else {
+          learningOverlay.set(key, { baseWeight, weight: edge.weight });
+        }
+      }
+      learningUpdates += changed;
+      lastError = "";
+      return changed;
+    }
+
     function learn(learningRate = 0.05, reward = 1, weightDecay = 0) {
       if (disposed || state !== "ready" || !brain) return 0;
       try {
-        const source = getSnapshot();
-        const sourceEdges = Array.isArray(source && source.synapses) ? source.synapses : [];
-        const baseWeights = new Map();
-        for (const edge of sourceEdges) {
-          if (!edge || edge.from == null || edge.to == null) continue;
-          baseWeights.set(edgeKey(edge.from, edge.to), finite(edge.weight ?? 0.5, "synapse.weight"));
-        }
-
         const changed = brain.learn(
           finite(learningRate, "learningRate"),
           finite(reward, "reward"),
           finite(weightDecay, "weightDecay")
         );
-        const stateSnapshot = brain.snapshot();
-        for (const edge of stateSnapshot.synapses) {
-          const key = edgeKey(edge.from, edge.to);
-          const baseWeight = baseWeights.get(key);
-          if (baseWeight == null || Math.abs(edge.weight - baseWeight) <= 1.0e-6) {
-            learningOverlay.delete(key);
-          } else {
-            learningOverlay.set(key, { baseWeight, weight: edge.weight });
-          }
-        }
-        learningUpdates += changed;
-        lastError = "";
-        return changed;
+        return recordLearningOverlay(changed);
       } catch (error) {
         fail(error, "WebAssembly shadow learning failed");
         return 0;
+      }
+    }
+
+    function learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnFromReward(
+          finite(learningRate, "learningRate"),
+          finite(reward, "reward"),
+          finite(weightDecay, "weightDecay")
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly sequence reward failed");
+        return 0;
+      }
+    }
+
+    function resetEligibility() {
+      if (disposed || state !== "ready" || !brain) return false;
+      try {
+        brain.resetEligibility();
+        lastError = "";
+        return true;
+      } catch (error) {
+        fail(error, "WebAssembly eligibility reset failed");
+        return false;
       }
     }
 
@@ -510,8 +605,8 @@
     }
 
     return Object.freeze({
-      start, rebuild, stimulate, step, learn, snapshot, learnedWeights,
-      restoreLearnedWeights, diagnostics, dispose
+      start, rebuild, stimulate, step, learn, learnFromReward, resetEligibility,
+      snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
     });
   }
 
