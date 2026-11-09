@@ -21,7 +21,9 @@ int ng_brain_stimulate(ng_brain_handle* handle, uint32_t neuron_id, float streng
 uint32_t ng_brain_learn(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
 uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
 uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle, float learning_rate,
-                                           uint32_t positive_neuron_id, uint32_t negative_neuron_id);
+                                           uint32_t input_neuron_id,
+                                           uint32_t positive_neuron_id,
+                                           uint32_t negative_neuron_id);
 void ng_brain_step(ng_brain_handle* handle, float delta_seconds, float eligibility_retention);
 
 uint32_t ng_brain_neuron_count(const ng_brain_handle* handle);
