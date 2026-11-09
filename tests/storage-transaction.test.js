@@ -112,8 +112,8 @@ assert.equal(interruptedTransaction.status().ready,false,
  "an interrupted rollback must leave storage unavailable instead of claiming consistency");
 assert.ok(interruptedDatabase.has(interruptedTransaction.key),
  "the before-image journal must be retained when rollback cannot finish");
-assert.ok(interruptedWarnings.some(message=>message.includes("rollback")),
- "the interrupted rollback must be visible in diagnostics");
+assert.ok(interruptedWarnings.some(message=>message.includes("journal was retained")),
+ "the incomplete recovery must explicitly report that its before-image journal was retained");
 const recoveryWindow={};
 const recoverySandbox={
  window:recoveryWindow,localStorage:interruptedStorage,Date,Math,Set,Map,JSON,console
