@@ -2523,6 +2523,9 @@
         progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
         observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
         observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+        sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+        evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+        evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,8):[],
         blockers:Array.isArray(item.blockers)?item.blockers.filter(x=>typeof x==="string").slice(0,4):[],
         nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
       }));
@@ -2544,6 +2547,9 @@
       else if(old.assessment!==item.assessment||old.progress!==item.progress||
           old.observationCount!==item.observationCount||
           old.observationsAfterAssessment!==item.observationsAfterAssessment||
+          JSON.stringify(old.sourceClaimIds)!==JSON.stringify(item.sourceClaimIds)||
+          JSON.stringify(old.evidenceClaimIds)!==JSON.stringify(item.evidenceClaimIds)||
+          JSON.stringify(old.evidenceMemoryIds)!==JSON.stringify(item.evidenceMemoryIds)||
           JSON.stringify(old.blockers)!==JSON.stringify(item.blockers)||
           old.nextAction!==item.nextAction)kind="updated";
       if(!kind)continue;
@@ -2553,6 +2559,7 @@
         assessment:item.assessment,progress:item.progress,
         observationCount:item.observationCount,
         observationsAfterAssessment:item.observationsAfterAssessment,
+        sourceClaimIds:item.sourceClaimIds,evidenceClaimIds:item.evidenceClaimIds,evidenceMemoryIds:item.evidenceMemoryIds,
         nextAction:item.nextAction
       });
     }
@@ -2561,7 +2568,9 @@
       title:old.title,fromStatus:old.status,toStatus:"",
       assessment:old.assessment,progress:old.progress,
       observationCount:old.observationCount,
-      observationsAfterAssessment:old.observationsAfterAssessment,nextAction:""
+      observationsAfterAssessment:old.observationsAfterAssessment,
+      sourceClaimIds:old.sourceClaimIds,evidenceClaimIds:old.evidenceClaimIds,evidenceMemoryIds:old.evidenceMemoryIds,
+      nextAction:""
     });
     return {available:true,total:changes.length,items:changes.slice(-MAX_COGNITIVE_GOAL_CHANGES)};
   }
@@ -2628,6 +2637,9 @@
             progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
             observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
             observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+            sourceClaimIds:Array.isArray(item.sourceClaimIds)?item.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+            evidenceClaimIds:Array.isArray(item.evidenceClaimIds)?item.evidenceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
+            evidenceMemoryIds:Array.isArray(item.evidenceMemoryIds)?item.evidenceMemoryIds.filter(x=>typeof x==="string").slice(0,8):[],
             nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
           })):[]
       }:{available:false,total:0,items:[]},
@@ -2985,6 +2997,7 @@
             return "• "+(labels[item.kind]||"изменена")+" · "+item.goalId+
               (item.inquiryId?" / "+item.inquiryId:"")+" · "+transition+" · "+item.title+
               (item.observationsAfterAssessment?" · новых наблюдений после оценки: "+item.observationsAfterAssessment:"")+
+              (item.evidenceClaimIds&&item.evidenceClaimIds.length?" · источники: "+item.evidenceClaimIds.slice(0,6).join(", "):"")+
               (item.nextAction?"\n  Следующий шаг: "+item.nextAction:"");
           })
         ]:[]),
