@@ -156,7 +156,8 @@
         } else {
           const similarity = overlap(text, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText);
           const words = tokens(text).length;
-          const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered && words <= 28);
+          const likelyAnswer = !!(thread.pendingQuestion && !thread.pendingQuestion.answered && words <= 28 &&
+            !/[?？]/u.test(text) && !/^(?:а\s+)?(?:почему|зачем|как|что|кто|где|когда|сколько|какой|какая|какие|можно ли|правда ли)\b/iu.test(clean(text, 500)));
           if (likelyAnswer) {
             relation = "answer_to_question";
             thread.pendingQuestion.answered = true;
