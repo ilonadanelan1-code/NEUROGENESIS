@@ -270,7 +270,7 @@ let bounded = engine.empty();
 for (let index = 0; index < 21; index++) {
   bounded = engine.track(bounded, {
     role: "user",
-    text: "Новая тема: независимое исследовательское направление " + index,
+    text: "Новая тема независимое исследовательское направление " + index,
     time: 1000 + index
   });
 }
