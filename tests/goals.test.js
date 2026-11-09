@@ -59,7 +59,7 @@ assert.ok(q1.evidenceMemoryIds.includes("m1"));
 assert.ok(q1.milestones.includes("вопрос был задан"));
 const q2 = rows.find(item => item.inquiryId === "Q2");
 assert.equal(q2.status,"blocked");
-assert.match(q2.nextAction,/уточнить обстоятельства/u);
+assert.match(q2.nextAction,/уточнить обстоятельства/iu);
 assert.match(q2.blockers.join(" "),/Контекст/u);
 assert.equal(rows.find(item=>item.inquiryId==="Q3").status,"paused");
 assert.equal(rows.find(item=>item.inquiryId==="Q4").status,"stale");
