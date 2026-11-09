@@ -344,6 +344,12 @@
     };
     const conclusions=raw.conclusions.slice(0,8).map(item=>{
       if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+      if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
+        const sourcePaths=Array.isArray(item.paths)?item.paths:[];
+        if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("conclusion",item.subject,item.object,path);
+        else recordExcludedPath("conclusion",item.subject,item.object,[]);
+        return null;
+      }
       const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
         if(!Array.isArray(path)||!path.length)return null;
         const candidate=path.slice(0,3);
@@ -399,6 +405,12 @@
       }).filter(Boolean):[];
       const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
+        if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
+          const sourcePaths=Array.isArray(item.paths)?item.paths:[];
+          if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("snapshot_alternative",item.subject,item.object,path);
+          else recordExcludedPath("snapshot_alternative",item.subject,item.object,[]);
+          return null;
+        }
         const paths=Array.isArray(item.paths)?item.paths.slice(0,3).map(path=>{
           if(!Array.isArray(path)||!path.length)return null;
           const candidate=path.slice(0,3);
