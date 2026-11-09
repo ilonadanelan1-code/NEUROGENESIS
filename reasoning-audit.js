@@ -18,7 +18,7 @@
     function analyze(paths,inputClaims,sourceMemoryByClaim={}) {
       const rawClaims=Array.isArray(inputClaims)?inputClaims:[];
       const claims=typeof knowledge.sanitizeClaims==="function"
-        ?knowledge.sanitizeClaims(rawClaims):rawClaims;
+        ?rawClaims.flatMap(claim=>knowledge.sanitizeClaims([claim])):rawClaims;
       const pathsInput=Array.isArray(paths)?paths.slice(0,8):[];
       const byId=new Map(claims.filter(c=>c&&typeof c.id==="string").map(c=>[c.id,c]));
       const sourceFor=claim=>{
