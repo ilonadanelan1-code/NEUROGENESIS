@@ -63,6 +63,30 @@ const memories = [{
 }];
 const sourceSnapshot = JSON.stringify(memories);
 
+
+const repeatedSameOutcome = {
+  ...supporting,
+  id: "observation-sleep-fatigue-03",
+  observationCase: {
+    ...supporting.observationCase,
+    eventRef: "sleep-event-03"
+  }
+};
+const mergedRepeatedEvents = knowledge.mergeClaims([], [supporting, repeatedSameOutcome]);
+assert.equal(mergedRepeatedEvents.length, 2,
+  "the memory merge layer must preserve two otherwise identical observations from separate event IDs");
+const repeatedEventGraph = graphEngine.build([{
+  id: "memory-repeated-sleep-events",
+  text: "Два отдельных эпизода с одинаковым наблюдаемым результатом",
+  createdAt: now,
+  claims: mergedRepeatedEvents
+}]);
+assert.equal(repeatedEventGraph.stats.observations, 2);
+assert.equal(repeatedEventGraph.stats.events, 2,
+  "the graph must count distinct event references as two independent events");
+assert.equal(repeatedEventGraph.stats.linkedObservations, 2,
+  "both repeated observations must remain linked to their own graph event");
+
 const graph = graphEngine.build(memories);
 assert.equal(graph.stats.memories, 1);
 assert.equal(graph.stats.claims, 3);
