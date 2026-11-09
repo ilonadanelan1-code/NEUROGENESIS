@@ -247,7 +247,11 @@ try {
 
   assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.25), true);
   const beforeInvalid = contrastiveBrain.snapshot();
-  assert.equal(contrastiveBrain.learnContrastiveReward(Number.NaN, input, positive, negative), 0);
+  assert.throws(
+    () => contrastiveBrain.learnContrastiveReward(Number.NaN, input, positive, negative),
+    /finite number/u,
+    "the WASM adapter must reject non-finite learning rates before calling the C ABI"
+  );
   assertParity(contrastiveBrain.snapshot(), {
     neurons: beforeInvalid.neurons.map(row => ({ ...row, id: row.id })),
     synapses: beforeInvalid.synapses.map(row => ({ ...row }))
