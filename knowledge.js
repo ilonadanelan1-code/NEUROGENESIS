@@ -236,12 +236,21 @@
     if(claim)claim.observationCase=parseObservationDetails(parts.join("; "),"direct_observation");
     return claim;
   }
+  function isValidCausalSubject(value) {
+    const subject=cleanPart(value,180);
+    if(!subject)return false;
+    const normalized=normalise(subject);
+    if(/^(?:что|то\s+что)\s+/u.test(normalized))return false;
+    if(/(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том\s*)?что(?:\s|$)/u.test(normalized))return false;
+    if(/^(?:(?:в\s+)?(?:текст\w*|отчет\w*|источник\w*|сообщение\w*|документ\w*|запись\w*)\s+)?(?:говор\w*|сообща\w*|указыва\w*|отмеча\w*|утвержда\w*|сказан\w*|указан\w*|отмечен\w*)\s+что(?:\s|$)/u.test(normalized))return false;
+    if(/^(?:согласно|по\s+словам|по\s+данным|как\s+(?:сообщается|указано|отмечено))\b/u.test(normalized))return false;
+    return true;
+  }
   function extractCausal(text) {
     const match=String(text||"").match(/^(.+?)\s+(?:(не)\s+)?(?:(может|могут)\s+)?(?:(не)\s+)?(вызывает|вызывают|вызывать|вызвать|приводит\s+к|приводить\s+к|приводят\s+к|привести\s+к)\s+(.+)$/iu);
     if(!match)return null;
     const cause=cleanPart(match[1],180),effect=cleanPart(match[6],180);
-    if (/^(?:что|то\s+что)\s+/iu.test(cause) ||
-        /(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(cause)) return null;
+    if(!isValidCausalSubject(cause))return null;
     if(!cause||!effect||cause.split(" ").length>10||effect.split(" ").length>10||sameEntity(cause,effect))return null;
     const relation=match[5];
     const predicate=/вызыв|вызва/u.test(relation)?"вызывает":"приводит к";
@@ -330,8 +339,7 @@
       const kind = kinds.has(raw.kind) ? raw.kind : null;
       const subject = cleanPart(raw.subject), predicate = cleanPart(raw.predicate,80), object = cleanPart(raw.object,180);
       if (!kind || !subject || !predicate || !object) return null;
-      if (kind === "causal" && (/^(?:что|то\s+что)\s+/iu.test(subject) ||
-          /(?:^|\s)(?:утверждение|сообщение|формулировка|цитата)\s+(?:о\s+том,\s*)?что(?:\s|$)/iu.test(subject))) return null;
+      if (kind === "causal" && !isValidCausalSubject(subject)) return null;
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
       return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
@@ -1041,5 +1049,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&x.status!=="superseded").length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:22,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:22,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();
