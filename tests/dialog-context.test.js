@@ -34,12 +34,16 @@ assert.equal(engine.history(state, musicThread).some(row => /недостатк�
 const unresolved = engine.track(state, { role: "user", text: "Вернёмся к квантовым вычислениям", time: 6 });
 assert.equal(engine.resolve(unresolved, "А почему?").applied, false,
   "an unresolved return must not borrow context from the currently active unrelated topic");
-const questionAfterQuestion = engine.track(state, { role: "user", text: "А почему?", time: 7 });
+const pendingBase = engine.track(
+  engine.track(engine.empty(), { role: "user", text: "Недостаток сна вызывает усталость", time: 60 }),
+  { role: "assistant", text: "Сколько часов ты спал?", time: 61 }
+);
+const questionAfterQuestion = engine.track(pendingBase, { role: "user", text: "А почему?", time: 62 });
 assert.equal(questionAfterQuestion.messages[questionAfterQuestion.messages.length - 1].relation, "continuation",
   "a follow-up question must not be marked as an answer to an earlier open question");
-assert.equal(questionAfterQuestion.threads.find(row => row.id === firstThread).pendingQuestion.answered, false,
+assert.equal(questionAfterQuestion.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "a follow-up question must leave the earlier question open");
-const answerAfterQuestion = engine.track(state, { role: "user", text: "Примерно четыре часа", time: 8 });
+const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");
 const resumed = engine.track(unresolved, { role: "user", text: "Музыка и инструменты мне интересны", time: 9 });
