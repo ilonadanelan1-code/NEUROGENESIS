@@ -1279,9 +1279,11 @@ assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
 assert.equal(exportedBackup.version,2);
 assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
   "the export must include every current durable memory");
-for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","inquiries","goals"])
+for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","cognitiveCycles","inquiries","goals"])
   assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
     "the backup must include the " + key + " store");
+assert.equal(exportedBackup.cognitiveCycles.length,window.NGMemory.cognitiveCycles().length,
+  "the backup must export the complete sanitized cognitive-cycle history");
 assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
 assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
 assert.ok(downloadLink.download.endsWith(".json"));

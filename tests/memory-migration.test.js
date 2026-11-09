@@ -86,6 +86,14 @@ database.set("neurogenesis.dialog.v1", JSON.stringify([
   }},
   {role:"user",text:"А почему?",time:1794158203000}
 ]));
+database.set("neurogenesis.cognitive-cycles.v1", JSON.stringify([{
+  id:"C700",sequence:700,at:1794158800000,mode:"ask",intent:"general_question",status:"complete",
+  phases:[{name:"perception",status:"complete",summary:"Локальный сохранённый цикл"}],
+  uncertainty:{level:"low",supportIndex:78,reasons:["локальный источник"],evidenceCount:1,conflictCount:0,independentSources:1},
+  metrics:{inputTokens:4,parsedClaims:1,attentionMatches:1,memoryBefore:6,memoryAfter:6},
+  memoryIds:[],claimIds:[]
+}]));
+
 database.set("neurogenesis.inquiries.v1", JSON.stringify([{
   id:"Q1",signature:"legacy-observation-context-test",kind:"contrast_observations",
   edgeSubject:"Недостаток сна",edgeObject:"усталости",question:"Уточни контекст наблюдений",
@@ -413,6 +421,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
       at:importTime+30,claimIds:["bad-import-claim"]}],
     modelEvidence:[{edgeSubject:"что усталость",edgeObject:"снижению концентрации",claimId:"bad-import-claim",
       kind:"supporting_claim",signature:"bad",at:importTime+40,evidence:"По данным исследования, усталость приводит к снижению концентрации"}],
+    cognitiveCycles:[{
+      id:"C700",sequence:700,at:importTime+5000,mode:"remember",intent:"memory_write",status:"complete",
+      phases:[{name:"perception",status:"complete",summary:"Импортированный цикл"}],
+      uncertainty:{level:"medium",supportIndex:55,reasons:["данные из резервной копии"],evidenceCount:1,conflictCount:0,independentSources:0},
+      metrics:{inputTokens:3,parsedClaims:1,attentionMatches:0,memoryBefore:0,memoryAfter:1,memoryAdded:1},
+      memoryIds:["valid-import-source"],claimIds:["valid-import-causal"]
+    }],
     dialog:[
       {role:"assistant",time:importTime+1000,text:"Старый ответ",reasoning:importedDialogReasoning},
       {role:"assistant",time:importTime+2000,text:"Диалог с исходным снимком",sourceReasoning:{
@@ -425,6 +440,21 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   };
   importInput.files=[{async text(){return JSON.stringify(importedBackup);}}];
   await importInput.dispatch("change");
+  const importedCycles=window.NGMemory.cognitiveCycles();
+  assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
+    "backup import must retain the cognitive-cycle history already stored on this device");
+  const restoredImportedCycle=importedCycles.find(item=>item.at===importTime+5000);
+  assert.ok(restoredImportedCycle,
+    "backup import must restore cognitive cycles from the optional v2 field");
+  assert.notEqual(restoredImportedCycle.id,"C700",
+    "a cycle imported from another local sequence with a colliding ID must receive a unique ID");
+  assert.equal(new Set(importedCycles.map(item=>item.id)).size,importedCycles.length,
+    "merged cognitive cycles must have unique IDs");
+  assert.equal(new Set(importedCycles.map(item=>item.sequence)).size,importedCycles.length,
+    "merged cognitive cycles must have unique sequence numbers");
+  const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
+  assert.ok(storedCycles.some(item=>item.at===importTime+5000),
+    "restored cognitive cycles must be persisted in local storage");
   const importedRows=window.NGMemory.reasoningHistory();
   const importedArchiveRow=importedRows.find(item=>item.time===importTime);
   assert.ok(importedArchiveRow);

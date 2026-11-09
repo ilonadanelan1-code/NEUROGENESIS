@@ -2235,8 +2235,12 @@
     }
     try {
       const savedCycles=JSON.parse(localStorage.getItem(COGNITIVE_CYCLES_KEY)||"[]");
-      cognitiveCycles=Array.isArray(savedCycles)?savedCycles.map(cleanCognitiveCycle).filter(Boolean).slice(-MAX_COGNITIVE_CYCLES):[];
+      cognitiveCycles=mergeCognitiveCycleHistory([],savedCycles);
       nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
+      if(JSON.stringify(savedCycles)!==JSON.stringify(cognitiveCycles)) {
+        try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
+        catch(storageError) { console.warn("Could not normalize NEUROGENESIS cognitive cycle history:",storageError); }
+      }
     } catch(error) {
       cognitiveCycles=[];nextCognitiveCycleNumber=1;
       console.warn("Could not load NEUROGENESIS cognitive cycles:",error);
@@ -2508,6 +2512,27 @@
       memoryIds:Array.isArray(raw.memoryIds)?raw.memoryIds.filter(x=>typeof x==="string").slice(0,8):[],
       claimIds:Array.isArray(raw.claimIds)?raw.claimIds.filter(x=>typeof x==="string").slice(0,12):[]
     };
+  }
+  function mergeCognitiveCycleHistory(existing,incoming) {
+    const unique=new Map();
+    for(const raw of [...(Array.isArray(existing)?existing:[]),...(Array.isArray(incoming)?incoming:[])]) {
+      const item=cleanCognitiveCycle(raw);
+      if(!item)continue;
+      const signature=JSON.stringify(item);
+      if(!unique.has(signature))unique.set(signature,item);
+    }
+    const rows=[...unique.values()].sort((a,b)=>a.at-b.at||a.sequence-b.sequence);
+    let nextSequence=Math.max(1,...rows.map(item=>item.sequence+1));
+    const usedIds=new Set(),usedSequences=new Set();
+    for(const item of rows) {
+      if(usedIds.has(item.id)||usedSequences.has(item.sequence)) {
+        item.sequence=nextSequence++;
+        item.id="C"+item.sequence;
+      }
+      usedIds.add(item.id);
+      usedSequences.add(item.sequence);
+    }
+    return rows.slice(-MAX_COGNITIVE_CYCLES);
   }
   function cognitiveIntent(mode,input) {
     if(mode==="remember")return "memory_write";
@@ -3492,6 +3517,7 @@
         modelDecisions,
         modelEvidence,
         reasoningArchive,
+        cognitiveCycles:mergeCognitiveCycleHistory([],cognitiveCycles),
         inquiries,
         goals:window.NGGoals&&typeof window.NGGoals.export==="function"?window.NGGoals.export():[]
       };
@@ -3518,6 +3544,7 @@
       const incoming = Array.isArray(data) ? data : data && data.memories;
       if (!Array.isArray(incoming)) throw new Error("Файл не содержит список воспоминаний.");
       let imported = 0, duplicates = 0, skipped = 0;
+      let cognitiveCycleStorageOk = true;
       for (const raw of incoming) {
         const candidate = cleanMemory(raw);
         if (!candidate) { skipped++; continue; }
@@ -3575,13 +3602,22 @@
         [...(Array.isArray(data.reasoningArchive)?data.reasoningArchive:[]),...(Array.isArray(data.dialog)?data.dialog:[])]);
       if(Array.isArray(data.inquiries))inquiries=mergeInquiryHistory(inquiries,data.inquiries);
       if(Array.isArray(data.goals)&&window.NGGoals&&typeof window.NGGoals.merge==="function")window.NGGoals.merge(data.goals);
+      if(Array.isArray(data.cognitiveCycles)) {
+        cognitiveCycles=mergeCognitiveCycleHistory(cognitiveCycles,data.cognitiveCycles);
+        nextCognitiveCycleNumber=Math.max(1,...cognitiveCycles.map(item=>item.sequence+1));
+        try { localStorage.setItem(COGNITIVE_CYCLES_KEY,JSON.stringify(cognitiveCycles)); }
+        catch(error) {
+          cognitiveCycleStorageOk=false;
+          console.warn("NEUROGENESIS cognitive cycle backup import storage failed:",error);
+        }
+      }
       reconcileInquiryResponsesFromEntries(data.dialog);
       assessAnsweredInquiries();
       clearLegacyInquiryFragmentClaims();
       rebuildTagTraceIndex();
       if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
       syncResearchGoals();
-      const ok = persist();
+      const ok = persist() && cognitiveCycleStorageOk;
       renderLibrary();
       renderDialog();
       say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
