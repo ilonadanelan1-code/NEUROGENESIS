@@ -49,6 +49,21 @@ assert.deepEqual(reordered.nodes.map(node=>node.id),graph.nodes.map(node=>node.i
   "node IDs should be stable when memory input order changes");
 assert.deepEqual(reordered.edges.map(edge=>edge.id),graph.edges.map(edge=>edge.id),
   "edge IDs should be stable when memory input order changes");
+const malformedArchiveClaim={id:"archive-malformed",kind:"causal",subject:"что усталость",
+  predicate:"приводит к",object:"снижению концентрации",polarity:true,status:"current",
+  verification:"unverified",evidence:"что усталость приводит к снижению концентрации"};
+const reportingArchiveClaim={...malformedArchiveClaim,id:"archive-report",
+  subject:"В отчёте говорится, что усталость"};
+const validArchiveClaim=knowledge.extractClaims("Недостаток сна после тренировки приводит к усталости")[0];
+const defensiveGraph=graphEngine.build([{id:"archive-boundary",text:"Импортированная архивная запись",
+  claims:[malformedArchiveClaim,reportingArchiveClaim,validArchiveClaim]}]);
+const defensiveClaims=defensiveGraph.nodes.filter(node=>node.type==="claim");
+assert.equal(defensiveClaims.length,1,
+  "the graph must sanitize direct inputs instead of trusting archived memory claims");
+assert.equal(defensiveClaims[0].subject,"Недостаток сна после тренировки",
+  "only the valid causal claim should be projected into the graph");
+assert.equal(defensiveGraph.nodes.find(node=>node.type==="memory"&&node.memoryId==="archive-boundary").claimCount,1,
+  "memory graph metadata must count only sanitized claims");
 const empty=graphEngine.build([]);
 assert.equal(empty.stats.nodes,0);
 assert.equal(empty.stats.edges,0);
