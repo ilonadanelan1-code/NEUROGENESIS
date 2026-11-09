@@ -800,6 +800,21 @@
         base+"-group-"+(groupIndex+1);
       claim.observationCase={...details,schema:2,eventRef};
     });
+    // Remove parser-derived, unlabelled copies from the same source memory.
+    // Explicitly identified source cards remain untouched, including different events
+    // that happen to share the same wording inside one memory record.
+    for(const memory of memories) {
+      const resolvedInMemory=(memory.claims||[]).filter(claim=>found.includes(claim));
+      if(!resolvedInMemory.length)continue;
+      memory.claims=(memory.claims||[]).filter(claim=>{
+        if(!claim||claim.kind!=="observation"||resolvedInMemory.includes(claim))return true;
+        if(String(claim.observationCase&&claim.observationCase.eventRef||"").trim())return true;
+        const parserClone=resolvedInMemory.some(source=>source!==claim&&source.polarity===claim.polarity&&
+          KNOWLEDGE.sameEntity(source.subject,claim.subject)&&KNOWLEDGE.sameEntity(source.object,claim.object)&&
+          enrichedTextLooksLikeSameMention(source.evidence||"",claim.evidence||""));
+        return !parserClone;
+      });
+    }
     item.resolution=grouping.resolution;
     item.resolvedEventGroups=groups.map(group=>group.slice());
     item.resolvedEventRefs=[...new Set(found.map(claim=>claim.observationCase.eventRef))];
