@@ -128,9 +128,12 @@ int main() {
     require(sequence_brain.find_neuron(sequence_pre)->activation == 0.0f &&
             sequence_brain.find_neuron(sequence_post)->activation == 0.0f,
             "the delayed reward fixture must end after the original activations have faded");
-    require(sequence_brain.synapses()[0].eligibility > 0.0f &&
-            sequence_brain.synapses()[0].eligibility < sequence_trace,
-            "eligibility traces must decay but outlive the original activation");
+    const float trace_after_fading = sequence_brain.synapses()[0].eligibility;
+    require(trace_after_fading > 0.0f,
+            "eligibility traces must outlive the original activation");
+    for (int i = 0; i < 5; ++i) sequence_brain.step(0.25f, 0.9f);
+    require(sequence_brain.synapses()[0].eligibility < trace_after_fading,
+            "eligibility traces must decay when co-activation has ended");
     require(sequence_brain.learn_from_reward(0.5f, 1.0f, 0.0f) == 1,
             "delayed positive reward must update the earlier co-active synapse");
     require(sequence_brain.synapses()[0].weight > sequence_weight_before_reward,
