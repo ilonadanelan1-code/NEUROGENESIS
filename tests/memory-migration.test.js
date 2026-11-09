@@ -139,7 +139,18 @@ const localStorage = {
   getItem(key) { return database.has(key) ? database.get(key) : null; },
   setItem(key, value) { database.set(key, String(value)); }
 };
-const sandbox = { window, document, localStorage, console, Date, Math, Set, Map, JSON };
+const sandbox = {
+  window, document, localStorage, console, Date, Math, Set, Map, JSON,
+  async fetch(url, options) {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      return { ok:true, status:200, async json() { return { ok:true, reply:"Интеграционный ответ языковой модели" }; } };
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
+  }
+};
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
@@ -232,4 +243,20 @@ const persistedObservation = JSON.parse(database.get("neurogenesis.memories.v1")
 assert.equal(persistedObservation.claims[0].sourceMemoryId,"mobservation");
 assert.equal(persistedObservation.claims[0].observationCase.schema,2);
 assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should receive an engram");
-console.log("NEUROGENESIS legacy memory migration, assistant identity, creator and cross-record profile: passed.");
+(async () => {
+  const beforeCount = window.NGMemory.count();
+  const beforeClaims = window.NGMemory.claims().length;
+  window.NGMemory.configureLLM({
+    endpoint:"https://neurogenesis-test.workers.dev",
+    clientToken:"integration-client-token"
+  });
+  const health = await window.NGMemory.testLLMConnection();
+  assert.equal(health.model, "integration-test-model");
+  assert.equal(window.NGMemory.llmStatus().verified, true);
+  const sent = await window.NGMemory.askLLM("А почему?");
+  assert.equal(sent, true, "the integrated LLM request should return a response");
+  assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
+  assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
+  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
+  console.log("NEUROGENESIS legacy migration and LLM integration: passed.");
+})().catch(error => { console.error(error); process.exitCode = 1; });
