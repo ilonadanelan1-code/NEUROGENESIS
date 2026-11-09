@@ -57,6 +57,7 @@
   let wasmShadow = null;
   let wasmShadowStepElapsed = 0;
   let experienceQuality = null;
+  let experienceBenchmarkRunning = false;
   const MAX_PULSES = 180;
   const MAX_BRANCH_PULSES = 28;
   const neuronById = new Map();
@@ -139,12 +140,14 @@
     const beginButton = $("wasm-episode-begin-button");
     const cancelButton = $("wasm-episode-cancel-button");
     const evaluateButton = $("wasm-sequence-learn-button");
+    const benchmarkButton = $("wasm-experience-benchmark-button");
     const status = experienceQuality ? experienceQuality.status() : { state: "unavailable", current: null, latestReport: null };
     const isOpen = status.state === "open" && !!status.current;
     const wasmReady = !!(wasmShadow && wasmShadow.diagnostics().state === "ready");
     if (beginButton) beginButton.disabled = !wasmReady || isOpen;
     if (cancelButton) cancelButton.disabled = !isOpen;
     if (evaluateButton) evaluateButton.disabled = !isOpen;
+    if (benchmarkButton) benchmarkButton.disabled = !wasmReady || experienceBenchmarkRunning;
     if (statusElement) {
       if (isOpen) {
         const current = status.current;
@@ -953,6 +956,40 @@
       : "Нет открытого эпизода для сброса.");
   });
 
+  $("wasm-experience-benchmark-button").addEventListener("click",async()=>{
+    const button=$("wasm-experience-benchmark-button");
+    const reportElement=$("wasm-experience-benchmark-report");
+    if(!window.NGExperienceBenchmark||typeof window.NGExperienceBenchmark.run!=="function"){
+      if(reportElement)reportElement.textContent="Модуль контрольного теста недоступен.";
+      return;
+    }
+    experienceBenchmarkRunning=true;
+    const originalLabel=button.textContent;
+    button.disabled=true;
+    button.textContent="Проверка…";
+    if(reportElement)reportElement.textContent="Создаю изолированные мини-сети и сравниваю ответ до и после трёх видов подкрепления.";
+    try{
+      const report=await window.NGExperienceBenchmark.run();
+      const passedChecks=Object.values(report.checks).filter(Boolean).length;
+      const p=report.positive,n=report.negative,z=report.neutral;
+      if(reportElement){
+        reportElement.textContent=(report.passed?"ТЕСТ ПРОЙДЕН":"ТЕСТ НЕ ПРОЙДЕН")+
+          " · проверок "+passedChecks+"/"+Object.keys(report.checks).length+
+          ". Ответ до обучения "+p.responseBefore.toFixed(4)+
+          "; после +reward "+p.responseAfter.toFixed(4)+
+          "; после −reward "+n.responseAfter.toFixed(4)+
+          "; после нейтральной оценки "+z.responseAfter.toFixed(4)+
+          ". Тестовая сеть изолирована от основной.";
+      }
+    }catch(error){
+      if(reportElement)reportElement.textContent="Контрольный тест завершился ошибкой: "+error.message;
+    }finally{
+      experienceBenchmarkRunning=false;
+      button.textContent=originalLabel;
+      refreshExperienceEpisodeUi();
+    }
+  });
+
   $("wasm-sequence-learn-button").addEventListener("click",()=>{
     if(!wasmShadow||wasmShadow.diagnostics().state!=="ready"||!experienceQuality){
       refreshWasmLearningUi("Теневой WASM или менеджер эпизодов ещё не готов.");
@@ -995,7 +1032,7 @@
       const payload={
         format:"NEUROGENESIS_WASM_LEARNED_WEIGHTS",
         version:1,
-        release:"0.58.33",
+        release:"0.58.34",
         weights:wasmShadow.learnedWeights()
       };
       const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -1187,6 +1224,11 @@
     },
     wasmExperienceHistory() {
       return experienceQuality ? experienceQuality.history() : [];
+    },
+    wasmRunExperienceBenchmark() {
+      return window.NGExperienceBenchmark
+        ? window.NGExperienceBenchmark.run()
+        : Promise.resolve({ passed: false, error: "benchmark-unavailable" });
     },
     wasmSnapshot() {
       return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
