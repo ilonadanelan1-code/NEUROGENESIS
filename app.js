@@ -944,11 +944,24 @@
       scheduleFrame();
       return spread.length;
     },
+    wasmLearn(learningRate = 0.05, reward = 1, weightDecay = 0) {
+      return wasmShadow ? wasmShadow.learn(learningRate, reward, weightDecay) : 0;
+    },
+    wasmSnapshot() {
+      return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
+    },
+    wasmLearningExport() {
+      return wasmShadow ? wasmShadow.learnedWeights() : [];
+    },
+    wasmLearningImport(rows) {
+      return wasmShadow ? wasmShadow.restoreLearnedWeights(rows) : false;
+    },
     wasmDiagnostics() {
       return wasmShadow ? wasmShadow.diagnostics() : {
         backend: "wasm-shadow", authority: "javascript",
         state: window.NGWasm ? "not-started" : "unavailable",
         neurons: 0, synapses: 0, steps: 0, stimulations: 0, rebuilds: 0,
+        learningUpdates: 0, learnedSynapses: 0,
         lastError: null
       };
     }
