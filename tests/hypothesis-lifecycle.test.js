@@ -19,6 +19,20 @@ assert.equal(first.meta.conclusions[0].lifecycle.events[0].kind,"created");
 assert.equal(JSON.stringify(base),original,"reconciliation must not mutate the original reasoning record");
 
 const lifecycle=first.meta.conclusions[0].lifecycle;
+
+const malformedArchivedEdge=causal("bad-report","В отчёте говорится, что усталость","Снижение концентрации");
+assert.equal(engine.sanitize({...lifecycle,subject:"что усталость"}),null,
+  "a malformed archived conclusion must not produce an active lifecycle record");
+assert.equal(engine.sanitize({...lifecycle,routes:[[malformedArchivedEdge]]}).routes.length,0,
+  "malformed archived lifecycle routes must be excluded");
+assert.equal(engine.sanitize({...lifecycle,routes:[[causal("valid","Недостаток сна","Усталость"),malformedArchivedEdge]]}).routes.length,0,
+  "a route containing one malformed edge must be rejected whole, not shortened");
+const malformedConclusion=engine.reconcile({...base,conclusions:[{
+  subject:"В отчёте говорится, что усталость",object:"Снижение концентрации",
+  paths:[[malformedArchivedEdge]]
+}]},[],[],[],1500);
+assert.equal(malformedConclusion.meta.conclusions[0].lifecycle,undefined,
+  "reconciliation must not activate a lifecycle for a reporting-phrase conclusion");
 const question=engine.reconcile(first.meta,[],[],[{id:"Q1",status:"open",edgeSubject:"Недостаток сна",edgeObject:"Усталость"}],2000);
 assert.equal(question.meta.conclusions[0].lifecycle.state,"under_review");
 assert.ok(question.transitions.some(item=>item.from==="new"&&item.to==="under_review"));
