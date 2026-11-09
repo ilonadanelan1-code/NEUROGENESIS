@@ -2510,6 +2510,61 @@
     if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
   }
   const COGNITIVE_PHASE_NAMES = ["perception","attention","memory","reasoning","verification","learning","model_update"];
+  const MAX_COGNITIVE_GOAL_CHANGES = 16;
+  function cognitiveGoalSnapshot() {
+    const manager=window.NGGoals;
+    if(!manager||typeof manager.list!=="function")return null;
+    try {
+      return manager.list().filter(item=>item&&typeof item.id==="string").map(item=>({
+        id:item.id,inquiryId:typeof item.inquiryId==="string"?item.inquiryId:"",
+        title:typeof item.title==="string"?item.title.slice(0,180):"",
+        status:typeof item.status==="string"?item.status.slice(0,32):"",
+        assessment:typeof item.assessment==="string"?item.assessment.slice(0,64):"",
+        progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
+        observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
+        observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+        blockers:Array.isArray(item.blockers)?item.blockers.filter(x=>typeof x==="string").slice(0,4):[],
+        nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
+      }));
+    } catch(error) {
+      console.warn("NEUROGENESIS could not snapshot research goals for the cognitive cycle:",error);
+      return null;
+    }
+  }
+  function cognitiveGoalChanges(before,after) {
+    if(!Array.isArray(before)||!Array.isArray(after))return {available:false,total:0,items:[]};
+    const previous=new Map(before.map(item=>[item.id,item]));
+    const current=new Map(after.map(item=>[item.id,item]));
+    const changes=[];
+    for(const item of after) {
+      const old=previous.get(item.id);
+      let kind="";
+      if(!old)kind="created";
+      else if(old.status!==item.status)kind="status_changed";
+      else if(old.assessment!==item.assessment||old.progress!==item.progress||
+          old.observationCount!==item.observationCount||
+          old.observationsAfterAssessment!==item.observationsAfterAssessment||
+          JSON.stringify(old.blockers)!==JSON.stringify(item.blockers)||
+          old.nextAction!==item.nextAction)kind="updated";
+      if(!kind)continue;
+      changes.push({
+        goalId:item.id,inquiryId:item.inquiryId,kind,
+        title:item.title,fromStatus:old?old.status:"",toStatus:item.status,
+        assessment:item.assessment,progress:item.progress,
+        observationCount:item.observationCount,
+        observationsAfterAssessment:item.observationsAfterAssessment,
+        nextAction:item.nextAction
+      });
+    }
+    for(const old of before)if(!current.has(old.id))changes.push({
+      goalId:old.id,inquiryId:old.inquiryId,kind:"removed",
+      title:old.title,fromStatus:old.status,toStatus:"",
+      assessment:old.assessment,progress:old.progress,
+      observationCount:old.observationCount,
+      observationsAfterAssessment:old.observationsAfterAssessment,nextAction:""
+    });
+    return {available:true,total:changes.length,items:changes.slice(-MAX_COGNITIVE_GOAL_CHANGES)};
+  }
   function cleanCognitiveCycle(raw) {
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.phases)) return null;
     const allowed = new Set(COGNITIVE_PHASE_NAMES);
@@ -2557,6 +2612,25 @@
         completed:Math.max(0,Math.floor(Number(raw.goals.completed)||0)),
         focusId:typeof raw.goals.focusId==="string"?raw.goals.focusId.slice(0,24):""
       }:null,
+      goalChanges:raw.goalChanges&&typeof raw.goalChanges==="object"?{
+        available:raw.goalChanges.available===true,
+        total:Math.max(0,Math.min(10000,Math.floor(Number(raw.goalChanges.total)||0))),
+        items:Array.isArray(raw.goalChanges.items)?raw.goalChanges.items.slice(-MAX_COGNITIVE_GOAL_CHANGES)
+          .filter(item=>item&&typeof item.goalId==="string")
+          .map(item=>({
+            goalId:item.goalId.slice(0,32),
+            inquiryId:typeof item.inquiryId==="string"?item.inquiryId.slice(0,24):"",
+            kind:["created","status_changed","updated","removed"].includes(item.kind)?item.kind:"updated",
+            title:typeof item.title==="string"?item.title.slice(0,180):"",
+            fromStatus:typeof item.fromStatus==="string"?item.fromStatus.slice(0,32):"",
+            toStatus:typeof item.toStatus==="string"?item.toStatus.slice(0,32):"",
+            assessment:typeof item.assessment==="string"?item.assessment.slice(0,64):"",
+            progress:Math.max(0,Math.min(100,Math.round(Number(item.progress)||0))),
+            observationCount:Math.max(0,Math.floor(Number(item.observationCount)||0)),
+            observationsAfterAssessment:Math.max(0,Math.floor(Number(item.observationsAfterAssessment)||0)),
+            nextAction:typeof item.nextAction==="string"?item.nextAction.slice(0,220):""
+          })):[]
+      }:{available:false,total:0,items:[]},
       metrics:{
         inputTokens:Math.max(0,Number(raw.metrics&&raw.metrics.inputTokens)||0),
         parsedClaims:Math.max(0,Number(raw.metrics&&raw.metrics.parsedClaims)||0),
@@ -2734,7 +2808,8 @@
       beforeMemoryCount:memories.length,
       beforeClaimIds:new Set(memories.flatMap(item=>item.claims||[]).map(claim=>claim.id).filter(Boolean)),
       beforeInquiryIds:new Set(inquiries.map(item=>item.id)),
-      beforeDialogCount:dialog.length
+      beforeDialogCount:dialog.length,
+      beforeGoals:cognitiveGoalSnapshot()
     };
   }
   function cognitiveReasoningKind(intent,answer,mode) {
@@ -2789,6 +2864,7 @@
     const storageTransaction=window.NGStorageTransaction;
     const cycleTransactionStarted=!!(storageTransaction&&storageTransaction.begin&&storageTransaction.begin());
     const goalState=syncResearchGoals(focus);
+    const goalChanges=cognitiveGoalChanges(context.beforeGoals,cognitiveGoalSnapshot());
     const reasoningKind=cognitiveReasoningKind(context.intent,answer,context.mode);
     const phase=(name,status,summary)=>({name,status,summary});
     const phases=[
@@ -2838,6 +2914,7 @@
         goalCount:goalState?goalState.total:0,activeGoals:goalState?goalState.active:0,blockedGoals:goalState?goalState.blocked:0
       },
       goals:goalState?goalState:null,
+      goalChanges,
       attentionDetails:context.attention.map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
       uncertainty,
       focus:focus?{inquiryId:focus.item.id,score:Math.round(focus.score*100),reasons:focus.reasons}:null,
@@ -2893,8 +2970,24 @@
           " · рейтинг "+cycle.focus.score+"/100 · "+cycle.focus.reasons.join("; "):
           "СЛЕДУЮЩИЙ ИССЛЕДОВАТЕЛЬСКИЙ ФОКУС: пока нет открытого вопроса.",
         ...(cycle.goals?["МОНИТОРИНГ ЦЕЛЕЙ: всего "+cycle.goals.total+" · активных "+cycle.goals.active+
-          " · ждут ответа "+cycle.goals.waiting+" · заблокировано "+cycle.goals.blocked+
-          " · требуют пересмотра "+cycle.goals.review+" · завершено "+cycle.goals.completed]:[]),
+          " · ждут ответа "+cycle.goals.waiting+" · заблокировано/без движения "+cycle.goals.blocked+
+          " · требуют пересмотра "+cycle.goals.review+" · отложено "+cycle.goals.paused+
+          " · завершено "+cycle.goals.completed]:[]),
+        ...(cycle.goalChanges&&cycle.goalChanges.available&&cycle.goalChanges.total?[
+          "ИЗМЕНЕНИЯ ЦЕЛЕЙ В ЭТОМ ЦИКЛЕ · "+cycle.goalChanges.total,
+          ...cycle.goalChanges.items.map(item=>{
+            const labels={created:"создана",status_changed:"сменился статус",updated:"обновлена",removed:"удалена"};
+            const statusLabels={active:"активна",waiting_user:"ждёт ответа",blocked:"заблокирована",review:"требует пересмотра",
+              paused:"отложена",completed:"завершена",stale:"без движения"};
+            const transition=item.fromStatus
+              ?(statusLabels[item.fromStatus]||item.fromStatus)+" → "+(statusLabels[item.toStatus]||item.toStatus)
+              :(statusLabels[item.toStatus]||item.toStatus);
+            return "• "+(labels[item.kind]||"изменена")+" · "+item.goalId+
+              (item.inquiryId?" / "+item.inquiryId:"")+" · "+transition+" · "+item.title+
+              (item.observationsAfterAssessment?" · новых наблюдений после оценки: "+item.observationsAfterAssessment:"")+
+              (item.nextAction?"\n  Следующий шаг: "+item.nextAction:"");
+          })
+        ]:[]),
         ...(cycle.attentionDetails.length?["РАСПРЕДЕЛЕНИЕ ВНИМАНИЯ:",
           ...cycle.attentionDetails.slice(0,5).map((item,index)=>(index+1)+". "+item.memoryId+
             " · значимость "+Math.round(item.score*100)+"/100 · "+item.reasons.join("; "))]:[])];
