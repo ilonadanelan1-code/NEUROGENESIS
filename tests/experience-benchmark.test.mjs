@@ -13,6 +13,15 @@ assert.equal(report.kind, "delayed-reward and two-pattern association benchmark"
 assert.equal(report.network.neurons, 2);
 assert.equal(report.network.synapses, 1);
 assert.equal(report.multiPattern.kind, "two-pattern paired-association benchmark");
+assert.equal(report.sharedPathInterference.kind, "dense shared-output interference diagnostic");
+assert.equal(report.sharedPathInterference.limitationDetected, true);
+assert.deepEqual(report.sharedPathInterference.network, {
+  neurons: 4,
+  synapses: 4,
+  patterns: 2,
+  targetWeight: 0.2,
+  crossWeight: 0.12
+});
 assert.deepEqual(report.multiPattern.network, {
   neurons: 4,
   synapses: 4,
@@ -51,6 +60,26 @@ for (const condition of [report.positive, report.negative, report.neutral]) {
     "the benchmark must verify one-time eligibility consumption");
 }
 
+
+for (const [orderKey, order] of Object.entries(report.sharedPathInterference.orders)) {
+  assert.equal(order.passed, true, "dense interference diagnostic must reproduce the known limitation: " + orderKey);
+  for (const pattern of [order.patterns.A, order.patterns.B]) {
+    assert.ok(pattern.crossWeightAfter > pattern.crossWeightBefore,
+      "positive reward must also potentiate the active cross path");
+    assert.ok(pattern.incorrectResponseAfter > 0.05,
+      "the competing non-target output must remain active on replay");
+    assert.ok(pattern.responseAfter > pattern.incorrectResponseAfter,
+      "the directly co-activated target should still have the stronger response");
+  }
+  for (const episode of order.episodes) {
+    assert.ok(episode.eligibilityBeforeReward > 0);
+    assert.ok(episode.crossEligibilityBeforeReward > 0);
+    assert.ok(episode.crossActivationDuringCoactivation > 0.05);
+    assert.equal(episode.activeNeuronsBeforeReward, 0);
+    assert.equal(episode.traceConsumed, true);
+  }
+}
+
 for (const [orderKey, order] of Object.entries(report.multiPattern.orders)) {
   assert.equal(order.passed, true, "two-pattern order must pass: " + orderKey);
   assert.equal(order.network.neurons, 4);
@@ -70,4 +99,4 @@ for (const [orderKey, order] of Object.entries(report.multiPattern.orders)) {
   }
 }
 
-console.log("NEUROGENESIS benchmarks: delayed reward and two-pattern association orders passed.");
+console.log("NEUROGENESIS benchmarks: delayed reward, two-pattern retention and dense-interference diagnostic passed.");
