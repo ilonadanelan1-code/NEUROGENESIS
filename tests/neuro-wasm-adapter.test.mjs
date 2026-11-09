@@ -82,6 +82,84 @@ try {
   brain.dispose();
 }
 
+const contrastiveBrain = runtime.createBrain();
+try {
+  const input = contrastiveBrain.addNeuron("input", "sensory", 0, 0, 1);
+  const positive = contrastiveBrain.addNeuron("positive", "output", 1, 0, 1);
+  const negative = contrastiveBrain.addNeuron("negative", "output", 1, 1, 1);
+  const neutral = contrastiveBrain.addNeuron("neutral", "output", 1, 2, 1);
+  assert.equal(contrastiveBrain.addSynapse(input, positive, 0.5), true);
+  assert.equal(contrastiveBrain.addSynapse(input, negative, 0.4), true);
+  assert.equal(contrastiveBrain.addSynapse(input, neutral, 0.3), true);
+  assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.8), true);
+  assert.equal(contrastiveBrain.setSynapseEligibility(input, negative, 0.6), true);
+  assert.equal(contrastiveBrain.setSynapseEligibility(input, neutral, 0.7), true);
+  assert.equal(contrastiveBrain.learnContrastiveReward(0.5, positive, negative), 2);
+  const rows = contrastiveBrain.snapshot().synapses;
+  assert.ok(Math.abs(rows[0].weight - 0.9) < 1e-6);
+  assert.ok(Math.abs(rows[1].weight - 0.1) < 1e-6);
+  assert.equal(rows[2].weight, Math.fround(0.3));
+  assert.ok(rows.every(row => row.eligibility === 0));
+} finally {
+  contrastiveBrain.dispose();
+}
+
+const mappedContrastive = runtime.createBrainFromSnapshot({
+  neurons: [
+    { id: "mapped-input", name: "input", type: "sensory" },
+    { id: "mapped-positive", name: "positive", type: "output" },
+    { id: "mapped-negative", name: "negative", type: "output" }
+  ],
+  synapses: [
+    { from: "mapped-input", to: "mapped-positive", weight: 0.5 },
+    { from: "mapped-input", to: "mapped-negative", weight: 0.4 }
+  ]
+});
+try {
+  assert.equal(mappedContrastive.setSynapseEligibility("mapped-input", "mapped-positive", 0.8), true);
+  assert.equal(mappedContrastive.setSynapseEligibility("mapped-input", "mapped-negative", 0.6), true);
+  assert.equal(mappedContrastive.learnContrastiveReward(0.5, "mapped-positive", "mapped-negative"), 2,
+    "snapshot mirrors must map source neuron IDs to contrastive core targets");
+  const rows = mappedContrastive.snapshot().synapses;
+  assert.ok(Math.abs(rows[0].weight - 0.9) < 1e-6);
+  assert.ok(Math.abs(rows[1].weight - 0.1) < 1e-6);
+} finally {
+  mappedContrastive.dispose();
+}
+
+const contrastiveSource = {
+  neurons: [
+    { id: "contrast-input", name: "input", type: "sensory", bias: 1, activity: 0 },
+    { id: "contrast-positive", name: "positive", type: "output", bias: 1, activity: 0 },
+    { id: "contrast-negative", name: "negative", type: "output", bias: 1, activity: 0 }
+  ],
+  synapses: [
+    { from: "contrast-input", to: "contrast-positive", weight: 0.5 },
+    { from: "contrast-input", to: "contrast-negative", weight: 0.4 }
+  ]
+};
+const contrastiveShadow = globalThis.NGWasm.createShadowController({
+  runtime,
+  getSnapshot: () => contrastiveSource
+});
+try {
+  assert.equal(await contrastiveShadow.start(), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-input", 0.8), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-positive", 0.6), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-negative", 0.5), true);
+  assert.equal(contrastiveShadow.step(0.1, 0.9), true);
+  assert.ok(contrastiveShadow.snapshot().synapses.every(row => row.eligibility > 0));
+  assert.equal(contrastiveShadow.learnContrastiveReward(
+    0.5, "contrast-positive", "contrast-negative"), 2);
+  const rows = contrastiveShadow.snapshot().synapses;
+  assert.ok(rows[0].weight > 0.5);
+  assert.ok(rows[1].weight < 0.4);
+  assert.ok(rows.every(row => row.eligibility === 0));
+  assert.equal(contrastiveShadow.diagnostics().sequenceRewards, 1);
+} finally {
+  contrastiveShadow.dispose();
+}
+
 assert.throws(() => brain.snapshot(), /already been disposed/u);
 assert.doesNotThrow(() => brain.dispose(), "dispose() must be idempotent");
 
