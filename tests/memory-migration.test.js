@@ -75,7 +75,10 @@ const legacyMemories = [
   }
 ];
 database.set("neurogenesis.memories.v1", JSON.stringify(legacyMemories));
-database.set("neurogenesis.dialog.v1", "[]");
+database.set("neurogenesis.dialog.v1", JSON.stringify([
+  {role:"user",text:"Недостаток сна сегодня вызвал у меня усталость",time:1794158201000},
+  {role:"assistant",text:"Сколько часов ты спал?",time:1794158202000}
+]));
 database.set("neurogenesis.inquiries.v1", JSON.stringify([{
   id:"Q1",signature:"legacy-observation-context-test",kind:"contrast_observations",
   edgeSubject:"Недостаток сна",edgeObject:"усталости",question:"Уточни контекст наблюдений",
@@ -141,9 +144,19 @@ vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { 
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
+vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
+vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
 assert.equal(window.NGMemory.count(), 6);
+const dialogState = window.NGMemory.dialogContext();
+assert.ok(dialogState && dialogState.activeThread, "legacy dialogue should rebuild a working context");
+assert.match(dialogState.activeThread.title, /недостаток сна/u);
+assert.equal(window.NGMemory.dialogHistory().length, 2);
+assert.equal(window.NGMemory.llmStatus().connected, false, "the model bridge must remain offline until a provider is explicitly configured");
+const preparedRequest = window.NGMemory.prepareLLMRequest("Сколько часов?");
+assert.equal(preparedRequest.schema, "NEUROGENESIS_LLM_REQUEST_V1");
+assert.equal(preparedRequest.metadata.historyMessages, 1, "the current user turn should not be duplicated in model history");
 assert.equal(window.NGMemory.hypothesisLifecycle().length, 0, "legacy backups without causal archives should load an empty lifecycle safely");
 assert.match(window.NGMemory.hypothesisLifecycleReport(), /Пока нет архивных причинных выводов/u);
 const migratedGraph = window.NGMemory.knowledgeGraph();
