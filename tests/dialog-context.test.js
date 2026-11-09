@@ -14,7 +14,7 @@ let state = engine.empty();
 state = engine.track(state, { role: "user", text: "Недостаток сна сегодня вызвал у меня усталость", time: 1 });
 const firstThread = state.activeThreadId;
 state = engine.track(state, { role: "assistant", text: "Сколько часов ты спал? И как определяешь усталость?", time: 2 });
-assert.match(engine.report(state).activeThread.pendingQuestion, /сколько часов/u);
+assert.match(engine.report(state).activeThread.pendingQuestion, /сколько часов/iu);
 state = engine.track(state, { role: "user", text: "Примерно четыре часа", time: 3 });
 assert.equal(state.activeThreadId, firstThread, "an answer must remain in the current thread");
 assert.equal(state.messages[state.messages.length - 1].relation, "answer_to_question");
