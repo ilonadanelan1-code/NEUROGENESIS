@@ -651,7 +651,8 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.ok(legacyCycle);
   assert.equal(legacyCycle.goalChanges.available,false,
     "legacy imported cycles without a goal-delta history must remain readable and explicitly unavailable");
-  assert.deepEqual(legacyCycle.goalChanges.items,[]);
+  assert.equal(legacyCycle.goalChanges.items.length,0,
+    "legacy cycles must expose an empty goal-change list without fabricating history");
   assert.ok(importedCycles.some(item=>item.at===1794158800000&&item.id==="C700"),
     "backup import must retain the cognitive-cycle history already stored on this device");
   const restoredImportedCycle=importedCycles.find(item=>item.at===importTime+5000);
