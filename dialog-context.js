@@ -338,7 +338,8 @@
           const openingSimilarity = opening
             ? overlap(opening, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText)
             : 1;
-          const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);\n          const independentQuestion = isStandaloneQuestion(text) && similarity < 0.12;
+          const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
+          const independentQuestion = isStandaloneQuestion(text) && similarity < 0.12;
           if (likelyAnswer) {
             relation = "answer_to_question";
             answerQuestionText = matchedQuestion.text;
