@@ -70,7 +70,7 @@ assert.ok(musicRecall.matches.some(item=>item.memoryId==="bridge"&&item.pathType
 const indirect=musicRecall.matches.find(item=>item.memoryId==="indirect");
 assert.ok(indirect,"graph traversal should retrieve a claim connected through an intermediate concept");
 assert.equal(indirect.pathType,"two_hop");
-assert.deepEqual(indirect.viaConcepts,["Музыка","Настроением"]);
+assert.equal(JSON.stringify(indirect.viaConcepts),JSON.stringify(["Музыка","Настроением"]));
 assert.ok(indirect.path.length>=2,"an indirect result must include its traversed graph edges");
 assert.ok(!musicRecall.matches.some(item=>item.memoryId==="unrelated"),
   "shared destination concepts alone must not create a path without an explicit bridge");
