@@ -212,6 +212,7 @@ vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { 
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
+vm.runInNewContext(fs.readFileSync("discriminating-observations.js", "utf8"), sandbox, { filename: "discriminating-observations.js" });
 vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
 vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { filename: "dialog-manager.js" });
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
