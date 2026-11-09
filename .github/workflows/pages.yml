@@ -39,6 +39,7 @@ jobs:
           node --check dialog-context.js
           node --check dialog-manager.js
           node --check llm-bridge.js
+          node tests/llm-worker.test.js
           node --check memory.js
           node tests/activation.test.js
           node tests/knowledge.test.js
@@ -52,6 +53,7 @@ jobs:
           node tests/dialog-context.test.js
           node tests/dialog-manager.test.js
           node tests/llm-bridge.test.js
+          node tests/llm-worker.test.js
           node tests/memory-navigation.test.js
 
       - name: Check app asset references
@@ -66,7 +68,7 @@ jobs:
               throw new Error('Missing or stale app reference for ' + version + ': ' + file);
             }
           }
-          for (const id of ['memory-feed', 'knowledge-count', 'memory-manage', 'memory-library-back', 'memory-editor-back', 'memory-editor-input', 'memory-editor-preview', 'memory-editor-save', 'memory-editor-cancel', 'memory-export', 'memory-import', 'memory-import-file', 'memory-library', 'memory-library-list', 'memory-filter', 'memory-more', 'memory-clear']) {
+          for (const id of ['memory-feed', 'knowledge-count', 'memory-manage', 'memory-library-back', 'memory-editor-back', 'memory-editor-input', 'memory-editor-preview', 'memory-editor-save', 'memory-editor-cancel', 'memory-export', 'memory-import', 'memory-import-file', 'memory-library', 'memory-library-list', 'memory-filter', 'memory-more', 'memory-clear', 'llm-ask-button', 'llm-settings', 'llm-connection-status', 'llm-endpoint', 'llm-client-token', 'llm-save-config', 'llm-clear-config']) {
             if (!html.includes('id="' + id + '"')) {
               throw new Error('Missing memory UI element: ' + id);
             }
