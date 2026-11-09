@@ -624,11 +624,24 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const health = await window.NGMemory.testLLMConnection();
   assert.equal(health.model, "integration-test-model");
   assert.equal(window.NGMemory.llmStatus().verified, true);
+  const cyclesBeforeLLM = window.NGMemory.cognitiveCycles().length;
   const sent = await window.NGMemory.askLLM("А почему?");
   assert.equal(sent, true, "the integrated LLM request should return a response");
   assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
   assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
   assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
+  const successfulLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLM + 1,
+    "a completed external model request must create exactly one cognitive cycle");
+  assert.equal(successfulLLMCycle.mode, "llm",
+    "the cognitive cycle must distinguish language-model requests from local reasoning");
+  assert.equal(successfulLLMCycle.status, "complete");
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "reasoning").summary,
+    /подключённой языковой модели/u);
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "verification").summary,
+    /не считается независимой проверкой/u);
+  assert.match(successfulLLMCycle.phases.find(item => item.name === "memory").summary,
+    /долговременная память и структурированные знания не изменялись/u);
 
   let releaseChat = null;
   let concurrentChatCalls = 0;
@@ -661,5 +674,28 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   releaseChat();
   assert.equal(await firstRequest, true, "the original request must complete normally");
   assert.equal(askButton.disabled, false, "the LLM action must be re-enabled after success");
+  const cyclesBeforeLLMFailure = window.NGMemory.cognitiveCycles().length;
+  window.NGMemory.configureLLM({
+    endpoint:"https://neurogenesis-test.workers.dev",
+    clientToken:"integration-client-token"
+  }, async (url) => {
+    if (String(url).endsWith("/api/health")) {
+      return { ok:true, status:200, async json() { return { ok:true, configured:true, model:"integration-test-model" }; } };
+    }
+    if (String(url).endsWith("/api/chat")) {
+      return { ok:false, status:503, async json() { return { error:"provider_unavailable" }; } };
+    }
+    return { ok:false, status:404, async json() { return { error:"not_found" }; } };
+  });
+  await window.NGMemory.testLLMConnection();
+  assert.equal(await window.NGMemory.askLLM("Проверь обработку ошибки провайдера"), false,
+    "a failed provider request must not be reported as a successful response");
+  const failedLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
+  assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLMFailure + 1,
+    "a failed external model request must also be recorded for diagnostics");
+  assert.equal(failedLLMCycle.mode, "llm");
+  assert.equal(failedLLMCycle.status, "error",
+    "a provider failure must be recorded as an error cycle, not as completed reasoning");
+  assert.equal(failedLLMCycle.phases.find(item => item.name === "reasoning").status, "limited");
   console.log("NEUROGENESIS legacy migration, LLM integration and request-lock tests: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
