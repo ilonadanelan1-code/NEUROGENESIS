@@ -237,20 +237,22 @@
   const handleCanvasResize = () => { resize(); scheduleFrame(); };
   let canvasResizeObserver = null;
   function connectCanvasResizeObserver() {
-    if (typeof ResizeObserver !== "function" || canvasResizeObserver) return;
-    let observer = null;
-    try {
-      observer = new ResizeObserver(handleCanvasResize);
-      observer.observe(canvas);
-      canvasResizeObserver = observer;
-    } catch (error) {
-      if (observer && typeof observer.disconnect === "function") {
-        try { observer.disconnect(); } catch (disconnectError) {
-          console.warn("Could not disconnect failed ResizeObserver:", disconnectError);
+    if (typeof ResizeObserver === "function") {
+      if (canvasResizeObserver) return;
+      let observer = null;
+      try {
+        observer = new ResizeObserver(handleCanvasResize);
+        observer.observe(canvas);
+        canvasResizeObserver = observer;
+      } catch (error) {
+        if (observer && typeof observer.disconnect === "function") {
+          try { observer.disconnect(); } catch (disconnectError) {
+            console.warn("Could not disconnect failed ResizeObserver:", disconnectError);
+          }
         }
+        canvasResizeObserver = null;
+        console.warn("ResizeObserver failed; using the window-resize fallback:", error);
       }
-      canvasResizeObserver = null;
-      console.warn("ResizeObserver failed; using the window-resize fallback:", error);
     }
   }
   function disconnectCanvasResizeObserver() {
