@@ -3482,6 +3482,45 @@
     say("assistant", "Запись удалена. Общие нейронные следы сохранены, если на них ссылаются другие воспоминания.");
     setFeedback("ЗАПИСЬ УДАЛЕНА · " + memories.length + " ОСТАЛОСЬ");
   }
+  function reconcileEditedMemoryClaims(existing, parsed, memoryId) {
+    if(!KNOWLEDGE)return [];
+    const previous=KNOWLEDGE.sanitizeClaims(existing);
+    const extracted=KNOWLEDGE.sanitizeClaims(parsed);
+    const result=[];
+    for(const claim of extracted) {
+      if(claim.kind!=="observation") {
+        result.push(claim);
+        continue;
+      }
+      const sameEdge=previous.filter(old=>old&&old.kind==="observation"&&
+        KNOWLEDGE.sameEntity(old.subject,claim.subject)&&KNOWLEDGE.sameEntity(old.object,claim.object)&&
+        normalise(old.predicate)===normalise(claim.predicate));
+      const samePolarity=sameEdge.filter(old=>old.polarity===claim.polarity);
+      const matches=samePolarity.length?samePolarity:sameEdge;
+      const identities=[...new Map(matches.map(old=>[
+        String(old.observationCase&&old.observationCase.eventRef||"").trim(),old
+      ]).filter(([eventRef])=>eventRef).map(([eventRef,old])=>[eventRef,old])).values()];
+      if(!identities.length) {
+        result.push({...claim,sourceMemoryId:memoryId});
+        continue;
+      }
+      for(const prior of identities) {
+        const eventRef=String(prior.observationCase.eventRef).trim();
+        result.push({
+          ...claim,id:prior.id,sourceMemoryId:memoryId,
+          createdAt:prior.createdAt,traceId:prior.traceId||claim.traceId,
+          verification:prior.verification||claim.verification,
+          source:prior.source||claim.source,
+          observationCase:{
+            ...KNOWLEDGE.sanitizeObservationDetails(claim.observationCase,"direct_observation"),
+            eventRef,
+            sourceRef:prior.observationCase.sourceRef||claim.observationCase.sourceRef||""
+          }
+        });
+      }
+    }
+    return KNOWLEDGE.mergeClaims([],result);
+  }
   function editMemory(id, text) {
     const item = memories.find(entry => entry.id === id);
     const value = String(text || "").trim().slice(0, MAX_TEXT);
@@ -3494,7 +3533,9 @@
     const tags = [...new Set(tokens(value))].slice(0, 6);
     const claims = KNOWLEDGE ? KNOWLEDGE.extractClaims(value) : [];
     item.text = value;
-    item.claims = claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:item.id}:claim);
+    item.claims = KNOWLEDGE
+      ? reconcileEditedMemoryClaims(item.claims,claims,item.id)
+      : [];
     invalidateKnowledgeGraphStats();
     ensureClaimTraces(item.claims);
     item.tags = tags;
