@@ -53,4 +53,41 @@ const empty=graphEngine.build([]);
 assert.equal(empty.stats.nodes,0);
 assert.equal(empty.stats.edges,0);
 assert.equal(empty.stats.conflicts,0);
-console.log("NEUROGENESIS knowledge graph tests: stable IDs, provenance, concepts, explicit events, conflicts and non-mutation passed.");
+
+function relation(id,subject,predicate,object,polarity=true,modality="asserted") {
+  return {id,kind:"relationship",subject,predicate,object,polarity,modality,verification:"unverified",
+    source:"user_message",evidence:subject+" "+predicate+" "+object,status:"current"};
+}
+const connectedGraph=graphEngine.build([
+  {id:"bridge",text:"Музыка связана с настроением",claims:[relation("bridge-claim","Музыка","связана с","Настроением")]},
+  {id:"indirect",text:"Настроение влияет на энергию",claims:[relation("indirect-claim","Настроение","влияет на","Энергию")]},
+  {id:"unrelated",text:"Сон связан с энергией",claims:[relation("unrelated-claim","Сон","связан с","Энергией")]}
+]);
+const musicRecall=graphEngine.search(connectedGraph,"музыка",10);
+assert.ok(musicRecall.anchors.some(item=>item.label==="Музыка"),"query concepts should become graph anchors");
+assert.ok(musicRecall.matches.some(item=>item.memoryId==="bridge"&&item.pathType!=="two_hop"),
+  "claims directly linked to a matching concept should be retrievable");
+const indirect=musicRecall.matches.find(item=>item.memoryId==="indirect");
+assert.ok(indirect,"graph traversal should retrieve a claim connected through an intermediate concept");
+assert.equal(indirect.pathType,"two_hop");
+assert.deepEqual(indirect.viaConcepts,["Музыка","Настроением"]);
+assert.ok(indirect.path.length>=2,"an indirect result must include its traversed graph edges");
+assert.ok(!musicRecall.matches.some(item=>item.memoryId==="unrelated"),
+  "shared destination concepts alone must not create a path without an explicit bridge");
+const noPositiveBridge=graphEngine.build([
+  {id:"negative-bridge",text:"Музыка не связана с настроением",claims:[relation("negative","Музыка","связана с","Настроением",false)]},
+  {id:"target",text:"Настроение связано с энергией",claims:[relation("target","Настроение","связано с","Энергией")]}
+]);
+const negativeRecall=graphEngine.search(noPositiveBridge,"музыка",10);
+assert.ok(!negativeRecall.matches.some(item=>item.memoryId==="target"&&item.pathType==="two_hop"),
+  "negative claims must not act as positive reasoning bridges");
+const noHypothesisBridge=graphEngine.build([
+  {id:"possible-bridge",text:"Музыка может быть связана с настроением",claims:[relation("possible","Музыка","связана с","Настроением",true,"possible")]},
+  {id:"possible-target",text:"Настроение связано с энергией",claims:[relation("possible-target","Настроение","связано с","Энергией")]}
+]);
+const possibleRecall=graphEngine.search(noHypothesisBridge,"музыка",10);
+assert.ok(!possibleRecall.matches.some(item=>item.memoryId==="possible-target"&&item.pathType==="two_hop"),
+  "hypothetical claims must not act as established positive bridges");
+assert.deepEqual(graphEngine.search(connectedGraph,"неизвестное слово",10).matches,[],
+  "queries without a graph match should return an empty result");
+console.log("NEUROGENESIS knowledge graph tests: stable IDs, provenance, explicit events, conflicts, bounded traversal and guarded reasoning passed.");

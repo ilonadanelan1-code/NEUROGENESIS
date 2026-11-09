@@ -132,6 +132,9 @@ assert.ok(initialGraph,"memory API should expose the derived knowledge graph");
 assert.equal(initialGraph.stats.memories,6,"the graph should preserve every source memory record");
 assert.ok(initialGraph.stats.claims >= 6,"the graph should contain the structured claims extracted from memory");
 assert.ok(initialGraph.edges.some(edge=>edge.type==="contains"),"memory-to-claim provenance should be represented as an edge");
+const graphSearch=window.NGMemory.knowledgeGraphSearch("музыка");
+assert.ok(graphSearch.matches.some(item=>item.memoryId==="one"),
+  "memory question retrieval should use the graph to locate a relevant source record");
 
 sidePanel.scrollTop = 147;
 const manage = document.getElementById("memory-manage");

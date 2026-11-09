@@ -2537,6 +2537,37 @@
   function scoreMemory(query, item) {
     return matchMemory(query, item).score;
   }
+  function buildGraphRecall(query,limit=12) {
+    if(!KNOWLEDGE_GRAPH||!KNOWLEDGE)return {queryTokens:[],anchors:[],matches:[]};
+    try {
+      const engine=KNOWLEDGE_GRAPH.create(KNOWLEDGE);
+      const graph=engine.build(memories);
+      return typeof engine.search==="function"?engine.search(graph,query,limit):{queryTokens:[],anchors:[],matches:[]};
+    } catch(error) {
+      console.warn("Knowledge graph retrieval failed:",error);
+      return {queryTokens:[],anchors:[],matches:[]};
+    }
+  }
+  function graphEvidenceNote(recall) {
+    const matches=Array.isArray(recall&&recall.matches)?recall.matches:[];
+    if(!matches.length)return "";
+    const lines=["СВЯЗИ, НАЙДЕННЫЕ В ГРАФЕ ЗНАНИЙ"];
+    for(const match of matches.slice(0,4)) {
+      const source=memories.find(item=>item.id===match.memoryId);
+      const route=match.pathType==="two_hop"
+        ?"косвенная цепочка через "+(match.viaConcepts||[]).join(" → ")
+        :match.pathType==="one_hop"
+          ?"связь через понятие «"+((match.viaConcepts||[])[0]||"")+"»"
+          :"прямое совпадение с содержанием утверждения";
+      const polarity=match.polarity===false?" · отрицательное утверждение":"";
+      const verification=match.verification&&match.verification!=="unspecified"
+        ?" · статус источника: "+match.verification:"";
+      lines.push("• "+(match.label||"Структурированное утверждение")+" — "+route+polarity+verification+
+        (source?"\n  Исходная запись: «"+source.text+"»":""));
+    }
+    lines.push("Переход по графу показывает связь между сохранёнными записями, но сам по себе не доказывает истинность утверждений или причинность.");
+    return lines.join("\n");
+  }
   function askMemoryCore(raw) {
     const query = String(raw || "").trim();
     if (!query) { setFeedback("Напиши вопрос к моей памяти."); return; }
@@ -2634,6 +2665,16 @@
     const causalRecall = KNOWLEDGE && typeof KNOWLEDGE.causalEvidence==="function" ? KNOWLEDGE.causalEvidence(query,allClaims) : null;
     const causalClaimIds = new Set(causalRecall && causalRecall.claimIds || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
+    const graphRecall=buildGraphRecall(query,16);
+    const graphByMemory=new Map();
+    for(const match of graphRecall.matches||[]) {
+      if(!match.memoryId)continue;
+      const factor=match.pathType==="two_hop"?0.55:match.pathType==="one_hop"?0.78:0.92;
+      const score=Number(match.score||0)*factor;
+      const previous=graphByMemory.get(match.memoryId);
+      if(!previous||score>previous.score)graphByMemory.set(match.memoryId,{score,pathType:match.pathType});
+    }
+    const graphNote=graphEvidenceNote(graphRecall);
     if (structuredAnswer) {
       const isEntityProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|что известно|расскажи|кто такой|кто такая|кто такое)(?:\s|$)/u.test(lower);
       const isIdentityQuery = /^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое)$/u.test(lower);
@@ -2643,8 +2684,11 @@
       const isDerivedHypotheses = !!(derivedHypotheses && derivedHypotheses.answer);
       const isHypothesisPriority = !!(hypothesisPriority && hypothesisPriority.answer);
       const isUserProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|расскажи)(?:\s|$)/u.test(lower) && /\b(?:обо мне|о мне|про меня)\b/u.test(lower);
-      const related = memories.map(item => ({ item, ...matchMemory(query,item) }))
-        .filter(hit => hit.score > 0.08 ||
+      const related = memories.map(item => {
+        const base=matchMemory(query,item),graphHit=graphByMemory.get(item.id);
+        return {item,...base,score:Math.max(base.score,graphHit?graphHit.score:0),
+          graphPathType:graphHit?graphHit.pathType:null};
+      }).filter(hit => hit.score > 0.08 ||
           (isIdentityQuery && (hit.item.claims || []).some(claim => claim.kind === "identity" && claim.subject === "assistant")) ||
           (isUserProfileQuery && (hit.item.claims || []).some(claim =>
             (claim.kind==="fact"&&claim.subject==="user") ||
@@ -2669,7 +2713,8 @@
         isCausalQuery?makeReasoningMeta("causal_chain",causalRecall,sourceClaims):null;
       const modelNote=(isHypothesisPriority||isDerivedHypotheses||isExperimentPlan||isCausalQuery)?formatModelDecisionNote():"";
       const researchNote=(isHypothesisPriority||isDerivedHypotheses)?researchAwareHypothesisNote(isHypothesisPriority?hypothesisPriority:derivedHypotheses):"";
-      const conclusionAnswer=researchNote+(researchNote?"\n\n":"")+structuredAnswer+modelNote+baselineReviewNote(conclusionMeta);
+      const conclusionAnswer=researchNote+(researchNote?"\n\n":"")+structuredAnswer+
+        (graphNote?"\n\n"+graphNote:"")+modelNote+baselineReviewNote(conclusionMeta);
       say("assistant", conclusionAnswer, conclusionMeta);
       const brain = window.NGBrain;
       const activeTraceIds = [...new Set(traceIds)];
@@ -2687,8 +2732,10 @@
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
     }
-    const ranked = memories.map(item => ({ item, score: scoreMemory(query, item) }))
-      .filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
+    const ranked = memories.map(item => {
+      const base=scoreMemory(query,item),graphHit=graphByMemory.get(item.id);
+      return {item,score:Math.max(base,graphHit?graphHit.score:0),graphPathType:graphHit?graphHit.pathType:null};
+    }).filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
     if (!ranked.length) {
       say("assistant", "Я пока не нашёл в своей памяти достаточно близкой информации.\n\nЯ не буду выдумывать ответ. Расскажи мне об этом через «Запомнить», и я смогу использовать эти сведения в следующих вопросах.");
       setFeedback("ПОИСК ЗАВЕРШЁН · НАДЁЖНЫХ СОВПАДЕНИЙ НЕТ");
@@ -2704,6 +2751,7 @@
     const answer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминания:") +
       "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + hit.item.text).join("\n\n") +
       "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением."+
+      (graphNote?"\n\n"+graphNote:"")+
       (currentModelDecisions().length?formatModelDecisionNote():"");
     say("assistant", answer);
     const brain = window.NGBrain;
@@ -3283,6 +3331,7 @@
       const graph = KNOWLEDGE_GRAPH ? KNOWLEDGE_GRAPH.create(KNOWLEDGE).build(memories) : null;
       return graph ? {...graph.stats} : null;
     },
+    knowledgeGraphSearch: query => buildGraphRecall(query,16),
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
     cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
     attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),

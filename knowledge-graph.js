@@ -120,7 +120,85 @@
         linkedObservations:linkedObservationCount,unlinkedObservations:observationCount-linkedObservationCount};
       return {schemaVersion:1,nodes:nodeList,edges:edgeList,stats};
     }
-    return {version:1,build};
+
+    function search(graph,query,limit=8) {
+      const empty={queryTokens:[],anchors:[],matches:[]};
+      if(!graph||!Array.isArray(graph.nodes)||!Array.isArray(graph.edges))return empty;
+      const queryTokens=knowledge.tokens(String(query||""));
+      if(!queryTokens.length)return empty;
+      const nodesById=new Map(graph.nodes.map(node=>[node.id,node]));
+      const claims=new Map(graph.nodes.filter(node=>node.type==="claim").map(node=>[node.id,node]));
+      const conceptClaims=new Map(),claimConcepts=new Map(),sourceByClaim=new Map();
+      function pushLink(map,key,value) {
+        if(!map.has(key))map.set(key,[]);
+        map.get(key).push(value);
+      }
+      for(const edge of graph.edges) {
+        if((edge.type==="claim_subject"||edge.type==="claim_object")&&
+           claims.has(edge.from)&&nodesById.get(edge.to)?.type==="concept") {
+          const link={claimId:edge.from,conceptId:edge.to,edgeId:edge.id,role:edge.type};
+          pushLink(conceptClaims,edge.to,link);
+          pushLink(claimConcepts,edge.from,link);
+        } else if(edge.type==="contains"&&nodesById.get(edge.from)?.type==="memory"&&claims.has(edge.to)) {
+          sourceByClaim.set(edge.to,edge.memoryId||nodesById.get(edge.from).memoryId||null);
+        }
+      }
+      const anchors=graph.nodes.filter(node=>node.type==="concept").map(node=>{
+        const values=[node.label,...(Array.isArray(node.aliases)?node.aliases:[])].filter(Boolean).join(" ");
+        const score=knowledge.semanticMatch(queryTokens,knowledge.tokens(values)).score;
+        return {id:node.id,label:node.label,score};
+      }).filter(item=>item.score>=0.18)
+        .sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id)).slice(0,12);
+      const results=new Map();
+      function add(claimId,score,pathType,viaConcepts=[],path=[]) {
+        const claim=claims.get(claimId);
+        if(!claim||!Number.isFinite(score)||score<0.16)return;
+        const memoryId=sourceByClaim.get(claimId)||null;
+        const current=results.get(claimId);
+        const candidate={claimNodeId:claimId,claimId:claim.claimId||null,memoryId,sourceMemoryId:memoryId,
+          label:claim.label,kind:claim.kind,subject:claim.subject,predicate:claim.predicate,object:claim.object,
+          polarity:claim.polarity!==false,modality:claim.modality||"asserted",verification:claim.verification||"unspecified",
+          status:claim.status||"current",score,pathType,viaConcepts,path};
+        if(!current||candidate.score>current.score||
+           (candidate.score===current.score&&candidate.pathType.localeCompare(current.pathType)<0))results.set(claimId,candidate);
+      }
+      for(const claim of claims.values()) {
+        if(claim.status==="superseded")continue;
+        const haystack=[claim.label,claim.subject,claim.predicate,claim.object].filter(Boolean).join(" ");
+        const direct=knowledge.semanticMatch(queryTokens,knowledge.tokens(haystack)).score;
+        if(direct>=0.16)add(claim.id,direct,"direct",[],[]);
+      }
+      for(const anchor of anchors) {
+        for(const link of conceptClaims.get(anchor.id)||[]) {
+          add(link.claimId,anchor.score*0.78,"one_hop",[anchor.label],[link.edgeId]);
+        }
+      }
+      const bridgeKinds=new Set(["relationship","causal","rule","definition"]);
+      for(const anchor of anchors) {
+        for(const firstLink of conceptClaims.get(anchor.id)||[]) {
+          const bridge=claims.get(firstLink.claimId);
+          if(!bridge||!bridgeKinds.has(bridge.kind)||bridge.status==="superseded"||
+             bridge.polarity===false||bridge.modality==="possible")continue;
+          for(const middleLink of claimConcepts.get(bridge.id)||[]) {
+            if(middleLink.conceptId===anchor.id)continue;
+            const middle=nodesById.get(middleLink.conceptId);
+            if(!middle||middle.type!=="concept")continue;
+            for(const targetLink of conceptClaims.get(middleLink.conceptId)||[]) {
+              if(targetLink.claimId===bridge.id)continue;
+              const target=claims.get(targetLink.claimId);
+              if(!target||target.status==="superseded")continue;
+              add(target.id,anchor.score*0.38,"two_hop",
+                [anchor.label,middle.label],[firstLink.edgeId,middleLink.edgeId,targetLink.edgeId]);
+            }
+          }
+        }
+      }
+      const matches=[...results.values()].sort((a,b)=>b.score-a.score||
+        String(a.memoryId||"").localeCompare(String(b.memoryId||""))||a.claimNodeId.localeCompare(b.claimNodeId))
+        .slice(0,Math.max(1,Math.min(30,Number(limit)||8)));
+      return {queryTokens,anchors,matches};
+    }
+    return {version:1,build,search};
   }
   window.NGKnowledgeGraph={version:1,create};
 })();
