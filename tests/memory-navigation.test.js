@@ -1402,4 +1402,43 @@ assert.ok(downloadLink.download.endsWith(".json"));
 assert.equal(downloadLink.download.length,"neurogenesis-memory-".length+10+".json".length);
 assert.equal(downloadLink.parentNode,null,"the temporary download link should be removed after activation");
 
+
+const editedEventText="При недостатке сна наблюдалась усталость; контекст: после тренировки; время: 2026-11-09 18:00; критерий: по шкале 1–10; результат: 6/10";
+const editedEventClaim=window.NGKnowledge.extractClaims(editedEventText)[0];
+editedEventClaim.id="edit-preserved-event-claim";
+editedEventClaim.observationCase={
+  ...editedEventClaim.observationCase,
+  eventRef:"edit-preserved-event-01"
+};
+database.set("neurogenesis.memories.v1",JSON.stringify([{
+  id:"edit-preserved-event-memory",text:editedEventText,tags:[],traceIds:[],
+  createdAt:backupTime,updatedAt:backupTime,strength:.65,repetitions:1,recalls:0,
+  claims:[editedEventClaim]
+}]));
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.inquiries.v1","[]");
+database.set("neurogenesis.cognitive-cycles.v1","[]");
+loadMemory();
+document.getElementById("memory-manage").dispatchLast("click");
+const editList=document.getElementById("memory-library-list");
+const editCard=editList.children.find(card=>card.dataset.memoryId==="edit-preserved-event-memory");
+assert.ok(editCard,"the event-linked source record should be available in the memory library");
+const editActions=editCard.children.find(child=>child.className==="memory-entry-actions");
+editList.dispatchLast("click",{target:editActions.children.find(child=>child.dataset.action==="edit")});
+const editInput=document.getElementById("memory-editor-input");
+editInput.value=editedEventText+"; дополнительная пометка: формулировка уточнена";
+editInput.dispatch("input");
+document.getElementById("memory-editor-save").dispatchLast("click");
+const editedEvent=window.NGMemory.claims().find(claim=>claim.id==="edit-preserved-event-claim");
+assert.ok(editedEvent,"editing the source text should retain the structured observation identity");
+assert.equal(editedEvent.observationCase.eventRef,"edit-preserved-event-01",
+  "editing the wording must not discard an explicitly assigned event ID");
+assert.equal(editedEvent.sourceMemoryId,"edit-preserved-event-memory",
+  "the observation must remain linked to the edited source memory");
+assert.equal(window.NGMemory.observationCases().filter(item=>item.details.eventRef==="edit-preserved-event-01").length,1,
+  "the edited memory should expose exactly one observation for the preserved event");
+
 console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");
