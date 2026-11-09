@@ -136,4 +136,52 @@ assert.equal(q7.metadataCoverage,88,"field coverage should be independent from w
 assert.match(qualityWindow.NGGoals.report(),/Прогресс выполнения работы: 100\/100/u);
 assert.match(qualityWindow.NGGoals.report(),/Качество доказательств: полных карточек 1\/2/u);
 
+// Keep the contrast investigation's full positive/negative evidence separate
+// from a duplicate-card inquiry that cites only two of those same cards.
+const separationWindow={};
+const separationSandbox={window:separationWindow,localStorage,console,Date,Math,Set,Map,JSON};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),separationSandbox,{filename:"goals.js"});
+const separationMemories=[{id:"shared-observation-memory",claims:[
+  {id:"q1-causal",kind:"causal",subject:"Недостаток сна",object:"усталость",polarity:true},
+  {id:"q1-positive-a",kind:"observation",subject:"Недостаток сна",object:"усталость",polarity:true},
+  {id:"q1-negative",kind:"observation",subject:"Недостаток сна",object:"усталость",polarity:false},
+  {id:"q1-positive-b",kind:"observation",subject:"Недостаток сна",object:"усталость",polarity:true}
+]}];
+const separationSnapshot=JSON.stringify(separationMemories);
+separationWindow.NGGoals.reconcile({
+  inquiries:[
+    {id:"Q1",kind:"contrast_observations",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+      question:"Сопоставить три разнонаправленных наблюдения",status:"open",sourceClaimIds:["q1-causal"],
+      lastAskedAt:now,createdAt:now-1000,updatedAt:now},
+    {id:"Q4",kind:"duplicate_observation",edgeSubject:"Недостаток сна",edgeObject:"усталость",
+      question:"Эти две карточки описывают один эпизод?",status:"open",
+      sourceClaimIds:["q1-positive-a","q1-negative"],lastAskedAt:now,
+      createdAt:now-900,updatedAt:now}
+  ],
+  memories:separationMemories,
+  now
+});
+const separatedGoals=separationWindow.NGGoals.list();
+const q1Contrast=separatedGoals.find(item=>item.inquiryId==="Q1");
+const q4Duplicate=separatedGoals.find(item=>item.inquiryId==="Q4");
+assert.ok(q1Contrast&&q4Duplicate,"the two inquiry goals must remain separately represented");
+assert.equal(q1Contrast.kind,"contrast_observations");
+assert.equal(q1Contrast.observationCount,3,
+  "Q1 must retain all three positive/negative observations for the contrast investigation");
+assert.deepEqual(q1Contrast.evidenceClaimIds.filter(id=>id.startsWith("q1-")).sort(),
+  ["q1-negative","q1-positive-a","q1-positive-b"],
+  "Q1 must retain both polarities and the third observation");
+assert.equal(q4Duplicate.kind,"duplicate_observation");
+assert.equal(q4Duplicate.observationCount,2,
+  "Q4 must compare only the two observation cards explicitly cited by that inquiry");
+assert.deepEqual(q4Duplicate.evidenceClaimIds.slice().sort(),
+  ["q1-negative","q1-positive-a"],
+  "the duplicate-card task must not absorb the third same-edge observation");
+assert.equal(q4Duplicate.unknownEventCount,2,
+  "Q4 must continue to report both cited cards as lacking explicit event identity");
+assert.equal(q4Duplicate.eventCount,0,
+  "Q4 must not infer an event identity from matching subject/object or polarity");
+assert.equal(JSON.stringify(separationMemories),separationSnapshot,
+  "goal reconciliation must not mutate source observations or their polarity");
+
 console.log("NEUROGENESIS goal tests: persistence, evidence links, status transitions, stale detection, focus ranking, backup merge and clearing passed.");
