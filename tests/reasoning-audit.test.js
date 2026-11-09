@@ -49,6 +49,13 @@ assert.ok(sharedRoute.sharedEdges.some(edge=>edge.subject==="Музыка"&&edge
   "a common edge must be identified as a shared dependency");
 assert.ok(sharedRoute.sharedClaims.some(item=>item.claimId==="c1"&&item.routeCount===2),
   "the same source claim must not be counted twice as separate support");
+const repeatedPathAudit=audit.analyze([[shared,c2],[shared,c2,c3]],claims,sourceByClaim);
+assert.equal(repeatedPathAudit.supportingObservationCount,2,
+  "an observation reused by two routes must be counted once in the summary");
+assert.equal(repeatedPathAudit.counterObservationCount,1,
+  "a counter-observation reused by two routes must be counted once in the summary");
+assert.equal(repeatedPathAudit.unobservedStepCount,1,
+  "a shared unobserved edge must be counted once, not once per route");
 const repeatedClaim={...c4,evidence:"Одно и то же общее утверждение"};
 const duplicateEvidence=audit.analyze([[c3],[repeatedClaim]],[c3,repeatedClaim],sourceByClaim);
 assert.ok(duplicateEvidence.repeatedEvidence.some(item=>item.claimCount===2),

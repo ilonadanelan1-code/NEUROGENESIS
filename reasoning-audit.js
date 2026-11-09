@@ -38,6 +38,8 @@
             sourceMemoryId:sourceFor(claim||edge),conflict:!!(claim&&claim.id&&conflictIds.has(claim.id)),
             supportingObservations:observations.filter(c=>c.polarity!==false).length,
             counterObservations:observations.filter(c=>c.polarity===false).length,
+            supportingObservationIds:observations.filter(c=>c.polarity!==false).map(c=>c.id||knowledge.normalise(c.evidence)).filter(Boolean),
+            counterObservationIds:observations.filter(c=>c.polarity===false).map(c=>c.id||knowledge.normalise(c.evidence)).filter(Boolean),
             observationIds:observations.map(c=>c.id).filter(Boolean)
           };
         });
@@ -81,9 +83,12 @@
       const sourceRecords=[...new Set(routes.flatMap(route=>route.sourceMemoryIds))].sort();
       const allSteps=routes.flatMap(route=>route.steps);
       const uniqueClaimIds=[...new Set(allSteps.map(s=>s.id).filter(Boolean))];
-      const supportingObservationCount=allSteps.reduce((sum,s)=>sum+s.supportingObservations,0);
-      const counterObservationCount=allSteps.reduce((sum,s)=>sum+s.counterObservations,0);
-      const unobservedStepCount=allSteps.filter(s=>s.supportingObservations===0&&s.counterObservations===0).length;
+      const supportingObservationCount=new Set(allSteps.flatMap(s=>s.supportingObservationIds)).size;
+      const counterObservationCount=new Set(allSteps.flatMap(s=>s.counterObservationIds)).size;
+      const uniqueSteps=new Map();
+      for(const step of allSteps)if(!uniqueSteps.has(edgeKey(step)))uniqueSteps.set(edgeKey(step),step);
+      const unobservedStepCount=[...uniqueSteps.values()].filter(s=>
+        s.supportingObservations===0&&s.counterObservations===0).length;
       const conflicts=conflictRows.map(row=>({
         type:row.type||"possible",reason:clean(row.reason,220),
         left:{id:row.left&&row.left.id||null,evidence:clean(row.left&&row.left.evidence,200),sourceMemoryId:sourceFor(row.left)},
