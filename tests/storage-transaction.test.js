@@ -73,3 +73,71 @@ assert.equal(blockedTransaction.status().ready,false,
 assert.ok(blockedWarnings.some(message=>message.includes("storage transaction")),
  "the unavailable persistence path must be visible in diagnostics");
 console.log("NEUROGENESIS denied-storage startup: in-memory goals remain available and persistence stays explicitly unavailable.");
+
+const interruptedDatabase=new Map([
+ ["atomic.recovery.first","before-first"],
+ ["atomic.recovery.second","before-second"]
+]);
+let failForwardWrite=true;
+let failRollbackWrite=true;
+const interruptedStorage={
+ getItem(key){return interruptedDatabase.has(key)?interruptedDatabase.get(key):null;},
+ setItem(key,value){
+  const text=String(value);
+  if(key==="atomic.recovery.second"&&text==="after-second"&&failForwardWrite){
+   failForwardWrite=false;
+   throw new Error("Injected failure during forward commit");
+  }
+  if(key==="atomic.recovery.first"&&text==="before-first"&&failRollbackWrite){
+   failRollbackWrite=false;
+   throw new Error("Injected failure during rollback");
+  }
+  interruptedDatabase.set(key,text);
+ },
+ removeItem(key){interruptedDatabase.delete(key);}
+};
+const interruptedWindow={};
+const interruptedWarnings=[];
+const interruptedSandbox={
+ window:interruptedWindow,localStorage:interruptedStorage,Date,Math,Set,Map,JSON,
+ console:{warn(...args){interruptedWarnings.push(args.map(String).join(" "));},error(){}}
+};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),interruptedSandbox,{filename:"goals-interrupted-recovery.js"});
+const interruptedTransaction=interruptedWindow.NGStorageTransaction;
+assert.equal(interruptedTransaction.run([
+ {key:"atomic.recovery.first",value:"after-first"},
+ {key:"atomic.recovery.second",value:"after-second"}
+]),false,"a failed forward write must not be reported as committed");
+assert.equal(interruptedTransaction.status().ready,false,
+ "an interrupted rollback must leave storage unavailable instead of claiming consistency");
+assert.ok(interruptedDatabase.has(interruptedTransaction.key),
+ "the before-image journal must be retained when rollback cannot finish");
+assert.ok(interruptedWarnings.some(message=>message.includes("rollback")),
+ "the interrupted rollback must be visible in diagnostics");
+const recoveryWindow={};
+const recoverySandbox={
+ window:recoveryWindow,localStorage:interruptedStorage,Date,Math,Set,Map,JSON,console
+};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),recoverySandbox,{filename:"goals-recovery-after-restart.js"});
+const recoveredTransaction=recoveryWindow.NGStorageTransaction;
+assert.equal(recoveredTransaction.status().ready,true,
+ "a fresh module initialization must retry and complete the retained recovery journal");
+assert.equal(interruptedDatabase.get("atomic.recovery.first"),"before-first");
+assert.equal(interruptedDatabase.get("atomic.recovery.second"),"before-second");
+assert.equal(interruptedDatabase.has(recoveredTransaction.key),false,
+ "the journal must be removed only after the before-image has been restored");
+
+const corruptDatabase=new Map([["neurogenesis.storage-transaction.v1","{not-json"]]);
+const corruptStorage={
+ getItem(key){return corruptDatabase.has(key)?corruptDatabase.get(key):null;},
+ setItem(key,value){corruptDatabase.set(key,String(value));},
+ removeItem(key){corruptDatabase.delete(key);}
+};
+const corruptWindow={};
+const corruptSandbox={window:corruptWindow,localStorage:corruptStorage,Date,Math,Set,Map,JSON,console};
+vm.runInNewContext(fs.readFileSync("goals.js","utf8"),corruptSandbox,{filename:"goals-corrupt-journal.js"});
+assert.equal(corruptWindow.NGStorageTransaction.status().ready,false,
+ "an unreadable journal must block writes instead of silently discarding recovery information");
+assert.equal(corruptDatabase.get("neurogenesis.storage-transaction.v1"),"{not-json",
+ "an invalid journal must be retained for diagnosis rather than silently removed");
+console.log("NEUROGENESIS interrupted rollback recovery: retained journal, restart recovery and corrupt-journal guard passed.");
