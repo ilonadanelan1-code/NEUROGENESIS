@@ -1,7 +1,8 @@
 (() => {
   "use strict";
   const STORAGE_KEY = "neurogenesis.goals.v1";
-  const MAX_GOALS = 24;
+  // Keep the goal archive aligned with memory.js MAX_INQUIRIES.
+  const MAX_GOALS = 48;
   const STALE_AFTER = 30 * 24 * 60 * 60 * 1000;
   const STATUSES = ["active","waiting_user","blocked","review","paused","completed","stale"];
   const STORAGE_TRANSACTION_KEY = "neurogenesis.storage-transaction.v1";
