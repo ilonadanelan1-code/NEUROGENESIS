@@ -146,6 +146,7 @@ vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { fil
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
 vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
 vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
+vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { filename: "dialog-manager.js" });
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
@@ -154,6 +155,9 @@ const dialogState = window.NGMemory.dialogContext();
 assert.ok(dialogState && dialogState.activeThread, "legacy dialogue should rebuild a working context");
 assert.match(dialogState.activeThread.title, /недостаток сна/u);
 assert.equal(window.NGMemory.dialogHistory().length, 3);
+const dialogPlan = window.NGMemory.planDialog("А почему?");
+assert.equal(dialogPlan.intent, "follow_up", "the manager should classify a short contextual follow-up");
+assert.equal(dialogPlan.action, "continue_active_topic", "the manager should route a resolvable follow-up through the active topic");
 assert.equal(window.NGMemory.llmStatus().connected, false, "the model bridge must remain offline until a provider is explicitly configured");
 const preparedRequest = window.NGMemory.prepareLLMRequest("А почему?");
 assert.equal(preparedRequest.schema, "NEUROGENESIS_LLM_REQUEST_V1");
