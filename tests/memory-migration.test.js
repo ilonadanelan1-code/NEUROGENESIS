@@ -495,7 +495,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const resumedResearchGoal=window.NGMemory.goals().find(item=>item.inquiryId==="Q810");
   assert.equal(resumedResearchGoal.status,"active",
     "a resumed inquiry must become active until it is explicitly asked again");
-  assert.match(resumedResearchGoal.nextAction,/повторно задать Q810/u,
+  assert.match(resumedResearchGoal.nextAction,/Повторно задать Q810/u,
     "the resumed goal must instruct the planner to present the question again");
   window.NGMemory.ask("пропусти вопрос Q810");
   assert.equal(window.NGMemory.inquiries().find(item=>item.id==="Q810").status,"skipped",
