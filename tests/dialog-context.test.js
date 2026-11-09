@@ -208,10 +208,10 @@ summaryState = engine.track(summaryState, {
   role:"user", text:"Важно сохранять исходные реплики, не смешивать темы и переносить заметки через резервную копию.", time:302
 });
 summaryState = engine.track(summaryState, {
-  role:"assistant", text:"Что важнее всего сохранить в этой системе?", time:303
+  role:"assistant", text:"Что нужно сохранить?", time:303
 });
 summaryState = engine.track(summaryState, {
-  role:"user", text:"Сохранить исходные реплики.", time:304
+  role:"user", text:"Нужно сохранить исходные реплики.", time:304
 });
 const summaryReport = engine.report(summaryState);
 assert.equal(summaryReport.activeThread.id, summaryThreadId);
