@@ -109,9 +109,18 @@ database.set("neurogenesis.reasoning-archive.v1", JSON.stringify([
   }},
   {role:"assistant",time:1794158600000,text:"Только исходный снимок",sourceReasoning:{
     version:1,type:"derived_hypotheses",createdAt:1794158600000,status:"current",
-    conclusions:[{subject:"что усталость",object:"снижению концентрации",
-      paths:[[{id:"archive-source-only-edge",subject:"что усталость",object:"снижению концентрации"}]]}],
-    reviews:[],modelHistory:[]
+    conclusions:[
+      {subject:"что усталость",object:"снижению концентрации",
+        paths:[[{id:"archive-source-only-edge",subject:"что усталость",object:"снижению концентрации"}]]},
+      {subject:"Усталость",object:"снижению концентрации",
+        evidence:"Исследование показало, что усталость приводит к снижению концентрации",
+        paths:[[{id:"archive-reported-conclusion",subject:"Усталость",object:"снижению концентрации"}]]}
+    ],
+    reviews:[],modelHistory:[{at:1794158600000,edges:[],alternatives:[
+      {subject:"Перегрузка",object:"усталости",
+        evidence:"Исследование показало, что перегрузка приводит к усталости",
+        paths:[[{subject:"Перегрузка",object:"усталости"}]]}
+    ]}]
   }}
 ]));
 
@@ -230,6 +239,10 @@ const loadedArchiveSourceOnly=loadedReasoningHistory.find(item=>item.time===1794
 assert.ok(loadedArchiveSourceOnly&&loadedArchiveSourceOnly.conclusions.length===0,
   "a raw sourceReasoning archive snapshot must pass through the same active-projection guard");
 assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.reason==="malformed_causal_subject"));
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.reason==="reported_causal_statement"&&item.subject==="Усталость"),
+  "a reported-evidence conclusion must be excluded even when its causal subject is otherwise valid");
+assert.ok(loadedArchiveSourceOnly.excludedPaths.some(item=>item.origin==="snapshot_alternative"&&item.reason==="reported_causal_statement"&&item.subject==="Перегрузка"),
+  "a report-attributed snapshot alternative must not enter the active archive projection");
 const loadedDialogSourceOnly=loadedReasoningHistory.find(item=>item.time===1794158202000);
 assert.ok(loadedDialogSourceOnly&&loadedDialogSourceOnly.conclusions.length===0,
   "reasoning restored from a dialogue sourceReasoning snapshot must not reactivate a malformed route");
@@ -484,9 +497,16 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
           object:"снижению концентрации"}]]},
       {subject:"Усталость",object:"снижению концентрации",
         paths:[[{id:"fallback-reported-evidence",subject:"Усталость",object:"снижению концентрации",
-          evidence:"Исследование показало, что усталость приводит к снижению концентрации"}]]}
+          evidence:"Исследование показало, что усталость приводит к снижению концентрации"}]]},
+      {subject:"Перегрузка",object:"усталости",
+        evidence:"Исследование показало, что перегрузка приводит к усталости",
+        paths:[[{id:"fallback-reported-conclusion",subject:"Перегрузка",object:"усталости"}]]}
     ],
-    reviews:[],modelHistory:[]
+    reviews:[],modelHistory:[{at:fallbackArchiveTime,edges:[],alternatives:[
+      {subject:"Недосып",object:"усталости",
+        evidence:"Исследование показало, что недосып приводит к усталости",
+        paths:[[{subject:"Недосып",object:"усталости"}]]}
+    ]}]
   };
   fallbackDatabase.set("neurogenesis.reasoning-archive.v1",JSON.stringify([
     {role:"assistant",time:fallbackArchiveTime,text:"Fallback archive",sourceReasoning:fallbackRawReasoning}
@@ -509,7 +529,13 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     "the fallback archive guard must retain the reporting subject as an excluded historical path");
   assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
     item.subject==="Усталость"),
-    "the fallback archive guard must reject a valid-looking subject whose evidence is only a research report");
+    "the fallback archive guard must reject a valid-looking path whose evidence is only a research report");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.reason==="reported_causal_statement"&&
+    item.subject==="Перегрузка"),
+    "the fallback archive guard must reject a valid-looking conclusion with report-only evidence");
+  assert.ok(fallbackHistory[0].excludedPaths.some(item=>item.origin==="snapshot_alternative"&&
+    item.reason==="reported_causal_statement"&&item.subject==="Недосып"),
+    "the fallback archive guard must also reject report-attributed snapshot alternatives");
   const fallbackPersisted=JSON.parse(fallbackDatabase.get("neurogenesis.reasoning-archive.v1"))[0];
   assert.equal(fallbackPersisted.sourceReasoning.conclusions[0].subject,"Исследование показало, что усталость",
     "the raw source snapshot must remain available for historical inspection");

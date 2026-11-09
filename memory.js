@@ -366,7 +366,7 @@
     };
     const conclusions=raw.conclusions.slice(0,8).map(item=>{
       if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
-      if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
+      if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object,evidence:item.evidence})) {
         const sourcePaths=Array.isArray(item.paths)?item.paths:[];
         const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
         if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("conclusion",item.subject,item.object,path,reason);
@@ -429,7 +429,7 @@
       }).filter(Boolean):[];
       const alternatives=Array.isArray(snapshot.alternatives)?snapshot.alternatives.slice(0,8).map(item=>{
         if(!item||typeof item.subject!=="string"||typeof item.object!=="string")return null;
-        if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object})) {
+        if(!isValidArchivedCausalEdge({subject:item.subject,object:item.object,evidence:item.evidence})) {
           const sourcePaths=Array.isArray(item.paths)?item.paths:[];
           const reason=archivedCausalExclusionReason({subject:item.subject,object:item.object,evidence:item.evidence});
           if(sourcePaths.length)for(const path of sourcePaths)recordExcludedPath("snapshot_alternative",item.subject,item.object,path,reason);
