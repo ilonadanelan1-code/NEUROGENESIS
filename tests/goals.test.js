@@ -391,7 +391,7 @@ resumedGoalWindow.NGGoals.reconcile({inquiries:[resumedInquiry],memories:[],now:
 let resumedGoal = resumedGoalWindow.NGGoals.list().find(row=>row.inquiryId==="Q11");
 assert.equal(resumedGoal.status,"active",
   "a resumed inquiry must be active again until it is asked for a new response");
-assert.match(resumedGoal.nextAction,/повторно задать Q11/u,
+assert.match(resumedGoal.nextAction,/Повторно задать Q11/u,
   "a resumed goal must tell the system to present the question again");
 resumedInquiry.lastAskedAt = resumedAt+200;
 resumedInquiry.updatedAt = resumedAt+200;
