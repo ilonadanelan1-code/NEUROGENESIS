@@ -1,0 +1,8 @@
+name = "neurogenesis-llm-proxy"
+main = "server/llm-worker.js"
+compatibility_date = "2026-11-09"
+
+[vars]
+APP_ORIGIN = "https://ilonadanelan1-code.github.io"
+UPSTREAM_BASE_URL = "https://api.openai.com/v1"
+# Set UPSTREAM_MODEL in the Cloudflare Worker dashboard (Variables) to the model enabled for your provider.
