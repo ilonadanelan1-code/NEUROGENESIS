@@ -1259,10 +1259,17 @@ assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
   "the cognitive cycle should store a compact research-goal snapshot");
 
 // Backup export must produce a downloadable v2 archive with all durable stores.
+const exportedBlobsBefore=exportedBlobs.length;
+const downloadLinksBefore=downloadLinks.length;
 document.getElementById("memory-export").dispatch("click");
-assert.equal(exportedBlobs.length,1,"the export control should create one backup blob");
-assert.equal(exportedBlobs[0].type,"application/json;charset=utf-8");
-const exportedBackup=JSON.parse(exportedBlobs[0].source);
+assert.equal(exportedBlobs.length-exportedBlobsBefore,1,
+  "the export control should create exactly one new backup blob");
+assert.equal(downloadLinks.length-downloadLinksBefore,1,
+  "the export control should create exactly one new download link");
+const exportedBlob=exportedBlobs[exportedBlobs.length-1];
+const downloadLink=downloadLinks[downloadLinks.length-1];
+assert.equal(exportedBlob.type,"application/json;charset=utf-8");
+const exportedBackup=JSON.parse(exportedBlob.source);
 assert.equal(exportedBackup.format,"NEUROGENESIS_MEMORY_BACKUP");
 assert.equal(exportedBackup.version,2);
 assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
@@ -1270,11 +1277,10 @@ assert.equal(exportedBackup.memories.length,window.NGMemory.count(),
 for(const key of ["dialog","dialogContext","modelDecisions","modelEvidence","reasoningArchive","inquiries","goals"])
   assert.ok(Object.prototype.hasOwnProperty.call(exportedBackup,key),
     "the backup must include the " + key + " store");
-assert.equal(downloadLinks.length,1);
-assert.equal(downloadLinks[0].clicked,true,"the generated download link should be activated");
-assert.ok(downloadLinks[0].download.startsWith("neurogenesis-memory-"));
-assert.ok(downloadLinks[0].download.endsWith(".json"));
-assert.equal(downloadLinks[0].download.length,"neurogenesis-memory-".length+10+".json".length);
-assert.equal(downloadLinks[0].parentNode,null,"the temporary download link should be removed after activation");
+assert.equal(downloadLink.clicked,true,"the generated download link should be activated");
+assert.ok(downloadLink.download.startsWith("neurogenesis-memory-"));
+assert.ok(downloadLink.download.endsWith(".json"));
+assert.equal(downloadLink.download.length,"neurogenesis-memory-".length+10+".json".length);
+assert.equal(downloadLink.parentNode,null,"the temporary download link should be removed after activation");
 
 console.log("NEUROGENESIS attention, reasoning, cognitive-cycle and backup-export regression tests: passed.");
