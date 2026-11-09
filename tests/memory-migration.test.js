@@ -455,6 +455,15 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   const storedCycles=JSON.parse(database.get("neurogenesis.cognitive-cycles.v1"));
   assert.ok(storedCycles.some(item=>item.at===importTime+5000),
     "restored cognitive cycles must be persisted in local storage");
+  const cycleCountBeforeLegacyImport=window.NGMemory.cognitiveCycles().length;
+  importInput.files=[{async text(){return JSON.stringify({
+    format:"NEUROGENESIS_MEMORY_BACKUP",version:2,memories:[]
+  });}}];
+  await importInput.dispatch("change");
+  assert.equal(window.NGMemory.cognitiveCycles().length,cycleCountBeforeLegacyImport,
+    "a legacy v2 backup without the optional cognitiveCycles field must not erase local cycle history");
+  assert.equal(JSON.parse(database.get("neurogenesis.cognitive-cycles.v1")).length,cycleCountBeforeLegacyImport,
+    "legacy backup import must leave the persisted cognitive-cycle history intact");
   const importedRows=window.NGMemory.reasoningHistory();
   const importedArchiveRow=importedRows.find(item=>item.time===importTime);
   assert.ok(importedArchiveRow);
