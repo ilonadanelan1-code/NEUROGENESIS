@@ -140,9 +140,12 @@ vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename:
 vm.runInNewContext(fs.readFileSync("observation-engine.js", "utf8"), sandbox, { filename: "observation-engine.js" });
 vm.runInNewContext(fs.readFileSync("knowledge-graph.js", "utf8"), sandbox, { filename: "knowledge-graph.js" });
 vm.runInNewContext(fs.readFileSync("reasoning-audit.js", "utf8"), sandbox, { filename: "reasoning-audit.js" });
+vm.runInNewContext(fs.readFileSync("hypothesis-lifecycle.js", "utf8"), sandbox, { filename: "hypothesis-lifecycle.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
 assert.equal(window.NGMemory.count(), 6);
+assert.deepEqual(window.NGMemory.hypothesisLifecycle(), [], "legacy backups without causal archives should load an empty lifecycle safely");
+assert.match(window.NGMemory.hypothesisLifecycleReport(), /Пока нет архивных причинных выводов/u);
 const migratedGraph = window.NGMemory.knowledgeGraph();
 assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
 assert.ok(migratedGraph.stats.claims >= 6,"legacy claims should be projected without rewriting the backup format");
