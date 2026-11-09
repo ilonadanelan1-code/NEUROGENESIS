@@ -20,6 +20,7 @@
   const KNOWLEDGE = window.NGKnowledge || null;
   const KNOWLEDGE_GRAPH = window.NGKnowledgeGraph || null;
   const REASONING_AUDIT = window.NGReasoningAudit || null;
+  const DISCRIMINATING_OBSERVATIONS = window.NGDiscriminatingObservations || null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
   const $ = id => document.getElementById(id);
@@ -591,9 +592,13 @@
     const responseDetails=KNOWLEDGE?KNOWLEDGE.parseObservationDetails(raw.responseText||"","inquiry_response"):null;
     if(responseDetails)responseDetails.sourceRef=raw.id;
     return {id:raw.id,signature:raw.signature.slice(0,500),
-      kind:["contrast_observations","clarify_counterexample","missing_observation","duplicate_observation"].includes(raw.kind)?raw.kind:"missing_observation",
+      kind:["contrast_observations","clarify_counterexample","missing_observation","duplicate_observation","discriminating_observations"].includes(raw.kind)?raw.kind:"missing_observation",
       edgeSubject:typeof raw.edgeSubject==="string"?raw.edgeSubject.slice(0,180):"",
       edgeObject:typeof raw.edgeObject==="string"?raw.edgeObject.slice(0,180):"",
+      comparisonEdges:Array.isArray(raw.comparisonEdges)?raw.comparisonEdges.slice(0,2).map(edge=>({
+        subject:typeof edge.subject==="string"?edge.subject.slice(0,180):"",
+        object:typeof edge.object==="string"?edge.object.slice(0,180):""
+      })).filter(edge=>edge.subject&&edge.object):[],
       question:raw.question.slice(0,700),reason:typeof raw.reason==="string"?raw.reason.slice(0,700):"",
       priority:Math.max(0,Math.min(9,Number(raw.priority)||0)),
       status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
@@ -703,6 +708,24 @@
       }
     }
     const candidates=[];
+    if(DISCRIMINATING_OBSERVATIONS&&typeof DISCRIMINATING_OBSERVATIONS.create==="function") {
+      try {
+        const selector=DISCRIMINATING_OBSERVATIONS.create(KNOWLEDGE),seenComparisons=new Set();
+        for(const entry of reasoningArchive) {
+          const meta=cleanReasoning(entry.reasoning);if(!meta)continue;
+          for(const conclusion of meta.conclusions) {
+            const selected=selector.analyze(conclusion,claims);
+            if(!selected||seenComparisons.has(selected.signature))continue;
+            seenComparisons.add(selected.signature);
+            candidates.push({signature:selected.signature,kind:"discriminating_observations",
+              edgeSubject:selected.edgeSubject,edgeObject:selected.edgeObject,comparisonEdges:selected.comparisonEdges,
+              priority:0,sourceClaimIds:selected.sourceClaimIds,question:selected.question,reason:selected.reason});
+          }
+        }
+      } catch(error) {
+        console.warn("Discriminating-observation selection failed:",error);
+      }
+    }
     const possibleDuplicates=OBSERVATIONS.uniqueObservationEvents(observationCases()).possibleGroups;
     for(const group of possibleDuplicates) {
       const claimIds=[...new Set(group.claimIds||[])].slice(0,12);
@@ -745,13 +768,15 @@
       const old=inquiries.find(x=>x.signature===c.signature);
       if(old) {
         if(old.status==="open"&&(old.question!==c.question||old.reason!==c.reason)) {
-          old.question=c.question;old.reason=c.reason;old.sourceClaimIds=c.sourceClaimIds;old.updatedAt=Date.now();changed=true;
+          old.question=c.question;old.reason=c.reason;old.sourceClaimIds=c.sourceClaimIds;
+          old.comparisonEdges=Array.isArray(c.comparisonEdges)?c.comparisonEdges:[];old.updatedAt=Date.now();changed=true;
         }
         continue;
       }
       if(inquiries.length>=MAX_INQUIRIES)break;
       inquiries.push({id:"Q"+nextInquiryNumber++,signature:c.signature,kind:c.kind,edgeSubject:c.edgeSubject,edgeObject:c.edgeObject,
         question:c.question,reason:c.reason,priority:c.priority,status:"open",sourceClaimIds:c.sourceClaimIds,
+        comparisonEdges:Array.isArray(c.comparisonEdges)?c.comparisonEdges:[],
         createdAt:Date.now(),updatedAt:Date.now(),lastAskedAt:0,responseText:"",responseMemoryId:"",responseClaimIds:[],answeredAt:0});
       added++;changed=true;
     }
@@ -773,12 +798,14 @@
   }
   function researchImpactForInquiry(item) {
     const affected=new Set();
+    const watchedEdges=item.kind==="discriminating_observations"&&Array.isArray(item.comparisonEdges)&&item.comparisonEdges.length
+      ?item.comparisonEdges:[item];
     for(const entry of reasoningArchive) {
       const meta=cleanReasoning(entry.reasoning);
       if(!meta)continue;
       for(const conclusion of meta.conclusions) {
-        const usesEdge=conclusion.paths.some(path=>path.some(edge=>
-          KNOWLEDGE.sameEntity(edge.subject,item.edgeSubject)&&KNOWLEDGE.sameEntity(edge.object,item.edgeObject)));
+        const usesEdge=conclusion.paths.some(path=>path.some(edge=>watchedEdges.some(watched=>
+          KNOWLEDGE.sameEntity(edge.subject,watched.subject)&&KNOWLEDGE.sameEntity(edge.object,watched.object))));
         if(usesEdge)affected.add(inquiryEdgeKey(conclusion.subject,conclusion.object));
       }
     }
@@ -1047,22 +1074,39 @@
     const candidates=ranked.map(row=>({item:row.item,impact:row.impact,score:Math.round(row.score*100),reasons:row.reasons}));
     const selected=candidates[0],item=selected.item;
     const kindReason={
+      discriminating_observations:"В сохранённом выводе есть конкурирующие маршруты к одному результату. Полезнее всего найти естественные случаи, где различаются условия двух ветвей, а не собирать ещё одно общее подтверждение.",
       contrast_observations:"Для одного и того же звена сохранены наблюдения с разными результатами. Сначала нужно проверить, были ли случаи сопоставимы.",
       clarify_counterexample:"Есть потенциальный контрпример. До пересмотра связи важно уточнить, присутствовало ли исходное условие и как именно определялся результат.",
       missing_observation:"Причинное звено есть в выводах, но прямых наблюдений для его проверки пока не найдено."
     }[item.kind]||"Этот вопрос связан с незакрытым пробелом в сохранённых данных.";
     let answer="ПЛАН ИССЛЕДОВАНИЯ\n\n";
-    answer+="ЦЕЛЬ\nУточнить звено «"+item.edgeSubject+" → "+item.edgeObject+"», не выдавая рабочую гипотезу за установленный факт.\n\n";
+    answer+="ЦЕЛЬ\n"+(item.kind==="discriminating_observations"&&item.comparisonEdges.length>=2
+      ?"Сопоставить конкурирующие ветви причинного вывода, не выдавая ни одну из них за установленный факт.\n\n"
+      :"Уточнить звено «"+item.edgeSubject+" → "+item.edgeObject+"», не выдавая рабочую гипотезу за установленный факт.\n\n");
     answer+="ПОЧЕМУ ВЫБРАН ИМЕННО ЭТОТ ШАГ\n"+kindReason+"\n";
     answer+="Затрагивает разных сохранённых выводов: "+selected.impact+". ";
     answer+="Эвристический приоритет внимания: "+selected.score+"/100. Основания: "+(selected.reasons||[]).join("; ")+". Это рейтинг очередности работы, а не вероятность истинности связи.\n\n";
     answer+="СЛЕДУЮЩИЙ ВОПРОС · "+item.id+"\n"+item.question+"\n\n";
-    const readiness=reviewReadinessForEdge(item.edgeSubject,item.edgeObject);
-    answer+="ТЕКУЩАЯ ГОТОВНОСТЬ К ПЕРЕСМОТРУ\n"+readiness.label+".\n";
-    if(readiness.blockers.length)answer+="Пока не хватает: "+readiness.blockers.join("; ")+".\n";
+    if(item.kind==="discriminating_observations"&&item.comparisonEdges.length>=2) {
+      answer+="ТЕКУЩИЕ ДАННЫЕ ПО РАЗЛИЧАЮЩИМСЯ ЗВЕНЬЯМ\n";
+      for(const edge of item.comparisonEdges) {
+        const readiness=reviewReadinessForEdge(edge.subject,edge.object);
+        answer+=edge.subject+" → "+edge.object+": "+readiness.label+"; прямых наблюдений — "+readiness.totalCount+
+          " (согласующихся — "+readiness.supportingCount+", противоположных — "+readiness.challengingCount+").\n";
+        if(readiness.blockers.length)answer+="  Не хватает: "+readiness.blockers.join("; ")+".\n";
+      }
+    } else {
+      const readiness=reviewReadinessForEdge(item.edgeSubject,item.edgeObject);
+      answer+="ТЕКУЩАЯ ГОТОВНОСТЬ К ПЕРЕСМОТРУ\n"+readiness.label+".\n";
+      if(readiness.blockers.length)answer+="Пока не хватает: "+readiness.blockers.join("; ")+".\n";
+    }
     answer+="Ответ на выбранный вопрос может уточнить эти пробелы, но сам по себе не считается новым прямым наблюдением.\n\n";
     answer+="КАК Я РАЗБЕРУ ОТВЕТ\n";
-    if(item.kind==="contrast_observations") {
+    if(item.kind==="discriminating_observations") {
+      answer+="• Если найдутся естественные случаи, где условия ветвей различались, сопоставлю исходные условия и общий результат.\n";
+      answer+="• Если обе ветви встречались одновременно или условия нельзя разделить, отмечу это ограничение и не стану выбирать маршрут автоматически.\n";
+      answer+="• Если таких случаев нет или они не помнятся, зафиксирую отсутствие ответа; специально создавать условия не требуется.\n";
+    } else if(item.kind==="contrast_observations") {
       answer+="• Если время, условия или критерий результата различались, зафиксирую это как возможное объяснение расхождения; само звено автоматически не подтверждается.\n";
       answer+="• Если случаи были сопоставимы, противоречие останется видимым: ни одно наблюдение не будет удалено.\n";
       answer+="• Если контекст восстановить нельзя, неопределённость сохранится.\n";
@@ -2203,11 +2247,12 @@
     if(!open.length)return [];
     const focusIds=new Set((Array.isArray(focusClaimIds)?focusClaimIds:[]).filter(Boolean));
     const claimsById=new Map(memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&claim.id).map(claim=>[claim.id,claim]));
-    const kindValue={duplicate_observation:1,contrast_observations:0.96,clarify_counterexample:0.84,missing_observation:0.66};
+    const kindValue={duplicate_observation:1,discriminating_observations:0.99,contrast_observations:0.96,clarify_counterexample:0.84,missing_observation:0.66};
     const queryText=String(query||"").trim();
     return open.map(item=>{
       const linked=(item.sourceClaimIds||[]).map(id=>claimsById.get(id)).filter(Boolean);
-      const searchText=[item.question,item.reason,item.edgeSubject,item.edgeObject,...linked.map(claim=>claim.evidence)].join(" ");
+      const searchText=[item.question,item.reason,item.edgeSubject,item.edgeObject,
+        ...(item.comparisonEdges||[]).flatMap(edge=>[edge.subject,edge.object]),...linked.map(claim=>claim.evidence)].join(" ");
       const relevance=queryText&&KNOWLEDGE&&KNOWLEDGE.semanticMatch
         ?KNOWLEDGE.semanticMatch(queryText,searchText).score:0;
       const priority=item.priority<=-1?1:item.priority===0?0.9:item.priority===1?0.78:0.62;
@@ -2220,6 +2265,7 @@
         relevance*0.22+overlap*0.10+fairness*0.06));
       const reasons=[];
       if(item.kind==="duplicate_observation")reasons.push("нужно установить идентичность событий");
+      else if(item.kind==="discriminating_observations")reasons.push("нужно различить конкурирующие причинные маршруты");
       else if(item.kind==="contrast_observations")reasons.push("есть противоположные наблюдения");
       else if(item.kind==="clarify_counterexample")reasons.push("есть потенциальный контрпример");
       else reasons.push("не хватает прямых наблюдений");
