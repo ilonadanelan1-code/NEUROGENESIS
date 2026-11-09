@@ -35,6 +35,7 @@
   let llmHttpAdapter = null;
   let llmVerified = false;
   let llmModelName = "";
+  let llmRequestInFlight = false;
   let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
@@ -3765,6 +3766,10 @@
     return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history }, evidence);
   }
   async function askWithLLM(query) {
+    if (llmRequestInFlight) {
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ПРЕДЫДУЩИЙ ЗАПРОС ЕЩЁ ВЫПОЛНЯЕТСЯ");
+      return false;
+    }
     if (!LLM_GATEWAY || !llmHttpAdapter) {
       say("assistant", "Языковая модель ещё не подключена. Сначала настрой серверный шлюз в блоке «ЯЗЫКОВАЯ МОДЕЛЬ» ниже поля ввода.");
       setFeedback("LLM OFFLINE · НУЖНО НАСТРОИТЬ СЕРВЕРНЫЙ ШЛЮЗ");
@@ -3778,6 +3783,9 @@
       setFeedback("ДИАЛОГ · УТОЧНЕНИЕ ПЕРЕД ВЫЗОВОМ МОДЕЛИ");
       return false;
     }
+    llmRequestInFlight = true;
+    const askButton = $("llm-ask-button");
+    if (askButton) askButton.disabled = true;
     try {
       if (!llmVerified) await testLLMConnection();
       const request = prepareLLMRequestCore(query);
@@ -3792,6 +3800,9 @@
       say("assistant", "Не удалось получить ответ языковой модели. " + message);
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОШИБКА ПОДКЛЮЧЕНИЯ");
       return false;
+    } finally {
+      llmRequestInFlight = false;
+      if (askButton) askButton.disabled = false;
     }
   }
   function loadLLMConfiguration() {
