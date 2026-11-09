@@ -1268,6 +1268,11 @@ assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
 
 // Load only the dialogue context engine for the backup round-trip check.
 loadMemory(true);
+const summaryInput=document.getElementById("memory-input");
+summaryInput.value="Новая тема: проверка сохранения резюме диалога.";
+document.getElementById("ask-button").dispatchLast("click");
+assert.ok(window.NGMemory.dialogContext().activeThread.contextSummary.length>0,
+  "the backup fixture should start with a non-empty active-topic summary");
 // Backup export must produce a downloadable v2 archive with all durable stores.
 const exportedBlobsBefore=exportedBlobs.length;
 const downloadLinksBefore=downloadLinks.length;
