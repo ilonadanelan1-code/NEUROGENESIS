@@ -30,6 +30,24 @@ const malformedQuotedClaim={id:"legacy-quoted-cause",kind:"causal",subject:"чт
   verification:"unverified",extractionConfidence:0.88,createdAt:1};
 assert.equal(knowledge.sanitizeClaims([malformedQuotedClaim]).length,0,
   "legacy causal claims with a subordinate-clause subject must be removed during migration");
+
+for (const subject of [
+  "В отчёте говорится, что усталость",
+  "Сообщается, что усталость",
+  "Формулировка о том, что усталость",
+  "По данным исследования, усталость"
+]) {
+  const raw = {...malformedQuotedClaim, subject};
+  assert.equal(knowledge.extractClaims(subject + " приводит к снижению концентрации").length, 0,
+    "reporting clauses must not be extracted as causal subjects: " + subject);
+  assert.equal(knowledge.sanitizeClaims([raw]).length, 0,
+    "reporting clauses must not survive archived-claim sanitization: " + subject);
+}
+const validCausalSubject = "Недостаток сна после тренировки";
+assert.equal(knowledge.extractClaims(validCausalSubject + " приводит к усталости").length, 1,
+  "a descriptive causal subject must remain valid");
+assert.equal(knowledge.sanitizeClaims([{...malformedQuotedClaim, subject:validCausalSubject}]).length, 1,
+  "valid archived causal subjects must not be over-filtered");
 assert.equal(knowledge.summary([v18SleepCause,fatigueCause]).causal,2);
 const causalChain=knowledge.causalEvidence("Как недостаток сна влияет на снижение концентрации?",[v18SleepCause,fatigueCause]);
 assert.ok(causalChain,"two causal memories should form a chain");
