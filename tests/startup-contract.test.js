@@ -37,7 +37,8 @@ function before(first, second) {
 before("activation.js", "app.js");
 before("neuro-wasm-adapter.js", "experience-quality.js");
 before("experience-quality.js", "experience-benchmark.js");
-before("experience-benchmark.js", "app.js");
+before("experience-benchmark.js", "contrastive-benchmark.js");
+before("contrastive-benchmark.js", "app.js");
 before("app.js", "knowledge.js");
 before("knowledge.js", "goals.js");
 before("knowledge.js", "knowledge-graph.js");
