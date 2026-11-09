@@ -34,7 +34,7 @@
     const sentenceEndQuestion = text => {
       const lines = clean(text, MAX_TEXT).split(/(?<=[.!?])\s+|\n+/u).filter(Boolean);
       const candidates = lines.filter(line => /\?\s*$/u.test(line) || /ВОПРОС ДЛЯ УТОЧНЕНИЯ/iu.test(line));
-      return candidates.length ? clean(candidates[candidates.length - 1], 260) : "";
+      return candidates.length ? clean(candidates[0], 260) : "";
     };
     function empty() {
       return { version: 1, activeThreadId: "", nextSequence: 1, threads: [], messages: [], lastDecision: null };
