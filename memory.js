@@ -4264,7 +4264,7 @@
       await testLLMConnection();
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ШЛЮЗ ПРОВЕРЕН");
     } catch (error) {
-      const reason = String(error && error.message || error).replace(/\\s+/gu, " ").trim().slice(0, 110);
+      const reason = String(error && error.message || error).replace(/\s+/gu, " ").trim().slice(0, 110);
       setFeedback("НАСТРОЙКИ НЕ ПРОВЕРЕНЫ · " + reason);
       updateLLMConnectionUI("ОШИБКА · " + reason.toLocaleUpperCase("ru-RU").slice(0, 58));
     }
