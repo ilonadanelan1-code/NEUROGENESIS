@@ -43,12 +43,12 @@ jobs:
             }
             console.log("Public Worker DNS and HTTP endpoint are reachable.");
           ' "$response"
-          headers="$(curl --silent --show-error --dump-header - --output /dev/null \\
-            --request OPTIONS --max-time 20 \\
-            --header "Origin: https://ilonadanelan1-code.github.io" \\
-            --header "Access-Control-Request-Method: GET" \\
-            --header "Access-Control-Request-Headers: authorization" \\
+          headers="$(curl --silent --show-error --dump-header - --output /dev/null \
+            --request OPTIONS --max-time 20 \
+            --header "Origin: https://ilonadanelan1-code.github.io" \
+            --header "Access-Control-Request-Method: GET" \
+            --header "Access-Control-Request-Headers: authorization" \
             "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev/api/health")"
-          printf '%s\\n' "$headers" | grep -Fqi "access-control-allow-origin: https://ilonadanelan1-code.github.io"
-          printf '%s\\n' "$headers" | grep -Fqi "access-control-allow-headers: Authorization, Content-Type"
+          printf '%s\n' "$headers" | grep -Fqi "access-control-allow-origin: https://ilonadanelan1-code.github.io"
+          printf '%s\n' "$headers" | grep -Fqi "access-control-allow-headers: Authorization, Content-Type"
           echo "Worker CORS preflight accepts the published GitHub Pages origin."
