@@ -220,10 +220,14 @@ PR run **#42762750247** completed successfully:
 - Deploy job: **skipped**, as expected for a pull-request event. A successful Pages deployment must be checked after merge on `main`.
 
 
-## 8. Interpretation limits
+## 8. Interpretation limits and next technical risks
 
-A successful retention result would show that replaying the existing singleton associations can counteract interference produced by the tested scalar-reward composition tasks. It would not show that the network learned a new relational rule or that replay is a general solution to catastrophic forgetting.
+The retention run demonstrates that singleton contrastive rehearsal can counter the interference caused by this specific scalar-reward schedule in this small complete bipartite graph. The no-replay control forgot primitive and combination responses in both task orders; the protected condition retained all measured responses after each of three cycles.
 
-A successful scaling result would show that the same direct-route superposition protocol passes on these small complete bipartite graphs for three deterministic mappings at each of 4, 5, and 6 features. It would not establish asymptotic scalability, broad transfer to new feature identities, noisy-input robustness, or general intelligence.
+There is a cost: after the first protected cycle, all four correct-route weights reached the upper bound **1.0**. This is successful retention for the tested tasks, but it consumes synaptic headroom and may make later learning less adaptable. The replay strategy also required **576 episodes per protected scenario**. Neither result supports calling replay a general anti-forgetting algorithm.
 
-No production learning rule, C++ core API, C ABI, user state, or JavaScript source-of-truth behavior is changed by this stage.
+The scaling run shows that direct-route superposition passed for 4, 5, and 6 features, three deterministic mappings per size, and exhaustive held-out permutations. It does not establish asymptotic scalability, transfer to new feature identities, robustness to noise or partial inputs, or learned conjunctions/relations. The seed-101 retention mapping was F1→O5, F2→O4, F3→O2, F4→O3.
+
+Next technical risks are weight saturation, replay cost, and the absence of per-brain memory attribution in the current C ABI. A sensible next research step is not to enlarge the network immediately: first test whether retention can be achieved without driving all correct weights to 1.0, and whether smaller/adaptive replay preserves plasticity. That would require a separate pre-registered experiment and should remain in the shadow runtime.
+
+No production learning rule, C++ core API, C ABI, user state, or JavaScript source-of-truth behavior was changed by this stage.
