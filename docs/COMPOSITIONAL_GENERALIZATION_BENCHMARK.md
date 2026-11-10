@@ -166,10 +166,39 @@ same runtime and constants must produce the same report.
 
 ## 9. Measured results
 
-This section is populated from the required GitHub Actions run for this
-change. A green CI status alone is not treated as scientific success: the
-benchmark assertions and its printed numeric report must also meet the
-pre-registered criteria.
+Measured by the required GitHub Actions PR run #42743368055 on commit
+a279af1d18c62bcd7920e793767ba80d7b3f4a59. The benchmark's own assertions
+passed, not merely the surrounding CI job.
+
+| Metric | Forward order | Reverse order | Required |
+| --- | ---: | ---: | ---: |
+| Held-out combinations passed | 11/11 | 11/11 | 11/11 |
+| Held-out stimulation permutations passed | 60/60 | 60/60 | 60/60 |
+| Minimum expected-output activation | 0.4345625638961792 | 0.4345625638961792 | ≥ 0.15 |
+| Maximum non-target activation | 0 | 0 | ≤ 0.05 |
+| Maximum stimulation-order spread | 0 | 0 | ≤ 0.000001 |
+| Primitive singleton mappings retained | 4/4 | 4/4 | 4/4 |
+| Weight changes during held-out inference | 0 | 0 | 0 |
+
+Controls also passed:
+
+- Untrained baseline: maximum output activation 0 across all 11 held-out
+  combinations and 60 permutations; no expected output reached 0.15.
+- Permuted mapping: the independent brain followed A→Y, B→Z, C→W, D→V
+  and differed from the canonical mapping on all held-out sets.
+- Training: 16 delayed contrastive episodes per scenario; positive and
+  negative traces were present after activation faded, exactly two selected
+  weights changed per episode, and all traces were consumed.
+- Lifecycle: the test created four independent brains (forward, reverse,
+  untrained, permuted) and confirmed all four were disposed.
+
+The observed minimum expected activation exceeded the pre-registered 0.15
+threshold by about 0.2846. The measured non-target response and stimulation
+order spread were both exactly zero in this deterministic WASM run.
+
+This is a successful result for the narrow feature-route superposition task
+only. It does not upgrade the claim to conjunction learning, relational
+composition, role binding, or general reasoning.
 
 ## 10. Interpretation and limitations
 
