@@ -51,6 +51,7 @@ jobs:
           node --check retention-scaling-benchmark.js
           node --check plasticity-headroom-benchmark.js
           node --check plasticity-efficiency-benchmark.js
+          node --check plasticity-selective-cleanup-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -129,6 +130,18 @@ jobs:
         with:
           name: neurogenesis-plasticity-efficiency-v1
           path: benchmark-reports/plasticity-efficiency-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Run selective plasticity cleanup benchmark
+        run: node tests/plasticity-selective-cleanup-benchmark.test.mjs
+
+      - name: Upload selective cleanup report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-selective-cleanup-v1
+          path: benchmark-reports/plasticity-selective-cleanup-v1.json
           if-no-files-found: warn
           retention-days: 30
 
