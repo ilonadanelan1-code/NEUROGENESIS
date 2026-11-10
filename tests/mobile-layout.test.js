@@ -48,6 +48,16 @@ assert.ok(version, "the displayed app version must be present");
 assert.ok(html.includes("./styles.css?v=" + version),
   "the stylesheet cache key must match the displayed app version");
 
+assert.ok(html.includes("id=\"layout-button\"") && html.includes("id=\"undo-layout-button\""),
+  "the canvas toolbar must expose node separation and undo controls");
+assert.ok(app.includes("function separateNeuronLayout()") && app.includes("function undoNeuronLayout()"),
+  "the app must provide reversible collision-aware neuron layout");
+assert.ok(app.includes("const compactView=view.zoom<.42"),
+  "dense graphs must use reduced-halo overview rendering");
+assert.ok(app.includes("const hitRadius = 19"),
+  "neuron selection must use screen-space hit targets at small zoom levels");
+assert.ok(app.includes("const overview = denseGraph && view.zoom < .62"),
+  "dense connections must use a thinner low-zoom rendering mode");
 assert.ok(app.includes("function scheduleFrame()"),
   "the canvas must have a single guarded frame scheduler");
 assert.ok(app.includes('if (typeof ResizeObserver === "function") {'),

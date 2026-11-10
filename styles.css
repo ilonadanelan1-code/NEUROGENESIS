@@ -1,3 +1,7 @@
+.layout-tool{font-size:17px;color:#9de8d9}
+.undo-layout-tool{font-size:19px}
+.undo-layout-tool:disabled{opacity:.32;cursor:not-allowed;filter:saturate(.35)}
+@media(max-width:640px){.canvas-tools{gap:4px}.layout-tool,.undo-layout-tool{font-size:17px}}
 :root{
   color-scheme:dark;
   --bg:#040914;--panel:#091321;--panel2:#0d1b2b;--line:rgba(127,190,214,.16);
