@@ -37,6 +37,9 @@
       learn: wrap("ng_brain_learn", "number", ["number", "number", "number", "number"]),
       learnFromReward: wrap("ng_brain_learn_from_reward", "number", ["number", "number", "number", "number"]),
       learnContrastiveReward: wrap("ng_brain_learn_contrastive_reward", "number", ["number", "number", "number", "number", "number"]),
+      learnContrastiveRewardAsymmetric: wrap("ng_brain_learn_contrastive_reward_asymmetric", "number", [
+        "number", "number", "number", "number", "number", "number"
+      ]),
       step: wrap("ng_brain_step", null, ["number", "number", "number"]),
       neuronCount: wrap("ng_brain_neuron_count", "number", ["number"]),
       synapseCount: wrap("ng_brain_synapse_count", "number", ["number"]),
@@ -176,6 +179,21 @@
           return api.learnContrastiveReward(
             handle,
             finite(learningRate, "learningRate"),
+            Math.floor(finite(inputNeuronId, "inputNeuronId")),
+            Math.floor(finite(positiveNeuronId, "positiveNeuronId")),
+            Math.floor(finite(negativeNeuronId, "negativeNeuronId"))
+          );
+        },
+
+        learnContrastiveRewardAsymmetric(
+          positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+          inputNeuronId, positiveNeuronId, negativeNeuronId
+        ) {
+          live();
+          return api.learnContrastiveRewardAsymmetric(
+            handle,
+            finite(positiveLearningRate, "positiveLearningRate"),
+            finite(negativeLearningRate, "negativeLearningRate"),
             Math.floor(finite(inputNeuronId, "inputNeuronId")),
             Math.floor(finite(positiveNeuronId, "positiveNeuronId")),
             Math.floor(finite(negativeNeuronId, "negativeNeuronId"))
