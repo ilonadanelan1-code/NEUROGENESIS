@@ -41,8 +41,9 @@ function addRow(label,value,state){
 function readConfig(){try{const raw=localStorage.getItem(CONFIG_KEY);return raw?JSON.parse(raw):null;}catch(_){return null;}}
 async function request(url,options,timeoutMs){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs),started=performance.now();
+ const mode=options&&options.mode==="no-cors"?"no-cors":"cors";
  try{
-  const response=await fetch(url,{...options,cache:"no-store",mode:"cors",signal:controller.signal});
+  const response=await fetch(url,{...options,cache:"no-store",mode,signal:controller.signal});
   const duration=Math.round(performance.now()-started),body=await response.text();let data=null;
   try{data=JSON.parse(body);}catch(_){}
   return{response,duration,data,body:body.slice(0,500)};
@@ -60,7 +61,21 @@ async function run(){
  try{
   const root=await request(WORKER+"/",{method:"GET"},12000),ok=root.response.ok&&root.data&&root.data.ok===true;
   addRow("Worker /",ok?"HTTP "+root.response.status+" · доступен · "+root.duration+" мс":"неожиданный ответ · HTTP "+root.response.status,ok?"ok":"bad");
- }catch(error){addRow("Worker /",error&&error.name==="AbortError"?"тайм-аут":"ошибка: "+String(error&&error.message||error),"bad");}
+ }catch(error){
+  const message=error&&error.name==="AbortError"?"тайм-аут":"ошибка: "+String(error&&error.message||error);
+  addRow("Worker / · CORS","браузер не получил читаемый ответ: "+message,"bad");
+  try{
+   const probe=await request(WORKER+"/",{method:"GET",mode:"no-cors"},8000);
+   if(probe.response.type==="opaque"){
+    addRow("Worker / · no-cors","соединение из браузера установлено; ответ скрыт браузерной политикой. Вероятна проблема CORS или встроенного браузера.","warn");
+   }else{
+    addRow("Worker / · no-cors","получен неожиданный тип ответа: "+probe.response.type,"warn");
+   }
+  }catch(probeError){
+   const probeMessage=probeError&&probeError.name==="AbortError"?"тайм-аут 8 с":String(probeError&&probeError.message||probeError);
+   addRow("Worker / · no-cors","даже контрольный запрос не завершился: "+probeMessage+"; проверь браузер, VPN или сетевую фильтрацию.","bad");
+  }
+ }
  if(!token){addRow("GET /api/health","не проверен: нет сохранённого ключа","warn");}
  else{
   try{
@@ -78,7 +93,16 @@ async function run(){
    }
   }catch(error){
    const message=error&&error.name==="AbortError"?"тайм-аут 18 с":String(error&&error.message||error);
-   addRow("GET /api/health","браузер не смог прочитать ответ: "+message+" (возможна ошибка CORS или сети)","bad");
+   addRow("GET /api/health","браузер не смог прочитать ответ: "+message+" (проверка Authorization может зависать на CORS preflight)","bad");
+   try{
+    const probe=await request(WORKER+"/api/health",{method:"GET",mode:"no-cors"},6000);
+    if(probe.response.type==="opaque"){
+     addRow("GET /api/health · no-cors","маршрут доступен без авторизации; теперь отдельно проверяется CORS-запрос с Authorization.","warn");
+    }
+   }catch(probeError){
+    const probeMessage=probeError&&probeError.name==="AbortError"?"тайм-аут 6 с":String(probeError&&probeError.message||probeError);
+    addRow("GET /api/health · no-cors","контрольный запрос тоже не завершился: "+probeMessage,"bad");
+   }
   }
  }
  addRow("Завершено","можно отправлять скриншот или текст результата","ok");
