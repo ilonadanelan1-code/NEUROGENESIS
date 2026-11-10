@@ -60,7 +60,11 @@ assert.equal(report.protocol.outputCount, 5);
 assert.equal(report.protocol.heldOutCombinationCount, 11);
 assert.equal(report.protocol.heldOutPermutationCount, 60);
 assert.equal(report.protocol.cycles, 3);
-assert.equal(report.scenarios.length, 12);
+assert.equal(report.protocol.modes.length, 4);
+assert.equal(report.protocol.compositionUpdateRule, "homeostatic");
+assert.equal(report.protocol.compositionLearningRate, 0.05);
+assert.equal(report.protocol.freshAssociationSweeps, 8);
+assert.equal(report.scenarios.length, 16);
 assert.equal(report.checks.allScenariosCompleted, true);
 assert.equal(report.checks.allAsymmetricScenariosRetainOldMappings, true);
 assert.equal(report.checks.allAsymmetricScenariosKeepPlasticityHeadroom, true);
@@ -68,6 +72,7 @@ assert.equal(report.checks.allAsymmetricScenariosLearnFreshAssociation, true);
 assert.equal(report.checks.allOldMappingsSurviveFreshLearning, true);
 assert.equal(report.checks.allWeightsBounded, true);
 assert.equal(report.checks.controlsAreReported, true);
+assert.equal(report.comparisons.boundedSymmetricHeadroomPasses >= 0, true);
 
 for (const scenario of report.scenarios) {
   assert.equal(scenario.baseline.passed, true, scenario.mode + " baseline map");
@@ -77,7 +82,7 @@ for (const scenario of report.scenarios) {
   assert.equal(scenario.allWeightsBoundedAfterFresh, true);
   assert.equal(scenario.episodes.initialSingleton, 16);
   assert.equal(scenario.episodes.compositions, 9);
-  assert.equal(scenario.episodes.freshAssociation, 12);
+  assert.equal(scenario.episodes.freshAssociation, 32);
 }
 for (const scenario of report.scenarios.filter(row => row.mode === "asymmetric")) {
   assert.equal(scenario.retentionPassed, true, "asymmetric replay lost an old feature mapping");
@@ -91,8 +96,10 @@ for (const scenario of report.scenarios.filter(row => row.mode === "asymmetric")
     "learning the fresh feature must not erase the previous feature combinations");
 }
 
-assert.equal(createdBrains, 12, "every mode/seed/order combination must use an independent WASM brain");
+assert.equal(createdBrains, 16, "every mode/seed/order combination must use an independent WASM brain");
 assert.equal(activeBrains, 0, "every benchmark WASM brain must be disposed");
 assert.equal(report.createdBrains, createdBrains);
+assert.equal(report.protocol.modes.find(mode => mode.id === "asymmetric").positiveRate, 0.02);
+assert.equal(report.protocol.modes.find(mode => mode.id === "asymmetric").negativeRate, 0.35);
 
 console.log("NEUROGENESIS asymmetric plasticity headroom assertions: passed.");
