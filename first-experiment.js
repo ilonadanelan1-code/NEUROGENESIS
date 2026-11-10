@@ -53,30 +53,41 @@
       const activatedMatch = feedbackText.match(/(\d+)\s+СЛЕДОВ АКТИВИРОВАНО/iu);
       const activated = activatedMatch ? Number(activatedMatch[1]) : 0;
       const count = memory.count();
+      const savedMatch = matches.find(item => item && item.text === FACT && Number(item.score) >= 0.19);
+      const feed = $("memory-feed");
+      const lastReply = feed && feed.lastElementChild;
+      const replyText = lastReply && /from-brain/u.test(String(lastReply.className || ""))
+        ? String(lastReply.textContent || "").slice(0, 700) : "";
+      const normalizedReply = replyText.toLocaleLowerCase("ru-RU").replace(/ё/g, "е");
+      const replyConfirmsFact = replyText.includes(FACT) ||
+        (/осьминог/u.test(normalizedReply) && /три/u.test(normalizedReply) && /серд/u.test(normalizedReply));
+      const retrievalVerified = !!savedMatch && replyConfirmsFact;
 
       const savedLabel = countAfter > countBefore
         ? "Добавлена новая запись."
         : "Запись уже существовала и была обработана повторно.";
-      const retrievalLabel = matches.length
-        ? "Поиск нашёл сохранённое воспоминание:"
-        : "Факт сохранён, но формулировка вопроса пока не дала уверенного совпадения.";
-      const matchedText = matches.length ? matches[0].text : FACT;
+      const retrievalLabel = retrievalVerified
+        ? "Поиск нашёл запись, и ответ диалога подтвердил её извлечение:"
+        : savedMatch
+          ? "Поиск видит запись, но сам ответ диалога не подтвердил её извлечение."
+          : "По заданному вопросу память не нашла достаточно надёжного совпадения.";
 
       result.textContent = [
         savedLabel,
         retrievalLabel,
-        matches.length ? "«" + matchedText + "»" : "",
+        savedMatch ? "Сохранённый факт: «" + savedMatch.text + "»." : "",
+        replyText ? "Ответ системы: «" + replyText + "»" : "Ответ ассистента не найден в истории диалога.",
         "Записей в памяти: " + count + ".",
         "Следов памяти активировано по отчёту: " + activated + "."
       ].filter(Boolean).join("\n");
       result.hidden = false;
-      showButton.disabled = false;
+      showButton.disabled = !retrievalVerified;
       runButton.disabled = false;
       setStatus(
-        matches.length
-          ? "Опыт завершён: факт сохранён, вопрос обработан, связанная запись найдена."
-          : "Опыт завершён частично: запись сохранена, но поиск не подтвердил совпадение.",
-        matches.length ? "success" : "warning"
+        retrievalVerified
+          ? "Опыт завершён: факт сохранён, вопрос обработан и ответ подтверждает извлечение."
+          : "Опыт завершён частично: факт сохранён, но ответ не подтвердил его извлечение.",
+        retrievalVerified ? "success" : "warning"
       );
     } catch (error) {
       runButton.disabled = false;

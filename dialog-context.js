@@ -31,8 +31,14 @@
     };
     const isStandaloneQuestion = text => {
       const value = clean(text, 500);
-      return /[?？]\s*$/u.test(value) && !hasReference(value) &&
-        /^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|что\s+значит|что\s+означает|как\s+работает|как\s+работают|как\s+устроен|как\s+устроена|как\s+устроены|как\s+называется|где\s+находится|сколько\s+стоит)(?=\s|$)/iu.test(value);
+      const interrogativeLead = /^(?:(?:а|и|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|чье|чьё|есть\s+ли|можно\s+ли|правда\s+ли)(?=\s|$)/iu;
+      if (!value || hasReference(value) ||
+          (!/[?？]\s*$/u.test(value) && !interrogativeLead.test(value))) return false;
+      const body = value.replace(interrogativeLead, "").trim();
+      const establishedShortQuestion = /^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|что\s+значит|что\s+означает|как\s+работает|как\s+работают|как\s+устроен|как\s+устроена|как\s+устроены|как\s+называется|где\s+находится|сколько\s+стоит)(?=\s|$)/iu.test(value);
+      // A concise question with its own subject/object is a new request, not a
+      // follow-up merely because it contains four or fewer content words.
+      return tokens(body).length >= 2 || establishedShortQuestion;
     };
     const isShortFollowUp = text => !isStandaloneQuestion(text) &&
       (tokens(text).length <= 4 || hasReference(text));

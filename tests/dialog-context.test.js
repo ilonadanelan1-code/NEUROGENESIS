@@ -86,6 +86,26 @@ assert.equal(conceptFollowUp.applied, true,
 assert.match(conceptFollowUp.query, /контекст диалога/u);
 assert.doesNotMatch(conceptFollowUp.query, /Сколько часов ты спал/u,
   "the new topic must not inherit the earlier sleep question");
+const octopusQuestion = "Сколько сердец у осьминога?";
+assert.equal(engine.resolve(pendingBase, octopusQuestion).applied, false,
+  "a short factual question with its own subject must not inherit the previous topic");
+const octopusTopic = engine.track(pendingBase, {
+  role: "user", text: octopusQuestion, time: 68
+});
+assert.notEqual(octopusTopic.activeThreadId, pendingBase.activeThreadId,
+  "a standalone octopus question must open a separate topic instead of contaminating memory retrieval");
+assert.equal(octopusTopic.messages[octopusTopic.messages.length - 1].relation, "new_topic");
+assert.equal(octopusTopic.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
+  "the unrelated previous topic's pending question must remain unanswered");
+const octopusQuestionWithoutMark = "Сколько сердец у осьминога";
+assert.equal(engine.resolve(pendingBase, octopusQuestionWithoutMark).applied, false,
+  "an interrogative sentence without terminal punctuation must still be recognised as independent");
+const octopusTopicWithoutMark = engine.track(pendingBase, {
+  role: "user", text: octopusQuestionWithoutMark, time: 69
+});
+assert.notEqual(octopusTopicWithoutMark.activeThreadId, pendingBase.activeThreadId,
+  "punctuation must not decide whether a self-contained question inherits old context");
+
 const answerAfterQuestion = engine.track(pendingBase, { role: "user", text: "Примерно четыре часа", time: 63 });
 assert.equal(answerAfterQuestion.messages[answerAfterQuestion.messages.length - 1].relation, "answer_to_question",
   "a short declarative reply should still answer the pending question");

@@ -29,9 +29,11 @@ const memoryInput = element("memory-input");
 const remember = element("remember-button");
 const ask = element("ask-button");
 const feedback = element("memory-feedback");
+const feed = element("memory-feed");
 const simulation = element("run-button", "▶ Симуляция");
 const memories = [];
 let askedQuestion = "";
+let assistantReply = "Я понял, что это продолжение прежней темы, но не нашёл нужную запись.";
 
 remember.addEventListener("click", () => {
   if (!memories.includes(memoryInput.value)) memories.push(memoryInput.value);
@@ -39,6 +41,7 @@ remember.addEventListener("click", () => {
 ask.addEventListener("click", () => {
   askedQuestion = memoryInput.value;
   feedback.textContent = "ПОИСК ЗАВЕРШЁН · НАЙДЕНО 1 · 2 СЛЕДОВ АКТИВИРОВАНО";
+  feed.lastElementChild = { className: "memory-message from-brain", textContent: assistantReply };
 });
 simulation.addEventListener("click", () => {
   simulation.textContent = /пауза/iu.test(simulation.textContent) ? "▶ Симуляция" : "Ⅱ Пауза";
@@ -61,8 +64,17 @@ assert.ok(memories.includes("У осьминога три сердца."),
   "the guided experiment must store its sample fact through the existing memory control");
 assert.equal(askedQuestion, "Сколько сердец у осьминога?",
   "the guided experiment must ask the configured recall question");
-assert.equal(show.disabled, false, "the network view must unlock after the experiment");
-assert.equal(result.hidden, false, "the experiment must expose a visible result");
+assert.equal(show.disabled, true,
+  "a stale or off-topic assistant reply must not unlock the network success action");
+assert.equal(result.hidden, false, "the experiment must expose a visible result even when recall fails");
+assert.match(status.textContent, /частично/u);
+assert.match(result.textContent, /сам ответ диалога не подтвердил/u,
+  "the experiment must report when search candidates exist but the actual response is off-topic");
+
+assistantReply = "В моей памяти есть запись: У осьминога три сердца.";
+run.click();
+assert.equal(show.disabled, false, "the network view must unlock only after the actual answer confirms the fact");
+assert.match(result.textContent, /Ответ системы/u);
 assert.match(result.textContent, /Следов памяти активировано по отчёту: 2/u,
   "the result must report activated memory traces");
 assert.match(status.textContent, /Опыт завершён/u);
