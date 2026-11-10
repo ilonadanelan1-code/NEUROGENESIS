@@ -49,7 +49,7 @@ const reportArtifact = {
   benchmarkVersion: globalThis.NGPlasticityHeadroomBenchmark.version,
   report
 };
-await writeFile(reportPath, JSON.stringify(reportArtifact, null, 2) + "\\n", "utf8");
+await writeFile(reportPath, JSON.stringify(reportArtifact, null, 2) + "\n", "utf8");
 const persistedArtifact = JSON.parse(await readFile(reportPath, "utf8"));
 assert.equal(persistedArtifact.report.kind, report.kind);
 assert.equal(persistedArtifact.report.passed, report.passed);
