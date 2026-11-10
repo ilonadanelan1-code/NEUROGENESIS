@@ -97,9 +97,9 @@ assert.notEqual(octopusTopic.activeThreadId, pendingBase.activeThreadId,
 assert.equal(octopusTopic.messages[octopusTopic.messages.length - 1].relation, "new_topic");
 assert.equal(octopusTopic.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "the unrelated previous topic's pending question must remain unanswered");
+const octopusQuestionWithoutMark = "Сколько сердец у осьминога";
 assert.equal(engine.isLikelyAnswer(octopusQuestionWithoutMark, "Сколько часов ты спал?"), false,
   "an unpunctuated standalone question must not be misclassified as a numeric answer to a previous question");
-const octopusQuestionWithoutMark = "Сколько сердец у осьминога";
 assert.equal(engine.resolve(pendingBase, octopusQuestionWithoutMark).applied, false,
   "an interrogative sentence without terminal punctuation must still be recognised as independent");
 const octopusTopicWithoutMark = engine.track(pendingBase, {
