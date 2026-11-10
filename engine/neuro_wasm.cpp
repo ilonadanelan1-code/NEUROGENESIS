@@ -122,6 +122,17 @@ std::uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning
     }
 }
 
+std::uint32_t ng_brain_learn_from_reward_homeostatic(ng_brain_handle* handle,
+                                                        float learning_rate, float reward,
+                                                        float weight_decay) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.learn_from_reward_homeostatic(learning_rate, reward, weight_decay);
+    } catch (...) {
+        return 0;
+    }
+}
+
 std::uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle,
                                                  float learning_rate,
                                                  std::uint32_t input_neuron_id,
