@@ -105,4 +105,60 @@ assert.equal(rejected.ok, false);
 assert.equal(rejected.code, "direct-routes-required",
   "the current contrastive rule must not pretend it can correct indirect paths");
 
-console.log("NEUROGENESIS disposable contrastive trial session: passed.");
+
+for (let seed = 0; seed < 20; seed++) {
+  const positiveWeight = 0.18 + seed * 0.025;
+  const negativeWeight = 0.82 - seed * 0.021;
+  const sideWeight = 0.35 + (seed % 5) * 0.04;
+  const profile = {
+    neurons: [
+      { id: "profile-input", name: "Вход " + seed, type: "sensory", x: 0, y: 0, bias: 0.85 + (seed % 4) * 0.05, activity: 0 },
+      { id: "profile-positive", name: "Цель " + seed, type: "output", x: 1, y: 0, bias: 0.7 + (seed % 3) * 0.1, activity: 0 },
+      { id: "profile-negative", name: "Конкурент " + seed, type: "output", x: 2, y: 0, bias: 0.8 + (seed % 2) * 0.1, activity: 0 },
+      { id: "profile-side", name: "Побочный путь " + seed, type: "memory", x: 3, y: 0, bias: 0.9, activity: 0 }
+    ],
+    synapses: [
+      { from: "profile-input", to: "profile-positive", weight: positiveWeight, signal: 0, eligibility: 0 },
+      { from: "profile-input", to: "profile-negative", weight: negativeWeight, signal: 0, eligibility: 0 },
+      { from: "profile-input", to: "profile-side", weight: sideWeight, signal: 0, eligibility: 0 }
+    ]
+  };
+  const profileBefore = JSON.parse(JSON.stringify(profile));
+  let profileExperiment = null;
+  const profileResult = globalThis.NGDisposableExperimentSession.runContrastiveTrial({
+    createExperiment: options => {
+      assert.deepEqual(options, { resetState: true });
+      profileExperiment = runtime.createDisposableExperiment(profile);
+      return profileExperiment;
+    },
+    inputId: "profile-input",
+    positiveId: "profile-positive",
+    negativeId: "profile-negative",
+    steps: 6,
+    stimulus: 0.8,
+    positiveLearningRate: 0.02,
+    negativeLearningRate: 1,
+    deltaSeconds: 0.1,
+    eligibilityRetention: 0.9
+  });
+
+  assert.ok(profileResult.ok, "contrastive profile " + seed + " should succeed: " + profileResult.message);
+  assert.equal(profileResult.report.updates, 2);
+  assert.ok(profileResult.report.positive.weightAfter > positiveWeight,
+    "positive path must strengthen in profile " + seed);
+  assert.ok(profileResult.report.negative.weightAfter < negativeWeight,
+    "competing path must weaken in profile " + seed);
+  assert.equal(profileResult.report.changes.changedWeights.length, 2);
+  assert.equal(profileResult.report.changes.addedEdges.length, 0);
+  assert.equal(profileResult.report.changes.removedEdges.length, 0);
+  assert.deepEqual(
+    profileResult.report.changes.changedWeights.map(edge => [edge.from, edge.to]).sort(),
+    [["profile-input", "profile-negative"], ["profile-input", "profile-positive"]]
+  );
+  assert.deepEqual(profile, profileBefore,
+    "candidate learning must not mutate profile " + seed + " source snapshot");
+  assert.equal(profileExperiment.disposed, true,
+    "candidate for profile " + seed + " must be disposed after the proposal is generated");
+}
+
+console.log("NEUROGENESIS disposable contrastive trial session: 21 scenarios passed.");
