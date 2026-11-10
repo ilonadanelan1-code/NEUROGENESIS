@@ -1,36 +1,51 @@
-# NEUROGENESIS — disposable WASM experiment boundary
+# NEUROGENESIS — disposable WASM experiments
 
-**Status:** implemented and covered by the WebAssembly integration test  
-**Purpose:** provide an isolated candidate copy of the authoritative JavaScript graph for future controlled learning trials.
+**Status:** isolated candidate copies and the manual contrastive-trial preview are implemented and tested.
 
-## What the API does
+## Isolation boundary
 
-A ready WASM runtime can create a disposable experiment from a captured graph snapshot:
+The authoritative application graph remains JavaScript. The long-lived WASM shadow is a separate simulation mirror. A disposable experiment creates a third, short-lived C++/WASM brain from a captured graph snapshot.
+
+A ready shadow controller exposes:
 
 ```js
-const experiment = runtime.createDisposableExperiment(snapshot);
+const experiment = shadow.createExperiment();
 ```
 
-The experiment owns a separate C++/WASM brain. Its baseline is captured at creation time. The caller can run candidate operations through `experiment.candidate`, then inspect:
+The application bridge exposes the same capability through `NGBrain.wasmCreateDisposableExperiment()`.
 
-- `experiment.baselineSnapshot()` — a defensive copy of the captured baseline;
-- `experiment.snapshot()` — a defensive copy of the candidate state;
-- `experiment.compare()` — changed weights and added/removed edges;
-- `experiment.exportProposal()` — a versioned, manual-review-only change proposal;
-- `experiment.dispose()` — idempotent release of the candidate brain.
+The experiment owns its candidate brain and exposes:
 
-Snapshots returned by the API are copies; editing them cannot rewrite the private baseline or the WASM candidate. Calls that inspect the experiment after disposal fail explicitly.
+- `baselineSnapshot()` — a defensive copy of the captured baseline;
+- `candidate` — operations on the isolated WASM candidate;
+- `snapshot()` and `compare()` — candidate state and weight/edge differences;
+- `exportProposal()` — a versioned, manual-review-only proposal;
+- `dispose()` — idempotent release of candidate memory.
 
-## Connection to the application shadow controller
+There is deliberately no apply, merge, save, or automatic-import method.
 
-A ready shadow controller exposes `createExperiment()`. It captures the controller's `getSnapshot()` result, which in the application is `wasmShadowSnapshot()`: the authoritative JavaScript graph.
+## Fresh-state option
 
-This is deliberate. Experimental weights stored in the long-lived WASM shadow overlay are not silently inherited by a new candidate. A new trial starts from the current application graph, while the long-lived shadow remains unchanged.
+```js
+const experiment = shadow.createExperiment({ resetState: true });
+```
 
-The application surface also exposes `NGBrain.wasmCreateDisposableExperiment()` for future explicit experiment UI. It returns `null` until the shadow runtime is ready or after it has been disposed.
+When `resetState` is enabled, the copy keeps neuron identities, graph structure, and synapse weights but starts with zero transient neuron activity and zero eligibility/signal traces. The captured JavaScript graph and the long-lived shadow remain untouched.
 
-## Safety boundary
+## Manual contrastive trial
 
-There is intentionally **no apply, merge, save, or automatic-import method** on an experiment. Export creates a proposal for inspection only. The application JavaScript graph, local storage, memory records, and long-lived shadow controller are not changed by candidate operations.
+The experimental panel now allows the user to select:
 
-This is infrastructure for controlled trials, not yet a correction policy for arbitrary user networks. The next stage must define explicit task labels and a suitable evaluation protocol before running corrective learning against a real graph snapshot.
+1. one non-output input neuron;
+2. one positive output neuron;
+3. one competing output neuron.
+
+The input must have direct synapses to both selected outputs. The current C++ contrastive method updates only those two direct input-to-output edges; it does not perform credit assignment through arbitrary hidden paths. The interface filters for valid direct pairs and refuses unsupported selections.
+
+A trial runs on a fresh disposable copy: stimulus `0.8`, six simulation steps at `0.1` seconds, eligibility retention `0.9`, positive rate `0.02`, and negative rate `1.0`. It requires positive eligibility traces on both target edges, checks that no unselected weights or graph edges changed, builds a manual-review-only proposal, and disposes the candidate.
+
+The downloaded JSON contains the proposal and the observed trial report. Downloading it does not change the application network or local storage.
+
+## Limits
+
+This is an explicit one-event preview on a user-selected direct pair, not a general-purpose correction policy. It does not automatically infer which output is correct, train indirect routes, or apply learned weights to the live graph. Results on the currently selected network must be evaluated before any broader integration is considered.

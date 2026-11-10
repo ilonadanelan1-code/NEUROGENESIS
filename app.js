@@ -204,6 +204,10 @@
          " · подкреплений опыта: " + (diagnostics.sequenceRewards || 0));
     }
     refreshExperienceEpisodeUi();
+    if (window.NGDisposableExperimentUI &&
+        typeof window.NGDisposableExperimentUI.refresh === "function") {
+      window.NGDisposableExperimentUI.refresh();
+    }
   }
   function startWasmShadow() {
     if (!window.NGWasm || typeof window.NGWasm.createShadowController !== "function") return;
@@ -1264,8 +1268,8 @@
     wasmSnapshot() {
       return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
     },
-    wasmCreateDisposableExperiment() {
-      return wasmShadow ? wasmShadow.createExperiment() : null;
+    wasmCreateDisposableExperiment(options = {}) {
+      return wasmShadow ? wasmShadow.createExperiment(options) : null;
     },
     wasmLearningExport() {
       return wasmShadow ? wasmShadow.learnedWeights() : [];

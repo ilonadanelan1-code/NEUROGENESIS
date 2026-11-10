@@ -8,9 +8,11 @@ const adapter = fs.readFileSync("neuro-wasm-adapter.js", "utf8");
 const experience = fs.readFileSync("experience-quality.js", "utf8");
 const benchmark = fs.readFileSync("experience-benchmark.js", "utf8");
 const contrastive = fs.readFileSync("contrastive-benchmark.js", "utf8");
+const disposableSession = fs.readFileSync("disposable-experiment-session.js", "utf8");
+const disposableUi = fs.readFileSync("disposable-experiment-ui.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.37", "the shadow runtime release must have a distinct asset version");
+assert.equal(version, "0.58.38", "the isolated contrastive-trial release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -23,6 +25,9 @@ assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("expe
 assert.ok(normalized.indexOf("experience-benchmark.js") < normalized.indexOf("contrastive-benchmark.js"));
 assert.ok(normalized.indexOf("contrastive-benchmark.js") < normalized.indexOf("app.js"),
   "the contrastive benchmark must exist before app startup");
+assert.ok(normalized.indexOf("app.js") < normalized.indexOf("disposable-experiment-session.js"));
+assert.ok(normalized.indexOf("disposable-experiment-session.js") < normalized.indexOf("disposable-experiment-ui.js"));
+assert.ok(normalized.indexOf("disposable-experiment-ui.js") < normalized.indexOf("knowledge.js"));
 assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("app.js"),
   "the experience manager must exist before app startup");
 assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("app.js"),
@@ -36,9 +41,16 @@ assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.37"/u
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createDisposableExperiment\(snapshot\)/u);
-assert.match(adapter, /function createExperiment\(\)/u);
+assert.match(adapter, /function createExperiment\(options = \{\}\)/u);
+assert.match(adapter, /settings\.resetState === true/u);
+assert.match(disposableSession, /function runContrastiveTrial\(options = \{\}\)/u);
+assert.match(disposableSession, /isolation-contract-violation/u);
+assert.match(disposableUi, /wasmCreateDisposableExperiment\(options\)/u);
+assert.match(html, /id="wasm-experiment-run"/u);
+assert.match(html, /id="wasm-experiment-export"/u);
 assert.match(adapter, /policy: "manual-review-only"/u);
-assert.match(app, /wasmCreateDisposableExperiment\(\)/u);
+assert.match(app, /wasmCreateDisposableExperiment\(options = \{\}\)/u);
+assert.match(app, /NGDisposableExperimentUI\.refresh\(\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
 assert.match(adapter, /state = "unavailable"/u);
 assert.match(adapter, /const previous = brain;[\s\S]*?brain = candidate;[\s\S]*?if \(previous\) previous\.dispose\(\)/u,

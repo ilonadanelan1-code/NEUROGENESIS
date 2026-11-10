@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.37">
+  <link rel="stylesheet" href="./styles.css?v=0.58.38">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.37</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.38</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -93,6 +93,25 @@
               <p class="control-note" id="wasm-experience-report" aria-live="polite">Начни эпизод, запусти симуляцию и только затем оцени результат.</p>
               <button class="secondary-button llm-config-clear" id="wasm-experience-benchmark-button" type="button" disabled>Проверить контрастное обучение и конкуренцию</button>
               <p class="control-note" id="wasm-experience-benchmark-report" aria-live="polite">Изолированные тесты проверят обычное подкрепление, две ассоциации, плотную интерференцию и контрастное обучение: верная связь усиливается, конкурирующая ослабляется.</p>
+              <p class="control-note" id="wasm-experience-benchmark-report" aria-live="polite">Изолированные тесты проверят обычное подкрепление, две ассоциации, плотную интерференцию и контрастное обучение: верная связь усиливается, конкурирующая ослабляется.</p>
+              <details class="llm-settings" id="wasm-disposable-experiment-panel">
+                <summary><span>КОНТРОЛИРУЕМЫЙ ОПЫТ · ОТДЕЛЬНАЯ КОПИЯ</span></summary>
+                <div class="llm-settings-body">
+                  <p class="llm-security-note">Выбери вход, правильный выход и конкурирующий выход. Коррекция выполняется на новой WASM-копии и выдаёт только предложение. Метод меняет прямые связи от выбранного входа к двум выходам; скрытые промежуточные маршруты он пока не корректирует.</p>
+                  <label class="field-label" for="wasm-experiment-input">ВХОДНОЙ НЕЙРОН</label>
+                  <select class="text-input" id="wasm-experiment-input" disabled><option value="">Ожидание WASM</option></select>
+                  <label class="field-label" for="wasm-experiment-positive">ПРАВИЛЬНЫЙ ВЫХОД</label>
+                  <select class="text-input" id="wasm-experiment-positive" disabled><option value="">Сначала выбери вход</option></select>
+                  <label class="field-label" for="wasm-experiment-negative">КОНКУРИРУЮЩИЙ ВЫХОД</label>
+                  <select class="text-input" id="wasm-experiment-negative" disabled><option value="">Сначала выбери вход</option></select>
+                  <div class="llm-settings-actions">
+                    <button class="secondary-button llm-config-clear" id="wasm-experiment-refresh" type="button">Обновить узлы</button>
+                    <button class="primary-button llm-config-save" id="wasm-experiment-run" type="button" disabled>Запустить опыт на копии</button>
+                    <button class="secondary-button llm-config-clear" id="wasm-experiment-export" type="button" disabled>Скачать предложение</button>
+                  </div>
+                  <p class="control-note" id="wasm-experiment-report" data-state="info" aria-live="polite">Ожидаю готовности WASM. Изменения не будут применяться автоматически.</p>
+                </div>
+              </details>
               <input id="wasm-learning-file" type="file" accept="application/json,.json" hidden>
               <p class="memory-feedback" id="wasm-learning-feedback" aria-live="polite">Обученных связей: 0</p>
             </div>
@@ -196,22 +215,24 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./activation.js?v=0.58.37" defer></script>
-  <script src="./neuro-wasm-adapter.js?v=0.58.37" defer></script>
-  <script src="./experience-quality.js?v=0.58.37" defer></script>
-  <script src="./experience-benchmark.js?v=0.58.37" defer></script>
-  <script src="./contrastive-benchmark.js?v=0.58.37" defer></script>
-  <script src="./app.js?v=0.58.37" defer></script>
-  <script src="./knowledge.js?v=0.58.37" defer></script>
-  <script src="./goals.js?v=0.58.37" defer></script>
-  <script src="./observation-engine.js?v=0.58.37" defer></script>
-  <script src="./knowledge-graph.js?v=0.58.37" defer></script>
-  <script src="./reasoning-audit.js?v=0.58.37" defer></script>
-  <script src="./discriminating-observations.js?v=0.58.37" defer></script>
-  <script src="./hypothesis-lifecycle.js?v=0.58.37" defer></script>
-  <script src="./dialog-context.js?v=0.58.37" defer></script>
-  <script src="./dialog-manager.js?v=0.58.37" defer></script>
-  <script src="./llm-bridge.js?v=0.58.37" defer></script>
-  <script src="./memory.js?v=0.58.37" defer></script>
+  <script src="./activation.js?v=0.58.38" defer></script>
+  <script src="./neuro-wasm-adapter.js?v=0.58.38" defer></script>
+  <script src="./experience-quality.js?v=0.58.38" defer></script>
+  <script src="./experience-benchmark.js?v=0.58.38" defer></script>
+  <script src="./contrastive-benchmark.js?v=0.58.38" defer></script>
+  <script src="./app.js?v=0.58.38" defer></script>
+  <script src="./disposable-experiment-session.js?v=0.58.38" defer></script>
+  <script src="./disposable-experiment-ui.js?v=0.58.38" defer></script>
+  <script src="./knowledge.js?v=0.58.38" defer></script>
+  <script src="./goals.js?v=0.58.38" defer></script>
+  <script src="./observation-engine.js?v=0.58.38" defer></script>
+  <script src="./knowledge-graph.js?v=0.58.38" defer></script>
+  <script src="./reasoning-audit.js?v=0.58.38" defer></script>
+  <script src="./discriminating-observations.js?v=0.58.38" defer></script>
+  <script src="./hypothesis-lifecycle.js?v=0.58.38" defer></script>
+  <script src="./dialog-context.js?v=0.58.38" defer></script>
+  <script src="./dialog-manager.js?v=0.58.38" defer></script>
+  <script src="./llm-bridge.js?v=0.58.38" defer></script>
+  <script src="./memory.js?v=0.58.38" defer></script>
 </body>
 </html>

@@ -827,10 +827,24 @@
       return brain ? brain.snapshot() : { neurons: [], synapses: [] };
     }
 
-    function createExperiment() {
+    function createExperiment(options = {}) {
       if (disposed || state !== "ready" || !runtime) return null;
       try {
-        return runtime.createDisposableExperiment(getSnapshot());
+        const settings = options && typeof options === "object" ? options : {};
+        const source = copySnapshot(getSnapshot());
+        if (settings.resetState === true) {
+          for (const neuron of source.neurons) {
+            if (!neuron || typeof neuron !== "object") continue;
+            neuron.activity = 0;
+            neuron.activation = 0;
+          }
+          for (const edge of source.synapses) {
+            if (!edge || typeof edge !== "object") continue;
+            edge.signal = 0;
+            edge.eligibility = 0;
+          }
+        }
+        return runtime.createDisposableExperiment(source);
       } catch (error) {
         fail(error, "Could not create a disposable WebAssembly experiment");
         return null;

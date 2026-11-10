@@ -47,6 +47,8 @@ jobs:
           node --check experience-quality.js
           node --check experience-benchmark.js
           node --check contrastive-benchmark.js
+          node --check disposable-experiment-session.js
+          node --check disposable-experiment-ui.js
           node --check compositional-benchmark.js
           node --check retention-scaling-benchmark.js
           node --check plasticity-headroom-benchmark.js
@@ -101,6 +103,9 @@ jobs:
 
       - name: Test disposable WebAssembly experiments
         run: node tests/wasm-disposable-experiment.test.mjs
+
+      - name: Test isolated contrastive trial session
+        run: node tests/disposable-contrastive-trial.test.mjs
 
       - name: Test C++ and JavaScript numerical parity
         run: node tests/neuro-core-parity.test.mjs
