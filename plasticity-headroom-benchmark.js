@@ -267,6 +267,116 @@
     };
   }
 
+  function leakageCandidates(fixture) {
+    const { brain, inputIds, outputIds, mapping } = fixture;
+    const scores = new Map();
+    for (const pattern of HELD_OUT) {
+      const expected = new Set(pattern.map(index => mapping[index]));
+      for (const order of permutations(pattern)) {
+        settle(brain);
+        for (const index of order) brain.stimulate(inputIds[index], 1);
+        brain.step(0.1, 0);
+        const snapshot = brain.snapshot();
+        for (let outputIndex = 0; outputIndex < OUTPUT_COUNT; outputIndex++) {
+          if (expected.has(outputIndex)) continue;
+          const output = snapshot.neurons.find(neuron => neuron.id === outputIds[outputIndex]);
+          const activation = output ? output.activation : NaN;
+          if (!Number.isFinite(activation) || activation <= NON_TARGET_MAX_ACTIVATION) continue;
+          const excess = activation - NON_TARGET_MAX_ACTIVATION;
+          for (const featureIndex of pattern) {
+            const from = inputIds[featureIndex], to = outputIds[outputIndex];
+            const edge = snapshot.synapses.find(row => row.from === from && row.to === to);
+            if (!edge || !Number.isFinite(edge.weight) || edge.weight <= EPSILON) continue;
+            const key = featureIndex + ":" + outputIndex;
+            const prior = scores.get(key) || {
+              featureIndex, outputIndex, from, to, score: 0,
+              maxObservedActivation: 0, observations: 0, currentWeight: edge.weight
+            };
+            prior.score += excess * edge.weight;
+            prior.maxObservedActivation = Math.max(prior.maxObservedActivation, activation);
+            prior.observations++;
+            prior.currentWeight = edge.weight;
+            scores.set(key, prior);
+          }
+        }
+        settle(brain);
+      }
+    }
+    return [...scores.values()].sort((a, b) =>
+      b.score - a.score || b.currentWeight - a.currentWeight ||
+      a.featureIndex - b.featureIndex || a.outputIndex - b.outputIndex);
+  }
+
+  function selectiveCleanup(fixture, budget, negativeRate) {
+    const safeBudget = Math.max(0, Math.min(8, Math.floor(Number(budget) || 0)));
+    const safeNegativeRate = Number.isFinite(negativeRate)
+      ? Math.max(0, Math.min(1, negativeRate)) : 1.0;
+    const initial = evaluateAll(fixture.brain, fixture);
+    const episodes = [];
+    for (let iteration = 0; iteration < safeBudget; iteration++) {
+      const beforeEvaluation = evaluateAll(fixture.brain, fixture);
+      if (beforeEvaluation.passed) break;
+      const candidate = leakageCandidates(fixture)[0];
+      if (!candidate) break;
+      const beforeSnapshot = fixture.brain.snapshot();
+      const selectedBefore = beforeSnapshot.synapses.find(edge =>
+        edge.from === candidate.from && edge.to === candidate.to);
+      if (!selectedBefore || selectedBefore.weight <= EPSILON) break;
+      const correctOutputId = fixture.outputIds[fixture.mapping[candidate.featureIndex]];
+      const update = contrastiveEpisode(
+        fixture.brain, candidate.from, correctOutputId, candidate.to,
+        0, safeNegativeRate, "bounded"
+      );
+      const afterSnapshot = fixture.brain.snapshot();
+      const selectedAfter = afterSnapshot.synapses.find(edge =>
+        edge.from === candidate.from && edge.to === candidate.to);
+      const changedEdges = afterSnapshot.synapses.filter(edge => {
+        const previous = beforeSnapshot.synapses.find(row =>
+          row.from === edge.from && row.to === edge.to);
+        return previous && Math.abs(previous.weight - edge.weight) > EPSILON;
+      });
+      if (!update.traceConsumed || !selectedAfter ||
+          update.positiveWeightDelta > EPSILON ||
+          update.negativeWeightDelta >= -EPSILON ||
+          changedEdges.length !== 1 ||
+          changedEdges[0].from !== candidate.from || changedEdges[0].to !== candidate.to) {
+        throw new Error("Selective cleanup changed an unselected route or failed to weaken its selected competitor");
+      }
+      episodes.push({
+        iteration: iteration + 1,
+        feature: fixture.featureNames[candidate.featureIndex],
+        incorrectOutput: fixture.outputNames[candidate.outputIndex],
+        score: Number(candidate.score.toFixed(9)),
+        maxObservedActivation: Number(candidate.maxObservedActivation.toFixed(9)),
+        observations: candidate.observations,
+        beforeWeight: selectedBefore.weight,
+        afterWeight: selectedAfter.weight,
+        weightDelta: selectedAfter.weight - selectedBefore.weight,
+        changedEdges: changedEdges.length,
+        tracesConsumed: update.traceConsumed
+      });
+    }
+    const final = evaluateAll(fixture.brain, fixture);
+    return {
+      budget: safeBudget,
+      used: episodes.length,
+      negativeRate: safeNegativeRate,
+      initial: {
+        passed: initial.passed,
+        maxUnexpected: initial.maxUnexpected,
+        minExpected: initial.minExpected
+      },
+      final: {
+        passed: final.passed,
+        maxUnexpected: final.maxUnexpected,
+        minExpected: final.minExpected,
+        heldOutPatterns: final.heldOutPatterns,
+        permutations: final.permutations
+      },
+      episodes
+    };
+  }
+
   function trainFreshAssociation(fixture, mode, reverseOrder) {
     const { brain, outputIds, outputNames } = fixture;
     const input = brain.addNeuron("headroom-fresh-feature", "sensory", 0, FEATURE_COUNT, 1);
@@ -331,6 +441,10 @@
         const evaluation = evaluateAll(brain, fixture);
         history.push({ cycle, evaluation, weights: weightMetrics(fixture) });
       }
+      const cleanup = mode.selectiveCleanupBudget == null
+        ? { budget: 0, used: 0, negativeRate: mode.selectiveCleanupNegativeRate || 1.0,
+            initial: null, final: null, episodes: [] }
+        : selectiveCleanup(fixture, mode.selectiveCleanupBudget, mode.selectiveCleanupNegativeRate);
       const retained = evaluateAll(brain, fixture);
       const weights = weightMetrics(fixture);
       const retentionPassed = retained.passed && weights.allWeightsBounded;
@@ -366,11 +480,13 @@
           initialSingleton: initialEpisodes,
           compositions: compositionEpisodes,
           replay: replayEpisodes,
+          cleanup: cleanup.used,
           freshAssociation: freshAssociation.episodes,
-          total: initialEpisodes + compositionEpisodes + replayEpisodes + freshAssociation.episodes
+          total: initialEpisodes + compositionEpisodes + replayEpisodes + cleanup.used + freshAssociation.episodes
         },
         baseline,
         history,
+        cleanup,
         retained,
         weights,
         retentionPassed,
