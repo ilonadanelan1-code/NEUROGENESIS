@@ -5,6 +5,8 @@
   const DIALOG_KEY = "neurogenesis.dialog.v1";
   const DIALOG_CONTEXT_KEY = "neurogenesis.dialog-context.v1";
   const LLM_CONFIG_KEY = "neurogenesis.llm-config.v1";
+  const DEFAULT_LLM_ENDPOINT = "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev";
+  const LEGACY_LLM_ENDPOINT = "https://neurogenesis-llm-proxy.ilonadanel1.workers.dev";
   const MODEL_DECISIONS_KEY = "neurogenesis.model-decisions.v1";
   const MODEL_EVIDENCE_KEY = "neurogenesis.model-evidence.v1";
   const REASONING_ARCHIVE_KEY = "neurogenesis.reasoning-archive.v1";
@@ -67,7 +69,20 @@
       const raw = localStorage.getItem(LLM_CONFIG_KEY);
       const value = raw ? JSON.parse(raw) : null;
       if (value && typeof value.endpoint === "string" && typeof value.clientToken === "string" &&
-          value.endpoint.trim() && value.clientToken.trim()) return { endpoint:value.endpoint.trim(), clientToken:value.clientToken.trim() };
+          value.endpoint.trim() && value.clientToken.trim()) {
+        const savedEndpoint = value.endpoint.trim();
+        const endpointWithoutTrailingSlash = savedEndpoint.replace(/\\/+$/u, "");
+        // Migrate the single known typo from earlier setup guidance. Keep the
+        // user's APP_TOKEN untouched and preserve any other custom endpoint.
+        const endpoint = endpointWithoutTrailingSlash === LEGACY_LLM_ENDPOINT
+          ? DEFAULT_LLM_ENDPOINT : savedEndpoint;
+        const config = { endpoint, clientToken:value.clientToken.trim() };
+        if (endpoint !== savedEndpoint) {
+          try { localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(config)); }
+          catch (error) { console.warn("NEUROGENESIS LLM endpoint migration could not be persisted:", error); }
+        }
+        return config;
+      }
     } catch (error) { console.warn("NEUROGENESIS LLM configuration could not be loaded:", error); }
     return null;
   }
@@ -4107,8 +4122,6 @@
       if (askButton) askButton.disabled = false;
     }
   }
-  const DEFAULT_LLM_ENDPOINT = "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev";
-
   function loadLLMConfiguration() {
     const endpoint = $("llm-endpoint");
     const saved = readLLMConfig();
