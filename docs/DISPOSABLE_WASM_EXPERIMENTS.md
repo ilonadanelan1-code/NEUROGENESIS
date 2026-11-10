@@ -44,7 +44,7 @@ The input must have direct synapses to both selected outputs. The current C++ co
 
 A trial runs on a fresh disposable copy: stimulus `0.8`, six simulation steps at `0.1` seconds, eligibility retention `0.9`, positive rate `0.02`, and negative rate `1.0`. It requires positive eligibility traces on both target edges, checks that no unselected weights or graph edges changed, builds a manual-review-only proposal, and disposes the candidate.
 
-The downloaded JSON contains the proposal and the observed trial report. Downloading it does not change the application network or local storage.
+The downloaded JSON contains the proposal and the observed trial report. Downloading it does not change the application network or local storage. The UI invalidates a previous proposal whenever the selected neurons change or the source graph's topology, neuron types/excitability, or synapse weights change; export rechecks the current source graph before creating the file.
 
 ## Limits
 

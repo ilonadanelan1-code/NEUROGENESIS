@@ -15,10 +15,36 @@
   let currentSnapshot = null;
   let latestProposal = null;
   let latestReport = null;
+  let latestSourceSignature = null;
 
   function setStatus(message, state = "info") {
     statusElement.textContent = message;
     statusElement.dataset.state = state;
+  }
+
+  function snapshotSignature(snapshot) {
+    const neurons = (snapshot.neurons || []).filter(Boolean).map(row => [
+      String(row.id ?? ""),
+      String(row.type ?? row.kind ?? ""),
+      Number(row.bias ?? row.excitability ?? 0.5)
+    ]).sort((left, right) => left[0].localeCompare(right[0]));
+    const synapses = (snapshot.synapses || []).filter(Boolean).map(edge => [
+      String(edge.from ?? ""),
+      String(edge.to ?? ""),
+      Number(edge.weight ?? 0.5)
+    ]).sort((left, right) => {
+      const a = left[0] + "\\u0000" + left[1];
+      const b = right[0] + "\\u0000" + right[1];
+      return a.localeCompare(b);
+    });
+    return JSON.stringify({ neurons, synapses });
+  }
+
+  function clearResult() {
+    latestProposal = null;
+    latestReport = null;
+    latestSourceSignature = null;
+    exportButton.disabled = true;
   }
 
   function addOptions(select, rows, selectedId) {
@@ -98,6 +124,10 @@
 
     const previousInput = inputSelect.value;
     const snapshot = api.wasmSnapshot();
+    const signature = snapshotSignature(snapshot);
+    const proposalBecameStale = latestSourceSignature !== null &&
+      latestSourceSignature !== signature;
+    if (proposalBecameStale) clearResult();
     const outputs = (snapshot.neurons || []).filter(row =>
       row && String(row.type || row.kind || "") === "output");
     const inputs = (snapshot.neurons || []).filter(row => {
@@ -108,6 +138,9 @@
     addOptions(inputSelect, inputs, previousInput);
     inputSelect.disabled = inputs.length === 0;
     updateTargets();
+    if (proposalBecameStale) {
+      setStatus("Исходная сеть изменилась после опыта. Старое предложение аннулировано; проведи новую проверку.", "warning");
+    }
     if (!inputs.length) {
       runButton.disabled = true;
       setStatus(outputs.length < 2
@@ -126,6 +159,8 @@
   function renderResult(result) {
     latestProposal = result && result.proposal ? result.proposal : null;
     latestReport = result && result.report ? result.report : null;
+    latestSourceSignature = latestReport && currentSnapshot
+      ? snapshotSignature(currentSnapshot) : null;
     exportButton.disabled = !latestProposal;
     if (!result || !result.report) {
       setStatus(result && result.message ? result.message : "Опыт не выполнен.", "warning");
@@ -190,7 +225,7 @@
   }
 
   function exportProposal() {
-    if (!latestProposal || !latestReport) return;
+    if (!refresh() || !latestProposal || !latestReport) return;
     try {
       const payload = {
         ...latestProposal,
@@ -214,10 +249,19 @@
     }
   }
 
+  function handleSelectionChange() {
+    const hadResult = !!latestProposal || !!latestReport;
+    clearResult();
+    updateTargets();
+    if (hadResult) {
+      setStatus("Выбор нейронов изменён. Предыдущий результат сброшен; запусти новый опыт.", "info");
+    }
+  }
+
   refreshButton.addEventListener("click", refresh);
-  inputSelect.addEventListener("change", updateTargets);
-  positiveSelect.addEventListener("change", updateTargets);
-  negativeSelect.addEventListener("change", updateTargets);
+  inputSelect.addEventListener("change", handleSelectionChange);
+  positiveSelect.addEventListener("change", handleSelectionChange);
+  negativeSelect.addEventListener("change", handleSelectionChange);
   runButton.addEventListener("click", run);
   exportButton.addEventListener("click", exportProposal);
 
