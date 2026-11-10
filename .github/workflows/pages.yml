@@ -49,6 +49,7 @@ jobs:
           node --check contrastive-benchmark.js
           node --check disposable-experiment-session.js
           node --check multi-hop-credit-diagnostic.js
+          node --check multi-hop-credit-prototype.js
           node --check disposable-experiment-ui.js
           node --check compositional-benchmark.js
           node --check retention-scaling-benchmark.js
@@ -119,6 +120,9 @@ jobs:
 
       - name: Run multi-hop credit assignment diagnostic
         run: node tests/multi-hop-credit-diagnostic.test.mjs
+
+      - name: Run path-aware multi-hop credit prototype
+        run: node tests/multi-hop-credit-prototype.test.mjs
 
       - name: Upload multi-hop credit diagnostic report
         if: always()
