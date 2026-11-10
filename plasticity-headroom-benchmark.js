@@ -100,7 +100,8 @@
     const negative = before.synapses.find(e => e.from === inputId && e.to === negativeId);
     const inactive = before.neurons.every(n => n.activation <= EPSILON);
     if (!positive || !negative || positive.eligibility <= EPSILON ||
-        negative.eligibility <= EPSILON || !inactive) {
+        negative.eligibility <= EPSILON || !inactive ||
+        before.neurons.some(neuron => neuron.activation > EPSILON)) {
       throw new Error("Contrastive episode did not leave traces after activity faded");
     }
     const changed = brain.learnContrastiveRewardAsymmetric(
@@ -334,7 +335,9 @@
         weights.correctEdgesBelow95Percent === weights.correctEdges;
       const freshAssociation = trainFreshAssociation(fixture, mode, reverseOrder);
       const oldAfterFresh = evaluateAll(brain, fixture);
-      const passed = retentionPassed && headroomPassed &&
+      const allWeightsBoundedAfterFresh = brain.snapshot().synapses.every(edge =>
+        Number.isFinite(edge.weight) && edge.weight >= 0 && edge.weight <= 1);
+      const passed = retentionPassed && headroomPassed && allWeightsBoundedAfterFresh &&
         freshAssociation.passed && oldAfterFresh.passed;
       return {
         mode: mode.id,
@@ -368,6 +371,7 @@
         headroomPassed,
         freshAssociation,
         oldAfterFresh,
+        allWeightsBoundedAfterFresh,
         timingMs: Number((now() - started).toFixed(3)),
         passed
       };
@@ -400,7 +404,7 @@
       allAsymmetricScenariosKeepPlasticityHeadroom: asym.length === 4 && asym.every(row => row.headroomPassed),
       allAsymmetricScenariosLearnFreshAssociation: asym.length === 4 && asym.every(row => row.freshAssociation.passed),
       allOldMappingsSurviveFreshLearning: asym.length === 4 && asym.every(row => row.oldAfterFresh.passed),
-      allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded),
+      allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded && row.allWeightsBoundedAfterFresh),
       controlsAreReported: controls.length === 8,
       noProtectedConditionWasSilentlyOmitted: scenarios.every(row =>
         row.episodes.initialSingleton > 0 && row.episodes.compositions === CYCLES * TASKS.length)
@@ -433,7 +437,6 @@
         controlFreshLearningPasses: controls.filter(row => row.freshAssociation.passed).length
       },
       createdBrains,
-      activeBrains: 0,
       timingMs: Number((now() - started).toFixed(3))
     };
   }
