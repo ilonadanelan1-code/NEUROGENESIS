@@ -30,3 +30,8 @@ unchanged.
 ## Limits
 Community detection is a visual heuristic, not semantic understanding. A
 highly interconnected graph may legitimately form one large community.
+
+
+## Desktop and mobile viewport fitting
+
+The canvas derives its transform from actual width and height. The shared viewport-fitting helper uses a 1.5% minimum zoom instead of the previous 12% floor and is tested against wide desktop, short desktop, and portrait phone viewports. When a grouped graph's canvas changes size, the view is fitted again without moving neurons.

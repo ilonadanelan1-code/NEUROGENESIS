@@ -63,4 +63,23 @@ for (let i = 0; i < compact.clusters.length; i++) {
   }
 }
 
+
+const largeBounds = { minX: -9000, maxX: 9000, minY: -7200, maxY: 7200 };
+for (const [width, height] of [[1440, 760], [980, 610], [1920, 560], [390, 720]]) {
+  const fitted = api.fitViewport(largeBounds, width, height, {
+    paddingX: 40, paddingY: 50, minZoom: 0.015, maxZoom: 1.8
+  });
+  assert.equal(fitted.fits, true, "large graph must fit viewport " + width + "x" + height);
+  assert.ok(fitted.zoom >= 0.015 && fitted.zoom <= 1.8);
+  assert.ok(fitted.projectedBounds.minX >= 39.999);
+  assert.ok(fitted.projectedBounds.maxX <= width - 39.999);
+  assert.ok(fitted.projectedBounds.minY >= 49.999);
+  assert.ok(fitted.projectedBounds.maxY <= height - 49.999);
+}
+const tooLarge = api.fitViewport(
+  { minX: -1e8, maxX: 1e8, minY: -1e8, maxY: 1e8 },
+  980, 610, { paddingX: 40, paddingY: 50, minZoom: 0.015, maxZoom: 1.8 }
+);
+assert.equal(tooLarge.fits, false, "graphs beyond the zoom floor must be reported as not fitted");
+
 console.log("NEUROGENESIS community layout: dense groups, weak bridges, deterministic placement, edge-length separation, connected triangle, isolated neurons and compact 183-group packing passed.");

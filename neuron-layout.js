@@ -377,5 +377,46 @@
       averageInterCommunityEdgeLength:crossCount?crossLength/crossCount:0,internalEdgeCount:insideCount,interCommunityEdgeCount:crossCount,bounds};
   }
 
-  globalThis.NGNeuronLayout = Object.freeze({ separate, cluster, detectCommunities });
+
+  function fitViewport(bounds, viewportWidth, viewportHeight, options = {}) {
+    if (!bounds || typeof bounds !== "object") throw new TypeError("bounds are required");
+    const width = finite(viewportWidth, "viewportWidth");
+    const height = finite(viewportHeight, "viewportHeight");
+    const minX = finite(bounds.minX, "bounds.minX");
+    const maxX = finite(bounds.maxX, "bounds.maxX");
+    const minY = finite(bounds.minY, "bounds.minY");
+    const maxY = finite(bounds.maxY, "bounds.maxY");
+    const paddingX = finite(options.paddingX ?? 40, "paddingX");
+    const paddingY = finite(options.paddingY ?? 50, "paddingY");
+    const minZoom = finite(options.minZoom ?? 0.015, "minZoom");
+    const maxZoom = finite(options.maxZoom ?? 1.8, "maxZoom");
+    if (width <= 0 || height <= 0 || maxX < minX || maxY < minY ||
+        paddingX < 0 || paddingY < 0 || paddingX * 2 >= width ||
+        paddingY * 2 >= height || minZoom <= 0 || maxZoom < minZoom) {
+      throw new RangeError("Viewport fitting parameters are outside safe bounds");
+    }
+    const spanX = Math.max(1, maxX - minX);
+    const spanY = Math.max(1, maxY - minY);
+    const availableWidth = width - paddingX * 2;
+    const availableHeight = height - paddingY * 2;
+    const requiredZoom = Math.min(availableWidth / spanX, availableHeight / spanY);
+    const zoom = Math.max(minZoom, Math.min(maxZoom, requiredZoom));
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    return {
+      zoom,
+      x: width / 2 - centerX * zoom,
+      y: height / 2 - centerY * zoom,
+      requiredZoom,
+      fits: zoom <= requiredZoom + EPSILON,
+      projectedBounds: {
+        minX: width / 2 - spanX * zoom / 2,
+        maxX: width / 2 + spanX * zoom / 2,
+        minY: height / 2 - spanY * zoom / 2,
+        maxY: height / 2 + spanY * zoom / 2
+      }
+    };
+  }
+
+  globalThis.NGNeuronLayout = Object.freeze({ separate, cluster, detectCommunities, fitViewport });
 })();

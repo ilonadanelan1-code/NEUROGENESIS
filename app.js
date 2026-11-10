@@ -4,6 +4,7 @@
   const STORAGE_KEY = "neurogenesis.prototype.v2";
   const LAYOUT_UNDO_KEY = STORAGE_KEY + ".layout-undo";
   const LAYOUT_GROUPS_KEY = STORAGE_KEY + ".layout-groups";
+  const MIN_VIEW_ZOOM = 0.015;
   const TYPES = ["core", "sensory", "memory", "logic", "output"];
   const TYPE_NAMES = { core: "Ядро", sensory: "Сенсорный", memory: "Память", logic: "Логический", output: "Выходной" };
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
@@ -407,7 +408,7 @@
         resolution: 1,
         communityGap: 60
       });
-      const safeWorldSpan = Math.min(Math.max(1, width - 80), Math.max(1, height - 100)) / 0.12 * 0.82;
+      const safeWorldSpan = Math.min(Math.max(1, width - 80), Math.max(1, height - 100)) / MIN_VIEW_ZOOM * 0.82;
       if (!result.bounds || result.bounds.width > safeWorldSpan || result.bounds.height > safeWorldSpan ||
           result.positions.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
         showToast("Группы не помещаются на экран — исходная сеть сохранена");
@@ -494,7 +495,7 @@
     visualDirty = true;
     if (!view.x && !view.y) { view.x = width / 2; view.y = height / 2; }
   }
-  const handleCanvasResize = () => { resize(); scheduleFrame(); };
+  const handleCanvasResize = () => { resize(); if (layoutGroups.length) fitNetwork(); scheduleFrame(); };
   let canvasResizeObserver = null;
   function connectCanvasResizeObserver() {
     if (typeof ResizeObserver === "function") {
@@ -584,7 +585,7 @@
   function pointerPoint(event) { const r = canvas.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; }
   function zoomAt(factor, px = width/2, py = height/2) {
     const before = worldAt({x:px,y:py});
-    view.zoom = Math.max(.12, Math.min(5.5, view.zoom * factor));
+    view.zoom = Math.max(MIN_VIEW_ZOOM, Math.min(5.5, view.zoom * factor));
     view.x = px - before.x * view.zoom; view.y = py - before.y * view.zoom;
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
     $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
@@ -593,13 +594,27 @@
   function fitNetwork() {
     if (!neurons.length) return;
     const xs = neurons.map(n => n.x), ys = neurons.map(n => n.y);
-    const minX = Math.min(...xs) - 100, maxX = Math.max(...xs) + 100;
-    const minY = Math.min(...ys) - 100, maxY = Math.max(...ys) + 100;
-    view.zoom = Math.max(.12, Math.min(1.8, Math.min((width - 80) / Math.max(1,maxX-minX), (height - 100) / Math.max(1,maxY-minY))));
-    view.x = width/2 - ((minX+maxX)/2) * view.zoom;
-    view.y = height/2 - ((minY+maxY)/2) * view.zoom;
+    const bounds = {
+      minX: Math.min(...xs) - 100, maxX: Math.max(...xs) + 100,
+      minY: Math.min(...ys) - 100, maxY: Math.max(...ys) + 100
+    };
+    const fitter = window.NGNeuronLayout && window.NGNeuronLayout.fitViewport;
+    if (typeof fitter === "function") {
+      const fitted = fitter(bounds, width, height, {
+        paddingX: 40, paddingY: 50, minZoom: MIN_VIEW_ZOOM, maxZoom: 1.8
+      });
+      view.zoom = fitted.zoom;
+      view.x = fitted.x;
+      view.y = fitted.y;
+    } else {
+      view.zoom = Math.max(MIN_VIEW_ZOOM, Math.min(1.8,
+        Math.min((width - 80) / Math.max(1, bounds.maxX - bounds.minX),
+          (height - 100) / Math.max(1, bounds.maxY - bounds.minY))));
+      view.x = width / 2 - ((bounds.minX + bounds.maxX) / 2) * view.zoom;
+      view.y = height / 2 - ((bounds.minY + bounds.maxY) / 2) * view.zoom;
+    }
     backgroundDirty = true; connectionsDirty = true; nodesDirty = true; visualDirty = true;
-    $("zoom-value").textContent = Math.round(view.zoom*100) + "%";
+    $("zoom-value").textContent = Math.round(view.zoom * 100) + "%";
     scheduleFrame();
   }
 
@@ -1513,7 +1528,7 @@
     const xs=neurons.map(node=>node.x),ys=neurons.map(node=>node.y);
     const spanX=xs.length?Math.max(...xs)-Math.min(...xs):0;
     const spanY=ys.length?Math.max(...ys)-Math.min(...ys):0;
-    const safeWorldSpan=Math.min(Math.max(1,width-80),Math.max(1,height-100))/.12*.82;
+    const safeWorldSpan=Math.min(Math.max(1,width-80),Math.max(1,height-100))/MIN_VIEW_ZOOM*.82;
     if(spanX>safeWorldSpan||spanY>safeWorldSpan) restoreUnsafeCommunityLayout=true;
   }
   if(restoreUnsafeCommunityLayout){

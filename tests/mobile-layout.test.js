@@ -54,6 +54,12 @@ assert.ok(app.includes("function separateNeuronLayout()") && app.includes("funct
   "the app must provide reversible collision-aware neuron layout");
 assert.ok(app.includes("api.cluster(neurons, synapses"),
   "the layout action must use synapse-aware community clustering");
+assert.ok(app.includes("const MIN_VIEW_ZOOM = 0.015"),
+  "large desktop graphs must be allowed below the old 12% zoom floor");
+assert.ok(app.includes("window.NGNeuronLayout.fitViewport"),
+  "the app must use viewport-aware fitting");
+assert.ok(app.includes("if (layoutGroups.length) fitNetwork()"),
+  "grouped layouts must refit after canvas resizing");
 assert.ok(app.includes("safeWorldSpan"),
   "the app must reject layouts outside the visible canvas range");
 assert.ok(app.includes("restoreUnsafeCommunityLayout"),
