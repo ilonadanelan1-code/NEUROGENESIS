@@ -49,6 +49,7 @@ jobs:
           node --check contrastive-benchmark.js
           node --check compositional-benchmark.js
           node --check retention-scaling-benchmark.js
+          node --check plasticity-headroom-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -108,6 +109,15 @@ jobs:
 
       - name: Run plasticity headroom benchmark
         run: node tests/plasticity-headroom-benchmark.test.mjs
+
+      - name: Upload plasticity headroom report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-headroom-v4
+          path: benchmark-reports/plasticity-headroom-v4.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4
