@@ -52,3 +52,18 @@ jobs:
           printf '%s\n' "$headers" | grep -Fqi "access-control-allow-origin: https://ilonadanelan1-code.github.io"
           printf '%s\n' "$headers" | grep -Fqi "access-control-allow-headers: Authorization, Content-Type"
           echo "Worker CORS preflight accepts the published GitHub Pages origin."
+
+          health_status="$(curl --silent --show-error --dump-header /tmp/ng-health-headers \
+            --output /tmp/ng-health-body --write-out "%{http_code}" --max-time 20 \
+            --header "Origin: https://ilonadanelan1-code.github.io" \
+            "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev/api/health")"
+          test "$health_status" = "401"
+          grep -Fqi "access-control-allow-origin: https://ilonadanelan1-code.github.io" /tmp/ng-health-headers
+          node -e '
+            const fs = require("node:fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/ng-health-body", "utf8"));
+            if (body.error !== "unauthorized") {
+              throw new Error("Expected fast unauthenticated health response; received " + JSON.stringify(body));
+            }
+            console.log("Worker /api/health GET responds with HTTP 401 and valid CORS.");
+          '
