@@ -33,6 +33,9 @@
       const value = clean(text, 500);
       // "What/how about ..." explicitly points back to the topic already in progress.
       if (/^(?:(?:а|и|но)\s+)?(?:что|как)\s+(?:насч[её]т|по\s+поводу)(?=\s|$)/iu.test(value)) return false;
+      // Speech input may drop the initial "с" in "сколько"; "так колько..." is
+      // still a discourse follow-up, not a new self-contained question.
+      if (/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(value)) return false;
       const interrogativeLead = /^(?:(?:а|и|но|так|ну)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|чье|чьё|есть\s+ли|можно\s+ли|правда\s+ли)(?=\s|$)/iu;
       if (!value || hasReference(value) ||
           (!/[?？]\s*$/u.test(value) && !interrogativeLead.test(value))) return false;

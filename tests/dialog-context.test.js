@@ -123,6 +123,12 @@ assert.equal(discourseFollowUp.applied, true,
   "a leading 'так' must be recognised as a contextual follow-up, not a new standalone topic");
 assert.match(discourseFollowUp.query, /Сколько сердец у осьминога/u,
   "the contextual follow-up must resolve to the octopus question rather than an older topic");
+const typoDiscourseFollowUp = engine.resolve(octopusTopic, "Так колько в итоге?");
+assert.equal(typoDiscourseFollowUp.applied, true,
+  "a colloquial follow-up with a dropped initial consonant must still inherit the active topic");
+assert.match(typoDiscourseFollowUp.query, /Сколько сердец у осьминога/u,
+  "the typo-tolerant follow-up must stay attached to the octopus question");
+
 
 assert.equal(octopusTopic.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "the unrelated previous topic's pending question must remain unanswered");
