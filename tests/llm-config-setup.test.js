@@ -49,7 +49,7 @@ assert.match(diagnostic, /"Authorization":"Bearer "\+token/u,
   "the diagnostic page must exercise the same authenticated health request as the app");
 assert.match(diagnostic, /значение скрыто/u,
   "the diagnostic page must never display the saved application token");
-assert.match(diagnostic, /mode:"cors"/u,
+assert.match(diagnostic, /options&&options\.mode==="no-cors"\?"no-cors":"cors"/u,
   "the diagnostic page must exercise browser CORS enforcement from GitHub Pages");
 assert.match(diagnostic, /const mode=options&&options\.mode==="no-cors"\?"no-cors":"cors"/u,
   "the diagnostic request helper must support an opaque transport-only probe");
