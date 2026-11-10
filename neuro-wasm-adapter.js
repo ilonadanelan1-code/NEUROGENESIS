@@ -36,7 +36,11 @@
       stimulate: wrap("ng_brain_stimulate", "number", ["number", "number", "number"]),
       learn: wrap("ng_brain_learn", "number", ["number", "number", "number", "number"]),
       learnFromReward: wrap("ng_brain_learn_from_reward", "number", ["number", "number", "number", "number"]),
+      learnFromRewardHomeostatic: wrap("ng_brain_learn_from_reward_homeostatic", "number", ["number", "number", "number", "number"]),
       learnContrastiveReward: wrap("ng_brain_learn_contrastive_reward", "number", ["number", "number", "number", "number", "number"]),
+      learnContrastiveRewardAsymmetric: wrap("ng_brain_learn_contrastive_reward_asymmetric", "number", [
+        "number", "number", "number", "number", "number", "number"
+      ]),
       step: wrap("ng_brain_step", null, ["number", "number", "number"]),
       neuronCount: wrap("ng_brain_neuron_count", "number", ["number"]),
       synapseCount: wrap("ng_brain_synapse_count", "number", ["number"]),
@@ -171,11 +175,36 @@
           );
         },
 
+        learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+          live();
+          return api.learnFromRewardHomeostatic(
+            handle,
+            finite(learningRate, "learningRate"),
+            finite(reward, "reward"),
+            finite(weightDecay, "weightDecay")
+          );
+        },
+
         learnContrastiveReward(learningRate = 0.05, inputNeuronId, positiveNeuronId, negativeNeuronId) {
           live();
           return api.learnContrastiveReward(
             handle,
             finite(learningRate, "learningRate"),
+            Math.floor(finite(inputNeuronId, "inputNeuronId")),
+            Math.floor(finite(positiveNeuronId, "positiveNeuronId")),
+            Math.floor(finite(negativeNeuronId, "negativeNeuronId"))
+          );
+        },
+
+        learnContrastiveRewardAsymmetric(
+          positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+          inputNeuronId, positiveNeuronId, negativeNeuronId
+        ) {
+          live();
+          return api.learnContrastiveRewardAsymmetric(
+            handle,
+            finite(positiveLearningRate, "positiveLearningRate"),
+            finite(negativeLearningRate, "negativeLearningRate"),
             Math.floor(finite(inputNeuronId, "inputNeuronId")),
             Math.floor(finite(positiveNeuronId, "positiveNeuronId")),
             Math.floor(finite(negativeNeuronId, "negativeNeuronId"))
@@ -308,12 +337,31 @@
           learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
             return coreBrain.learnFromReward(learningRate, reward, weightDecay);
           },
+          learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+            return coreBrain.learnFromRewardHomeostatic(
+              finite(learningRate, "learningRate"),
+              finite(reward, "reward"),
+              finite(weightDecay, "weightDecay"));
+          },
           learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
             const input = sourceToCore.get(String(inputSourceId));
             const positive = sourceToCore.get(String(positiveSourceId));
             const negative = sourceToCore.get(String(negativeSourceId));
             if (input == null || positive == null || negative == null) return 0;
             return coreBrain.learnContrastiveReward(learningRate, input, positive, negative);
+          },
+          learnContrastiveRewardAsymmetric(
+            positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+            inputSourceId, positiveSourceId, negativeSourceId
+          ) {
+            const input = sourceToCore.get(String(inputSourceId));
+            const positive = sourceToCore.get(String(positiveSourceId));
+            const negative = sourceToCore.get(String(negativeSourceId));
+            if (input == null || positive == null || negative == null) return 0;
+            return coreBrain.learnContrastiveRewardAsymmetric(
+              finite(positiveLearningRate, "positiveLearningRate"),
+              finite(negativeLearningRate, "negativeLearningRate"),
+              input, positive, negative);
           },
           snapshot() {
             const state = coreBrain.snapshot();
@@ -555,6 +603,22 @@
       }
     }
 
+    function learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnFromRewardHomeostatic(
+          finite(learningRate, "learningRate"),
+          finite(reward, "reward"),
+          finite(weightDecay, "weightDecay")
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly homeostatic sequence reward failed");
+        return 0;
+      }
+    }
+
     function learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
       if (disposed || state !== "ready" || !brain) return 0;
       try {
@@ -565,6 +629,25 @@
         return recordLearningOverlay(changed);
       } catch (error) {
         fail(error, "WebAssembly contrastive reward failed");
+        return 0;
+      }
+    }
+
+    function learnContrastiveRewardAsymmetric(
+      positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+      inputSourceId, positiveSourceId, negativeSourceId
+    ) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnContrastiveRewardAsymmetric(
+          finite(positiveLearningRate, "positiveLearningRate"),
+          finite(negativeLearningRate, "negativeLearningRate"),
+          inputSourceId, positiveSourceId, negativeSourceId
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly asymmetric contrastive reward failed");
         return 0;
       }
     }
@@ -638,7 +721,8 @@
     }
 
     return Object.freeze({
-      start, rebuild, stimulate, step, learn, learnFromReward, learnContrastiveReward, resetEligibility,
+      start, rebuild, stimulate, step, learn, learnFromReward, learnFromRewardHomeostatic, learnContrastiveReward,
+      learnContrastiveRewardAsymmetric, resetEligibility,
       snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
     });
   }

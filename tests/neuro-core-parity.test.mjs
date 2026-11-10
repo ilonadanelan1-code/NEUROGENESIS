@@ -105,6 +105,49 @@ function referenceLearnContrastiveReward(state, learningRate, inputNeuronId, pos
   return changed;
 }
 
+function referenceLearnContrastiveRewardAsymmetric(
+  state, positiveLearningRate, negativeLearningRate,
+  inputNeuronId, positiveNeuronId, negativeNeuronId
+) {
+  const positiveRate = f32(Math.max(0, Math.min(1, positiveLearningRate)));
+  const negativeRate = f32(Math.max(0, Math.min(1, negativeLearningRate)));
+  let changed = 0;
+  for (const edge of state.synapses) {
+    let delta = 0;
+    if (edge.from === inputNeuronId && edge.to === positiveNeuronId) {
+      delta = f32(f32(positiveRate * edge.eligibility) * f32(1 - edge.weight));
+    } else if (edge.from === inputNeuronId && edge.to === negativeNeuronId) {
+      delta = f32(-f32(f32(negativeRate * edge.eligibility) * edge.weight));
+    }
+    const updated = f32(Math.max(0, Math.min(1, f32(edge.weight + delta))));
+    if (Math.abs(updated - edge.weight) > 1.0e-7) {
+      edge.weight = updated;
+      changed++;
+    }
+    edge.eligibility = 0;
+  }
+  return changed;
+}
+
+function referenceLearnFromRewardHomeostatic(state, learningRate, reward, weightDecay) {
+  const rate = f32(Math.max(0, Math.min(1, learningRate)));
+  const reinforcement = f32(Math.max(-1, Math.min(1, reward)));
+  const decay = f32(Math.max(0, Math.min(1, weightDecay)));
+  let changed = 0;
+  for (const edge of state.synapses) {
+    const scale = reinforcement >= 0 ? f32(1 - edge.weight) : edge.weight;
+    const potentiation = f32(f32(f32(rate * reinforcement) * edge.eligibility) * scale);
+    const weakening = f32(decay * edge.weight);
+    const updated = f32(Math.max(0, Math.min(1, f32(edge.weight + potentiation - weakening))));
+    if (Math.abs(updated - edge.weight) > 1.0e-7) {
+      edge.weight = updated;
+      changed++;
+    }
+    edge.eligibility = 0;
+  }
+  return changed;
+}
+
 function assertParity(actual, expected, phase) {
   assert.equal(actual.neurons.length, expected.neurons.length, phase + " neuron count");
   assert.equal(actual.synapses.length, expected.synapses.length, phase + " synapse count");
@@ -245,6 +288,36 @@ try {
   assert.ok(state.synapses.every(edge => edge.eligibility === 0),
     "all traces must be consumed after a valid contrastive event");
 
+  for (const [index, weight, eligibility] of [
+    [0, 0.45, 0.65], [1, 0.35, 0.55], [2, 0.25, 0.7]
+  ]) {
+    const edge = state.synapses[index];
+    assert.equal(contrastiveBrain.setSynapseWeight(input, edge.to, weight), true);
+    assert.equal(contrastiveBrain.setSynapseEligibility(input, edge.to, eligibility), true);
+    edge.weight = f32(weight);
+    edge.eligibility = f32(eligibility);
+  }
+  const expectedAsymmetricChanged = referenceLearnContrastiveRewardAsymmetric(
+    state, 0.2, 0.55, input, positive, negative);
+  assert.equal(contrastiveBrain.learnContrastiveRewardAsymmetric(
+    0.2, 0.55, input, positive, negative), expectedAsymmetricChanged,
+    "asymmetric WASM updates must match independent float32 reference rates");
+  assertParity(contrastiveBrain.snapshot(), state, "asymmetric contrastive reward");
+  assert.equal(state.synapses[2].weight, f32(0.25),
+    "asymmetric updates must not alter unassigned destinations");
+
+  for (const index of [0, 1]) {
+    const edge = state.synapses[index];
+    assert.equal(contrastiveBrain.setSynapseEligibility(input, edge.to, index === 0 ? 0.4 : 0.3), true);
+    edge.eligibility = f32(index === 0 ? 0.4 : 0.3);
+  }
+  const expectedHomeostaticChanged = referenceLearnFromRewardHomeostatic(state, 0.25, 1, 0);
+  assert.equal(contrastiveBrain.learnFromRewardHomeostatic(0.25, 1, 0), expectedHomeostaticChanged,
+    "homeostatic delayed reward must match the JavaScript float32 reference");
+  assertParity(contrastiveBrain.snapshot(), state, "homeostatic delayed reward");
+  assert.ok(state.synapses[0].weight < 1, "homeostatic positive reward must leave finite headroom");
+  assert.ok(state.synapses.every(edge => edge.eligibility === 0));
+
   assert.equal(contrastiveBrain.setSynapseEligibility(input, positive, 0.25), true);
   const beforeInvalid = contrastiveBrain.snapshot();
   assert.throws(
@@ -252,6 +325,13 @@ try {
     /finite number/u,
     "the WASM adapter must reject non-finite learning rates before calling the C ABI"
   );
+  const beforeInvalidAsymmetric = contrastiveBrain.snapshot();
+  assert.throws(() => contrastiveBrain.learnContrastiveRewardAsymmetric(
+    Number.NaN, 0.5, input, positive, negative), /finite number/u);
+  assertParity(contrastiveBrain.snapshot(), {
+    neurons: beforeInvalidAsymmetric.neurons.map(row => ({ ...row })),
+    synapses: beforeInvalidAsymmetric.synapses.map(row => ({ ...row }))
+  }, "invalid asymmetric reward");
   assertParity(contrastiveBrain.snapshot(), {
     neurons: beforeInvalid.neurons.map(row => ({ ...row, id: row.id })),
     synapses: beforeInvalid.synapses.map(row => ({ ...row }))

@@ -48,12 +48,24 @@ public:
     std::uint32_t learn_from_reward(float learning_rate, float reward,
                                     float weight_decay = 0.0f);
 
+    // Homeostatic delayed reward: positive updates scale with remaining headroom,
+    // negative updates scale with current weight. Valid calls consume all traces.
+    std::uint32_t learn_from_reward_homeostatic(float learning_rate, float reward,
+                                                float weight_decay = 0.0f);
+
     // Contrastive delayed reward updates only synapses targeting the selected
     // positive/negative output neurons. All eligibility traces are consumed.
     std::uint32_t learn_contrastive_reward(float learning_rate,
                                            std::uint32_t input_neuron_id,
                                            std::uint32_t positive_neuron_id,
                                            std::uint32_t negative_neuron_id);
+
+    // Experimental asymmetric contrastive update for isolated shadow experiments.
+    // Positive and negative paths use independent rates; valid calls consume all traces.
+    std::uint32_t learn_contrastive_reward_asymmetric(
+        float positive_learning_rate, float negative_learning_rate,
+        std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+        std::uint32_t negative_neuron_id);
 
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }

@@ -122,6 +122,17 @@ std::uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning
     }
 }
 
+std::uint32_t ng_brain_learn_from_reward_homeostatic(ng_brain_handle* handle,
+                                                        float learning_rate, float reward,
+                                                        float weight_decay) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.learn_from_reward_homeostatic(learning_rate, reward, weight_decay);
+    } catch (...) {
+        return 0;
+    }
+}
+
 std::uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle,
                                                  float learning_rate,
                                                  std::uint32_t input_neuron_id,
@@ -131,6 +142,20 @@ std::uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle,
     try {
         return handle->brain.learn_contrastive_reward(
             learning_rate, input_neuron_id, positive_neuron_id, negative_neuron_id);
+    } catch (...) {
+        return 0;
+    }
+}
+
+std::uint32_t ng_brain_learn_contrastive_reward_asymmetric(
+    ng_brain_handle* handle, float positive_learning_rate, float negative_learning_rate,
+    std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+    std::uint32_t negative_neuron_id) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.learn_contrastive_reward_asymmetric(
+            positive_learning_rate, negative_learning_rate, input_neuron_id,
+            positive_neuron_id, negative_neuron_id);
     } catch (...) {
         return 0;
     }

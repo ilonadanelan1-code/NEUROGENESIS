@@ -118,6 +118,29 @@ std::uint32_t Brain::learn_from_reward(float learning_rate, float reward, float 
     return changed;
 }
 
+std::uint32_t Brain::learn_from_reward_homeostatic(float learning_rate, float reward,
+                                                              float weight_decay) {
+    if (!std::isfinite(learning_rate) || !std::isfinite(reward) ||
+        !std::isfinite(weight_decay)) return 0;
+    const float rate = std::clamp(learning_rate, 0.0f, 1.0f);
+    const float reinforcement = std::clamp(reward, -1.0f, 1.0f);
+    const float decay = std::clamp(weight_decay, 0.0f, 1.0f);
+
+    std::uint32_t changed = 0;
+    for (auto& edge : synapses_) {
+        const float scale = reinforcement >= 0.0f ? (1.0f - edge.weight) : edge.weight;
+        const float potentiation = rate * reinforcement * edge.eligibility * scale;
+        const float weakening = decay * edge.weight;
+        const float updated = std::clamp(edge.weight + potentiation - weakening, 0.0f, 1.0f);
+        if (std::abs(updated - edge.weight) > 1.0e-7f) {
+            edge.weight = updated;
+            ++changed;
+        }
+        edge.eligibility = 0.0f;
+    }
+    return changed;
+}
+
 std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
                                               std::uint32_t input_neuron_id,
                                               std::uint32_t positive_neuron_id,
@@ -133,18 +156,52 @@ std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
     const float rate = std::clamp(learning_rate, 0.0f, 1.0f);
     std::uint32_t changed = 0;
     for (auto& edge : synapses_) {
-        float sign = 0.0f;
-        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) sign = 1.0f;
-        else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) sign = -1.0f;
-
-        const float delta = rate * sign * edge.eligibility;
+        float delta = 0.0f;
+        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) {
+            delta = rate * edge.eligibility;
+        } else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) {
+            delta = -rate * edge.eligibility;
+        }
         const float updated = std::clamp(edge.weight + delta, 0.0f, 1.0f);
         if (std::abs(updated - edge.weight) > 1.0e-7f) {
             edge.weight = updated;
             ++changed;
         }
-        // Unassigned and unrelated traces are deliberately consumed rather than
-        // leaking into a later episode with different input/output identities.
+        edge.eligibility = 0.0f;
+    }
+    return changed;
+}
+
+std::uint32_t Brain::learn_contrastive_reward_asymmetric(
+    float positive_learning_rate, float negative_learning_rate,
+    std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+    std::uint32_t negative_neuron_id) {
+    if (!std::isfinite(positive_learning_rate) ||
+        !std::isfinite(negative_learning_rate) ||
+        input_neuron_id == positive_neuron_id ||
+        input_neuron_id == negative_neuron_id ||
+        positive_neuron_id == negative_neuron_id ||
+        !find_neuron(input_neuron_id) ||
+        !find_neuron(positive_neuron_id) ||
+        !find_neuron(negative_neuron_id)) return 0;
+
+    const float positive_rate = std::clamp(positive_learning_rate, 0.0f, 1.0f);
+    const float negative_rate = std::clamp(negative_learning_rate, 0.0f, 1.0f);
+    std::uint32_t changed = 0;
+    for (auto& edge : synapses_) {
+        float delta = 0.0f;
+        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) {
+            delta = positive_rate * edge.eligibility * (1.0f - edge.weight);
+        } else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) {
+            delta = -negative_rate * edge.eligibility * edge.weight;
+        }
+
+        const float updated = std::clamp(edge.weight + delta, 0.0f, 1.0f);
+        if (std::abs(updated - edge.weight) > 1.0e-7f) {
+            edge.weight = updated;
+            ++changed;
+        }
+        // Every valid reward event consumes all traces, including unassigned paths.
         edge.eligibility = 0.0f;
     }
     return changed;

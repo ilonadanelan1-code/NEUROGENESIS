@@ -77,18 +77,37 @@ jobs:
         with:
           version: 5.0.1
 
-      - name: Build and smoke-test the WebAssembly module
+      - name: Build WebAssembly module
         run: |
           emcmake cmake -S engine -B build/wasm -DCMAKE_BUILD_TYPE=Release -DNG_BUILD_WASM=ON -DBUILD_TESTING=OFF
           cmake --build build/wasm --parallel 2
+
+      - name: Verify WebAssembly artifacts
+        run: |
           test -s dist/neurogenesis.mjs
           test -s dist/neurogenesis.wasm
-          node tests/neuro-wasm-adapter.test.mjs
-          node tests/neuro-core-parity.test.mjs
-          node tests/experience-benchmark.test.mjs
-          node tests/contrastive-benchmark.test.mjs
-          node tests/compositional-benchmark.test.mjs
-          node tests/retention-scaling-benchmark.test.mjs
+          ls -lh dist/neurogenesis.mjs dist/neurogenesis.wasm
+
+      - name: Test WebAssembly adapter
+        run: node tests/neuro-wasm-adapter.test.mjs
+
+      - name: Test C++ and JavaScript numerical parity
+        run: node tests/neuro-core-parity.test.mjs
+
+      - name: Run experience benchmark
+        run: node tests/experience-benchmark.test.mjs
+
+      - name: Run contrastive benchmark
+        run: node tests/contrastive-benchmark.test.mjs
+
+      - name: Run compositional benchmark
+        run: node tests/compositional-benchmark.test.mjs
+
+      - name: Run retention and scaling benchmark
+        run: node tests/retention-scaling-benchmark.test.mjs
+
+      - name: Run plasticity headroom benchmark
+        run: node tests/plasticity-headroom-benchmark.test.mjs
 
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4

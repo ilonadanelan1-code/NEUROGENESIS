@@ -127,6 +127,67 @@ try {
   mappedContrastive.dispose();
 }
 
+const mappedAsymmetric = runtime.createBrainFromSnapshot({
+  neurons: [
+    { id: "asym-input", name: "input", type: "sensory" },
+    { id: "asym-positive", name: "positive", type: "output" },
+    { id: "asym-negative", name: "negative", type: "output" },
+    { id: "asym-neutral", name: "neutral", type: "output" }
+  ],
+  synapses: [
+    { from: "asym-input", to: "asym-positive", weight: 0.5 },
+    { from: "asym-input", to: "asym-negative", weight: 0.4 },
+    { from: "asym-input", to: "asym-neutral", weight: 0.3 }
+  ]
+});
+try {
+  assert.equal(mappedAsymmetric.setSynapseEligibility("asym-input", "asym-positive", 0.8), true);
+  assert.equal(mappedAsymmetric.setSynapseEligibility("asym-input", "asym-negative", 0.6), true);
+  assert.equal(mappedAsymmetric.setSynapseEligibility("asym-input", "asym-neutral", 0.7), true);
+  assert.equal(mappedAsymmetric.learnContrastiveRewardAsymmetric(
+    0.25, 0.5, "asym-input", "asym-positive", "asym-negative"), 2,
+    "snapshot mirrors must route separate rates to their mapped core IDs");
+  const rows = mappedAsymmetric.snapshot().synapses;
+  assert.ok(Math.abs(rows[0].weight - 0.6) < 1e-6);
+  assert.ok(Math.abs(rows[1].weight - 0.28) < 1e-6,
+    "bounded negative update must scale by the existing weight");
+  assert.equal(rows[2].weight, Math.fround(0.3));
+  assert.ok(rows.every(row => row.eligibility === 0));
+  assert.equal(mappedAsymmetric.setSynapseEligibility("asym-input", "asym-positive", 0.4), true);
+  const beforeInvalid = mappedAsymmetric.snapshot();
+  assert.throws(() => mappedAsymmetric.learnContrastiveRewardAsymmetric(
+    Number.NaN, 0.5, "asym-input", "asym-positive", "asym-negative"), /finite number/u);
+  assert.deepEqual(mappedAsymmetric.snapshot(), beforeInvalid,
+    "invalid asymmetric rates must leave the mirrored WASM state unchanged");
+} finally {
+  mappedAsymmetric.dispose();
+}
+
+const homeostaticBrain = runtime.createBrain();
+try {
+  const input = homeostaticBrain.addNeuron("homeostatic-input", "sensory", 0, 0, 1);
+  const positive = homeostaticBrain.addNeuron("homeostatic-positive", "output", 1, 0, 1);
+  const negative = homeostaticBrain.addNeuron("homeostatic-negative", "output", 1, 1, 1);
+  assert.equal(homeostaticBrain.addSynapse(input, positive, 0.5), true);
+  assert.equal(homeostaticBrain.addSynapse(input, negative, 0.4), true);
+  assert.equal(homeostaticBrain.setSynapseEligibility(input, positive, 0.8), true);
+  assert.equal(homeostaticBrain.learnFromRewardHomeostatic(0.25, 1, 0), 1);
+  let rows = homeostaticBrain.snapshot().synapses;
+  assert.ok(Math.abs(rows[0].weight - 0.6) < 1e-6);
+  assert.equal(rows[0].eligibility, 0);
+  assert.equal(homeostaticBrain.setSynapseEligibility(input, negative, 0.6), true);
+  assert.equal(homeostaticBrain.learnFromRewardHomeostatic(0.5, -1, 0), 1);
+  rows = homeostaticBrain.snapshot().synapses;
+  assert.ok(Math.abs(rows[1].weight - 0.28) < 1e-6);
+  assert.equal(rows[1].eligibility, 0);
+  assert.equal(homeostaticBrain.setSynapseEligibility(input, positive, 0.3), true);
+  const beforeInvalid = homeostaticBrain.snapshot();
+  assert.throws(() => homeostaticBrain.learnFromRewardHomeostatic(Number.NaN, 1, 0), /finite number/u);
+  assert.deepEqual(homeostaticBrain.snapshot(), beforeInvalid);
+} finally {
+  homeostaticBrain.dispose();
+}
+
 const contrastiveSource = {
   neurons: [
     { id: "contrast-input", name: "input", type: "sensory", bias: 1, activity: 0 },
@@ -156,6 +217,39 @@ try {
   assert.ok(rows[1].weight < 0.4);
   assert.ok(rows.every(row => row.eligibility === 0));
   assert.equal(contrastiveShadow.diagnostics().sequenceRewards, 1);
+
+  for (let step = 0; step < 12; step++) contrastiveShadow.step(0.25, 0.9);
+  assert.equal(contrastiveShadow.stimulate("contrast-input", 0.8), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-positive", 0.6), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-negative", 0.5), true);
+  assert.equal(contrastiveShadow.step(0.1, 0.9), true);
+  for (let step = 0; step < 12; step++) contrastiveShadow.step(0.25, 0.9);
+  const beforeAsymmetric = contrastiveShadow.snapshot().synapses;
+  assert.equal(contrastiveShadow.learnContrastiveRewardAsymmetric(
+    0.2, 0.6, "contrast-input", "contrast-positive", "contrast-negative"), 2,
+    "the shadow controller must expose asymmetric contrastive learning");
+  const afterAsymmetric = contrastiveShadow.snapshot().synapses;
+  assert.ok(afterAsymmetric[0].weight > beforeAsymmetric[0].weight);
+  assert.ok(afterAsymmetric[1].weight < beforeAsymmetric[1].weight);
+  assert.ok(afterAsymmetric.every(row => row.eligibility === 0));
+  assert.equal(contrastiveShadow.diagnostics().sequenceRewards, 2);
+  assert.equal(contrastiveShadow.learnedWeights().length, 2,
+    "asymmetric shadow updates must be retained in the explicit learning overlay");
+  for (let step = 0; step < 12; step++) contrastiveShadow.step(0.25, 0.9);
+  assert.equal(contrastiveShadow.stimulate("contrast-input", 0.8), true);
+  assert.equal(contrastiveShadow.stimulate("contrast-positive", 0.6), true);
+  assert.equal(contrastiveShadow.step(0.1, 0.9), true);
+  for (let step = 0; step < 12; step++) contrastiveShadow.step(0.25, 0.9);
+  const beforeHomeostatic = contrastiveShadow.snapshot();
+  assert.ok(beforeHomeostatic.synapses.every(row => row.eligibility > 0),
+    "the stimulated input must leave traces on both output paths through propagation");
+  assert.equal(contrastiveShadow.learnFromRewardHomeostatic(0.2, 1, 0), 2,
+    "the shadow controller must expose the homeostatic reward path for every active trace");
+  const afterHomeostatic = contrastiveShadow.snapshot();
+  assert.ok(afterHomeostatic.synapses.every((row, index) =>
+    row.weight > beforeHomeostatic.synapses[index].weight && row.eligibility === 0),
+    "homeostatic reward must update all eligible propagated routes and consume their traces");
+  assert.equal(contrastiveShadow.diagnostics().sequenceRewards, 3);
 } finally {
   contrastiveShadow.dispose();
 }
