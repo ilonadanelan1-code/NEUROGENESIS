@@ -93,6 +93,23 @@ assert.equal(byBudget.get(0).passedScenarios, 2);
 assert.equal(byBudget.get(0).retentionPasses, 2);
 assert.equal(byBudget.get(0).cleanupEpisodes, 0);
 
+assert.equal(byBudget.get(1).passedScenarios, 2,
+  "one targeted correction must not be reported as sufficient for both forward-order cases");
+assert.equal(byBudget.get(2).passedScenarios, 4,
+  "two targeted corrections must restore all seed/order scenarios");
+assert.equal(byBudget.get(2).retentionPasses, 4);
+assert.equal(byBudget.get(2).headroomPasses, 4);
+assert.equal(byBudget.get(2).freshAssociationPasses, 4);
+assert.equal(byBudget.get(2).oldAfterFreshPasses, 4);
+assert.equal(byBudget.get(2).cleanupEpisodes, 4,
+  "only the two forward-order brains should need two corrections each");
+assert.equal(byBudget.get(2).maximumCleanupUsed, 2);
+assert.equal(byBudget.get(2).maxLeakageAfterCleanup, 0);
+assert.equal(byBudget.get(4).passedScenarios, 4);
+assert.equal(byBudget.get(8).passedScenarios, 4);
+assert.equal(byBudget.get(4).cleanupEpisodes, 4);
+assert.equal(byBudget.get(8).cleanupEpisodes, 4);
+
 for (const candidate of report.candidates) {
   assert.equal(candidate.scenarioCount, 4);
   assert.ok(candidate.maximumCleanupUsed <= candidate.cleanupBudgetPerScenario);
