@@ -117,6 +117,6 @@ assert.equal(createdBrains, 16, "every mode/seed/order combination must use an i
 assert.equal(activeBrains, 0, "every benchmark WASM brain must be disposed");
 assert.equal(report.createdBrains, createdBrains);
 assert.equal(report.protocol.modes.find(mode => mode.id === "asymmetric").positiveRate, 0.02);
-assert.equal(report.protocol.modes.find(mode => mode.id === "asymmetric").negativeRate, 0.60);
+assert.equal(report.protocol.modes.find(mode => mode.id === "asymmetric").negativeRate, 0.70);
 
 console.log("NEUROGENESIS asymmetric plasticity headroom assertions: passed.");
