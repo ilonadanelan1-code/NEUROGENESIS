@@ -40,4 +40,16 @@ assert.match(deploy, /push:[\s\S]*?server\/llm-worker\.js[\s\S]*?wrangler\.toml/
 assert.match(deploy, /workflow_dispatch:/u,
   "manual Worker deployments must remain available");
 
+const diagnostic = fs.readFileSync("llm-diagnostic.html", "utf8");
+assert.match(diagnostic, /const WORKER="https:\/\/neurogenesis-llm-proxy\.ilonadanelan1\.workers\.dev"/u,
+  "the diagnostic page must target the canonical deployed Worker");
+assert.match(diagnostic, /localStorage\.getItem\(CONFIG_KEY\)/u,
+  "the diagnostic page must read the saved gateway config locally");
+assert.match(diagnostic, /Authorization:"Bearer "\+token/u,
+  "the diagnostic page must exercise the same authenticated health request as the app");
+assert.match(diagnostic, /значение скрыто/u,
+  "the diagnostic page must never display the saved application token");
+assert.match(diagnostic, /mode:"cors"/u,
+  "the diagnostic page must exercise browser CORS enforcement from GitHub Pages");
+
 console.log("NEUROGENESIS LLM setup contracts: known Worker endpoint, distinct secrets, specific errors and automatic Worker deployment passed.");

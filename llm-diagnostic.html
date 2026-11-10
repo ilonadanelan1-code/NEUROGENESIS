@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07111b">
+<meta name="robots" content="noindex,nofollow">
+<title>NEUROGENESIS · Диагностика языковой модели</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#07111b;color:#e8f1fa}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:clamp(16px,4vw,32px);display:grid;place-items:center}
+main{width:min(100%,680px);border:1px solid #263d50;border-radius:18px;background:#0b1925;padding:clamp(18px,4vw,30px);box-shadow:0 18px 60px #0006}
+.eyebrow{color:#85b9d8;font-size:12px;letter-spacing:.14em;font-weight:700}h1{font-size:clamp(22px,5vw,30px);margin:8px 0 10px}
+p{color:#b7c7d5;line-height:1.55}button{width:100%;border:0;border-radius:12px;padding:14px 18px;margin:12px 0;background:#65c5c3;color:#06151a;font-weight:800;font-size:15px}
+button:disabled{opacity:.55}.panel{background:#07131d;border:1px solid #263d50;border-radius:12px;padding:14px;margin-top:12px}
+.row{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid #1d3040}.row:last-child{border-bottom:0}
+.key{color:#91a8b9;flex:0 0 39%;font-size:13px}.value{font-size:13px;text-align:right;overflow-wrap:anywhere}
+.ok{color:#78ddb1}.bad{color:#ff9f9f}.warn{color:#ffd27d}.foot{font-size:12px;color:#8198aa;margin-top:18px}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">NEUROGENESIS · 0.58.49</div>
+<h1>Диагностика соединения</h1>
+<p>Проверка выполняется непосредственно в этом браузере, с домена GitHub Pages. Сохранённый ключ доступа используется только для запроса к Worker: страница его не показывает и никуда больше не отправляет.</p>
+<button id="run" type="button">Запустить диагностику</button>
+<div class="panel" id="results" aria-live="polite"><div class="row"><span class="key">Состояние</span><span class="value">Ожидание запуска</span></div></div>
+<p class="foot">Диагностика не изменяет память, настройки или ключ доступа. В отчёте отображаются только адрес, наличие сохранённого ключа и ответы сервера.</p>
+</main>
+<script>
+(() => {
+"use strict";
+const WORKER="https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev";
+const LEGACY="https://neurogenesis-llm-proxy.ilonadanel1.workers.dev";
+const CONFIG_KEY="neurogenesis.llm-config.v1";
+const button=document.getElementById("run"),results=document.getElementById("results");
+function addRow(label,value,state){
+ const row=document.createElement("div"),key=document.createElement("span"),output=document.createElement("span");
+ row.className="row";key.className="key";key.textContent=label;
+ output.className="value"+(state?" "+state:"");output.textContent=value;row.append(key,output);results.append(row);
+}
+function readConfig(){try{const raw=localStorage.getItem(CONFIG_KEY);return raw?JSON.parse(raw):null;}catch(_){return null;}}
+async function request(url,options,timeoutMs){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs),started=performance.now();
+ try{
+  const response=await fetch(url,{...options,cache:"no-store",mode:"cors",signal:controller.signal});
+  const duration=Math.round(performance.now()-started),body=await response.text();let data=null;
+  try{data=JSON.parse(body);}catch(_){}
+  return{response,duration,data,body:body.slice(0,500)};
+ }finally{clearTimeout(timer);}
+}
+async function run(){
+ button.disabled=true;button.textContent="Проверяю…";results.replaceChildren();
+ addRow("Источник",location.origin,"");
+ const config=readConfig();
+ const savedEndpoint=config&&typeof config.endpoint==="string"?config.endpoint.trim().replace(/\/+$/u,""):"";
+ const token=config&&typeof config.clientToken==="string"?config.clientToken.trim():"";
+ addRow("Сохранённый адрес",savedEndpoint||"не найден",savedEndpoint===WORKER?"ok":"warn");
+ addRow("Адрес совпадает",savedEndpoint===WORKER?"да":"нет",savedEndpoint===WORKER?"ok":"warn");
+ addRow("Ключ доступа",token?"сохранён · значение скрыто":"не найден",token?"ok":"bad");
+ try{
+  const root=await request(WORKER+"/",{method:"GET"},12000),ok=root.response.ok&&root.data&&root.data.ok===true;
+  addRow("Worker /",ok?"HTTP "+root.response.status+" · доступен · "+root.duration+" мс":"неожиданный ответ · HTTP "+root.response.status,ok?"ok":"bad");
+ }catch(error){addRow("Worker /",error&&error.name==="AbortError"?"тайм-аут":"ошибка: "+String(error&&error.message||error),"bad");}
+ if(!token){addRow("GET /api/health","не проверен: нет сохранённого ключа","warn");}
+ else{
+  try{
+   const health=await request(WORKER+"/api/health",{method:"GET",headers:{"Authorization":"Bearer "+token}},18000);
+   const status=health.response.status;
+   if(status===200&&health.data&&health.data.configured===true){
+    addRow("GET /api/health","HTTP 200 · шлюз настроен · "+health.duration+" мс","ok");
+    addRow("Модель",String(health.data.model||"не указана"),"ok");
+   }else if(status===401){
+    addRow("GET /api/health","HTTP 401 · APP_TOKEN не совпадает с секретом Worker · "+health.duration+" мс","bad");
+   }else if(status===503&&health.data&&health.data.configured===false){
+    addRow("GET /api/health","HTTP 503 · не настроен UPSTREAM_API_KEY или переменные провайдера · "+health.duration+" мс","bad");
+   }else{
+    addRow("GET /api/health","HTTP "+status+" · "+health.duration+" мс · "+(health.body||"пустой ответ"),status>=200&&status<300?"warn":"bad");
+   }
+  }catch(error){
+   const message=error&&error.name==="AbortError"?"тайм-аут 18 с":String(error&&error.message||error);
+   addRow("GET /api/health","браузер не смог прочитать ответ: "+message+" (возможна ошибка CORS или сети)","bad");
+  }
+ }
+ addRow("Завершено","можно отправлять скриншот или текст результата","ok");
+ button.disabled=false;button.textContent="Проверить ещё раз";
+}
+button.addEventListener("click",()=>{run().catch(error=>{
+ addRow("Ошибка диагностики",String(error&&error.message||error),"bad");
+ button.disabled=false;button.textContent="Повторить диагностику";
+});});
+})();
+</script>
+</body></html>
