@@ -1,4 +1,4 @@
-# Plasticity headroom: bounded asymmetric reward benchmark (protocol v3)
+# Plasticity headroom: bounded asymmetric reward benchmark (protocol v4)
 
 ## Why this second protocol exists
 
@@ -24,7 +24,7 @@ For the general homeostatic reward update, the signed reward r is included in th
 
 The old additive methods learn_from_reward and learn_contrastive_reward retain their previous behavior. The new methods have separate C++, C ABI, WebAssembly and JavaScript adapter entry points. Equal positive and negative rates in the new bounded method are **not** expected to reproduce the old additive method; the native tests check backward compatibility separately.
 
-## Version 3 fixed protocol
+## Version 4 fixed protocol
 
 Each scenario begins with four sensory features, five output neurons and a complete bipartite feature-to-output graph. Initial weights are 0.005. A seeded permutation selects four distinct correct mappings and leaves one output unused.
 
@@ -45,17 +45,17 @@ Four replay modes are compared:
 | Symmetric high | Legacy additive | 0.25 | 0.25 | 3 |
 | Symmetric low | Legacy additive | 0.05 | 0.05 | 1 |
 | Bounded symmetric | Headroom-scaled | 0.02 | 0.02 | 2 |
-| Bounded asymmetric (v3) | Headroom-scaled | 0.02 | 0.60 | 2 |
+| Bounded asymmetric (v4) | Headroom-scaled | 0.02 | 0.70 | 2 |
 
 Each replay sweep rehearses each primitive feature against every non-target output. The bounded symmetric control separates the effect of headroom scaling from the effect of asymmetric positive/negative rates.
 
 Each mode runs with seeds 101 and 211 and both forward and reverse task orders: 16 independent scenarios.
 
-## Version 2 measured result and version 3 adjustment
+## Measured v2/v3 results and version 4 adjustment
 
 Protocol v2 preserved bounded weights: all four bounded-asymmetric scenarios had a maximum correct weight around 0.735, no saturated correct edges, and each learned the fresh fifth-feature association. However, old-combination retention failed only on the non-target ceiling. The minimum expected response was approximately 0.735, order spread was zero, while maximum unexpected activation was 0.0879 in forward task order and 0.0602 in reverse order (required maximum: 0.05).
 
-The measured failure is residual cross-route activation summing across multiple active inputs, not weak target activation or weight saturation. Version 3 changes only the bounded-asymmetric negative learning rate from 0.35 to 0.60. Its positive rate remains 0.02; its replay sweeps remain two. The three control modes, homeostatic composition rule, feature/output counts, seeds, orderings, and all acceptance thresholds remain unchanged. This isolates the effect of stronger depression.
+The measured failure is residual cross-route activation summing across multiple active inputs, not weak target activation or weight saturation. Version 3 increased only the bounded-asymmetric negative rate from 0.35 to 0.60. This reduced the forward-order maximum unexpected activation from 0.0879 to 0.05082, while both reverse-order scenarios reached zero. The two forward-order scenarios still narrowly exceeded the strict 0.05 ceiling, with all four scenarios retaining headroom and learning the fresh association. Version 4 changes only the bounded-asymmetric negative rate from 0.60 to 0.70. Its positive rate remains 0.02 and its replay sweeps remain two. The three control modes, homeostatic composition rule, feature/output counts, seeds, orderings, and all acceptance thresholds remain unchanged.
 
 ## Evaluation thresholds
 
@@ -86,4 +86,4 @@ Every mode/seed/order case creates a fresh WASM brain. The test wrapper counts a
 
 ## Status
 
-Protocol version 3 follows the measured version-2 residual-interference failure rather than hiding it. Results are pending the next GitHub Actions run. Do not claim success until native C++ tests, C ABI tests, real WASM adapter tests, float32 parity tests, all existing regressions and every benchmark assertion pass.
+Protocol version 4 follows the measured version-3 borderline residual-interference result rather than hiding it. Results are pending the next GitHub Actions run. Do not claim success until native C++ tests, C ABI tests, real WASM adapter tests, float32 parity tests, all existing regressions and every benchmark assertion pass.
