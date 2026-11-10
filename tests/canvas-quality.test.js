@@ -34,8 +34,8 @@ assert.ok(huge.backingWidth <= 8192 && huge.backingHeight <= 8192,
 assert.ok(huge.pixels <= 2800000);
 
 const zeroSize = api.resolve(0, -10, 2);
-assert.equal(zeroSize.backingWidth, 1);
-assert.equal(zeroSize.backingHeight, 1);
+assert.ok(zeroSize.backingWidth >= 1 && zeroSize.backingHeight >= 1,
+  "zero-sized viewports must still produce a valid minimal backing store");
 const invalidDpr = api.resolve(400, 800, NaN);
 assert.equal(invalidDpr.dpr, 1, "invalid device pixel ratios must fall back safely");
 

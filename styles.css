@@ -326,6 +326,7 @@ button,input,select,summary{touch-action:manipulation}
 :where(button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid rgba(120,240,223,.92);outline-offset:2px}
 .canvas-tools{max-width:calc(100% - 24px);overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
 .canvas-tools::-webkit-scrollbar{display:none}
+.canvas-tools .tool-button,.canvas-tools .zoom-value,.canvas-tools .tool-separator{flex:0 0 auto}
 @media(max-width:640px) and (orientation:portrait){
   .app-shell{height:100vh;height:100dvh;min-height:0}
   .workspace{min-height:0;flex:1 1 auto}
