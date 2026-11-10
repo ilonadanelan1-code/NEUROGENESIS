@@ -584,16 +584,24 @@
     if (typeof order === "boolean" || order == null) {
       const reverse = Boolean(order);
       return { id: reverse ? "reverse" : "forward", initialReverse: reverse,
-        compositionReverse: reverse, replayReverse: reverse, freshReverse: reverse };
+        compositionReverse: reverse, compositionTaskOrder: null,
+        replayReverse: reverse, freshReverse: reverse };
     }
     if (!order || typeof order !== "object" || typeof order.id !== "string" || !order.id ||
         ["initialReverse", "compositionReverse", "replayReverse", "freshReverse"]
           .some(key => typeof order[key] !== "boolean")) {
       throw new TypeError("Order conditions require an ID and four explicit boolean order controls");
     }
+    if (order.compositionTaskOrder != null &&
+        (!Array.isArray(order.compositionTaskOrder) ||
+         order.compositionTaskOrder.some(taskId => typeof taskId !== "string" || !taskId) ||
+         new Set(order.compositionTaskOrder).size !== order.compositionTaskOrder.length)) {
+      throw new TypeError("Composition task order must contain unique non-empty task IDs");
+    }
     return { id: order.id, initialReverse: order.initialReverse,
-      compositionReverse: order.compositionReverse, replayReverse: order.replayReverse,
-      freshReverse: order.freshReverse };
+      compositionReverse: order.compositionReverse,
+      compositionTaskOrder: order.compositionTaskOrder == null ? null : order.compositionTaskOrder.slice(),
+      replayReverse: order.replayReverse, freshReverse: order.freshReverse };
   }
 
   function summarizeDiagnosticPatterns(brain, fixture) {
@@ -618,7 +626,15 @@
       const initialEpisodes = trainInitialMappings(fixture, seed, orderControls.initialReverse);
       const baseline = evaluateAll(brain, fixture);
       if (!baseline.passed) throw new Error("Initial single-feature map failed before retention stress");
-      const tasks = orderControls.compositionReverse ? fixture.tasks.slice().reverse() : fixture.tasks.slice();
+      let tasks = orderControls.compositionReverse ? fixture.tasks.slice().reverse() : fixture.tasks.slice();
+      if (orderControls.compositionTaskOrder) {
+        const taskById = new Map(fixture.tasks.map(task => [task.id, task]));
+        const requested = orderControls.compositionTaskOrder;
+        if (requested.length !== fixture.tasks.length || requested.some(taskId => !taskById.has(taskId))) {
+          throw new TypeError("Composition task order must be an exact permutation of the fixture task IDs");
+        }
+        tasks = requested.map(taskId => taskById.get(taskId));
+      }
       const history = [];
       const learningStages = [];
       const captureLearningStages = scenarioOptions.captureLearningStages === true;
@@ -747,7 +763,11 @@
           if (typeof condition === "boolean") return false;
           return !condition || typeof condition !== "object" || typeof condition.id !== "string" ||
             !condition.id || ["initialReverse", "compositionReverse", "replayReverse", "freshReverse"]
-              .some(key => typeof condition[key] !== "boolean");
+              .some(key => typeof condition[key] !== "boolean") ||
+            (condition.compositionTaskOrder != null &&
+              (!Array.isArray(condition.compositionTaskOrder) ||
+               condition.compositionTaskOrder.some(taskId => typeof taskId !== "string" || !taskId) ||
+               new Set(condition.compositionTaskOrder).size !== condition.compositionTaskOrder.length));
         })) {
       throw new TypeError("Order variants must be a non-empty array of booleans or explicit order-control objects");
     }
@@ -768,15 +788,16 @@
     const target = scenarios.filter(row => row.mode === targetModeId);
     const controls = scenarios.filter(row => row.mode !== targetModeId);
     const expectedCount = modes.length * seeds.length * orderConditions.length;
+    const expectedTargetCount = seeds.length * orderConditions.length;
     const checks = {
       allScenariosCompleted: scenarios.length === expectedCount,
-      allAsymmetricScenariosRetainOldMappings: target.length === seeds.length * 2 &&
+      allAsymmetricScenariosRetainOldMappings: target.length === expectedTargetCount &&
         target.every(row => row.retentionPassed),
-      allAsymmetricScenariosKeepPlasticityHeadroom: target.length === seeds.length * 2 &&
+      allAsymmetricScenariosKeepPlasticityHeadroom: target.length === expectedTargetCount &&
         target.every(row => row.headroomPassed),
-      allAsymmetricScenariosLearnFreshAssociation: target.length === seeds.length * 2 &&
+      allAsymmetricScenariosLearnFreshAssociation: target.length === expectedTargetCount &&
         target.every(row => row.freshAssociation.passed),
-      allOldMappingsSurviveFreshLearning: target.length === seeds.length * 2 &&
+      allOldMappingsSurviveFreshLearning: target.length === expectedTargetCount &&
         target.every(row => row.oldAfterFresh.passed),
       allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded && row.allWeightsBoundedAfterFresh),
       controlsAreReported: controls.length === expectedCount - target.length,

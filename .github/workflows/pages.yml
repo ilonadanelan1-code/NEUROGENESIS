@@ -66,6 +66,7 @@ jobs:
           node --check plasticity-four-route-depth-benchmark.js
           node --check plasticity-five-route-depth-benchmark.js
           node --check plasticity-five-route-order-isolation-benchmark.js
+          node --check plasticity-five-route-composition-order-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -274,6 +275,18 @@ jobs:
         with:
           name: neurogenesis-plasticity-five-route-order-isolation-v1
           path: benchmark-reports/plasticity-five-route-order-isolation-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Run five-route composition order benchmark v1
+        run: node tests/plasticity-five-route-composition-order-benchmark.test.mjs
+
+      - name: Upload five-route composition order v1 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-five-route-composition-order-v1
+          path: benchmark-reports/plasticity-five-route-composition-order-v1.json
           if-no-files-found: warn
           retention-days: 30
 

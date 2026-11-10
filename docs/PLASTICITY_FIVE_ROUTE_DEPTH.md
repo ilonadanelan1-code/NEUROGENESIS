@@ -59,7 +59,11 @@ The machine-readable artifact is `neurogenesis-plasticity-five-route-depth-v4`.
 
 ## Protocol v5 — independent order isolation
 
-V5 independently varies initial mapping traversal, composition-task sequence and replay traversal in a full 2×2×2 design. It fixes fresh-association order forward in every condition and records intermediate held-out evaluations after composition and replay stages. See [the order-isolation protocol](PLASTICITY_ORDER_ISOLATION.md).
+V5 independently varied initial mapping traversal, composition-task sequence and replay traversal in a full 2×2×2 design. The result isolated composition-task order as the decisive factor: all 60 reverse-composition scenarios passed full acceptance, while only 20 of 60 forward-composition scenarios passed. See [the order-isolation protocol](PLASTICITY_ORDER_ISOLATION.md) for the profile breakdown and measured checkpoints.
+
+## Protocol v6 — all composition permutations
+
+V6 tests all six permutations of the three composition tasks to identify the specific ordering constraint, while holding the other learning and replay traversals fixed.
 
 ## Acceptance and integrity boundaries
 
