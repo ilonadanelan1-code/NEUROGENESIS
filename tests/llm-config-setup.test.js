@@ -57,6 +57,8 @@ assert.match(diagnostic, /mode:"no-cors"/u,
   "the diagnostic page must distinguish browser network reachability from CORS response access");
 assert.match(diagnostic, /проверка Authorization может зависать на CORS preflight/u,
   "the diagnostic page must report authenticated preflight failures precisely");
+assert.match(diagnostic, /GitHub Pages · same-origin fetch/u,
+  "the diagnostic page must include a same-origin fetch control to separate site networking from cross-origin Worker access");
 assert.match(diagnostic, /function imageProbe\(url,timeoutMs\)/u,
   "the diagnostic page must include a browser image-load probe independent of fetch and CORS");
 assert.match(diagnostic, /api\/pixel\.gif/u,
