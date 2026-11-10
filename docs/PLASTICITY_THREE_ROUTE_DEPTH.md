@@ -48,7 +48,7 @@ The protocol itself passed all 30 scenarios. The combined report's candidate fla
 
 ## 5. Verified results — profile generalization pending
 
-The next comparison tests budgets 22 and 24 on all three pre-registered weight profiles (equal, ascending, descending), with the same five seeds and both task orders: 60 fresh disposable WASM brains. Its purpose is to see whether the observed 22-correction forward / 20-correction reverse requirement generalizes beyond equal-strength routes. No production budget is changed.
+The profile-generalization run #529 tested budgets 22 and 24 on equal, ascending, and descending profiles across 60 fresh WASM brains; both budgets passed all 30 scenarios per budget. The next stage increases the stress graph to four simultaneous input routes and compares budgets 28, 32, and 36. No production budget is changed.
 
 ## 6. Interpretation boundary
 

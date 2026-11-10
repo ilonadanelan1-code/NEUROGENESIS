@@ -312,7 +312,7 @@
       ? specification.featureIndices.slice() : [0, 1, 2];
     if (featureIndices.length < 3 || new Set(featureIndices).size !== featureIndices.length ||
         featureIndices.some(index => !Number.isInteger(index) || index < 0 || index >= FEATURE_COUNT)) {
-      throw new TypeError("A three-route stress fixture requires at least three distinct valid feature indices");
+      throw new TypeError("A multi-route stress fixture requires at least three distinct valid feature indices");
     }
     const outputIndex = Number.isInteger(specification.outputIndex)
       ? specification.outputIndex
@@ -424,7 +424,7 @@
   }
 
   function selectiveCleanup(fixture, budget, negativeRate) {
-    const safeBudget = Math.max(0, Math.min(24, Math.floor(Number(budget) || 0)));
+    const safeBudget = Math.max(0, Math.min(36, Math.floor(Number(budget) || 0)));
     const safeNegativeRate = Number.isFinite(negativeRate)
       ? Math.max(0, Math.min(1, negativeRate)) : 1.0;
     const initial = evaluateAll(fixture.brain, fixture);

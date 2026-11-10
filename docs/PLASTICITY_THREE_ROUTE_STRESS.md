@@ -60,7 +60,7 @@ The initial #525 run correctly revealed output saturation but used an invalid le
 
 ## 5. Interpretation boundary and next step
 
-The failure is not an attribution-ranking miss: all 60 correction episodes targeted one of the three deliberately seeded routes into the false output. The failure is insufficient correction depth. Two total episodes leave one route untouched and also leave corrected links individually strong. Depth diagnostic v1 (run #527) found no pass through nine corrections. Depth diagnostic v2 (run #528) found that the equal-strength fixture required 22 corrections in forward order and 20 in reverse order; budget 24 passed all ten seed/order cases. The next profile-generalization test compares budgets 22 and 24 across equal, ascending, and descending route strengths. These remain experiment-only diagnostics; no production correction budget is being adopted or raised.
+The failure is not an attribution-ranking miss: all 60 correction episodes targeted one of the three deliberately seeded routes into the false output. The failure is insufficient correction depth. Two total episodes leave one route untouched and also leave corrected links individually strong. Depth diagnostic v1 (#527) found no pass through nine corrections. Depth diagnostic v2 (#528) found 22 corrections in forward order and 20 in reverse order. The mixed-strength three-route validation (#529) passed all 60 profile/budget scenarios with a 22-update maximum. The next test uses four competing routes and budgets 28, 32, and 36. These remain experiment-only diagnostics; no production correction budget is being adopted or raised.
 
 No production learning rule, application state, or user save data is modified by this research benchmark.
 
