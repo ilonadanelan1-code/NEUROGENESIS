@@ -33,7 +33,9 @@ assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("app.
 assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("app.js"),
   "the adapter must exist before the app starts");
 assert.ok(normalized.indexOf("app.js") < normalized.indexOf("knowledge.js"));
-assert.equal(normalized.at(-1), "memory.js");
+assert.ok(normalized.indexOf("memory.js") < normalized.indexOf("first-experiment.js"),
+  "the guided visitor experiment must load after the memory API");
+assert.equal(normalized.at(-1), "first-experiment.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
