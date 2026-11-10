@@ -97,7 +97,7 @@ try {
   assert.equal(contrastiveBrain.learnContrastiveReward(0.5, input, positive, negative), 2);
   const rows = contrastiveBrain.snapshot().synapses;
   assert.ok(Math.abs(rows[0].weight - 0.9) < 1e-6);
-  assert.ok(Math.abs(rows[1].weight - 0.28) < 1e-6);
+  assert.ok(Math.abs(rows[1].weight - 0.1) < 1e-6);
   assert.equal(rows[2].weight, Math.fround(0.3));
   assert.ok(rows.every(row => row.eligibility === 0));
 } finally {
@@ -149,7 +149,8 @@ try {
     "snapshot mirrors must route separate rates to their mapped core IDs");
   const rows = mappedAsymmetric.snapshot().synapses;
   assert.ok(Math.abs(rows[0].weight - 0.6) < 1e-6);
-  assert.ok(Math.abs(rows[1].weight - 0.1) < 1e-6);
+  assert.ok(Math.abs(rows[1].weight - 0.28) < 1e-6,
+    "bounded negative update must scale by the existing weight");
   assert.equal(rows[2].weight, Math.fround(0.3));
   assert.ok(rows.every(row => row.eligibility === 0));
   assert.equal(mappedAsymmetric.setSynapseEligibility("asym-input", "asym-positive", 0.4), true);
