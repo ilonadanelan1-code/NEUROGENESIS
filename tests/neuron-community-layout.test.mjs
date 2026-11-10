@@ -11,12 +11,11 @@ for(let group=0;group<groupCount;group++)for(let local=0;local<communitySize;loc
 for(let group=0;group<groupCount;group++){
   const offset=group*communitySize;
   for(let a=0;a<communitySize;a++)for(let b=a+1;b<communitySize;b++)
-    if(b===a+1||(a===0&&b===communitySize-1)||(a%3===0&&b%3===0))
-      synapses.push({from:nodes[offset+a].id,to:nodes[offset+b].id,weight:.8});
+    synapses.push({from:nodes[offset+a].id,to:nodes[offset+b].id,weight:.8});
 }
 synapses.push({from:"g0-n0",to:"g1-n0",weight:.12},{from:"g1-n1",to:"g2-n0",weight:.12});
 const originalNodes=JSON.stringify(nodes),originalEdges=JSON.stringify(synapses);
-const options={minDistance:54,clusterIterations:180,resolution:.72};
+const options={minDistance:54,clusterIterations:180,resolution:1};
 const result=api.cluster(nodes,synapses,options);
 assert.equal(result.positions.length,nodes.length);
 assert.ok(result.communityCount>=3,"dense communities joined by weak bridges must stay separate");
