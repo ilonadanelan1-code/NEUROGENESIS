@@ -194,3 +194,17 @@ The audit document itself is intentionally excluded from the baseline above. Its
 ## 9. Audit decision
 
 No production code or user state was changed during this audit. The next safe step is the isolated three-feature zero-shot superposition benchmark described above. Preserve JavaScript as the production authority and keep all experiments in disposable WASM shadow brains until evidence justifies a separately reviewed architecture change.
+
+
+## 10. Stage 2 implementation handoff
+
+The stage 2 implementation is tracked separately in
+docs/COMPOSITIONAL_GENERALIZATION_BENCHMARK.md. It uses four independent sensory
+feature neurons and five output neurons in a disposable WASM brain. The core
+already supports multiple stimulate() calls before one synchronous step(), so
+no new feature-vector API or C++/C ABI change was necessary.
+
+The benchmark trains only singleton feature-to-output routes, then evaluates
+all 11 held-out pairs, triples, and the four-feature combination. It reports
+the result precisely as zero-shot feature-route superposition. It does not
+test conjunction learning, role binding, variable binding, or broad reasoning.
