@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.49">
+  <link rel="stylesheet" href="./styles.css?v=0.58.50">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.49</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.50</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -44,6 +44,29 @@
       </section>
 
       <aside class="side-panel">
+        <section class="first-experiment" id="first-experiment" aria-labelledby="first-experiment-title">
+          <div class="first-experiment-head">
+            <div>
+              <span class="first-experiment-eyebrow">ПЕРВЫЙ ОПЫТ · 1 МИНУТА</span>
+              <h2 id="first-experiment-title">Проверь память на деле</h2>
+            </div>
+            <span class="first-experiment-mark">LAB 01</span>
+          </div>
+          <p class="first-experiment-copy">Сохраним один факт, зададим системе вопрос и посмотрим, какие следы памяти она сможет извлечь.</p>
+          <div class="first-experiment-fact">
+            <span>УЧЕБНЫЙ ФАКТ</span>
+            <strong>«У осьминога три сердца»</strong>
+          </div>
+          <div class="first-experiment-actions">
+            <button class="primary-button first-experiment-run" id="first-experiment-run" type="button">
+              <span class="button-symbol">ϟ</span><span><strong>Провести опыт</strong><small>Записать и проверить</small></span>
+            </button>
+            <button class="secondary-button first-experiment-show" id="first-experiment-show" type="button" disabled>Показать сеть</button>
+          </div>
+          <p class="first-experiment-status" id="first-experiment-status" data-state="info" aria-live="polite">Нажми «Провести опыт»: система сохранит пример в памяти этого браузера и попробует найти его по вопросу.</p>
+          <pre class="first-experiment-result" id="first-experiment-result" hidden></pre>
+          <p class="first-experiment-footnote">Это тест сохранения и извлечения информации, а не проверка истинности факта. Локальная память хранится в текущем браузере.</p>
+        </section>
         <section class="section-block organism-block">
           <div class="section-heading"><span class="eyebrow">СОСТОЯНИЕ</span><span class="tiny-live">● ONLINE</span></div>
           <div class="organism-title"><span class="organism-orb"></span><div><strong>Протоорганизм</strong><small id="organism-mood">Нестабильное равновесие</small></div></div>
@@ -61,7 +84,7 @@
             <button class="secondary-button" id="add-button"><span>＋</span>Нейрон</button>
             <button class="secondary-button" id="connect-button"><span>⟷</span>Связать</button>
             <button class="secondary-button" id="grow-button"><span>✳</span>Рост</button>
-            <button class="secondary-button" id="run-button"><span>▶</span>Запуск</button>
+            <button class="secondary-button" id="run-button" title="Запустить визуальную симуляцию" aria-label="Запустить визуальную симуляцию"><span>▶</span>Симуляция</button>
           </div>
           <p class="control-note" id="mode-note">Выбери нейрон, чтобы изучить его состояние.</p>
           <details class="llm-settings" id="wasm-learning-panel">
@@ -217,27 +240,28 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./activation.js?v=0.58.49" defer></script>
-  <script src="./neuro-wasm-adapter.js?v=0.58.49" defer></script>
-  <script src="./experience-quality.js?v=0.58.49" defer></script>
-  <script src="./experience-benchmark.js?v=0.58.49" defer></script>
-  <script src="./contrastive-benchmark.js?v=0.58.49" defer></script>
-  <script src="./neuron-layout.js?v=0.58.49" defer></script>
-  <script src="./neuron-focus.js?v=0.58.49" defer></script>
-  <script src="./canvas-quality.js?v=0.58.49" defer></script>
-  <script src="./app.js?v=0.58.49" defer></script>
-  <script src="./disposable-experiment-session.js?v=0.58.49" defer></script>
-  <script src="./disposable-experiment-ui.js?v=0.58.49" defer></script>
-  <script src="./knowledge.js?v=0.58.49" defer></script>
-  <script src="./goals.js?v=0.58.49" defer></script>
-  <script src="./observation-engine.js?v=0.58.49" defer></script>
-  <script src="./knowledge-graph.js?v=0.58.49" defer></script>
-  <script src="./reasoning-audit.js?v=0.58.49" defer></script>
-  <script src="./discriminating-observations.js?v=0.58.49" defer></script>
-  <script src="./hypothesis-lifecycle.js?v=0.58.49" defer></script>
-  <script src="./dialog-context.js?v=0.58.49" defer></script>
-  <script src="./dialog-manager.js?v=0.58.49" defer></script>
-  <script src="./llm-bridge.js?v=0.58.49" defer></script>
-  <script src="./memory.js?v=0.58.49" defer></script>
+  <script src="./activation.js?v=0.58.50" defer></script>
+  <script src="./neuro-wasm-adapter.js?v=0.58.50" defer></script>
+  <script src="./experience-quality.js?v=0.58.50" defer></script>
+  <script src="./experience-benchmark.js?v=0.58.50" defer></script>
+  <script src="./contrastive-benchmark.js?v=0.58.50" defer></script>
+  <script src="./neuron-layout.js?v=0.58.50" defer></script>
+  <script src="./neuron-focus.js?v=0.58.50" defer></script>
+  <script src="./canvas-quality.js?v=0.58.50" defer></script>
+  <script src="./app.js?v=0.58.50" defer></script>
+  <script src="./disposable-experiment-session.js?v=0.58.50" defer></script>
+  <script src="./disposable-experiment-ui.js?v=0.58.50" defer></script>
+  <script src="./knowledge.js?v=0.58.50" defer></script>
+  <script src="./goals.js?v=0.58.50" defer></script>
+  <script src="./observation-engine.js?v=0.58.50" defer></script>
+  <script src="./knowledge-graph.js?v=0.58.50" defer></script>
+  <script src="./reasoning-audit.js?v=0.58.50" defer></script>
+  <script src="./discriminating-observations.js?v=0.58.50" defer></script>
+  <script src="./hypothesis-lifecycle.js?v=0.58.50" defer></script>
+  <script src="./dialog-context.js?v=0.58.50" defer></script>
+  <script src="./dialog-manager.js?v=0.58.50" defer></script>
+  <script src="./llm-bridge.js?v=0.58.50" defer></script>
+  <script src="./memory.js?v=0.58.50" defer></script>
+  <script src="./first-experiment.js?v=0.58.50" defer></script>
 </body>
 </html>

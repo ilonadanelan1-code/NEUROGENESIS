@@ -1348,8 +1348,12 @@
     }
   });
   $("run-button").addEventListener("click",()=>{
-    running=!running;$("run-button").classList.toggle("active",running);
-    $("run-button").innerHTML=running?"<span>Ⅱ</span>Пауза":"<span>▶</span>Запуск";
+    running=!running;
+    const button=$("run-button");
+    button.classList.toggle("active",running);
+    button.innerHTML=running?"<span>Ⅱ</span>Пауза":"<span>▶</span>Симуляция";
+    button.title=running?"Поставить визуальную симуляцию на паузу":"Запустить визуальную симуляцию";
+    button.setAttribute("aria-label",button.title);
     $("run-label").textContent=running?"СИМУЛЯЦИЯ":"ОЖИДАНИЕ";
     $("system-status").textContent=running?"НЕЙРОСЕТЬ АКТИВНА":"СИСТЕМА ГОТОВА";
   });

@@ -69,6 +69,7 @@ jobs:
           node --check plasticity-five-route-composition-order-benchmark.js
           node --check plasticity-five-route-cleanup-budget-benchmark.js
           node --check memory.js
+          node --check first-experiment.js
           node --input-type=module --check < server/llm-worker.js
 
       - name: Test collision-aware neuron layout
@@ -83,6 +84,7 @@ jobs:
       - name: Check app assets, DOM references and startup contracts
         run: |
           node tests/startup-contract.test.js
+          node tests/first-experiment.test.js
           node tests/startup-failure.test.js
           node tests/wasm-shadow-mode.test.js
 

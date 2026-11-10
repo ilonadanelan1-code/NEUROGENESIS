@@ -48,8 +48,9 @@ before("knowledge.js", "discriminating-observations.js");
 before("knowledge.js", "hypothesis-lifecycle.js");
 before("dialog-context.js", "dialog-manager.js");
 before("llm-bridge.js", "memory.js");
-assert.equal(scriptOrder.at(-1), "memory.js",
-  "memory.js must load after the modules and adapters it integrates");
+before("memory.js", "first-experiment.js");
+assert.equal(scriptOrder.at(-1), "first-experiment.js",
+  "the guided experience must load after the memory API it uses");
 
 const allAssets = [...scriptRefs, ...stylesheetRefs];
 for (const ref of allAssets) {
