@@ -1,6 +1,13 @@
 name: Deploy NEUROGENESIS Worker
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/llm-worker.js"
+      - "wrangler.toml"
+      - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
 
 permissions:

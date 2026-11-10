@@ -196,10 +196,10 @@
             <summary><span>НАСТРОЙКА ЯЗЫКОВОЙ МОДЕЛИ</span><span id="llm-connection-status" data-state="offline">НЕ ПОДКЛЮЧЕНО</span></summary>
             <div class="llm-settings-body">
               <label class="field-label" for="llm-endpoint">АДРЕС СЕРВЕРНОГО ШЛЮЗА</label>
-              <input class="text-input llm-config-input" id="llm-endpoint" type="url" inputmode="url" placeholder="https://имя-воркера.workers.dev" autocomplete="url">
+              <input class="text-input llm-config-input" id="llm-endpoint" type="url" inputmode="url" value="https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev" placeholder="https://имя-воркера.workers.dev" autocomplete="url">
               <label class="field-label" for="llm-client-token">КЛЮЧ ДОСТУПА К ШЛЮЗУ</label>
               <input class="text-input llm-config-input" id="llm-client-token" type="password" placeholder="Твой APP_TOKEN" autocomplete="off">
-              <p class="llm-security-note">API-ключ провайдера хранится только в серверном секрете. Здесь сохраняется отдельный ключ доступа к твоему шлюзу в этом браузере.</p>
+              <p class="llm-security-note">Адрес шлюза уже заполнен. Здесь нужен секрет Cloudflare <strong>APP_TOKEN</strong> — это отдельный пароль приложения, не ключ OpenRouter. Ключ провайдера задаётся отдельно в Cloudflare как <strong>UPSTREAM_API_KEY</strong> и никогда не вводится в это поле.</p>
               <div class="llm-settings-actions">
                 <button class="primary-button llm-config-save" id="llm-save-config" type="button">Сохранить и проверить</button>
                 <button class="secondary-button llm-config-clear" id="llm-clear-config" type="button">Отключить</button>

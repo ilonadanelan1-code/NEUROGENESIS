@@ -4107,9 +4107,16 @@
       if (askButton) askButton.disabled = false;
     }
   }
+  const DEFAULT_LLM_ENDPOINT = "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev";
+
   function loadLLMConfiguration() {
+    const endpoint = $("llm-endpoint");
     const saved = readLLMConfig();
-    if (!saved) { updateLLMConnectionUI(); return; }
+    if (!saved) {
+      if (endpoint && !endpoint.value.trim()) endpoint.value = DEFAULT_LLM_ENDPOINT;
+      updateLLMConnectionUI();
+      return;
+    }
     try { configureLLM(saved, false); }
     catch (error) {
       llmConfig = null;
@@ -4257,8 +4264,9 @@
       await testLLMConnection();
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ШЛЮЗ ПРОВЕРЕН");
     } catch (error) {
-      setFeedback("НАСТРОЙКИ НЕ ПРОВЕРЕНЫ · " + String(error && error.message || error).slice(0, 180));
-      updateLLMConnectionUI("ПРОВЕРКА НЕ ПРОШЛА");
+      const reason = String(error && error.message || error).replace(/\\s+/gu, " ").trim().slice(0, 110);
+      setFeedback("НАСТРОЙКИ НЕ ПРОВЕРЕНЫ · " + reason);
+      updateLLMConnectionUI("ОШИБКА · " + reason.toLocaleUpperCase("ru-RU").slice(0, 58));
     }
   });
   if (llmClearButton) llmClearButton.addEventListener("click", () => {

@@ -276,6 +276,7 @@ jobs:
           node tests/dialog-context.test.js
           node tests/dialogue-llm-integration.test.js
           node tests/dialog-manager.test.js
+          node tests/llm-config-setup.test.js
           node tests/llm-bridge.test.js
           node tests/llm-worker.test.js
           node tests/memory-navigation.test.js
