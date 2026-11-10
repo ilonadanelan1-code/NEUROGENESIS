@@ -50,7 +50,7 @@
       const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
       if (!pendingQuestion || wordCount < 1 || wordCount > 14 ||
           /[?？]/u.test(value) || /[.!?]\s+\S/u.test(value) ||
-          isStandaloneRequest(value)) return false;
+          isStandaloneQuestion(value) || isStandaloneRequest(value)) return false;
       const answer = normalise(value);
       const question = normalise(pendingQuestion);
       const directUncertainty = /^(?:не знаю|не помню|не могу сказать|затрудняюсь(?: ответить)?|без понятия)$/u.test(answer);
