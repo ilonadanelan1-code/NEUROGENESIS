@@ -45,8 +45,25 @@ console.log("NEUROGENESIS asymmetric plasticity headroom benchmark: " + JSON.str
     meanUnusedHeadroom: row.weights.meanUnusedHeadroom,
     saturatedCorrectEdges: row.weights.saturatedCorrectEdges,
     crossMax: row.weights.maxCrossWeight,
+    baseline: {
+      minExpected: row.baseline.minExpected,
+      maxUnexpected: row.baseline.maxUnexpected,
+      maxOrderSpread: row.baseline.maxOrderSpread,
+      passed: row.baseline.passed
+    },
+    retained: {
+      minExpected: row.retained.minExpected,
+      maxUnexpected: row.retained.maxUnexpected,
+      maxOrderSpread: row.retained.maxOrderSpread,
+      passed: row.retained.passed
+    },
     freshAssociation: row.freshAssociation,
-    oldAfterFresh: row.oldAfterFresh.passed,
+    oldAfterFresh: {
+      minExpected: row.oldAfterFresh.minExpected,
+      maxUnexpected: row.oldAfterFresh.maxUnexpected,
+      maxOrderSpread: row.oldAfterFresh.maxOrderSpread,
+      passed: row.oldAfterFresh.passed
+    },
     episodes: row.episodes
   })),
   createdBrains, activeBrains
