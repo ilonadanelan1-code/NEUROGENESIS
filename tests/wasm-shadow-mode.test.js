@@ -35,6 +35,10 @@ for (const ref of scripts) {
 assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.37"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
+assert.match(adapter, /function createDisposableExperiment\(snapshot\)/u);
+assert.match(adapter, /function createExperiment\(\)/u);
+assert.match(adapter, /policy: "manual-review-only"/u);
+assert.match(app, /wasmCreateDisposableExperiment\(\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
 assert.match(adapter, /state = "unavailable"/u);
 assert.match(adapter, /const previous = brain;[\s\S]*?brain = candidate;[\s\S]*?if \(previous\) previous\.dispose\(\)/u,

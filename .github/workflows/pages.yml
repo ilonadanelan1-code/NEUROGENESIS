@@ -99,6 +99,9 @@ jobs:
       - name: Test WebAssembly adapter
         run: node tests/neuro-wasm-adapter.test.mjs
 
+      - name: Test disposable WebAssembly experiments
+        run: node tests/wasm-disposable-experiment.test.mjs
+
       - name: Test C++ and JavaScript numerical parity
         run: node tests/neuro-core-parity.test.mjs
 

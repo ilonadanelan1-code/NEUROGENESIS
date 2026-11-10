@@ -1264,6 +1264,9 @@
     wasmSnapshot() {
       return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
     },
+    wasmCreateDisposableExperiment() {
+      return wasmShadow ? wasmShadow.createExperiment() : null;
+    },
     wasmLearningExport() {
       return wasmShadow ? wasmShadow.learnedWeights() : [];
     },

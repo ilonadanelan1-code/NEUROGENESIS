@@ -393,11 +393,127 @@
       }
     }
 
+    function copySnapshot(snapshot) {
+      const source = snapshot && typeof snapshot === "object" ? snapshot : {};
+      const copyRows = rows => Array.isArray(rows)
+        ? rows.map(row => row && typeof row === "object" ? { ...row } : row)
+        : [];
+      return {
+        neurons: copyRows(source.neurons),
+        synapses: copyRows(source.synapses)
+      };
+    }
+
+    function createDisposableExperiment(snapshot) {
+      const captured = copySnapshot(snapshot);
+      const candidate = createBrainFromSnapshot(captured);
+      let disposed = false;
+      let baseline;
+      try {
+        baseline = copySnapshot(candidate.snapshot());
+      } catch (error) {
+        candidate.dispose();
+        throw error;
+      }
+
+      const edgeKey = (from, to) => JSON.stringify([String(from), String(to)]);
+
+      function assertOpen() {
+        if (disposed) throw new Error("This NEUROGENESIS experiment has already been disposed");
+      }
+
+      function readSnapshot() {
+        assertOpen();
+        return copySnapshot(candidate.snapshot());
+      }
+
+      function compare() {
+        assertOpen();
+        const current = candidate.snapshot();
+        const before = new Map(baseline.synapses.map(edge => [edgeKey(edge.from, edge.to), edge]));
+        const after = new Map(current.synapses.map(edge => [edgeKey(edge.from, edge.to), edge]));
+        const changedWeights = [];
+        const addedEdges = [];
+        const removedEdges = [];
+
+        for (const [key, edge] of after) {
+          const prior = before.get(key);
+          if (!prior) {
+            addedEdges.push({ from: edge.from, to: edge.to, candidateWeight: edge.weight });
+          } else if (Math.abs(edge.weight - prior.weight) > 1.0e-6) {
+            changedWeights.push({
+              from: edge.from,
+              to: edge.to,
+              baselineWeight: prior.weight,
+              candidateWeight: edge.weight,
+              delta: edge.weight - prior.weight
+            });
+          }
+        }
+
+        for (const [key, edge] of before) {
+          if (!after.has(key)) {
+            removedEdges.push({ from: edge.from, to: edge.to, baselineWeight: edge.weight });
+          }
+        }
+
+        const sortEdges = rows => rows.sort((left, right) =>
+          edgeKey(left.from, left.to).localeCompare(edgeKey(right.from, right.to)));
+        sortEdges(changedWeights);
+        sortEdges(addedEdges);
+        sortEdges(removedEdges);
+
+        return {
+          baseline: { neurons: baseline.neurons.length, synapses: baseline.synapses.length },
+          candidate: { neurons: current.neurons.length, synapses: current.synapses.length },
+          changedWeights,
+          addedEdges,
+          removedEdges
+        };
+      }
+
+      function exportProposal() {
+        const changes = compare();
+        return {
+          format: "NEUROGENESIS_WASM_EXPERIMENT_PROPOSAL",
+          version: 1,
+          policy: "manual-review-only",
+          baseline: changes.baseline,
+          candidate: changes.candidate,
+          changes: {
+            changedWeights: changes.changedWeights,
+            addedEdges: changes.addedEdges,
+            removedEdges: changes.removedEdges
+          }
+        };
+      }
+
+      return Object.freeze({
+        candidate,
+        baselineSnapshot() {
+          assertOpen();
+          return copySnapshot(baseline);
+        },
+        snapshot: readSnapshot,
+        compare,
+        exportProposal,
+        get disposed() {
+          return disposed;
+        },
+        dispose() {
+          if (disposed) return;
+          disposed = true;
+          candidate.dispose();
+        }
+      });
+    }
+
     return Object.freeze({
       version: 1,
       module,
       createBrain,
-      createBrainFromSnapshot
+      createBrainFromSnapshot,
+      createDisposableExperiment
     });
   }
 
@@ -711,6 +827,16 @@
       return brain ? brain.snapshot() : { neurons: [], synapses: [] };
     }
 
+    function createExperiment() {
+      if (disposed || state !== "ready" || !runtime) return null;
+      try {
+        return runtime.createDisposableExperiment(getSnapshot());
+      } catch (error) {
+        fail(error, "Could not create a disposable WebAssembly experiment");
+        return null;
+      }
+    }
+
     function dispose() {
       if (disposed) return;
       disposed = true;
@@ -723,7 +849,7 @@
     return Object.freeze({
       start, rebuild, stimulate, step, learn, learnFromReward, learnFromRewardHomeostatic, learnContrastiveReward,
       learnContrastiveRewardAsymmetric, resetEligibility,
-      snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
+      snapshot, learnedWeights, restoreLearnedWeights, diagnostics, createExperiment, dispose
     });
   }
 
