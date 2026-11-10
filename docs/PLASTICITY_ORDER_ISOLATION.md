@@ -53,3 +53,28 @@ The forward sequence used the complete cleanup budget of 56 in every scenario. T
 ## Protocol v2 — all composition-task permutations
 
 The next experiment enumerates all six permutations of the three composition tasks, while fixing initial mapping traversal, replay traversal and fresh-association traversal forward. It retains the same three stress profiles, five seeds and cleanup budget of 56 (90 disposable networks total), with 18 intermediate checkpoints per scenario. Its purpose is to determine whether the dense task must be first, or whether another specific pair/dense ordering is responsible.
+
+## Results — protocol v2, all six task permutations
+
+All 90 profile/seed/permutation scenarios completed. All protocol-integrity checks passed, all 90 disposable WASM brains were released, and the complete GitHub Actions validation and Pages deployment succeeded.
+
+| Composition task order | Full acceptance | Mean cleanup events | Maximum residual activation |
+|---|---:|---:|---:|
+| AB → CDE → ABCDE | 5/15 | 56.00 | 0.050502 |
+| AB → ABCDE → CDE | 15/15 | 44.67 | 0 |
+| CDE → AB → ABCDE | 15/15 | 53.67 | 0 |
+| CDE → ABCDE → AB | 15/15 | 38.67 | 0 |
+| ABCDE → AB → CDE | 15/15 | 38.67 | 0 |
+| ABCDE → CDE → AB | 15/15 | 38.67 | 0 |
+
+The single failing sequence is not explained by "dense union last" alone: CDE → AB → ABCDE also places the dense task last, yet passes 15/15. The failure is specific to presenting AB before CDE and then presenting the dense union. In that sequence, equal-medium passes 5/5, but ascending and descending profiles each pass 0/5. Headroom and fresh-association learning pass 15/15 even in this failing sequence; the failures are old-map retention and old-map retention after fresh learning.
+
+Every sequence shows an intermediate held-out failure after the dense-union task during cycle 1. Cleanup subsequently corrects those transient failures in five of the six task orders. Only AB → CDE → ABCDE retains a residual just above the 0.05 threshold in the two unequal profiles after exhausting all 56 cleanup events.
+
+The 24 permutations measured at each checkpoint are permutations of the stimulated input calls before a single network step. They are useful as a deterministic coverage check, but they do not represent time-separated sequential input processing. The causal factor tested here is the order in which the composition-learning tasks are presented.
+
+## Next validation — cycle-to-cycle schedules
+
+Before considering any production change, the next experiment should compare the problematic fixed sequence, the successful CDE → AB → ABCDE sequence, and schedules that alternate the order of the two pair tasks between learning cycles. This checks whether the safe result is robust to schedule variation rather than relying on one fixed permutation.
+
+No benchmark result in this document changes the live learning rule or user saves.

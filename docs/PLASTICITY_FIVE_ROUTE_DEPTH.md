@@ -65,6 +65,10 @@ V5 independently varied initial mapping traversal, composition-task sequence and
 
 V6 tests all six permutations of the three composition tasks to identify the specific ordering constraint, while holding the other learning and replay traversals fixed.
 
+## Protocol v6 — all composition permutations
+
+The six-permutation follow-up isolated one problematic sequence: AB → CDE → ABCDE. It passed 5/15 scenarios, while each of the other five permutations passed 15/15. Notably, CDE → AB → ABCDE also places the dense task last and still passes 15/15, so the failure is tied to the order of the two pair tasks before dense composition, not simply dense-task position. Full results are in [the order-isolation report](PLASTICITY_ORDER_ISOLATION.md).
+
 ## Acceptance and integrity boundaries
 
 A scenario passes only when expected activation is at least 0.15, non-target activation is at most 0.05, correct weights remain at or below 0.95, a fresh sixth feature learns the spare output, and old mappings remain correct after that new association.
