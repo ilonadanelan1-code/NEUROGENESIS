@@ -84,36 +84,49 @@ The previous contradictory-label task remains a separate conflict/interference s
 
 Every mode/seed/order case creates a fresh WASM brain. The test wrapper counts all 16 creations and requires all 16 to be disposed. No brain attaches to the live application network. The benchmark does not invoke persistence or import/export.
 
-## Verified results — GitHub Actions run #500
+## Verified results — GitHub Actions run #505
 
-**Status:** passed on the current `main` commit `6bd010e0f110c22669582c047b5816c8ea832b4e` (2026-11-10).
+**Status:** complete and successful on `main` commit `70ba5239316ffb8bd3a7240009cea0c6660b3294` (2026-11-10). The full workflow passed, including native C++ tests, WebAssembly build/adapter tests, numerical parity, all research benchmarks, the plasticity benchmark, regression tests, and GitHub Pages deployment.
 
-The required workflow completed successfully:
+The run produced a machine-readable artifact, `neurogenesis-plasticity-headroom-v4`, containing the complete JSON report for all scenarios. The artifact records commit, workflow run, protocol, checks, comparisons, every scenario's weights/activations/retention results, episode counts, and runner timings.
 
-- Native C++ core build and tests: passed.
-- WebAssembly build, adapter tests, and C++/JavaScript numerical parity: passed.
-- Experience, contrastive, four-feature compositional, and retention/scaling benchmarks: passed.
-- Plasticity headroom benchmark v4: passed; its test asserted `report.passed === true`.
-- Full application regression suite: passed.
-- GitHub Pages deployment: passed.
+### Aggregate result
 
-The benchmark report contains 16 independent scenarios: four update modes × two seeds (101 and 211) × forward/reverse task order. The aggregate pass means all 16 scenarios met the benchmark's per-scenario acceptance conditions: old mappings remained functional after the three composition cycles, a fifth feature was trained using the mode's own update rule, old mappings and held-out combinations remained correct after that new learning, and all weights remained finite and in [0, 1].
+There were 16 independent scenarios: four modes × two seeds (101 and 211) × forward/reverse task order. The benchmark's overall `passed: true` means the **target bounded-asymmetric mode** met its acceptance conditions in all four seed/order combinations. It does not mean every control mode passed; the controls intentionally expose the trade-offs.
 
-The four bounded-asymmetric scenarios additionally passed the explicit plasticity-headroom assertions:
+| Mode | Retention | Headroom | Overall scenarios | Maximum correct weight | Maximum non-target response after retention |
+|---|---:|---:|---:|---:|---:|
+| Symmetric high (legacy, 0.25/0.25) | 4/4 | 0/4 | 0/4 | 1.00000 | 0 |
+| Symmetric low (legacy, 0.05/0.05) | 4/4 | 0/4 | 0/4 | 1.00000 | 0 |
+| Bounded symmetric (0.02/0.02) | 0/4 | 4/4 | 0/4 | 0.73546 | 0.24352 |
+| **Bounded asymmetric (0.02/0.70)** | **4/4** | **4/4** | **4/4** | **0.73522** | **0** |
 
-- Every correct primitive weight remained at or below 0.95.
-- No correct primitive edge reached the saturation threshold of 0.98.
-- All 11 held-out combinations and 60 stimulation permutations remained within the response limits.
-- The fresh fifth-feature target activated to at least 0.15; every non-target output stayed at or below 0.05.
-- All 11 old held-out combinations still passed after fresh-feature learning.
+The controls show why a single metric is misleading:
 
-The CI test prints per-scenario measurements in its job log, but this repository revision does not preserve a machine-readable benchmark report artifact. Therefore this document records the assertions and verified aggregate outcome, not invented per-seed weight values or timing figures. A follow-up engineering task should persist the full JSON report as a CI artifact so later experiments can compare numerical trajectories directly.
+- Both legacy symmetric modes retained prior responses but saturated correct weights at 1.0, leaving zero measured headroom.
+- Bounded symmetric replay retained weight headroom, but its maximum non-target response reached 0.24352, above the 0.05 ceiling; old combinations therefore failed the retention check.
+- Bounded asymmetric replay achieved both goals together in all four cases.
 
-[Workflow run #500](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42802629783) · [Verified commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/6bd010e0f110c22669582c047b5816c8ea832b4e)
+### Bounded-asymmetric measurements
+
+Across the four target scenarios:
+
+- Maximum correct primitive weight: **0.73521233–0.73521924**.
+- Mean unused headroom: **0.26478401–0.26478815**.
+- Minimum expected activation across retained patterns: **0.73521137–0.73521274**.
+- Maximum non-target activation: **0**.
+- New fifth-feature target activation: **0.24506247** (required at least 0.15).
+- New-feature non-target activation: **0** (allowed at most 0.05).
+- Previous 11 held-out combinations still passed after the fifth feature was learned.
+- Each target scenario used 345 episodes and disposed its isolated WASM brain.
+
+The target rule uses a positive rate of 0.02, a negative rate of 0.70, two replay sweeps per composition task, and a homeostatic composition update at 0.05. These values passed this fixed, supervised graph experiment; they are not universal learning hyperparameters.
+
+[Successful workflow run #505 and downloadable artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42823726050) · [Verified source commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/70ba5239316ffb8bd3a7240009cea0c6660b3294)
 
 ## Interpretation and next research step
 
-This result supports a narrow engineering conclusion: under this fixed, supervised four-feature task schedule, the bounded asymmetric replay mode preserved the tested mappings, kept room below the weight ceiling, learned one additional feature, and retained earlier responses afterward. It does **not** establish general lifelong learning, open-ended autonomy, language understanding, relational reasoning, or human-like memory.
+This result supports a narrow engineering conclusion: under this fixed, supervised four-feature task schedule, bounded asymmetric replay retained the tested mappings, kept room below the weight ceiling, learned one additional feature, and preserved earlier responses afterward. It does **not** establish general lifelong learning, open-ended autonomy, language understanding, relational reasoning, or human-like memory.
 
-The immediate next task is to make the evidence easier to inspect and harder to lose: persist the complete benchmark JSON as a CI artifact, then use those recorded measurements to design a lower-cost retention strategy. Do not switch the production JavaScript network to the experimental update rule until there is a separate integration decision and regression evidence.
+The next research task is to reduce the cost of retention without losing the demonstrated headroom and selectivity. Candidate experiments should compare fewer replay episodes, adaptive negative rates, and replay triggered by measured interference. Each candidate needs a pre-registered protocol, the same baseline and control tasks, and a saved JSON report. Do not switch the production JavaScript network to the experimental update rule until a separate integration decision and regression evidence justify it.
 
