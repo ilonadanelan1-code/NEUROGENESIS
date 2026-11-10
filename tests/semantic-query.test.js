@@ -78,7 +78,9 @@ const parsed = engine.parse(JSON.stringify({
 assert.equal(parsed.source, "model");
 assert.equal(parsed.contextRelation, "follow_up");
 assert.equal(parsed.expectedAnswerType, "quantity");
-assert.equal(parsed.searchQueries.length, 2);
+assert.equal(parsed.searchQueries.length, 3);
+assert.equal(parsed.searchQueries[0], parsed.canonicalQuestion,
+  "the canonical form must be prepended when the model omitted it from search variants");
 assert.equal(engine.parse("Это не JSON"), null);
 assert.equal(engine.isStructuredCommand("Покажи последние когнитивные циклы"), true);
 
