@@ -36,6 +36,7 @@
       stimulate: wrap("ng_brain_stimulate", "number", ["number", "number", "number"]),
       learn: wrap("ng_brain_learn", "number", ["number", "number", "number", "number"]),
       learnFromReward: wrap("ng_brain_learn_from_reward", "number", ["number", "number", "number", "number"]),
+      learnFromRewardHomeostatic: wrap("ng_brain_learn_from_reward_homeostatic", "number", ["number", "number", "number", "number"]),
       learnContrastiveReward: wrap("ng_brain_learn_contrastive_reward", "number", ["number", "number", "number", "number", "number"]),
       learnContrastiveRewardAsymmetric: wrap("ng_brain_learn_contrastive_reward_asymmetric", "number", [
         "number", "number", "number", "number", "number", "number"
@@ -167,6 +168,16 @@
         learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
           live();
           return api.learnFromReward(
+            handle,
+            finite(learningRate, "learningRate"),
+            finite(reward, "reward"),
+            finite(weightDecay, "weightDecay")
+          );
+        },
+
+        learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+          live();
+          return api.learnFromRewardHomeostatic(
             handle,
             finite(learningRate, "learningRate"),
             finite(reward, "reward"),
@@ -325,6 +336,12 @@
           },
           learnFromReward(learningRate = 0.05, reward = 1, weightDecay = 0) {
             return coreBrain.learnFromReward(learningRate, reward, weightDecay);
+          },
+          learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+            return coreBrain.learnFromRewardHomeostatic(
+              finite(learningRate, "learningRate"),
+              finite(reward, "reward"),
+              finite(weightDecay, "weightDecay"));
           },
           learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
             const input = sourceToCore.get(String(inputSourceId));
@@ -586,6 +603,22 @@
       }
     }
 
+    function learnFromRewardHomeostatic(learningRate = 0.05, reward = 1, weightDecay = 0) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnFromRewardHomeostatic(
+          finite(learningRate, "learningRate"),
+          finite(reward, "reward"),
+          finite(weightDecay, "weightDecay")
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly homeostatic sequence reward failed");
+        return 0;
+      }
+    }
+
     function learnContrastiveReward(learningRate = 0.05, inputSourceId, positiveSourceId, negativeSourceId) {
       if (disposed || state !== "ready" || !brain) return 0;
       try {
@@ -688,7 +721,7 @@
     }
 
     return Object.freeze({
-      start, rebuild, stimulate, step, learn, learnFromReward, learnContrastiveReward,
+      start, rebuild, stimulate, step, learn, learnFromReward, learnFromRewardHomeostatic, learnContrastiveReward,
       learnContrastiveRewardAsymmetric, resetEligibility,
       snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
     });
