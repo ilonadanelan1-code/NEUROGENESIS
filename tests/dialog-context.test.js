@@ -129,6 +129,19 @@ assert.equal(typoDiscourseFollowUp.applied, true,
 assert.match(typoDiscourseFollowUp.query, /Сколько сердец у осьминога/u,
   "the typo-tolerant follow-up must stay attached to the octopus question");
 
+const semanticNewTopic = engine.track(pendingBase, {
+  role:"user", text:"Сколько сердец у осьминога?", time:83, relationHint:"new_topic"
+});
+assert.notEqual(semanticNewTopic.activeThreadId, pendingBase.activeThreadId,
+  "the semantic interpreter's explicit new-topic decision must override misleading lexical overlap");
+assert.equal(semanticNewTopic.messages[semanticNewTopic.messages.length - 1].relation, "new_topic");
+const semanticFollowUp = engine.track(octopusTopic, {
+  role:"user", text:"А у него сколько?", time:84, relationHint:"continuation"
+});
+assert.equal(semanticFollowUp.activeThreadId, octopusTopic.activeThreadId,
+  "a semantic interpreter's confirmed follow-up must remain in the active subject");
+assert.equal(semanticFollowUp.messages[semanticFollowUp.messages.length - 1].relation, "continuation");
+
 
 assert.equal(octopusTopic.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "the unrelated previous topic's pending question must remain unanswered");

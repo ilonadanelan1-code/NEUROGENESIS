@@ -44,6 +44,8 @@
       }
 
       input.value = QUESTION;
+      // Keep this teaching exercise deterministic; ordinary questions use semantic interpretation.
+      askButton.dataset.ngForceLocal = "true";
       askButton.click();
       const matches = memory.search(QUESTION).filter(item =>
         item && typeof item.text === "string" && Number(item.score) >= 0.19

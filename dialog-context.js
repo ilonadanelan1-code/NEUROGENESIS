@@ -312,6 +312,8 @@
       }
       if (role === "user") {
         const target = returnTarget(text);
+        const relationHint = ["new_topic", "continuation"].includes(message.relationHint)
+          ? message.relationHint : "";
         if (resolvedAmbiguousReturn) {
           // The user's clarification selected one of the previously ambiguous topics.
         } else if (target) {
@@ -332,6 +334,10 @@
             relation = "new_topic";
           }
         } else if (isExplicitSwitch(text)) {
+          thread = createThread(state, text, time);
+          relation = "new_topic";
+          state.lastDecision = { kind: "topic_switch", text: thread.title, candidates: [thread.id] };
+        } else if (relationHint === "new_topic") {
           thread = createThread(state, text, time);
           relation = "new_topic";
           state.lastDecision = { kind: "topic_switch", text: thread.title, candidates: [thread.id] };
@@ -359,6 +365,8 @@
             summaryCandidateText = "Ответ на вопрос «" + clean(matchedQuestion.text, 72) + "»: " + text;
             matchedQuestion.answered = true;
             syncPendingQuestion(thread);
+          } else if (relationHint === "continuation") {
+            relation = "continuation";
           } else if (independentTopic || independentStatement || independentQuestion) {
             thread = createThread(state, text, time);
             relation = "new_topic";

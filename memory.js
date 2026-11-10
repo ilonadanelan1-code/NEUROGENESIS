@@ -30,6 +30,7 @@
     ? window.NGDialogContext.create(KNOWLEDGE) : null;
   const DIALOG_MANAGER = window.NGDialogManager && typeof window.NGDialogManager.create === "function"
     ? window.NGDialogManager.create(DIALOG_CONTEXT) : null;
+  const SEMANTIC_QUERY = window.NGSemanticQuery || null;
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
@@ -2520,7 +2521,7 @@
     }
     feed.scrollTop = feed.scrollHeight;
   }
-  function say(role, text, reasoning) {
+  function say(role, text, reasoning, relationHint) {
     const entry={ role, text: String(text).slice(0, MAX_DIALOG_TEXT), time: Date.now() };
     const sourceReasoning=reasoning?cloneArchiveData(reasoning):null;
     const clean=reasoning?reconcileHypothesisMeta(reasoning):null;
@@ -2531,7 +2532,8 @@
     dialog.push(entry);
     dialog = dialog.slice(-MAX_DIALOG);
     if (DIALOG_CONTEXT && typeof DIALOG_CONTEXT.track === "function") {
-      dialogContext = DIALOG_CONTEXT.track(dialogContext, entry);
+      dialogContext = DIALOG_CONTEXT.track(dialogContext, relationHint
+        ? { ...entry, relationHint } : entry);
     }
     if(clean)reasoningArchive=mergeReasoningArchive(reasoningArchive,[entry]);
     persist();
@@ -3196,28 +3198,33 @@
     return runCognitiveCycle("remember", raw, rememberTextCore);
   }
 
-  function matchMemory(query, item) {
-    const q = [...new Set(tokens(query))];
+  function matchMemory(query, item, searchQueries = []) {
     const structuredText = KNOWLEDGE ? (item.claims || []).map(claim => KNOWLEDGE.claimSearchText(claim)).join(" ") : "";
     const words = [...new Set(tokens(item.text + " " + structuredText))];
-    if (!q.length || !words.length) return {score:0,directHits:0,associativeHits:0};
-    const similarity = KNOWLEDGE && typeof KNOWLEDGE.semanticMatch === "function"
-      ? KNOWLEDGE.semanticMatch(q, words)
-      : {weightedHits:q.filter(word=>words.includes(word)).length,directHits:q.filter(word=>words.includes(word)).length,associativeHits:0};
-    const hits = similarity.weightedHits;
-    const coverage = hits / q.length;
-    const density = hits / Math.sqrt(q.length * words.length);
-    const qNorm = normalise(query);
-    const textNorm = normalise(item.text);
-    const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.34 : 0;
-    const tagHits = q.filter(word => (item.tags || []).includes(word)).length;
-    const tagBoost = tagHits / q.length * 0.08;
-    const score = Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
-      (0.75 + (item.strength || 0.6) * 0.25);
-    return {score,directHits:similarity.directHits,associativeHits:similarity.associativeHits};
+    if (!words.length) return {score:0,directHits:0,associativeHits:0};
+    const candidates = [...new Set([query, ...(Array.isArray(searchQueries) ? searchQueries : [])]
+      .map(value => String(value || "").trim()).filter(Boolean))].slice(0, 8);
+    let best = {score:0,directHits:0,associativeHits:0};
+    for (const candidate of candidates) {
+      const q = [...new Set(tokens(candidate))];
+      if (!q.length) continue;
+      const similarity = KNOWLEDGE && typeof KNOWLEDGE.semanticMatch === "function"
+        ? KNOWLEDGE.semanticMatch(q, words)
+        : {weightedHits:q.filter(word=>words.includes(word)).length,directHits:q.filter(word=>words.includes(word)).length,associativeHits:0};
+      const hits = similarity.weightedHits, coverage = hits / q.length;
+      const density = hits / Math.sqrt(q.length * words.length);
+      const qNorm = normalise(candidate), textNorm = normalise(item.text);
+      const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.34 : 0;
+      const tagHits = q.filter(word => (item.tags || []).includes(word)).length;
+      const tagBoost = tagHits / q.length * 0.08;
+      const score = Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
+        (0.75 + (item.strength || 0.6) * 0.25);
+      if (score > best.score) best = {score,directHits:similarity.directHits,associativeHits:similarity.associativeHits};
+    }
+    return best;
   }
-  function scoreMemory(query, item) {
-    return matchMemory(query, item).score;
+  function scoreMemory(query, item, searchQueries = []) {
+    return matchMemory(query, item, searchQueries).score;
   }
   function buildGraphRecall(query,limit=12) {
     if(!KNOWLEDGE_GRAPH||!KNOWLEDGE)return {queryTokens:[],anchors:[],matches:[]};
@@ -3262,7 +3269,7 @@
     lines.push("Переход по графу показывает связь между сохранёнными записями, но сам по себе не доказывает истинность утверждений или причинность.");
     return lines.join("\n");
   }
-  function askMemoryCore(raw) {
+  function askMemoryCore(raw, semanticPlan = null) {
     let query = String(raw || "").trim();
     if (!query) { setFeedback("Напиши вопрос к моей памяти."); return; }
     const lower = normalise(query);
@@ -3351,19 +3358,42 @@
       if (brain && typeof brain.activateMemoryTraces === "function") brain.activateMemoryTraces(ids);
       return;
     }
-    const dialogueResolution = DIALOG_CONTEXT
-      ? DIALOG_CONTEXT.resolve(dialogContext, query)
-      : { applied:false, query, title:"", reason:"dialog_context_unavailable" };
+    const submittedQuery = query;
+    const semanticRelation = semanticPlan && semanticPlan.contextRelation || "";
+    const trustedSemanticFollowUp = !!(semanticPlan &&
+      ["model", "local", "local_fallback"].includes(semanticPlan.source) &&
+      Number(semanticPlan.confidence) >= (semanticPlan.source === "model" ? 0.58 : 0.5) &&
+      ["follow_up", "same_topic"].includes(semanticRelation));
+    const dialogueResolution = DIALOG_CONTEXT && semanticRelation !== "new_topic"
+      ? DIALOG_CONTEXT.resolve(dialogContext, submittedQuery)
+      : { applied:false, query:submittedQuery, title:"", reason:semanticRelation === "new_topic" ? "semantic_new_topic" : "dialog_context_unavailable" };
     const dialogueReport = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const dialoguePlan = DIALOG_MANAGER
-      ? DIALOG_MANAGER.plan(query, { ...(dialogueReport || {}), resolution:dialogueResolution })
+      ? DIALOG_MANAGER.plan(submittedQuery, { ...(dialogueReport || {}), resolution:dialogueResolution })
       : null;
-    if (dialoguePlan && dialoguePlan.needsClarification) {
+    if (semanticRelation === "unclear" && semanticPlan && Number(semanticPlan.confidence) >= 0.62) {
+      say("assistant", "Я вижу несколько возможных смыслов этого сообщения и не хочу выбирать тему наугад. Уточни, пожалуйста, к какому объекту или факту относится вопрос.");
+      setFeedback("СМЫСЛОВОЙ РАЗБОР · НУЖНО УТОЧНЕНИЕ");
+      return;
+    }
+    if (dialoguePlan && dialoguePlan.needsClarification && !trustedSemanticFollowUp) {
       say("assistant", dialoguePlan.clarification);
       setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
       return;
     }
     if (dialogueResolution.applied && dialogueResolution.query) query = dialogueResolution.query;
+    if (semanticPlan && semanticPlan.canonicalQuestion) query = semanticPlan.canonicalQuestion;
+    const semanticSearchQueries = semanticPlan && Array.isArray(semanticPlan.searchQueries)
+      ? semanticPlan.searchQueries.slice(0, 6) : [];
+    if (SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function") {
+      const lexicalPlan = SEMANTIC_QUERY.local(query, {}, KNOWLEDGE);
+      for (const candidate of lexicalPlan.searchQueries || []) {
+        if (!semanticSearchQueries.includes(candidate) && semanticSearchQueries.length < 8) semanticSearchQueries.push(candidate);
+      }
+    }
+    for (const candidate of [submittedQuery, dialogueResolution.query]) {
+      if (candidate && !semanticSearchQueries.includes(candidate) && semanticSearchQueries.length < 8) semanticSearchQueries.push(candidate);
+    }
     const sourceClaims = memories.flatMap(item => item.claims || []);
     const allClaims = claimsForWorkingModel(sourceClaims);
     const hypothesisPriority = KNOWLEDGE && typeof KNOWLEDGE.prioritizeHypotheses==="function" ? KNOWLEDGE.prioritizeHypotheses(query,allClaims) : null;
@@ -3399,7 +3429,7 @@
       const isHypothesisPriority = !!(hypothesisPriority && hypothesisPriority.answer);
       const isUserProfileQuery = /^(?:что ты знаешь|что ты помнишь|что тебе известно|расскажи)(?:\s|$)/u.test(lower) && /\b(?:обо мне|о мне|про меня)\b/u.test(lower);
       const related = memories.map(item => {
-        const base=matchMemory(query,item),graphHit=graphByMemory.get(item.id);
+        const base=matchMemory(query,item,semanticSearchQueries),graphHit=graphByMemory.get(item.id);
         return {item,...base,score:Math.max(base.score,graphHit?graphHit.score:0),
           graphPathType:graphHit?graphHit.pathType:null};
       }).filter(hit => hit.score > 0.08 ||
@@ -3451,7 +3481,7 @@
       return;
     }
     const ranked = memories.map(item => {
-      const base=scoreMemory(query,item),graphHit=graphByMemory.get(item.id);
+      const base=scoreMemory(query,item,semanticSearchQueries),graphHit=graphByMemory.get(item.id);
       return {item,score:Math.max(base,graphHit?graphHit.score:0),graphPathType:graphHit?graphHit.pathType:null};
     }).filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
     if (!ranked.length) {
@@ -3470,7 +3500,10 @@
     persist();
     const answer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминания:") +
       "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + hit.item.text).join("\n\n") +
-      "\n\nЭто найденные записи, а не самостоятельно проверенные факты. Я пока умею извлекать и связывать сохранённые сведения, но ещё не обладаю полноценным языковым мышлением."+
+      "\n\nЭто сохранённые записи, а не независимо проверенные факты. Я сопоставил смысл запроса с локальной памятью; истинность самой записи требует отдельной проверки."+
+      (semanticPlan && semanticPlan.source === "model"
+        ? "\n\nСМЫСЛОВОЙ РАЗБОР: выполнен языковой моделью. Сам ответ основан только на найденных локальных записях."
+        : "\n\nРЕЖИМ ПОИСКА: локальные языковые правила и смысловые ассоциации; произвольные переформулировки могут распознаваться не полностью.")+
       (graphNote?"\n\n"+graphNote:"")+
       (currentModelDecisions().length?formatModelDecisionNote():"");
     say("assistant", answer);
@@ -3479,10 +3512,14 @@
     if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(activeTraceIds);
     const activated = brain && typeof brain.activateMemoryTraces === "function"
       ? Number(brain.activateMemoryTraces(activeTraceIds) || 0) : 0;
-    setFeedback("ПОИСК ЗАВЕРШЁН · НАЙДЕНО " + ranked.length + " · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
+    setFeedback((semanticPlan && semanticPlan.source === "model" ? "СМЫСЛОВОЙ ПОИСК · " :
+      semanticPlan && semanticPlan.source === "local_fallback" ? "ЛОКАЛЬНЫЙ РЕЖИМ · " : "ЛОКАЛЬНЫЙ ПОИСК · ") +
+      "НАЙДЕНО " + ranked.length + " · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
   }
 
-  function askMemory(raw) { return runCognitiveCycle("ask",raw,askMemoryCore); }
+  function askMemory(raw, semanticPlan = null) {
+    return runCognitiveCycle("ask", raw, value => askMemoryCore(value, semanticPlan));
+  }
 
   function removeMemory(id) {
     const item = memories.find(entry => entry.id === id);
@@ -4065,6 +4102,37 @@
     }
   }
 
+  async function interpretMemoryQuery(query) {
+    const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
+    const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : null;
+    const context = { ...(report || {}), resolution };
+    const localPlan = SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function"
+      ? SEMANTIC_QUERY.local(query, context, KNOWLEDGE)
+      : { source:"local", contextRelation:"new_topic", canonicalQuestion:query, searchQueries:[query], confidence:0.4 };
+    if (!SEMANTIC_QUERY || typeof SEMANTIC_QUERY.buildRequest !== "function" ||
+        !LLM_GATEWAY || !llmHttpAdapter || llmRequestInFlight ||
+        (SEMANTIC_QUERY.isStructuredCommand && SEMANTIC_QUERY.isStructuredCommand(query))) return localPlan;
+
+    llmRequestInFlight = true;
+    try {
+      if (!llmVerified) await testLLMConnection();
+      const request = SEMANTIC_QUERY.buildRequest(query, context, memories);
+      const raw = await LLM_GATEWAY.generate(request);
+      const interpreted = SEMANTIC_QUERY.parse(raw);
+      if (!interpreted) throw new Error("Модель вернула неполный план смыслового поиска.");
+      if (interpreted.confidence < 0.58 ||
+          (interpreted.contextRelation === "follow_up" && !(report && report.activeThread))) {
+        return { ...localPlan, source:"local_fallback", fallbackReason:"low_confidence_or_missing_context" };
+      }
+      return interpreted;
+    } catch (error) {
+      console.warn("NEUROGENESIS semantic query interpretation failed; using local retrieval:", error);
+      return { ...localPlan, source:"local_fallback", fallbackReason:String(error && error.message || error).slice(0,180) };
+    } finally {
+      llmRequestInFlight = false;
+    }
+  }
+
   function prepareLLMRequestCore(query) {
     if (!LLM_BRIDGE || !DIALOG_CONTEXT) return null;
     const report = DIALOG_CONTEXT.report(dialogContext);
@@ -4142,10 +4210,19 @@
     const input = $("memory-input");
     const value = input ? input.value.trim() : "";
     if (!value) { setFeedback("Сначала введи текст."); return; }
-    say("user", value);
+    const askButton = $("ask-button");
+    const forceLocal = action === "ask" && askButton && askButton.dataset.ngForceLocal === "true";
+    if (forceLocal) delete askButton.dataset.ngForceLocal;
+    const semanticPlan = action === "ask" && !forceLocal
+      ? await interpretMemoryQuery(value) : null;
+    const relationHint = semanticPlan && semanticPlan.contextRelation === "new_topic"
+      ? "new_topic"
+      : semanticPlan && ["follow_up", "same_topic"].includes(semanticPlan.contextRelation)
+        ? "continuation" : "";
+    say("user", value, null, relationHint);
     if (action === "remember") rememberText(value);
     else if (action === "llm") await askWithLLM(value);
-    else askMemory(value);
+    else askMemory(value, semanticPlan);
     input.value = "";
     input.focus();
   }

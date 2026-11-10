@@ -12,7 +12,7 @@ const disposableSession = fs.readFileSync("disposable-experiment-session.js", "u
 const disposableUi = fs.readFileSync("disposable-experiment-ui.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.53", "the isolated contrastive-trial release must have a distinct asset version");
+assert.equal(version, "0.58.54", "the isolated contrastive-trial release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -33,6 +33,10 @@ assert.ok(normalized.indexOf("experience-quality.js") < normalized.indexOf("app.
 assert.ok(normalized.indexOf("neuro-wasm-adapter.js") < normalized.indexOf("app.js"),
   "the adapter must exist before the app starts");
 assert.ok(normalized.indexOf("app.js") < normalized.indexOf("knowledge.js"));
+assert.ok(normalized.indexOf("dialog-manager.js") < normalized.indexOf("semantic-query.js"),
+  "the semantic query planner must load after the dialogue manager");
+assert.ok(normalized.indexOf("semantic-query.js") < normalized.indexOf("memory.js"),
+  "the semantic query planner must load before the memory engine");
 assert.ok(normalized.indexOf("memory.js") < normalized.indexOf("first-experiment.js"),
   "the guided visitor experiment must load after the memory API");
 assert.equal(normalized.at(-1), "first-experiment.js");

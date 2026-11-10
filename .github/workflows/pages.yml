@@ -45,6 +45,7 @@ jobs:
           node --check hypothesis-lifecycle.js
           node --check dialog-context.js
           node --check dialog-manager.js
+          node --check semantic-query.js
           node --check llm-bridge.js
           node --check neuro-wasm-adapter.js
           node --check experience-quality.js
@@ -268,6 +269,7 @@ jobs:
           node tests/discriminating-observations.test.js
           node tests/hypothesis-lifecycle.test.js
           node tests/dialog-context.test.js
+          node tests/semantic-query.test.js
           node tests/dialogue-llm-integration.test.js
           node tests/dialog-manager.test.js
           node tests/llm-config-setup.test.js
