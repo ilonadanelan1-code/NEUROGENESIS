@@ -43,7 +43,7 @@ if(EMSCRIPTEN AND NG_BUILD_WASM)
         "-sALLOW_MEMORY_GROWTH=1"
         "-sFILESYSTEM=0"
         "-sEXPORTED_RUNTIME_METHODS=['cwrap']"
-        "-sEXPORTED_FUNCTIONS=['_ng_brain_create','_ng_brain_destroy','_ng_brain_add_neuron','_ng_brain_add_synapse','_ng_brain_set_synapse_weight','_ng_brain_set_synapse_eligibility','_ng_brain_reset_eligibility','_ng_brain_stimulate','_ng_brain_learn','_ng_brain_learn_from_reward','_ng_brain_learn_contrastive_reward','_ng_brain_step','_ng_brain_neuron_count','_ng_brain_synapse_count','_ng_brain_neuron_id_at','_ng_brain_neuron_kind_at','_ng_brain_neuron_activation_at','_ng_brain_neuron_excitability_at','_ng_brain_neuron_x_at','_ng_brain_neuron_y_at','_ng_brain_synapse_from_at','_ng_brain_synapse_to_at','_ng_brain_synapse_weight_at','_ng_brain_synapse_signal_at','_ng_brain_synapse_eligibility_at','_malloc','_free']"
+        "-sEXPORTED_FUNCTIONS=['_ng_brain_create','_ng_brain_destroy','_ng_brain_add_neuron','_ng_brain_add_synapse','_ng_brain_set_synapse_weight','_ng_brain_set_synapse_eligibility','_ng_brain_reset_eligibility','_ng_brain_stimulate','_ng_brain_learn','_ng_brain_learn_from_reward','_ng_brain_learn_contrastive_reward','_ng_brain_learn_contrastive_reward_asymmetric','_ng_brain_step','_ng_brain_neuron_count','_ng_brain_synapse_count','_ng_brain_neuron_id_at','_ng_brain_neuron_kind_at','_ng_brain_neuron_activation_at','_ng_brain_neuron_excitability_at','_ng_brain_neuron_x_at','_ng_brain_neuron_y_at','_ng_brain_synapse_from_at','_ng_brain_synapse_to_at','_ng_brain_synapse_weight_at','_ng_brain_synapse_signal_at','_ng_brain_synapse_eligibility_at','_malloc','_free']"
     )
     set_target_properties(neurogenesis_wasm PROPERTIES
         OUTPUT_NAME "neurogenesis"
