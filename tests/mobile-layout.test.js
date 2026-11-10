@@ -90,4 +90,22 @@ assert.doesNotMatch(frameBody, /requestAnimationFrame\(frame\)/u,
 assert.match(frameBody, /if\(animationActive\)[\s\S]*scheduleFrame\(\)/u,
   "continuous rendering must continue only while the simulation or activity is running");
 
-console.log("NEUROGENESIS mobile layout and idle-render contracts: viewport, portrait stacking, pointer canvas, short-landscape sizing, coarse-pointer touch targets and event-driven rendering passed.");
+
+assert.ok(html.includes("./canvas-quality.js?v=" + version),
+  "the bounded canvas allocator must be loaded by the active app version");
+assert.ok(html.indexOf("canvas-quality.js") < html.indexOf("app.js"),
+  "canvas quality guards must load before the main app");
+assert.ok(app.includes("window.NGCanvasQuality") && app.includes("maxPixels: 2800000"),
+  "the renderer must use a bounded backing-store pixel budget");
+assert.ok(app.includes("if (canvas.width !== resolution.backingWidth)"),
+  "duplicate resize events must not clear unchanged canvas buffers");
+assert.match(css, /\.app-shell\{min-height:0;padding-block:env\(safe-area-inset-top/u,
+  "short viewports and device safe areas must not be clipped by the shell");
+assert.match(css, /@media\(orientation:landscape\) and \(max-height:680px\)/u,
+  "short landscape layouts must have a viewport-independent two-column rule");
+assert.match(css, /prefers-reduced-motion:reduce/u,
+  "the visual system must respect reduced-motion accessibility settings");
+assert.match(css, /:focus-visible/u,
+  "keyboard users must retain a visible focus indicator");
+
+console.log("NEUROGENESIS mobile and visual guardrails: viewport sizing, safe areas, landscape layout, touch targets, focus, reduced motion and bounded canvas renderer passed.");

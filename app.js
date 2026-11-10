@@ -473,18 +473,42 @@
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    width = Math.max(1, rect.width);
-    height = Math.max(1, rect.height);
+    width = Math.max(1, Number.isFinite(rect.width) ? rect.width : 1);
+    height = Math.max(1, Number.isFinite(rect.height) ? rect.height : 1);
     const previousDpr = dpr;
     const maxDpr = window.innerWidth <= 700 ? 2 : 2.25;
-    dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+    let resolution = null;
+    try {
+      const quality = window.NGCanvasQuality;
+      if (quality && typeof quality.resolve === "function") {
+        resolution = quality.resolve(width, height, window.devicePixelRatio || 1, {
+          maxDpr,
+          maxPixels: 2800000,
+          maxDimension: 8192
+        });
+      }
+    } catch (error) {
+      console.warn("Canvas quality guard failed; using the safe fallback:", error);
+    }
+    if (!resolution) {
+      dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
+      resolution = {
+        dpr,
+        backingWidth: Math.max(1, Math.round(width * dpr)),
+        backingHeight: Math.max(1, Math.round(height * dpr))
+      };
+    }
+    dpr = resolution.dpr;
     if (Math.abs(dpr - previousDpr) > 0.01) neuronSprites.clear();
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+
+    // Do not reset an unchanged bitmap: assigning canvas.width/height clears it
+    // and can cause visible flicker during duplicate resize notifications.
+    if (canvas.width !== resolution.backingWidth) canvas.width = resolution.backingWidth;
+    if (canvas.height !== resolution.backingHeight) canvas.height = resolution.backingHeight;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const layer of [backgroundLayer, connectionLayer, nodeLayer]) {
-      layer.width = canvas.width;
-      layer.height = canvas.height;
+      if (layer.width !== resolution.backingWidth) layer.width = resolution.backingWidth;
+      if (layer.height !== resolution.backingHeight) layer.height = resolution.backingHeight;
     }
     backgroundCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     connectionCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -576,6 +600,21 @@
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pagehide", handlePageHide);
   window.addEventListener("pageshow", handlePageShow);
+  function handleCanvasContextLost(event) {
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    suspendRendering();
+    if (systemStatus) systemStatus.textContent = "ВОССТАНОВЛЕНИЕ ГРАФИКИ";
+  }
+  function handleCanvasContextRestored() {
+    backgroundDirty = true;
+    connectionsDirty = true;
+    nodesDirty = true;
+    visualDirty = true;
+    if (systemStatus) systemStatus.textContent = "ГРАФИКА ВОССТАНОВЛЕНА";
+    resumeRendering();
+  }
+  canvas.addEventListener("contextlost", handleCanvasContextLost);
+  canvas.addEventListener("contextrestored", handleCanvasContextRestored);
   for (const eventName of ["click","input","change","keydown","pointerdown","pointermove","pointerup","pointercancel","wheel"]) {
     document.addEventListener(eventName, scheduleFrame, {capture:true,passive:true});
   }

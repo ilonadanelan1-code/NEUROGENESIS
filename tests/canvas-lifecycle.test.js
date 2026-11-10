@@ -30,6 +30,14 @@ assert.match(lifecycle, /window\.addEventListener\("pagehide", handlePageHide\)/
   "the renderer must suspend when the page enters the back-forward cache");
 assert.match(lifecycle, /window\.addEventListener\("pageshow", handlePageShow\)/u,
   "the renderer must restore after the page is shown again");
+assert.match(app, /canvas\.addEventListener\("contextlost", handleCanvasContextLost\)/u,
+  "the renderer must suspend safely when the browser loses the canvas context");
+assert.match(app, /canvas\.addEventListener\("contextrestored", handleCanvasContextRestored\)/u,
+  "the renderer must redraw after the browser restores the canvas context");
+assert.match(app, /function handleCanvasContextLost\(event\)[\s\S]*?suspendRendering\(\)/u,
+  "context loss must suspend frames and flush pending saves");
+assert.match(app, /function handleCanvasContextRestored\(\)[\s\S]*?resumeRendering\(\)/u,
+  "context restoration must rebuild dirty layers and resume rendering");
 assert.match(lifecycle, /if \(dirty\) saveState\(\)/u,
   "unsaved network changes must be flushed when rendering is suspended");
 assert.match(lifecycle, /clearTimeout\(saveTimer\)/u,

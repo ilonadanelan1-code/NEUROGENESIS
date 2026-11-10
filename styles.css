@@ -311,3 +311,57 @@ select.text-input{color-scheme:dark}
 .focus-tool{font-size:16px;color:#9de8d9}
 .focus-tool[aria-pressed="true"]{border-color:rgba(120,240,223,.82);color:#e5fff9;background:linear-gradient(145deg,rgba(29,94,91,.95),rgba(10,42,54,.96));box-shadow:0 0 17px rgba(78,226,210,.2),inset 0 0 0 1px rgba(120,240,223,.12)}
 @media(max-width:640px){.focus-tool{font-size:16px}}
+
+
+/* NEUROGENESIS 0.58.47 — visual stability and responsive guardrails. */
+html{min-height:100%;background:var(--bg);-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{min-height:100%;overscroll-behavior:none}
+.app-shell{min-height:0;padding-block:env(safe-area-inset-top,0px) env(safe-area-inset-bottom,0px)}
+.workspace,.brain-panel,.side-panel{min-width:0;min-height:0}
+.workspace{overscroll-behavior:contain}
+.side-panel{overscroll-behavior:contain;scrollbar-gutter:stable}
+.topbar{min-width:0;padding-left:max(13px,env(safe-area-inset-left,0px));padding-right:max(13px,env(safe-area-inset-right,0px))}
+.brand,.top-status,.top-actions{min-width:0}
+button,input,select,summary{touch-action:manipulation}
+:where(button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid rgba(120,240,223,.92);outline-offset:2px}
+.canvas-tools{max-width:calc(100% - 24px);overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none}
+.canvas-tools::-webkit-scrollbar{display:none}
+@media(max-width:640px) and (orientation:portrait){
+  .app-shell{height:100vh;height:100dvh;min-height:0}
+  .workspace{min-height:0;flex:1 1 auto}
+  .brain-panel{min-height:220px;flex:1 1 56%}
+  .side-panel{min-height:0;flex:0 1 44%;padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+  .canvas-tools{left:12px;right:12px;bottom:11px;max-width:calc(100% - 24px)}
+  .canvas-hint{display:none}
+}
+@media(orientation:landscape) and (max-height:680px){
+  .app-shell{height:100vh;height:100dvh;min-height:0}
+  .topbar{height:clamp(43px,10dvh,56px);flex-basis:clamp(43px,10dvh,56px)}
+  .workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,34vw);min-height:0}
+  .brain-panel{height:auto;min-height:0;flex:initial}
+  .side-panel{display:block;height:auto;min-height:0;flex:initial;padding:0 12px 8px;overflow-y:auto}
+  .section-block{padding:9px 0}
+  .canvas-topline{top:10px;left:14px;right:14px}
+  .canvas-tools{left:10px;right:10px;bottom:8px;max-width:calc(100% - 20px)}
+  .canvas-hint{display:none}
+}
+@media(max-width:380px) and (orientation:portrait){
+  .topbar{gap:7px}
+  .brand-name{font-size:10px}
+  .top-actions{gap:4px}
+  .side-panel{column-gap:7px;padding-left:8px;padding-right:8px}
+  .metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-height:440px) and (orientation:portrait){
+  .app-shell{min-height:0}
+  .topbar{height:48px;flex-basis:48px}
+  .brain-panel{min-height:170px}
+  .side-panel{flex-basis:42%}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+@media(forced-colors:active){
+  button,input,select,summary{border:1px solid ButtonText}
+  :where(button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid Highlight}
+}

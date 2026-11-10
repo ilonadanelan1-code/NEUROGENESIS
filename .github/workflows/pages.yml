@@ -31,6 +31,7 @@ jobs:
 
       - name: Check JavaScript syntax
         run: |
+          node --check canvas-quality.js
           node --check activation.js
           node --check neuron-layout.js
           node --check neuron-focus.js
@@ -81,10 +82,11 @@ jobs:
           node tests/startup-failure.test.js
           node tests/wasm-shadow-mode.test.js
 
-      - name: Check mobile layout and canvas lifecycle
+      - name: Check mobile layout, canvas lifecycle and visual quality
         run: |
           node tests/mobile-layout.test.js
           node tests/canvas-lifecycle.test.js
+          node tests/canvas-quality.test.js
 
       - name: Check Worker deployment configuration
         run: node tests/worker-config.test.js
