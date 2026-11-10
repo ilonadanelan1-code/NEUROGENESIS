@@ -391,27 +391,49 @@
     if (!runtime || typeof runtime.createBrain !== "function") {
       throw new TypeError("A ready NEUROGENESIS WASM runtime is required");
     }
+    const modes = Array.isArray(options.modes) ? options.modes : MODES;
+    const seeds = Array.isArray(options.seeds) ? options.seeds : SEEDS;
+    const targetModeId = typeof options.targetModeId === "string" && options.targetModeId
+      ? options.targetModeId : "asymmetric";
+    if (!modes.length || modes.some(mode => !mode || typeof mode.id !== "string" || !mode.id ||
+        !["legacy", "bounded"].includes(mode.updateRule) ||
+        !Number.isFinite(mode.positiveRate) || mode.positiveRate < 0 || mode.positiveRate > 1 ||
+        !Number.isFinite(mode.negativeRate) || mode.negativeRate < 0 || mode.negativeRate > 1 ||
+        !Number.isInteger(mode.replaySweeps) || mode.replaySweeps < 0 || mode.replaySweeps > 6)) {
+      throw new TypeError("Benchmark modes must have valid IDs, update rules, bounded rates, and 0–6 integer replay sweeps");
+    }
+    if (!seeds.length || seeds.some(seed => !Number.isInteger(seed) || seed < 0)) {
+      throw new TypeError("Benchmark seeds must be non-negative integers");
+    }
+    if (new Set(modes.map(mode => mode.id)).size !== modes.length) {
+      throw new TypeError("Benchmark mode IDs must be unique");
+    }
     const started = now();
     const scenarios = [];
     let createdBrains = 0;
-    for (const mode of MODES) {
-      for (const seed of SEEDS) {
+    for (const mode of modes) {
+      for (const seed of seeds) {
         for (const reverseOrder of [false, true]) {
           scenarios.push(runScenario(runtime, mode, seed, reverseOrder));
           createdBrains++;
         }
       }
     }
-    const asym = scenarios.filter(row => row.mode === "asymmetric");
-    const controls = scenarios.filter(row => row.mode !== "asymmetric");
+    const target = scenarios.filter(row => row.mode === targetModeId);
+    const controls = scenarios.filter(row => row.mode !== targetModeId);
+    const expectedCount = modes.length * seeds.length * 2;
     const checks = {
-      allScenariosCompleted: scenarios.length === 16,
-      allAsymmetricScenariosRetainOldMappings: asym.length === 4 && asym.every(row => row.retentionPassed),
-      allAsymmetricScenariosKeepPlasticityHeadroom: asym.length === 4 && asym.every(row => row.headroomPassed),
-      allAsymmetricScenariosLearnFreshAssociation: asym.length === 4 && asym.every(row => row.freshAssociation.passed),
-      allOldMappingsSurviveFreshLearning: asym.length === 4 && asym.every(row => row.oldAfterFresh.passed),
+      allScenariosCompleted: scenarios.length === expectedCount,
+      allAsymmetricScenariosRetainOldMappings: target.length === seeds.length * 2 &&
+        target.every(row => row.retentionPassed),
+      allAsymmetricScenariosKeepPlasticityHeadroom: target.length === seeds.length * 2 &&
+        target.every(row => row.headroomPassed),
+      allAsymmetricScenariosLearnFreshAssociation: target.length === seeds.length * 2 &&
+        target.every(row => row.freshAssociation.passed),
+      allOldMappingsSurviveFreshLearning: target.length === seeds.length * 2 &&
+        target.every(row => row.oldAfterFresh.passed),
       allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded && row.allWeightsBoundedAfterFresh),
-      controlsAreReported: controls.length === 12,
+      controlsAreReported: controls.length === expectedCount - target.length,
       noProtectedConditionWasSilentlyOmitted: scenarios.every(row =>
         row.episodes.initialSingleton > 0 && row.episodes.compositions === CYCLES * TASKS.length)
     };
@@ -419,14 +441,15 @@
     return {
       kind: "NEUROGENESIS asymmetric plasticity headroom benchmark",
       passed,
+      targetModeId,
       protocol: {
         featureCount: FEATURE_COUNT,
         outputCount: OUTPUT_COUNT,
         heldOutCombinationCount: HELD_OUT.length,
         heldOutPermutationCount: HELD_OUT.reduce((sum, pattern) => sum + permutations(pattern).length, 0),
         cycles: CYCLES,
-        seeds: SEEDS.slice(),
-        modes: MODES.map(mode => ({ ...mode })),
+        seeds: seeds.slice(),
+        modes: modes.map(mode => ({ ...mode })),
         targetMinActivation: TARGET_MIN_ACTIVATION,
         nonTargetMaxActivation: NON_TARGET_MAX_ACTIVATION,
         maxCorrectWeightForHeadroom: MAX_CORRECT_WEIGHT_FOR_HEADROOM,
@@ -437,9 +460,9 @@
       checks,
       scenarios,
       comparisons: {
-        asymmetricRetentionPasses: asym.filter(row => row.retentionPassed).length,
-        asymmetricHeadroomPasses: asym.filter(row => row.headroomPassed).length,
-        asymmetricFreshLearningPasses: asym.filter(row => row.freshAssociation.passed).length,
+        asymmetricRetentionPasses: target.filter(row => row.retentionPassed).length,
+        asymmetricHeadroomPasses: target.filter(row => row.headroomPassed).length,
+        asymmetricFreshLearningPasses: target.filter(row => row.freshAssociation.passed).length,
         controlRetentionPasses: controls.filter(row => row.retentionPassed).length,
         controlHeadroomPasses: controls.filter(row => row.headroomPassed).length,
         controlFreshLearningPasses: controls.filter(row => row.freshAssociation.passed).length,
