@@ -1268,6 +1268,9 @@
     wasmSnapshot() {
       return wasmShadow ? wasmShadow.snapshot() : { neurons: [], synapses: [] };
     },
+    wasmSourceSnapshot() {
+      return wasmShadowSnapshot();
+    },
     wasmCreateDisposableExperiment(options = {}) {
       return wasmShadow ? wasmShadow.createExperiment(options) : null;
     },

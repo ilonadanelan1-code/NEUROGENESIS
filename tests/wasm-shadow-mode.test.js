@@ -12,7 +12,7 @@ const disposableSession = fs.readFileSync("disposable-experiment-session.js", "u
 const disposableUi = fs.readFileSync("disposable-experiment-ui.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.39", "the isolated contrastive-trial release must have a distinct asset version");
+assert.equal(version, "0.58.40", "the isolated contrastive-trial release must have a distinct asset version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
@@ -54,6 +54,8 @@ assert.match(html, /id="wasm-experiment-run"/u);
 assert.match(html, /id="wasm-experiment-export"/u);
 assert.match(adapter, /policy: "manual-review-only"/u);
 assert.match(app, /wasmCreateDisposableExperiment\(options = \{\}\)/u);
+assert.match(app, /wasmSourceSnapshot\(\)[\s\S]*?return wasmShadowSnapshot\(\)/u);
+assert.match(disposableUi, /wasmSourceSnapshot\(\)/u);
 assert.match(app, /NGDisposableExperimentUI\.refresh\(\)/u);
 assert.match(adapter, /function createShadowController\(options = \{\}\)/u);
 assert.match(adapter, /state = "unavailable"/u);

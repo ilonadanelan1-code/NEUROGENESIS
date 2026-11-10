@@ -100,8 +100,9 @@
   function refresh() {
     const api = window.NGBrain;
     if (!api || typeof api.wasmDiagnostics !== "function" ||
-        typeof api.wasmSnapshot !== "function" ||
+        typeof api.wasmSourceSnapshot !== "function" ||
         typeof api.wasmCreateDisposableExperiment !== "function") {
+      clearResult();
       currentSnapshot = null;
       addOptions(inputSelect, [], "");
       addOptions(positiveSelect, [], "");
@@ -123,7 +124,7 @@
     }
 
     const previousInput = inputSelect.value;
-    const snapshot = api.wasmSnapshot();
+    const snapshot = api.wasmSourceSnapshot();
     const signature = snapshotSignature(snapshot);
     const proposalBecameStale = latestSourceSignature !== null &&
       latestSourceSignature !== signature;
@@ -186,9 +187,7 @@
   }
 
   function run() {
-    latestProposal = null;
-    latestReport = null;
-    exportButton.disabled = true;
+    clearResult();
     if (!refresh()) return;
     if (positiveSelect.value === negativeSelect.value) {
       setStatus("Правильный и конкурирующий выходы должны различаться.", "warning");
