@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neurogenesis-pages-${{ github.ref }}
+  group: neurogenesis-pages-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
