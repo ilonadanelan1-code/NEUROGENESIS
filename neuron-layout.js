@@ -74,12 +74,13 @@
     }
 
     const before = measure(xs, ys, minDistance);
+    const separationDistance = minDistance + 2;
     let completedIterations = 0;
     for (let iteration = 0; iteration < iterations; iteration++) {
-      const grid = buildGrid(xs, ys, minDistance);
+      const grid = buildGrid(xs, ys, separationDistance);
       const forceX = new Float64Array(nodes.length), forceY = new Float64Array(nodes.length);
       for (let i = 0; i < nodes.length; i++) {
-        const cellX = Math.floor(xs[i] / minDistance), cellY = Math.floor(ys[i] / minDistance);
+        const cellX = Math.floor(xs[i] / separationDistance), cellY = Math.floor(ys[i] / separationDistance);
         for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
           const bucket = grid.get((cellX + ox) + ":" + (cellY + oy));
           if (!bucket) continue;
@@ -87,12 +88,12 @@
             if (j <= i) continue;
             let dx = xs[i] - xs[j], dy = ys[i] - ys[j];
             let distance = Math.hypot(dx, dy);
-            if (distance >= minDistance) continue;
+            if (distance >= separationDistance) continue;
             if (distance < EPSILON) {
               const angle = stableAngle(nodes[i].id, nodes[j].id);
               dx = Math.cos(angle); dy = Math.sin(angle); distance = 1;
             }
-            const displacement = Math.min(maxMove, (minDistance - distance) * relaxation);
+            const displacement = Math.min(maxMove, (separationDistance - distance) * relaxation);
             const ux = dx / distance, uy = dy / distance;
             forceX[i] += ux * displacement; forceY[i] += uy * displacement;
             forceX[j] -= ux * displacement; forceY[j] -= uy * displacement;
