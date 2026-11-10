@@ -23,7 +23,7 @@ unchanged.
 ## Expected behavior
 - Dense subgraphs become compact visible groups.
 - A few weak bridges do not collapse dense groups into one carpet.
-- A strongly connected triangle remains one group.
+- A strongly connected triangle remains one group. Each community receives a subtle color halo in the canvas, and the community membership is restored when the app reloads.
 - Isolated neurons remain separate singleton groups.
 - Repeated runs on the same graph produce identical coordinates.
 

@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "neurogenesis.prototype.v2";
   const LAYOUT_UNDO_KEY = STORAGE_KEY + ".layout-undo";
+  const LAYOUT_GROUPS_KEY = STORAGE_KEY + ".layout-groups";
   const TYPES = ["core", "sensory", "memory", "logic", "output"];
   const TYPE_NAMES = { core: "Ядро", sensory: "Сенсорный", memory: "Память", logic: "Логический", output: "Выходной" };
   const TYPE_COLORS = { core: [103,229,209], sensory: [104,185,231], memory: [173,146,239], logic: [235,184,112], output: [238,135,163] };
@@ -36,6 +37,7 @@
   let layoutUndoSnapshot = null;
   let layoutUndoSignature = "";
   let focusMode = false;
+  let layoutGroups = [];
   let selectedId = null;
   let running = false;
   let connectMode = false;
@@ -352,10 +354,14 @@
     if (button) button.disabled = !layoutUndoSnapshot;
   }
   function clearLayoutUndo() {
-    if (!layoutUndoSnapshot && !layoutUndoSignature) return;
+    if (!layoutUndoSnapshot && !layoutUndoSignature && !layoutGroups.length) return;
     layoutUndoSnapshot = null;
     layoutUndoSignature = "";
+    layoutGroups = [];
     try { localStorage.removeItem(LAYOUT_UNDO_KEY); } catch (_) {}
+    try { localStorage.removeItem(LAYOUT_GROUPS_KEY); } catch (_) {}
+    nodesDirty = true;
+    connectionsDirty = true;
     updateLayoutUndoButton();
   }
   function restoreLayoutUndo() {
@@ -389,13 +395,18 @@
   }
   function separateNeuronLayout() {
     const api = window.NGNeuronLayout;
-    if (!api || typeof api.separate !== "function") {
-      showToast("Модуль раскладки недоступен");
+    if (!api || typeof api.cluster !== "function") {
+      showToast("Модуль группировки недоступен");
       return;
     }
     try {
-      const result = api.separate(neurons, { minDistance: 86, iterations: 400, relaxation: 0.38, maxMove: 24 });
-      if (!result.movedCount) { showToast("Перекрывающихся узлов не обнаружено"); return; }
+      const result = api.cluster(neurons, synapses, {
+        minDistance: 86,
+        clusterIterations: 180,
+        communityPasses: 28,
+        resolution: 1,
+        communityGap: 190
+      });
       const signature = layoutTopologySignature();
       const previous = neurons.map(node => ({ id: String(node.id), x: node.x, y: node.y }));
       layoutUndoSnapshot = previous;
@@ -403,19 +414,30 @@
       try {
         localStorage.setItem(LAYOUT_UNDO_KEY, JSON.stringify({ version: 1, signature, positions: previous }));
       } catch (error) { console.warn("Could not persist the layout undo snapshot:", error); }
+
       const positions = new Map(result.positions.map(row => [row.id, row]));
       for (const node of neurons) {
         const position = positions.get(String(node.id));
         if (position) { node.x = position.x; node.y = position.y; }
       }
+      layoutGroups = result.clusters.map(group => ({ ...group }));
+      try {
+        localStorage.setItem(LAYOUT_GROUPS_KEY, JSON.stringify({
+          version: 1, signature, groups: layoutGroups
+        }));
+      } catch (error) { console.warn("Could not persist visual community metadata:", error); }
+
       updateLayoutUndoButton();
+      nodesDirty = true;
+      connectionsDirty = true;
       markDirty();
       fitNetwork();
-      showToast("Разведено узлов: " + result.movedCount +
-        " · столкновения " + result.overlapsBefore + " → " + result.overlapsAfter);
+      const sizes = result.clusters.map(group => group.size).sort((a, b) => b - a).slice(0, 5).join(" / ");
+      showToast("Групп: " + result.communityCount + " · размеры " + sizes +
+        (result.communityCount > 5 ? " …" : "") + " · модульность " + result.modularity.toFixed(2));
     } catch (error) {
-      console.error("Neuron layout failed:", error);
-      showToast("Не удалось перестроить расположение узлов");
+      console.error("Neuron community layout failed:", error);
+      showToast("Не удалось сгруппировать нейроны");
     }
   }
   function undoNeuronLayout() {
@@ -431,6 +453,8 @@
       if (position) { node.x = position.x; node.y = position.y; }
     }
     clearLayoutUndo();
+    nodesDirty = true;
+    connectionsDirty = true;
     markDirty();
     fitNetwork();
     showToast("Предыдущее расположение восстановлено");
@@ -872,6 +896,21 @@
       const focusNodeIds = focusSnapshot ? new Set(focusSnapshot.nodeIds) : null;
       const spriteSize=compactView?96:184,spriteOffset=spriteSize/2;
       nodeCtx.save();nodeCtx.translate(view.x,view.y);nodeCtx.scale(view.zoom,view.zoom);
+      if(layoutGroups.length>1){
+        const haloColors=[[112,225,207],[128,174,246],[187,151,245],[235,185,115],[231,135,175],[104,202,222]];
+        for(let groupIndex=0;groupIndex<layoutGroups.length;groupIndex++){
+          const group=layoutGroups[groupIndex];
+          if(group.centerX+group.radius<left||group.centerX-group.radius>right||
+             group.centerY+group.radius<top||group.centerY-group.radius>bottom) continue;
+          const color=haloColors[groupIndex%haloColors.length];
+          const haloRadius=group.radius+26;
+          nodeCtx.globalAlpha=1;
+          nodeCtx.beginPath();nodeCtx.arc(group.centerX,group.centerY,haloRadius,0,Math.PI*2);
+          nodeCtx.fillStyle="rgba("+color.join(",")+",.035)";nodeCtx.fill();
+          nodeCtx.strokeStyle="rgba("+color.join(",")+",.18)";
+          nodeCtx.lineWidth=1.4/view.zoom;nodeCtx.stroke();
+        }
+      }
       for(const neuron of neurons){
         if(neuron.x<left||neuron.x>right||neuron.y<top||neuron.y>bottom) continue;
         const searching=!!searchTerm&&neuron.name.toLowerCase().includes(searchTerm);
@@ -1447,6 +1486,22 @@
   resize();
   loadState();
   restoreLayoutUndo();
+  try {
+    const storedGroups=JSON.parse(localStorage.getItem(LAYOUT_GROUPS_KEY)||"null");
+    const signature=layoutTopologySignature();
+    if(storedGroups&&storedGroups.version===1&&storedGroups.signature===signature&&
+       Array.isArray(storedGroups.groups)){
+      const memberIds=storedGroups.groups.flatMap(group=>Array.isArray(group.nodeIds)?group.nodeIds:[]);
+      const unique=new Set(memberIds.map(String));
+      if(unique.size===neurons.length&&neurons.every(node=>unique.has(String(node.id)))){
+        layoutGroups=storedGroups.groups.filter(group=>
+          Number.isFinite(group.centerX)&&Number.isFinite(group.centerY)&&
+          Number.isFinite(group.radius)&&group.radius>=0&&Array.isArray(group.nodeIds));
+      }else{
+        localStorage.removeItem(LAYOUT_GROUPS_KEY);
+      }
+    }
+  } catch (_) { layoutGroups=[]; }
   if(!neurons.length){seedNetwork();fitNetwork();}
   startWasmShadow();
   requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});

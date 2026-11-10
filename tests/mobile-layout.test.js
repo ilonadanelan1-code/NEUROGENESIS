@@ -52,6 +52,10 @@ assert.ok(html.includes("id=\"layout-button\"") && html.includes("id=\"undo-layo
   "the canvas toolbar must expose node separation and undo controls");
 assert.ok(app.includes("function separateNeuronLayout()") && app.includes("function undoNeuronLayout()"),
   "the app must provide reversible collision-aware neuron layout");
+assert.ok(app.includes("api.cluster(neurons, synapses"),
+  "the layout action must use synapse-aware community clustering");
+assert.ok(app.includes("layoutGroups.length>1"),
+  "multiple communities must receive distinct visual halos");
 assert.ok(app.includes("const compactView=view.zoom<.42"),
   "dense graphs must use reduced-halo overview rendering");
 assert.ok(app.includes("const hitRadius = 19"),
