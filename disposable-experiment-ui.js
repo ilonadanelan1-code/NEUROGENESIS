@@ -60,12 +60,14 @@
     positiveSelect.disabled = outputs.length === 0;
     negativeSelect.disabled = outputs.length < 2;
     runButton.disabled = !valid;
-    if (!valid) {
-      setStatus(outputs.length < 2
-        ? "У выбранного входа нет двух прямых связей к выходным нейронам. Выбери другой вход или измени структуру сети."
-        : "Выбери два разных выходных нейрона.", "warning");
-    } else {
-      setStatus("Готово к одноразовому опыту. Основная сеть останется неизменной.", "ready");
+    if (!latestReport && !latestProposal) {
+      if (!valid) {
+        setStatus(outputs.length < 2
+          ? "У выбранного входа нет двух прямых связей к выходным нейронам. Выбери другой вход или измени структуру сети."
+          : "Выбери два разных выходных нейрона.", "warning");
+      } else {
+        setStatus("Готово к одноразовому опыту. Основная сеть останется неизменной.", "ready");
+      }
     }
   }
 
@@ -182,8 +184,8 @@
       setStatus("Ошибка изолированного опыта: " + String(error && error.message || error), "warning");
     } finally {
       runButton.textContent = "Запустить опыт на копии";
-      runButton.disabled = false;
-      updateTargets();
+      runButton.disabled = positiveSelect.value === negativeSelect.value ||
+        !positiveSelect.value || !negativeSelect.value;
     }
   }
 

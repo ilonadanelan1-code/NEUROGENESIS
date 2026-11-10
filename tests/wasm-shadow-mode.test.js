@@ -37,7 +37,7 @@ assert.equal(normalized.at(-1), "memory.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
-assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.37"/u);
+assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.38"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createDisposableExperiment\(snapshot\)/u);
