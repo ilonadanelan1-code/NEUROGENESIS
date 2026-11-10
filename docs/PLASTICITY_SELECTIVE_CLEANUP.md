@@ -71,6 +71,41 @@ All learning and correction occur inside disposable WASM brains constructed by t
 
 A passing result would support only the tested supervised four-feature route-retention task. It would not establish general continual learning, open-ended autonomy, relational reasoning, or intelligence.
 
-## 7. Status
+## 7. Verified results — GitHub Actions run #517
 
-Protocol version 1 is registered in source and CI. Measurements are pending the first successful workflow run. The one-sweep replay baseline remains the reference; no cleanup budget is promoted until it passes every acceptance condition in all four seed/order scenarios.
+**Status:** the complete validation and GitHub Pages deployment passed on commit `9549654e96b718fd128de1593b680bfd90f8d6ea` (2026-11-10). The CI artifact `neurogenesis-plasticity-selective-cleanup-v1` contains all 20 seed/order/budget scenarios and every selected-edge correction.
+
+| Cleanup budget per brain | Scenarios passing | Retention passes | Cleanup episodes across four brains | Worst non-target activation after cleanup |
+|---:|---:|---:|---:|---:|
+| 0 | 2/4 | 2/4 | 0 | 0.05328359 |
+| 1 | 2/4 | 2/4 | 2 | 0.05328359 |
+| **2** | **4/4** | **4/4** | **4** | **0** |
+| 4 | 4/4 | 4/4 | 4 | 0 |
+| 8 | 4/4 | 4/4 | 4 | 0 |
+
+The two-correction budget is the **smallest tested budget that passed all four scenarios**. Both seed/order cases in reverse order needed no correction. Both forward-order cases needed exactly two targeted corrections each. A one-correction budget fixed only one of the two wrong routes and therefore correctly remained a failure.
+
+In each forward-order case, the two selected cross-route weights fell from **0.023264 to 0.013271**. Exactly one edge changed per correction; the correct positive route was not strengthened, and all eligibility traces were consumed. After cleanup:
+
+- All 4 singleton routes and all 11 held-out combinations passed in both task orders.
+- All 60 held-out stimulation permutations remained within the fixed limits.
+- Maximum non-target activation was **0**.
+- Minimum expected activation was approximately **0.63688**, above the 0.15 floor.
+- All four scenarios retained weight headroom and learned the fifth feature.
+- All original combinations still passed after fifth-feature learning.
+- Every one of the 20 disposable brains was disposed; weights remained finite and within [0, 1].
+
+### Measured cost
+
+The accepted two-sweep reference used **1,380 total episodes** across four scenarios, including 1,152 replay episodes. The selective method used **808 total episodes**: 576 replay episodes plus four targeted corrections. That is **41.45% fewer total episodes** and **49.65% fewer replay/cleanup episodes** than the two-sweep reference, under this benchmark's episode-count definition.
+
+The budgets of four and eight did not add further corrections or improve the result. The minimal successful choice is therefore budget two, not the maximum budget eight.
+
+[Successful workflow run #517 and JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42828003033) · [Measured source commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/9549654e96b718fd128de1593b680bfd90f8d6ea)
+
+## 8. Decision and next step
+
+For this fixed supervised task schedule, event-triggered cleanup recovered the full four-scenario retention result with at most two selective corrections per brain after one replay sweep. This is a measured improvement in the disposable benchmark, not yet a production learning rule.
+
+The next step is a robustness experiment: vary the seed set, task order, and composition order while preserving the same thresholds and a two-correction budget. Also test whether correction ranking remains reliable when the measured leakage is spread across more than two routes. Only after those results should a separate integration proposal consider applying the method to a shadow copy of a real application network. The production JavaScript network and user saves remain unchanged.
+
