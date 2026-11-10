@@ -57,6 +57,31 @@ Each candidate constructs and disposes its own WASM brains. The current JavaScri
 
 A result can support only a narrow conclusion about the tested supervised feature-to-output graph and task schedule. It does not demonstrate open-ended lifelong learning, relational reasoning, autonomy, or general intelligence.
 
-## 6. Status
+## 6. Verified results — GitHub Actions run #511
 
-The protocol is registered in source and runs in CI. Numerical outcomes are pending the first successful workflow run with the saved artifact. Do not promote a reduced-replay candidate until all four of its scenarios pass the complete acceptance criteria.
+**Status:** the benchmark infrastructure passed on commit `63566be4fadcefa7bc9c148aa3b43685a4efd9a4` (2026-11-10). The full workflow, regression suite, and GitHub Pages deployment succeeded. The JSON artifact `neurogenesis-plasticity-efficiency-v1` was uploaded with all 20 scenarios.
+
+The fixed two-sweep baseline reproduced the established result in all four seed/order scenarios. All candidates completed, all weights remained finite and bounded, and the new-feature association passed in all 20 cases. The reduced-replay candidates are evaluated against the task's strict acceptance conditions; their failure is reported rather than treated as an infrastructure failure.
+
+| Candidate | Replay reduction | Full passes | Headroom passes | Retention passes | Max non-target response |
+|---|---:|---:|---:|---:|---:|
+| Baseline: 2 sweeps, negative 0.70 | 0% | 4/4 | 4/4 | 4/4 | 0 |
+| 1 sweep, negative 0.70 | 50% | 0/4 | 4/4 | 0/4 | 0.08052414 |
+| 1 sweep, negative 0.85 | 50% | 2/4 | 4/4 | 2/4 | 0.06523899 |
+| 1 sweep, negative 1.00 | 50% | 2/4 | 4/4 | 2/4 | 0.05328359 |
+| 0 sweeps, negative 0.70 | 100% | 0/4 | 4/4 | 0/4 | 0.26564527 |
+
+All candidates preserved weight bounds and passed fresh fifth-feature learning in 4/4 cases. The stronger one-sweep candidates passed only in reverse task order; both forward-order scenarios failed because residual non-target activation remained above the strict 0.05 ceiling. At negative rate 1.00, the worst observed leakage was 0.05328359: close to the limit, but still a failure. It must not be rounded down or counted as a pass.
+
+The weight headroom improved as replay was reduced: the maximum correct weight was 0.73521924 for the baseline, about 0.63689–0.63693 for one sweep, and 0.50397497 for zero sweeps. This does not compensate for interference: lower target-route weights coexisted with larger cross-route responses.
+
+### Interpretation and next experiment
+
+The experiment rejects the current one-sweep and zero-sweep settings under the pre-registered limits. The bottleneck is not learning the fresh association or maintaining bounded weights. It is selective retention under the forward task order: a single full replay sweep leaves enough cross-route weight to activate an incorrect output.
+
+The next experiment should test **event-triggered selective cleanup**: begin with one sweep and negative rate 1.00, measure the non-target outputs for all held-out combinations, then apply a small, bounded number of additional contrastive episodes only to the input→incorrect-output routes responsible for the largest measured leakage. Re-evaluate every held-out combination, both training orders, and the fifth-feature transfer after cleanup. Register a strict maximum cleanup-episode budget before running it; do not increase that budget after seeing a failure.
+
+The original two-sweep strategy remains the only configuration in this comparison that passed all four seed/order scenarios. All candidate experiments remain isolated from the production JavaScript network and user saves.
+
+[Successful workflow run #511 and downloadable JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42825226841) · [Source commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/63566be4fadcefa7bc9c148aa3b43685a4efd9a4)
+
