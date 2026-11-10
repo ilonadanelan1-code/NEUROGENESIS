@@ -163,6 +163,10 @@
           boostEpisodesPerRoute: profile.boostEpisodes.slice()
         })),
         scenarioCount: expectedCount,
+        featureCount: 5,
+        outputCount: 6,
+        heldOutCombinationCount: 26,
+        heldOutPermutationCount: 320,
         featureIndices: FEATURE_INDICES.slice(),
         minimumCompetingRoutes: 5,
         stressPositiveRate: 1.0,
