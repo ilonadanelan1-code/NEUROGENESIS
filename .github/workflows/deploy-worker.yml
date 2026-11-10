@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           response="$(curl --fail --silent --show-error --location \
             --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
-            "https://neurogenesis-llm-proxy.ilonadanel1.workers.dev/")"
+            "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev/")"
           node -e '
             let data;
             try { data = JSON.parse(process.argv[1]); }
