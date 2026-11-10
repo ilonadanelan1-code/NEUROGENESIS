@@ -69,6 +69,9 @@ jobs:
       - name: Test collision-aware neuron layout
         run: node tests/neuron-layout.test.mjs
 
+      - name: Test connectivity-based community layout
+        run: node tests/neuron-community-layout.test.mjs
+
       - name: Test selected-neuron focus mode
         run: node tests/neuron-focus.test.mjs
 
