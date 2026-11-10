@@ -76,6 +76,11 @@ assert.equal(report.checks.everyCorrectionChangesOneEdgeAndConsumesTraces, true)
 assert.equal(report.checks.allWeightsRemainFiniteAndBounded, true);
 assert.equal(report.checks.everyDisposableBrainWasCreated, true);
 assert.deepEqual(report.protocol.budgets, [36, 40, 44]);
+assert.equal(report.protocol.featureCount, 5);
+assert.equal(report.protocol.outputCount, 6);
+assert.equal(report.protocol.heldOutCombinationCount, 26);
+assert.equal(report.protocol.heldOutPermutationCount, 320);
+assert.equal(report.protocol.maxDiagnosticCleanupBudget, 48);
 assert.equal(createdBrains, 90);
 assert.equal(activeBrains, 0);
 
