@@ -88,7 +88,7 @@
             if (j <= i) continue;
             let dx = xs[i] - xs[j], dy = ys[i] - ys[j];
             let distance = Math.hypot(dx, dy);
-            if (distance >= separationDistance) continue;
+            if (distance >= minDistance) continue;
             if (distance < EPSILON) {
               const angle = stableAngle(nodes[i].id, nodes[j].id);
               dx = Math.cos(angle); dy = Math.sin(angle); distance = 1;
@@ -107,7 +107,7 @@
         xs[i] += forceX[i] * scale; ys[i] += forceY[i] * scale;
       }
       completedIterations = iteration + 1;
-      if (measure(xs, ys, separationDistance).overlaps === 0) break;
+      if (measure(xs, ys, minDistance).overlaps === 0) break;
     }
 
     const after = measure(xs, ys, minDistance);
