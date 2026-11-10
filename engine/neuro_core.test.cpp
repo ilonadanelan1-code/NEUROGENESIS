@@ -397,6 +397,41 @@ int main() {
     require(ng_brain_learn_contrastive_reward(
                 nullptr, 0.5f, contrastive_api_input, contrastive_api_positive, contrastive_api_negative) == 0,
             "null contrastive C ABI handles must be safe");
+    ng_brain_handle* asymmetric_api = ng_brain_create();
+    require(asymmetric_api != nullptr, "asymmetric C ABI must allocate an independent brain");
+    const auto asymmetric_api_input = ng_brain_add_neuron(
+        asymmetric_api, "input", static_cast<int>(NeuronKind::Sensory), 0, 0, 1);
+    const auto asymmetric_api_positive = ng_brain_add_neuron(
+        asymmetric_api, "positive", static_cast<int>(NeuronKind::Output), 1, 0, 1);
+    const auto asymmetric_api_negative = ng_brain_add_neuron(
+        asymmetric_api, "negative", static_cast<int>(NeuronKind::Output), 1, 1, 1);
+    const auto asymmetric_api_unassigned = ng_brain_add_neuron(
+        asymmetric_api, "unassigned", static_cast<int>(NeuronKind::Output), 1, 2, 1);
+    require(ng_brain_add_synapse(asymmetric_api, asymmetric_api_input, asymmetric_api_positive, 0.5f) == 1 &&
+            ng_brain_add_synapse(asymmetric_api, asymmetric_api_input, asymmetric_api_negative, 0.4f) == 1 &&
+            ng_brain_add_synapse(asymmetric_api, asymmetric_api_input, asymmetric_api_unassigned, 0.3f) == 1,
+            "asymmetric C ABI must expose selected and unassigned paths");
+    require(ng_brain_set_synapse_eligibility(asymmetric_api, asymmetric_api_input, asymmetric_api_positive, 0.8f) == 1 &&
+            ng_brain_set_synapse_eligibility(asymmetric_api, asymmetric_api_input, asymmetric_api_negative, 0.6f) == 1 &&
+            ng_brain_set_synapse_eligibility(asymmetric_api, asymmetric_api_input, asymmetric_api_unassigned, 0.7f) == 1,
+            "asymmetric C ABI must expose per-edge eligibility assignment");
+    require(ng_brain_learn_contrastive_reward_asymmetric(
+                asymmetric_api, 0.25f, 0.5f, asymmetric_api_input,
+                asymmetric_api_positive, asymmetric_api_negative) == 2,
+            "asymmetric C ABI must pass independent learning rates to the core");
+    require(std::abs(ng_brain_synapse_weight_at(asymmetric_api, 0) - 0.7f) < 1.0e-5f &&
+            std::abs(ng_brain_synapse_weight_at(asymmetric_api, 1) - 0.1f) < 1.0e-5f &&
+            std::abs(ng_brain_synapse_weight_at(asymmetric_api, 2) - 0.3f) < 1.0e-5f,
+            "asymmetric C ABI must expose the expected independent weight updates");
+    require(ng_brain_synapse_eligibility_at(asymmetric_api, 0) == 0.0f &&
+            ng_brain_synapse_eligibility_at(asymmetric_api, 1) == 0.0f &&
+            ng_brain_synapse_eligibility_at(asymmetric_api, 2) == 0.0f,
+            "asymmetric C ABI must consume all traces after a valid event");
+    require(ng_brain_learn_contrastive_reward_asymmetric(
+                nullptr, 0.25f, 0.5f, asymmetric_api_input,
+                asymmetric_api_positive, asymmetric_api_negative) == 0,
+            "null asymmetric C ABI handles must be safe");
+    ng_brain_destroy(asymmetric_api);
     ng_brain_destroy(contrastive_api);
 
     ng_brain_destroy(api_brain);
