@@ -6,7 +6,7 @@
   const BASE_LEARNING_RATE = 0.25;
   const COMPOSITION_LEARNING_RATE = 0.05;
   const POSITIVE_RATE = 0.02;
-  const NEGATIVE_RATE = 0.60;
+  const NEGATIVE_RATE = 0.70;
   const LOW_SYMMETRIC_RATE = 0.05;
   const HIGH_SYMMETRIC_RATE = 0.25;
   const FRESH_ASSOCIATION_SWEEPS = 8;
@@ -452,7 +452,7 @@
   }
 
   root.NGPlasticityHeadroomBenchmark = Object.freeze({
-    version: 3,
+    version: 4,
     run,
     protocol: Object.freeze({
       modes: MODES,
