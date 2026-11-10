@@ -180,6 +180,13 @@
         if (timeoutId !== null) clearTimeout(timeoutId);
       }
       const { response, data } = result;
+      // The health route deliberately returns HTTP 503 with a structured
+      // configured:false payload when the application token is valid but the
+      // provider secret/configuration is missing. Preserve that diagnostic so
+      // health() can explain the exact server-side setup problem.
+      if (!body && response.status === 503 && data && data.ok === true && data.configured === false) {
+        return data;
+      }
       if (!response.ok) {
         const errors = {
           unauthorized: "Шлюз отклонил ключ доступа. Проверь APP_TOKEN.",
@@ -208,7 +215,7 @@
       },
       async health() {
         const result = await call("/api/health", null, healthTimeoutMs);
-        if (!result.configured) throw new Error("Шлюз доступен, но провайдер ещё не настроен.");
+        if (!result.configured) throw new Error("Шлюз доступен, но провайдер не настроен. Проверь секрет UPSTREAM_API_KEY в Cloudflare и переменные UPSTREAM_BASE_URL / UPSTREAM_MODEL.");
         return { ok: true, model: result.model || null, provider: result.provider || "openai-compatible" };
       }
     });

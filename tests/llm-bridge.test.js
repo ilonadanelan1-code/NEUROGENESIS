@@ -178,6 +178,19 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   await assert.rejects(() => notFoundAdapter.health(), /Шлюз вернул 404/u,
     "a missing Worker route should explain that the gateway base URL or path is wrong");
 
+  const notConfiguredAdapter = bridge.createHttpAdapter(
+    { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+    async () => ({
+      ok: false, status: 503,
+      async json() { return { ok: true, configured: false, provider: "openai-compatible", model: "test-model" }; }
+    })
+  );
+  await assert.rejects(
+    () => notConfiguredAdapter.health(),
+    /UPSTREAM_API_KEY/u,
+    "a valid gateway with a missing provider secret must explain which Cloudflare secret is missing"
+  );
+
   const providerErrorCases = [
     {
       code: "invalid_upstream_configuration", status: 500,
