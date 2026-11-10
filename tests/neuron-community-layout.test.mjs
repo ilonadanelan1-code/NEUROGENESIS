@@ -16,7 +16,7 @@ for(let group=0;group<groupCount;group++){
 }
 synapses.push({from:"g0-n0",to:"g1-n0",weight:.12},{from:"g1-n1",to:"g2-n0",weight:.12});
 const originalNodes=JSON.stringify(nodes),originalEdges=JSON.stringify(synapses);
-const options={minDistance:54,clusterIterations:180};
+const options={minDistance:54,clusterIterations:180,resolution:.72};
 const result=api.cluster(nodes,synapses,options);
 assert.equal(result.positions.length,nodes.length);
 assert.ok(result.communityCount>=3,"dense communities joined by weak bridges must stay separate");
