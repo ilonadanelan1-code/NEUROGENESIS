@@ -165,6 +165,17 @@
         const newRow = after.synapses.find(row => keyOf(row.from, row.to) === key);
         return edge && oldRow && newRow && Math.abs(oldRow.weight - newRow.weight) <= EPSILON;
       });
+      const candidateChangesVerified = changes.every(change => {
+        const actual = after.synapses.find(row => keyOf(row.from, row.to) === keyOf(change.from, change.to));
+        return actual && Math.abs(Number(actual.weight) - change.after) <= EPSILON;
+      });
+      const unchangedEdgesPreserved = snapshot.synapses
+        .filter(edge => !changedKeys.has(keyOf(edge.from, edge.to)))
+        .every(edge => {
+          const prior = before.synapses.find(row => keyOf(row.from, row.to) === keyOf(edge.from, edge.to));
+          const current = after.synapses.find(row => keyOf(row.from, row.to) === keyOf(edge.from, edge.to));
+          return prior && current && Math.abs(Number(prior.weight) - Number(current.weight)) <= EPSILON;
+        });
       const bounded = after.synapses.every(edge =>
         Number.isFinite(Number(edge.weight)) && Number(edge.weight) >= 0 && Number(edge.weight) <= 1
       );
@@ -183,8 +194,8 @@
         competingPaths: routeData(negatives),
         changes
       };
-      const ok = changes.length > 0 && sharedEdgesPreserved && bounded &&
-        changedKeys.size === changes.length;
+      const ok = changes.length > 0 && sharedEdgesPreserved && unchangedEdgesPreserved &&
+        candidateChangesVerified && bounded && changedKeys.size === changes.length;
       return {
         ok,
         code: ok ? "path-aware-proposal-ready" : "candidate-validation-failed",
@@ -196,6 +207,8 @@
           positiveRouteCount: positives.length,
           competingRouteCount: negatives.length,
           sharedEdgesPreserved,
+          unchangedEdgesPreserved,
+          candidateChangesVerified,
           weightsBounded: bounded,
           baselineEdgeCount: before.synapses.length,
           candidateEdgeCount: after.synapses.length

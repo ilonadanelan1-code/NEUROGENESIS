@@ -28,8 +28,9 @@ no proposal from an incomplete route set.
 Two three-edge routes share their first edge. The test evaluates both label
 orientations: whichever output is selected, its branch must strengthen, the
 other branch must weaken, and the shared trunk must remain unchanged. It also
-checks cycle avoidance, the path-count guard, weight bounds, and source
-snapshot immutability.
+checks cycle avoidance, path-depth and path-count guards, actual candidate
+weights against the proposal, an unrelated disconnected edge, weight bounds,
+and source-snapshot immutability.
 
 ## Limits
 
