@@ -294,13 +294,31 @@
   function packCommunityCenters(layouts,order,gap){
     if(order.length===1)return[{x:0,y:0}];
     const radii=order.map(index=>layouts[index].radius);
-    const circumference=radii.reduce((sum,r)=>sum+2*r+gap,0);
-    let radius=circumference/(2*Math.PI);
-    for(let i=0;i<order.length;i++)for(let j=i+1;j<order.length;j++){
-      const step=Math.min(j-i,order.length-(j-i)),sine=Math.sin(Math.PI*step/order.length);
-      if(sine>EPSILON)radius=Math.max(radius,(radii[i]+radii[j]+gap)/(2*sine));
+    const sorted=[...radii].sort((a,b)=>a-b);
+    const median=sorted[Math.floor(sorted.length/2)]||0;
+    const spiralStep=Math.max(28,(median*2+gap)*.62);
+    const goldenAngle=2.399963229728653;
+    const centers=[{x:0,y:0,radius:radii[0]}];
+    let candidateIndex=1;
+    const maxCandidates=Math.min(20000,Math.max(3000,order.length*80));
+    for(let groupIndex=1;groupIndex<order.length;groupIndex++){
+      const radius=radii[groupIndex];
+      let placed=null;
+      while(candidateIndex<=maxCandidates){
+        const angle=candidateIndex*goldenAngle;
+        const distance=spiralStep*Math.sqrt(candidateIndex);
+        const candidate={x:Math.cos(angle)*distance,y:Math.sin(angle)*distance};
+        const clear=centers.every(center=>
+          Math.hypot(candidate.x-center.x,candidate.y-center.y)+EPSILON>=
+          radius+center.radius+gap
+        );
+        candidateIndex++;
+        if(clear){placed={...candidate,radius};break;}
+      }
+      if(!placed)throw new RangeError("Could not safely pack all neuron communities into the visible layout area");
+      centers.push(placed);
     }
-    return order.map((_,i)=>{const angle=-Math.PI/2+i*2*Math.PI/order.length;return{x:Math.cos(angle)*radius,y:Math.sin(angle)*radius};});
+    return centers.map(({x,y})=>({x,y}));
   }
 
   function cluster(nodes,synapses,options={}){
@@ -309,7 +327,7 @@
     const settings=options&&typeof options==="object"?options:{};
     const minDistance=finite(settings.minDistance??DEFAULT_CLUSTER_DISTANCE,"minDistance");
     const clusterIterations=Math.floor(finite(settings.clusterIterations??DEFAULT_CLUSTER_ITERATIONS,"clusterIterations"));
-    const communityGap=finite(settings.communityGap??190,"communityGap");
+    const communityGap=finite(settings.communityGap??60,"communityGap");
     if(minDistance<24||minDistance>240||clusterIterations<20||clusterIterations>260||
       communityGap<60||communityGap>600)throw new RangeError("Cluster layout parameters are outside safe bounds");
     const ids=new Set();
@@ -318,7 +336,7 @@
       if(ids.has(String(node.id)))throw new TypeError("Neuron IDs must be unique");
       ids.add(String(node.id));finite(node.x,"node.x");finite(node.y,"node.y");
     }
-    if(!nodes.length)return{positions:[],clusters:[],groupById:[],movedCount:0,communityCount:0,modularity:0,overlapsBefore:0,overlapsAfter:0,averageInternalEdgeLength:0,averageInterCommunityEdgeLength:0};
+    if(!nodes.length)return{positions:[],clusters:[],groupById:[],movedCount:0,communityCount:0,modularity:0,overlapsBefore:0,overlapsAfter:0,averageInternalEdgeLength:0,averageInterCommunityEdgeLength:0,bounds:{minX:0,maxX:0,minY:0,maxY:0,width:0,height:0}};
     const graph=buildWeightedGraph(nodes,synapses);
     const beforeX=Float64Array.from(nodes,n=>n.x),beforeY=Float64Array.from(nodes,n=>n.y);
     const before=measure(beforeX,beforeY,minDistance);
@@ -342,6 +360,8 @@
     const positions=nodes.map(node=>positionById.get(String(node.id)));
     const afterX=Float64Array.from(positions,p=>p.x),afterY=Float64Array.from(positions,p=>p.y);
     const after=measure(afterX,afterY,minDistance);
+    const minX=Math.min(...afterX),maxX=Math.max(...afterX),minY=Math.min(...afterY),maxY=Math.max(...afterY);
+    const bounds={minX,maxX,minY,maxY,width:maxX-minX,height:maxY-minY};
     const groupById=nodes.map((node,index)=>({id:String(node.id),
       clusterId:"cluster:"+String(nodes[detected.communities[detected.assignment[index]][0]].id)}));
     let insideLength=0,insideCount=0,crossLength=0,crossCount=0;
@@ -354,7 +374,7 @@
     return{positions,clusters,groupById,movedCount,communityCount:clusters.length,modularity:detected.modularity,
       communityPasses:detected.passes,overlapsBefore:before.overlaps,overlapsAfter:after.overlaps,
       minimumDistanceAfter:after.minimumDistance,averageInternalEdgeLength:insideCount?insideLength/insideCount:0,
-      averageInterCommunityEdgeLength:crossCount?crossLength/crossCount:0,internalEdgeCount:insideCount,interCommunityEdgeCount:crossCount};
+      averageInterCommunityEdgeLength:crossCount?crossLength/crossCount:0,internalEdgeCount:insideCount,interCommunityEdgeCount:crossCount,bounds};
   }
 
   globalThis.NGNeuronLayout = Object.freeze({ separate, cluster, detectCommunities });

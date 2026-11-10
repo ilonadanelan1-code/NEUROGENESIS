@@ -42,4 +42,25 @@ assert.equal(isolated.communityCount,3,"unconnected neurons must remain separate
 assert.equal(isolated.overlapsAfter,0);
 assert.throws(()=>api.cluster(nodes,synapses,{communityGap:10}),/safe bounds/u);
 assert.throws(()=>api.cluster(nodes,synapses,{resolution:9}),/safe bounds/u);
-console.log("NEUROGENESIS community layout: dense groups, weak bridges, deterministic placement, edge-length separation, connected triangle and isolated neurons passed.");
+
+
+const manyIsolated = Array.from({ length: 183 }, (_, index) => ({
+  id: "isolated-" + index, x: 0, y: 0
+}));
+const compact = api.cluster(manyIsolated, [], {
+  minDistance: 54, clusterIterations: 40, communityGap: 60
+});
+assert.equal(compact.communityCount, 183);
+assert.equal(compact.overlapsAfter, 0);
+assert.ok(compact.bounds.width < 3000 && compact.bounds.height < 3000,
+  "many independent visual groups must fit a phone-sized world coordinate range");
+for (let i = 0; i < compact.clusters.length; i++) {
+  for (let j = i + 1; j < compact.clusters.length; j++) {
+    const a = compact.clusters[i], b = compact.clusters[j];
+    const distance = Math.hypot(a.centerX - b.centerX, a.centerY - b.centerY);
+    assert.ok(distance + 1e-5 >= a.radius + b.radius + 60,
+      "group halos must not overlap");
+  }
+}
+
+console.log("NEUROGENESIS community layout: dense groups, weak bridges, deterministic placement, edge-length separation, connected triangle, isolated neurons and compact 183-group packing passed.");

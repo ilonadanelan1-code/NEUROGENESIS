@@ -54,6 +54,10 @@ assert.ok(app.includes("function separateNeuronLayout()") && app.includes("funct
   "the app must provide reversible collision-aware neuron layout");
 assert.ok(app.includes("api.cluster(neurons, synapses"),
   "the layout action must use synapse-aware community clustering");
+assert.ok(app.includes("safeWorldSpan"),
+  "the app must reject layouts outside the visible canvas range");
+assert.ok(app.includes("restoreUnsafeCommunityLayout"),
+  "the app must restore a previous layout when unsafe coordinates are detected");
 assert.ok(app.includes("layoutGroups.length>1"),
   "multiple communities must receive distinct visual halos");
 assert.ok(app.includes("const compactView=view.zoom<.42"),

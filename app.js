@@ -405,8 +405,14 @@
         clusterIterations: 180,
         communityPasses: 28,
         resolution: 1,
-        communityGap: 190
+        communityGap: 60
       });
+      const safeWorldSpan = Math.min(Math.max(1, width - 80), Math.max(1, height - 100)) / 0.12 * 0.82;
+      if (!result.bounds || result.bounds.width > safeWorldSpan || result.bounds.height > safeWorldSpan ||
+          result.positions.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+        showToast("Группы не помещаются на экран — исходная сеть сохранена");
+        return;
+      }
       const signature = layoutTopologySignature();
       const previous = neurons.map(node => ({ id: String(node.id), x: node.x, y: node.y }));
       layoutUndoSnapshot = previous;
@@ -1486,6 +1492,7 @@
   resize();
   loadState();
   restoreLayoutUndo();
+  let restoreUnsafeCommunityLayout = false;
   try {
     const storedGroups=JSON.parse(localStorage.getItem(LAYOUT_GROUPS_KEY)||"null");
     const signature=layoutTopologySignature();
@@ -1502,6 +1509,29 @@
       }
     }
   } catch (_) { layoutGroups=[]; }
+  if(layoutGroups.length){
+    const xs=neurons.map(node=>node.x),ys=neurons.map(node=>node.y);
+    const spanX=xs.length?Math.max(...xs)-Math.min(...xs):0;
+    const spanY=ys.length?Math.max(...ys)-Math.min(...ys):0;
+    const safeWorldSpan=Math.min(Math.max(1,width-80),Math.max(1,height-100))/.12*.82;
+    if(spanX>safeWorldSpan||spanY>safeWorldSpan) restoreUnsafeCommunityLayout=true;
+  }
+  if(restoreUnsafeCommunityLayout){
+    if(layoutUndoSnapshot&&layoutUndoSignature===layoutTopologySignature()){
+      const previous=new Map(layoutUndoSnapshot.map(row=>[row.id,row]));
+      for(const node of neurons){
+        const point=previous.get(String(node.id));
+        if(point){node.x=point.x;node.y=point.y;}
+      }
+      clearLayoutUndo();
+      nodesDirty=true;connectionsDirty=true;markDirty();
+      showToast("Восстановлено прежнее расположение нейронов");
+    }else{
+      layoutGroups=[];
+      try{localStorage.removeItem(LAYOUT_GROUPS_KEY);}catch(_){}
+      showToast("Небезопасная раскладка сброшена");
+    }
+  }
   if(!neurons.length){seedNetwork();fitNetwork();}
   startWasmShadow();
   requestAnimationFrame(()=>{if(neurons.length)fitNetwork();});
