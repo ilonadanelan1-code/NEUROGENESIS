@@ -20,8 +20,14 @@ assert.match(memory, /clientToken:value\.clientToken\.trim\(\)/u,
 assert.match(memory, /localStorage\.setItem\(LLM_CONFIG_KEY, JSON\.stringify\(config\)\)/u,
   "the corrected endpoint must persist for the next launch");
 assert.ok(!html.includes(legacyEndpoint), "the published app must not contain the old incorrect hostname");
-assert.match(html, /DIGITAL ORGANISM · 0\.58\.49/u,
+const release = html.match(/DIGITAL ORGANISM · (\\d+\\.\\d+\\.\\d+)/u);
+assert.ok(release, "the app must expose a semantic release version");
+const releaseParts = release[1].split(".").map(Number);
+assert.ok(releaseParts[0] > 0 || releaseParts[1] > 58 || (releaseParts[1] === 58 && releaseParts[2] > 49),
   "the app release version must advance so mobile browsers fetch the migration");
+const assetVersions = [...html.matchAll(/(?:src|href)="[^"]+[?&]v=([^"&]+)"/gu)].map((match) => match[1]);
+assert.ok(assetVersions.length > 0 && assetVersions.every((version) => version === release[1]),
+  "all versioned app assets must use the current release version for mobile cache invalidation");
 
 assert.match(memory, /const DEFAULT_LLM_ENDPOINT\s*=\s*"https:\/\/neurogenesis-llm-proxy\.ilonadanelan1\.workers\.dev"/u,
   "the endpoint must also be restored when no saved browser configuration exists");
