@@ -122,7 +122,17 @@ std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
                                               std::uint32_t input_neuron_id,
                                               std::uint32_t positive_neuron_id,
                                               std::uint32_t negative_neuron_id) {
-    if (!std::isfinite(learning_rate) ||
+    return learn_contrastive_reward_asymmetric(
+        learning_rate, learning_rate, input_neuron_id,
+        positive_neuron_id, negative_neuron_id);
+}
+
+std::uint32_t Brain::learn_contrastive_reward_asymmetric(
+    float positive_learning_rate, float negative_learning_rate,
+    std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+    std::uint32_t negative_neuron_id) {
+    if (!std::isfinite(positive_learning_rate) ||
+        !std::isfinite(negative_learning_rate) ||
         input_neuron_id == positive_neuron_id ||
         input_neuron_id == negative_neuron_id ||
         positive_neuron_id == negative_neuron_id ||
@@ -130,21 +140,23 @@ std::uint32_t Brain::learn_contrastive_reward(float learning_rate,
         !find_neuron(positive_neuron_id) ||
         !find_neuron(negative_neuron_id)) return 0;
 
-    const float rate = std::clamp(learning_rate, 0.0f, 1.0f);
+    const float positive_rate = std::clamp(positive_learning_rate, 0.0f, 1.0f);
+    const float negative_rate = std::clamp(negative_learning_rate, 0.0f, 1.0f);
     std::uint32_t changed = 0;
     for (auto& edge : synapses_) {
-        float sign = 0.0f;
-        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) sign = 1.0f;
-        else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) sign = -1.0f;
+        float delta = 0.0f;
+        if (edge.from == input_neuron_id && edge.to == positive_neuron_id) {
+            delta = positive_rate * edge.eligibility;
+        } else if (edge.from == input_neuron_id && edge.to == negative_neuron_id) {
+            delta = -negative_rate * edge.eligibility;
+        }
 
-        const float delta = rate * sign * edge.eligibility;
         const float updated = std::clamp(edge.weight + delta, 0.0f, 1.0f);
         if (std::abs(updated - edge.weight) > 1.0e-7f) {
             edge.weight = updated;
             ++changed;
         }
-        // Unassigned and unrelated traces are deliberately consumed rather than
-        // leaking into a later episode with different input/output identities.
+        // Every valid reward event consumes all traces, including unassigned paths.
         edge.eligibility = 0.0f;
     }
     return changed;
