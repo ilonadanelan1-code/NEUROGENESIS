@@ -124,6 +124,9 @@ jobs:
       - name: Run path-aware multi-hop credit prototype
         run: node tests/multi-hop-credit-prototype.test.mjs
 
+      - name: Run unequal-profile path-credit stress
+        run: node tests/multi-hop-credit-unequal-profile.test.mjs
+
       - name: Upload multi-hop credit diagnostic report
         if: always()
         uses: actions/upload-artifact@v4
