@@ -45,7 +45,7 @@ assert.match(diagnostic, /const WORKER="https:\/\/neurogenesis-llm-proxy\.ilonad
   "the diagnostic page must target the canonical deployed Worker");
 assert.match(diagnostic, /localStorage\.getItem\(CONFIG_KEY\)/u,
   "the diagnostic page must read the saved gateway config locally");
-assert.match(diagnostic, /Authorization:"Bearer "\+token/u,
+assert.match(diagnostic, /"Authorization":"Bearer "\+token/u,
   "the diagnostic page must exercise the same authenticated health request as the app");
 assert.match(diagnostic, /значение скрыто/u,
   "the diagnostic page must never display the saved application token");
