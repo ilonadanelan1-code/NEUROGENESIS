@@ -20,6 +20,7 @@ void ng_brain_reset_eligibility(ng_brain_handle* handle);
 int ng_brain_stimulate(ng_brain_handle* handle, uint32_t neuron_id, float strength);
 uint32_t ng_brain_learn(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
 uint32_t ng_brain_learn_from_reward(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
+uint32_t ng_brain_learn_from_reward_homeostatic(ng_brain_handle* handle, float learning_rate, float reward, float weight_decay);
 uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle, float learning_rate,
                                            uint32_t input_neuron_id,
                                            uint32_t positive_neuron_id,
