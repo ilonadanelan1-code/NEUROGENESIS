@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const DEFAULT_MIN_DISTANCE = 86;
-  const DEFAULT_ITERATIONS = 180;
+  const DEFAULT_ITERATIONS = 400;
   const EPSILON = 1e-7;
 
   function finite(value, name) {
@@ -53,8 +53,8 @@
     const settings = options && typeof options === "object" ? options : {};
     const minDistance = finite(settings.minDistance ?? DEFAULT_MIN_DISTANCE, "minDistance");
     const iterations = Math.floor(finite(settings.iterations ?? DEFAULT_ITERATIONS, "iterations"));
-    const relaxation = finite(settings.relaxation ?? 0.24, "relaxation");
-    const maxMove = finite(settings.maxMove ?? 14, "maxMove");
+    const relaxation = finite(settings.relaxation ?? 0.38, "relaxation");
+    const maxMove = finite(settings.maxMove ?? 24, "maxMove");
     if (minDistance < 24 || minDistance > 240 || iterations < 1 || iterations > 400 ||
         relaxation <= 0 || relaxation > 0.5 || maxMove <= 0 || maxMove > 48) {
       throw new RangeError("Layout parameters are outside safe bounds");

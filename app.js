@@ -393,7 +393,7 @@
       return;
     }
     try {
-      const result = api.separate(neurons, { minDistance: 86, iterations: 180 });
+      const result = api.separate(neurons, { minDistance: 86, iterations: 400, relaxation: 0.38, maxMove: 24 });
       if (!result.movedCount) { showToast("Перекрывающихся узлов не обнаружено"); return; }
       const signature = layoutTopologySignature();
       const previous = neurons.map(node => ({ id: String(node.id), x: node.x, y: node.y }));
