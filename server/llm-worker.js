@@ -4,6 +4,7 @@ const MAX_UPSTREAM_BODY = 128000;
 const MAX_MESSAGES = 18;
 const MAX_MESSAGE_CHARS = 5200;
 const UPSTREAM_TIMEOUT_MS = 45000;
+const PIXEL_GIF = new Uint8Array([71,73,70,56,57,97,1,0,1,0,128,0,0,0,0,0,255,255,255,33,249,4,1,0,0,0,0,44,0,0,0,0,1,0,1,0,0,2,2,68,1,0,59]);
 
 function json(data, status, cors) {
   return new Response(JSON.stringify(data), { status, headers: { ...JSON_HEADERS, ...cors } });
@@ -87,6 +88,18 @@ export default {
 
     if (origin && (!allowedOrigin || origin !== allowedOrigin)) return json({ error: "origin_not_allowed" }, 403, cors);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    if (url.pathname === "/api/pixel.gif" && request.method === "GET") {
+      return new Response(PIXEL_GIF, {
+        status: 200,
+        headers: {
+          ...cors,
+          "Content-Type": "image/gif",
+          "Content-Length": String(PIXEL_GIF.byteLength),
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff"
+        }
+      });
+    }
     if (url.pathname === "/" && request.method === "GET") {
       return json({
         ok: true,
