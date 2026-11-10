@@ -48,6 +48,7 @@ jobs:
           node --check experience-benchmark.js
           node --check contrastive-benchmark.js
           node --check disposable-experiment-session.js
+          node --check multi-hop-credit-diagnostic.js
           node --check disposable-experiment-ui.js
           node --check compositional-benchmark.js
           node --check retention-scaling-benchmark.js
@@ -115,6 +116,18 @@ jobs:
 
       - name: Run contrastive benchmark
         run: node tests/contrastive-benchmark.test.mjs
+
+      - name: Run multi-hop credit assignment diagnostic
+        run: node tests/multi-hop-credit-diagnostic.test.mjs
+
+      - name: Upload multi-hop credit diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-multi-hop-credit-diagnostic-v1
+          path: benchmark-reports/multi-hop-credit-diagnostic-v1.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Run compositional benchmark
         run: node tests/compositional-benchmark.test.mjs
