@@ -53,6 +53,7 @@ jobs:
           node --check plasticity-efficiency-benchmark.js
           node --check plasticity-selective-cleanup-benchmark.js
           node --check plasticity-selective-cleanup-robustness.js
+          node --check plasticity-three-route-stress-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -155,6 +156,18 @@ jobs:
         with:
           name: neurogenesis-plasticity-selective-cleanup-robustness-v1
           path: benchmark-reports/plasticity-selective-cleanup-robustness-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Run three-route selective cleanup stress benchmark
+        run: node tests/plasticity-three-route-stress-benchmark.test.mjs
+
+      - name: Upload three-route stress report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-three-route-stress-v1
+          path: benchmark-reports/plasticity-three-route-stress-v1.json
           if-no-files-found: warn
           retention-days: 30
 

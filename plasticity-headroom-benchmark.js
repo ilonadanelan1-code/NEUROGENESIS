@@ -267,6 +267,121 @@
     };
   }
 
+
+  function evaluateOutputActivation(brain, fixture, featureIndices, outputIndex) {
+    settle(brain);
+    for (const featureIndex of featureIndices) brain.stimulate(fixture.inputIds[featureIndex], 1);
+    brain.step(0.1, 0);
+    const snapshot = brain.snapshot();
+    const neuron = snapshot.neurons.find(row => row.id === fixture.outputIds[outputIndex]);
+    const activation = neuron ? neuron.activation : NaN;
+    settle(brain);
+    return activation;
+  }
+
+  function measureCompetingRoutes(brain, fixture, featureIndices, outputIndex) {
+    const activation = evaluateOutputActivation(brain, fixture, featureIndices, outputIndex);
+    const snapshot = brain.snapshot();
+    const routes = featureIndices.map(featureIndex => {
+      const without = featureIndices.filter(index => index !== featureIndex);
+      const activationWithoutRoute = evaluateOutputActivation(brain, fixture, without, outputIndex);
+      const edge = snapshot.synapses.find(row =>
+        row.from === fixture.inputIds[featureIndex] && row.to === fixture.outputIds[outputIndex]);
+      const marginalActivation = activation - activationWithoutRoute;
+      return {
+        feature: fixture.featureNames[featureIndex],
+        featureIndex,
+        weight: edge ? edge.weight : null,
+        activationWithoutRoute,
+        marginalActivation,
+        contributes: Number.isFinite(marginalActivation) && marginalActivation > EPSILON
+      };
+    });
+    return {
+      output: fixture.outputNames[outputIndex],
+      outputIndex,
+      activation,
+      routeCount: routes.filter(row => row.contributes).length,
+      routes
+    };
+  }
+
+  function seedCompetingRoutes(fixture, specification) {
+    const featureIndices = Array.isArray(specification.featureIndices)
+      ? specification.featureIndices.slice() : [0, 1, 2];
+    if (featureIndices.length < 3 || new Set(featureIndices).size !== featureIndices.length ||
+        featureIndices.some(index => !Number.isInteger(index) || index < 0 || index >= FEATURE_COUNT)) {
+      throw new TypeError("A three-route stress fixture requires at least three distinct valid feature indices");
+    }
+    const outputIndex = Number.isInteger(specification.outputIndex)
+      ? specification.outputIndex
+      : fixture.outputIds.findIndex((_id, index) => !fixture.mapping.includes(index));
+    if (outputIndex < 0 || outputIndex >= OUTPUT_COUNT || fixture.mapping.includes(outputIndex)) {
+      throw new TypeError("The stress output must be an unused false output");
+    }
+    const episodesPerRoute = Array.isArray(specification.boostEpisodes)
+      ? specification.boostEpisodes.slice() : featureIndices.map(() => 2);
+    if (episodesPerRoute.length !== featureIndices.length ||
+        episodesPerRoute.some(value => !Number.isInteger(value) || value < 1 || value > 6)) {
+      throw new TypeError("Each competing route must have between one and six fixed seeding episodes");
+    }
+    const positiveRate = Number.isFinite(specification.positiveRate)
+      ? Math.max(0, Math.min(1, specification.positiveRate)) : 1.0;
+    const routes = [];
+    for (let index = 0; index < featureIndices.length; index++) {
+      const featureIndex = featureIndices[index];
+      const inputId = fixture.inputIds[featureIndex];
+      const falseOutputId = fixture.outputIds[outputIndex];
+      const correctOutputId = fixture.outputIds[fixture.mapping[featureIndex]];
+      const before = fixture.brain.snapshot().synapses.find(edge =>
+        edge.from === inputId && edge.to === falseOutputId);
+      if (!before) throw new Error("The competing false-output route is missing");
+      let totalDelta = 0;
+      for (let episode = 0; episode < episodesPerRoute[index]; episode++) {
+        const beforeSnapshot = fixture.brain.snapshot();
+        const update = contrastiveEpisode(
+          fixture.brain, inputId, falseOutputId, correctOutputId,
+          positiveRate, 0, "bounded"
+        );
+        const afterSnapshot = fixture.brain.snapshot();
+        const changed = afterSnapshot.synapses.filter(edge => {
+          const prior = beforeSnapshot.synapses.find(row =>
+            row.from === edge.from && row.to === edge.to);
+          return prior && Math.abs(prior.weight - edge.weight) > EPSILON;
+        });
+        const falseEdge = afterSnapshot.synapses.find(edge =>
+          edge.from === inputId && edge.to === falseOutputId);
+        if (!update.traceConsumed || update.positiveWeightDelta <= EPSILON ||
+            Math.abs(update.negativeWeightDelta) > EPSILON ||
+            changed.length !== 1 || changed[0].from !== inputId ||
+            changed[0].to !== falseOutputId || !falseEdge) {
+          throw new Error("Stress seeding must strengthen exactly one false route and preserve its correct route");
+        }
+        totalDelta += update.positiveWeightDelta;
+      }
+      const after = fixture.brain.snapshot().synapses.find(edge =>
+        edge.from === inputId && edge.to === falseOutputId);
+      routes.push({
+        feature: fixture.featureNames[featureIndex],
+        featureIndex,
+        episodes: episodesPerRoute[index],
+        beforeWeight: before.weight,
+        afterWeight: after ? after.weight : null,
+        totalWeightDelta: totalDelta
+      });
+    }
+    const evidence = measureCompetingRoutes(fixture.brain, fixture, featureIndices, outputIndex);
+    return {
+      featureIndices,
+      falseOutput: fixture.outputNames[outputIndex],
+      falseOutputIndex: outputIndex,
+      positiveRate,
+      routes,
+      evidence,
+      allThreeRoutesContribute: evidence.routeCount >= 3
+    };
+  }
+
   function leakageCandidates(fixture) {
     const { brain, inputIds, outputIds, mapping } = fixture;
     const scores = new Map();
@@ -414,7 +529,7 @@
     };
   }
 
-  function runScenario(runtime, mode, seed, reverseOrder) {
+  function runScenario(runtime, mode, seed, reverseOrder, scenarioOptions = {}) {
     const fixture = createFixture(runtime, seed);
     const started = now();
     const { brain, mapping, featureNames, outputNames } = fixture;
@@ -441,10 +556,15 @@
         const evaluation = evaluateAll(brain, fixture);
         history.push({ cycle, evaluation, weights: weightMetrics(fixture) });
       }
+      const stressSeed = scenarioOptions.seedCompetingRoutes
+        ? seedCompetingRoutes(fixture, scenarioOptions.seedCompetingRoutes) : null;
       const cleanup = mode.selectiveCleanupBudget == null
         ? { budget: 0, used: 0, negativeRate: mode.selectiveCleanupNegativeRate || 1.0,
             initial: null, final: null, episodes: [] }
         : selectiveCleanup(fixture, mode.selectiveCleanupBudget, mode.selectiveCleanupNegativeRate);
+      const stressAfterCleanup = stressSeed
+        ? measureCompetingRoutes(brain, fixture, stressSeed.featureIndices, stressSeed.falseOutputIndex)
+        : null;
       const retained = evaluateAll(brain, fixture);
       const weights = weightMetrics(fixture);
       const retentionPassed = retained.passed && weights.allWeightsBounded;
@@ -486,6 +606,8 @@
         },
         baseline,
         history,
+        stressSeed,
+        stressAfterCleanup,
         cleanup,
         retained,
         weights,
@@ -530,7 +652,7 @@
     for (const mode of modes) {
       for (const seed of seeds) {
         for (const reverseOrder of [false, true]) {
-          scenarios.push(runScenario(runtime, mode, seed, reverseOrder));
+          scenarios.push(runScenario(runtime, mode, seed, reverseOrder, options.scenarioOptions || {}));
           createdBrains++;
         }
       }
@@ -571,7 +693,8 @@
         maxCorrectWeightForHeadroom: MAX_CORRECT_WEIGHT_FOR_HEADROOM,
         compositionLearningRate: COMPOSITION_LEARNING_RATE,
         compositionUpdateRule: "homeostatic",
-        freshAssociationSweeps: FRESH_ASSOCIATION_SWEEPS
+        freshAssociationSweeps: FRESH_ASSOCIATION_SWEEPS,
+        scenarioOptions: options.scenarioOptions || null
       },
       checks,
       scenarios,
