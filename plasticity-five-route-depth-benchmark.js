@@ -3,7 +3,7 @@
 
   const root = typeof window !== "undefined" ? window : globalThis;
   const SEEDS = Object.freeze([7, 17, 29, 43, 59]);
-  const BUDGETS = Object.freeze([44, 48, 52]);
+  const BUDGETS = Object.freeze([52, 54, 56]);
   const PROFILES = Object.freeze([
     Object.freeze({ id: "equal-medium", boostEpisodes: Object.freeze([2, 2, 2, 2, 2]) }),
     Object.freeze({ id: "ascending", boostEpisodes: Object.freeze([1, 2, 3, 4, 5]) }),
@@ -39,7 +39,7 @@
           seeds: SEEDS.slice(),
           targetModeId: mode.id,
           scenarioOptions: {
-            dimensions: { featureCount: 5, outputCount: 6, maxCleanupBudget: 56 },
+            dimensions: { featureCount: 5, outputCount: 6, maxCleanupBudget: 60 },
             seedCompetingRoutes: {
               featureIndices: FEATURE_INDICES.slice(),
               boostEpisodes: profile.boostEpisodes.slice(),
@@ -141,15 +141,15 @@
     );
 
     return {
-      kind: "NEUROGENESIS five-route cleanup-depth benchmark v2",
-      version: 2,
+      kind: "NEUROGENESIS five-route cleanup-depth benchmark v3",
+      version: 3,
       passed: protocolPassed,
       protocolPassed,
-      candidate44PassedAllProfiles: PROFILES.every(profile =>
-        scenarios.filter(row => row.profile === profile.id && row.budget === 44)
+      candidate56PassedAllProfiles: PROFILES.every(profile =>
+        scenarios.filter(row => row.profile === profile.id && row.budget === 56)
           .every(row => row.passed)),
-      candidate48PassedAllProfiles: PROFILES.every(profile =>
-        scenarios.filter(row => row.profile === profile.id && row.budget === 48)
+      candidate54PassedAllProfiles: PROFILES.every(profile =>
+        scenarios.filter(row => row.profile === profile.id && row.budget === 54)
           .every(row => row.passed)),
       candidate52PassedAllProfiles: PROFILES.every(profile =>
         scenarios.filter(row => row.profile === profile.id && row.budget === 52)
@@ -178,7 +178,7 @@
         targetMinActivation: 0.15,
         nonTargetMaxActivation: 0.05,
         maxCorrectWeightForHeadroom: 0.95,
-        maxDiagnosticCleanupBudget: 56
+        maxDiagnosticCleanupBudget: 60
       },
       checks,
       summary: {
@@ -196,7 +196,7 @@
   }
 
   root.NGPlasticityFiveRouteDepth = Object.freeze({
-    version: 2,
+    version: 3,
     run,
     seeds: SEEDS,
     budgets: BUDGETS,

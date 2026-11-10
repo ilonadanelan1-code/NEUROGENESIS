@@ -37,10 +37,10 @@ const runtime = {
 
 const report = globalThis.NGPlasticityFiveRouteDepth.run({ runtime });
 const reportDirectory = process.env.NG_BENCHMARK_REPORT_DIR || "benchmark-reports";
-const reportPath = join(reportDirectory, "plasticity-five-route-depth-v2.json");
+const reportPath = join(reportDirectory, "plasticity-five-route-depth-v3.json");
 await mkdir(reportDirectory, { recursive: true });
 const artifact = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   generatedAt: new Date().toISOString(),
   commit: process.env.GITHUB_SHA || null,
   workflowRunId: process.env.GITHUB_RUN_ID || null,
@@ -54,11 +54,11 @@ const persisted = JSON.parse(await readFile(reportPath, "utf8"));
 assert.equal(persisted.report.kind, report.kind);
 assert.equal(persisted.report.scenarios.length, 90);
 
-console.log("NEUROGENESIS five-route cleanup-depth v2 summary: " + JSON.stringify({
+console.log("NEUROGENESIS five-route cleanup-depth v3 summary: " + JSON.stringify({
   passed: report.passed,
-  candidate44PassedAllProfiles: report.candidate44PassedAllProfiles,
-  candidate48PassedAllProfiles: report.candidate48PassedAllProfiles,
   candidate52PassedAllProfiles: report.candidate52PassedAllProfiles,
+  candidate54PassedAllProfiles: report.candidate54PassedAllProfiles,
+  candidate56PassedAllProfiles: report.candidate56PassedAllProfiles,
   checks: report.checks,
   byBudget: report.byBudget,
   byProfileAndBudget: report.byProfileAndBudget,
@@ -75,13 +75,13 @@ assert.equal(report.checks.cleanupRespectsDeclaredBudget, true);
 assert.equal(report.checks.everyCorrectionChangesOneEdgeAndConsumesTraces, true);
 assert.equal(report.checks.allWeightsRemainFiniteAndBounded, true);
 assert.equal(report.checks.everyDisposableBrainWasCreated, true);
-assert.deepEqual(report.protocol.budgets, [44, 48, 52]);
+assert.deepEqual(report.protocol.budgets, [52, 54, 56]);
 assert.equal(report.protocol.featureCount, 5);
 assert.equal(report.protocol.outputCount, 6);
 assert.equal(report.protocol.heldOutCombinationCount, 26);
 assert.equal(report.protocol.heldOutPermutationCount, 320);
-assert.equal(report.protocol.maxDiagnosticCleanupBudget, 56);
-for (const budget of [44, 48, 52]) {
+assert.equal(report.protocol.maxDiagnosticCleanupBudget, 60);
+for (const budget of [52, 54, 56]) {
   const allPassed = report.byBudget.find(row => row.budget === budget)?.fullAcceptancePasses === 30;
   assert.equal(report["candidate" + budget + "PassedAllProfiles"], allPassed,
     "candidate summary flag must match the measured full-scenario acceptance for budget " + budget);

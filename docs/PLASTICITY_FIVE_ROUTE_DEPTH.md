@@ -9,40 +9,48 @@
 **Budgets:** 36, 40 and 44 one-edge cleanup events  
 **Production network and user saves:** unchanged
 
-### 1. Measured result
+The v1 run completed all 90 scenarios. All scenarios had five seeded routes with five distinct feature indices and positive measured contribution from every route. The original v1 test had a faulty uniqueness assertion (it expected a set size of four instead of five); v2 corrected the assertion. The original artifact remains archived.
 
-The v1 experiment completed all 90 scenarios and produced a JSON artifact. All 90 scenarios had five seeded routes with five distinct feature indices, all five routes made a positive measured contribution to the same unused output, all weights remained bounded, each correction changed exactly one edge and consumed eligibility traces, and all disposable brains were released.
+| Cleanup budget | Full acceptance | False output above 0.05 |
+|---:|---:|---:|
+| 36 | 0/30 | 30/30 |
+| 40 | 15/30 | 15/30 |
+| 44 | 15/30 | 15/30 |
 
-The first CI assertion incorrectly required the set of five route indices to have size four. The artifact confirms the actual route-index set had size five in every scenario. This was a test-contract typo, not a malformed scenario. The v2 test corrects it. The original v1 artifact remains archived separately.
+At budgets 40 and 44, all reverse-order scenarios passed and all forward-order scenarios failed. Maximum residual seeded false-output activation declined from 0.05684 to 0.05431.
 
-| Cleanup budget | Full acceptance | Old-map retention | Fresh association | False output above 0.05 |
+[Archived v1 workflow and JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42898595074)
+
+## Protocol v2 — measured 2026-11-10
+
+V2 corrected the five-route uniqueness contract and tested budgets 44, 48 and 52. Protocol integrity passed all checks across 90 scenarios: five distinct seeded routes, positive contribution from all five, bounded weights, one-edge corrections, consumed eligibility traces, and full disposal of the WASM brains.
+
+| Cleanup budget | Full acceptance | Correct-weight headroom | Fresh association | Seeded false output above 0.05 |
 |---:|---:|---:|---:|---:|
-| 36 | 0/30 | 0/30 | 30/30 | 30/30 |
-| 40 | 15/30 | 15/30 | 30/30 | 15/30 |
-| 44 | 15/30 | 15/30 | 30/30 | 15/30 |
+| 44 | 15/30 | 30/30 | 30/30 | 15/30 |
+| 48 | 15/30 | 30/30 | 30/30 | 10/30 |
+| 52 | 15/30 | 30/30 | 30/30 | 0/30 |
 
-For budget 36, mean final false-output activation was 0.06235 (maximum 0.06355). At budgets 40 and 44, the reverse-order scenarios all passed, while all forward-order scenarios remained above the false-output threshold. The maximum residual activation fell from 0.05684 at budget 40 to 0.05431 at budget 44, but the number of passing scenarios did not improve.
+All 15 reverse-order scenarios passed at each budget; all 15 forward-order scenarios remained outside the strict held-out acceptance criterion. At budget 52 the originally seeded false output was fully suppressed in every scenario, but other non-target outputs remained narrowly over the 0.05 threshold in some four-feature held-out combinations. The worst observed non-target activation was 0.05094386. Minimum expected activation in those forward-order cases remained approximately 0.729, all singleton mappings passed, and fresh sixth-feature learning succeeded in all 30 scenarios. Thus the remaining failure is marginal multi-feature interference, not collapse of the desired singleton associations.
 
-The strongest diagnostic observation is task-order sensitivity: the same profile/seed set passes in reverse order at 40/44 but fails in forward order. This suggests that merely increasing the global cleanup budget is not yet sufficient. The next step must test whether a larger budget resolves the forward-order cases, and then inspect route selection if it does not.
+[Archived v2 workflow and JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42899477942)
 
-[Archived v1 workflow and measured JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42898595074)
+## Protocol v3 — extended final-budget diagnostic
 
-## Protocol v2 — extended cleanup budgets
+V3 retains the same five-input/six-output topology, 90 scenarios, three route-strength profiles, five deterministic seeds, both training orders, 26 held-out combinations and 320 stimulation orders. It moves the budget window to **52, 54 and 56** and raises the declared diagnostic cap to 60. Budget 52 remains as a comparative baseline; 54 and 56 test whether the small residual held-out interference can be removed without changing the learning rule.
 
-The v2 run preserves the five-input/six-output topology, five route-strength profiles, five deterministic seeds, both task orders, all 26 held-out combinations and all 320 stimulation orders. It uses budgets **44, 48 and 52** with a maximum diagnostic cap of 56. This retains budget 44 as the directly comparable baseline while extending the correction window.
+The next design decision depends on this result:
+- If 54/56 pass both orders, record the smallest successful budget for this registered topology and then test additional random seeds/topologies before any integration.
+- If forward-order interference persists, stop increasing the global budget and inspect the per-route leakage ranking and the point in the training sequence where held-out leakage first appears.
 
-Candidate acceptance is reported per budget and profile. The protocol check and scientific acceptance remain separate: CI should fail for an invalid experiment, not merely because a candidate budget fails to suppress interference. The machine-readable artifact is `neurogenesis-plasticity-five-route-depth-v2`.
+The v3 artifact is `neurogenesis-plasticity-five-route-depth-v3`.
 
-## 2. Acceptance criteria
+## Acceptance criteria
 
-A scenario passes only when:
-- Every singleton and held-out combination retains expected activation of at least 0.15 and non-target activation at most 0.05.
-- All correct weights remain at or below 0.95, with finite weights in [0, 1].
-- A fresh sixth feature learns the unused sixth output.
-- All old mappings remain correct after the fresh association is learned.
+A scenario passes only when every singleton and held-out combination retains expected activation of at least 0.15 and non-target activation at most 0.05; correct weights remain at or below 0.95; a fresh sixth feature learns the unused sixth output; and old mappings remain correct after that new association.
 
-Protocol integrity separately requires all 90 profile/budget/seed/order scenarios, five distinct seeded routes, positive measured contribution from every route, in-budget one-edge corrections, consumed eligibility traces, and disposal of every WASM brain.
+Protocol integrity is separate from scientific acceptance. It requires all 90 profile/budget/seed/order scenarios, five distinct seeded routes, positive contribution from every route, one-edge corrections within budget, consumed eligibility traces, finite bounded weights and disposal of every WASM brain.
 
-## 3. Interpretation boundary
+## Interpretation boundary
 
 This is a controlled supervised benchmark over one registered five-input/six-output topology. It does not demonstrate unsupervised or general-purpose learning, autonomous intelligence, or readiness to replace the production JavaScript network. No benchmark result modifies the live app or user saves.

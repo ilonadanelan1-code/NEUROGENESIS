@@ -252,15 +252,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Run five-route cleanup depth benchmark v2
+      - name: Run five-route cleanup depth benchmark v3
         run: node tests/plasticity-five-route-depth-benchmark.test.mjs
 
-      - name: Upload five-route cleanup depth v2 report
+      - name: Upload five-route cleanup depth v3 report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neurogenesis-plasticity-five-route-depth-v2
-          path: benchmark-reports/plasticity-five-route-depth-v2.json
+          name: neurogenesis-plasticity-five-route-depth-v3
+          path: benchmark-reports/plasticity-five-route-depth-v3.json
           if-no-files-found: warn
           retention-days: 30
 
