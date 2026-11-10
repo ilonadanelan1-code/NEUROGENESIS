@@ -67,3 +67,10 @@ jobs:
             }
             console.log("Worker /api/health GET responds with HTTP 401 and valid CORS.");
           '
+          pixel_status="$(curl --silent --show-error --dump-header /tmp/ng-pixel-headers --output /tmp/ng-pixel-body --write-out "%{http_code}" --max-time 20 \
+            --header "Origin: https://ilonadanelan1-code.github.io" \
+            "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev/api/pixel.gif")"
+          test "$pixel_status" = "200"
+          grep -Fqi "content-type: image/gif" /tmp/ng-pixel-headers
+          test "$(wc -c < /tmp/ng-pixel-body | tr -d ' ')" = "43"
+          echo "Worker image transport probe returns a one-pixel GIF without authentication."
