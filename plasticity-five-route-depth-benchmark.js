@@ -3,7 +3,7 @@
 
   const root = typeof window !== "undefined" ? window : globalThis;
   const SEEDS = Object.freeze([7, 17, 29, 43, 59]);
-  const BUDGETS = Object.freeze([36, 40, 44]);
+  const BUDGETS = Object.freeze([44, 48, 52]);
   const PROFILES = Object.freeze([
     Object.freeze({ id: "equal-medium", boostEpisodes: Object.freeze([2, 2, 2, 2, 2]) }),
     Object.freeze({ id: "ascending", boostEpisodes: Object.freeze([1, 2, 3, 4, 5]) }),
@@ -39,7 +39,7 @@
           seeds: SEEDS.slice(),
           targetModeId: mode.id,
           scenarioOptions: {
-            dimensions: { featureCount: 5, outputCount: 6, maxCleanupBudget: 48 },
+            dimensions: { featureCount: 5, outputCount: 6, maxCleanupBudget: 56 },
             seedCompetingRoutes: {
               featureIndices: FEATURE_INDICES.slice(),
               boostEpisodes: profile.boostEpisodes.slice(),
@@ -88,7 +88,7 @@
             row.seed === seed && row.trainingOrder === "reverse")))),
       everyScenarioBeginsWithFiveDistinctRoutes: scenarios.every(row =>
         row.stressSeed && row.stressSeed.routes.length === 5 &&
-        new Set(row.stressSeed.routes.map(route => route.featureIndex)).size === 4),
+        new Set(row.stressSeed.routes.map(route => route.featureIndex)).size === 5),
       allFiveRoutesHavePositiveMeasuredContribution: scenarios.every(row =>
         row.stressSeed.evidence.routeCount === 5 &&
         row.stressSeed.evidence.routes.every(route =>
@@ -141,18 +141,18 @@
     );
 
     return {
-      kind: "NEUROGENESIS five-route cleanup-depth benchmark",
-      version: 1,
+      kind: "NEUROGENESIS five-route cleanup-depth benchmark v2",
+      version: 2,
       passed: protocolPassed,
       protocolPassed,
-      candidate36PassedAllProfiles: PROFILES.every(profile =>
-        scenarios.filter(row => row.profile === profile.id && row.budget === 28)
-          .every(row => row.passed)),
-      candidate40PassedAllProfiles: PROFILES.every(profile =>
-        scenarios.filter(row => row.profile === profile.id && row.budget === 32)
-          .every(row => row.passed)),
       candidate44PassedAllProfiles: PROFILES.every(profile =>
-        scenarios.filter(row => row.profile === profile.id && row.budget === 36)
+        scenarios.filter(row => row.profile === profile.id && row.budget === 44)
+          .every(row => row.passed)),
+      candidate48PassedAllProfiles: PROFILES.every(profile =>
+        scenarios.filter(row => row.profile === profile.id && row.budget === 48)
+          .every(row => row.passed)),
+      candidate52PassedAllProfiles: PROFILES.every(profile =>
+        scenarios.filter(row => row.profile === profile.id && row.budget === 52)
           .every(row => row.passed)),
       protocol: {
         seeds: SEEDS.slice(),
@@ -178,7 +178,7 @@
         targetMinActivation: 0.15,
         nonTargetMaxActivation: 0.05,
         maxCorrectWeightForHeadroom: 0.95,
-        maxDiagnosticCleanupBudget: 48
+        maxDiagnosticCleanupBudget: 56
       },
       checks,
       summary: {
@@ -196,7 +196,7 @@
   }
 
   root.NGPlasticityFiveRouteDepth = Object.freeze({
-    version: 1,
+    version: 2,
     run,
     seeds: SEEDS,
     budgets: BUDGETS,

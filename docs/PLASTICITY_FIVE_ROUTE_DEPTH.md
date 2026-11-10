@@ -1,44 +1,48 @@
 # NEUROGENESIS — five-route selective cleanup-depth stress
 
-**Protocol:** version 1  
-**Question:** does selective cleanup remain effective when five input routes reinforce the same unused output?  
-**Runtime:** disposable C++/WebAssembly brains only  
-**Production network, localStorage and user saves:** unchanged
+## Protocol v1 — measured 2026-11-10
 
-## 1. Registered topology
+**Topology:** five inputs and six outputs  
+**Scenarios:** 90 disposable WASM brains  
+**Held-out evaluation:** 26 combinations and 320 stimulation orders  
+**Profiles:** equal-medium (2/2/2/2/2), ascending (1/2/3/4/5), descending (5/4/3/2/1)  
+**Budgets:** 36, 40 and 44 one-edge cleanup events  
+**Production network and user saves:** unchanged
 
-The experiment uses five sensory inputs and six output neurons. Five input/output mappings are trained first, leaving one output unused. The stress phase then strengthens five distinct input-to-unused-output edges. The false output must receive a positive, independently measured contribution from every seeded input before cleanup.
+### 1. Measured result
 
-After ordinary retention training, all held-out input combinations containing two through five features are evaluated: 26 combinations and 320 stimulation-order permutations. The same expected-output floor (0.15), non-target ceiling (0.05), and correct-weight headroom ceiling (0.95) used by the earlier four-route experiment are retained.
+The v1 experiment completed all 90 scenarios and produced a JSON artifact. All 90 scenarios had five seeded routes with five distinct feature indices, all five routes made a positive measured contribution to the same unused output, all weights remained bounded, each correction changed exactly one edge and consumed eligibility traces, and all disposable brains were released.
 
-## 2. Fixed profiles and budgets
+The first CI assertion incorrectly required the set of five route indices to have size four. The artifact confirms the actual route-index set had size five in every scenario. This was a test-contract typo, not a malformed scenario. The v2 test corrects it. The original v1 artifact remains archived separately.
 
-Three pre-registered route-strength profiles are compared:
+| Cleanup budget | Full acceptance | Old-map retention | Fresh association | False output above 0.05 |
+|---:|---:|---:|---:|---:|
+| 36 | 0/30 | 0/30 | 30/30 | 30/30 |
+| 40 | 15/30 | 15/30 | 30/30 | 15/30 |
+| 44 | 15/30 | 15/30 | 30/30 | 15/30 |
 
-| Profile | Positive seeding episodes per route |
-|---|---|
-| Equal-medium | 2 / 2 / 2 / 2 / 2 |
-| Ascending | 1 / 2 / 3 / 4 / 5 |
-| Descending | 5 / 4 / 3 / 2 / 1 |
+For budget 36, mean final false-output activation was 0.06235 (maximum 0.06355). At budgets 40 and 44, the reverse-order scenarios all passed, while all forward-order scenarios remained above the false-output threshold. The maximum residual activation fell from 0.05684 at budget 40 to 0.05431 at budget 44, but the number of passing scenarios did not improve.
 
-Each profile uses five fixed seeds (7, 17, 29, 43, 59), forward and reverse task orders, and cleanup budgets of 36, 40, and 44 episodes. This creates 90 independent disposable WASM brains.
+The strongest diagnostic observation is task-order sensitivity: the same profile/seed set passes in reverse order at 40/44 but fails in forward order. This suggests that merely increasing the global cleanup budget is not yet sufficient. The next step must test whether a larger budget resolves the forward-order cases, and then inspect route selection if it does not.
 
-Replay remains one sweep with positive rate 0.02 and negative rate 1.0. Selective cleanup uses zero positive rate and negative rate 1.0. The five-feature task set consists of AB, CDE, and ABCDE compositions across three cycles.
+[Archived v1 workflow and measured JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42898595074)
 
-## 3. Acceptance and protocol validity
+## Protocol v2 — extended cleanup budgets
 
-Candidate acceptance is reported independently for each route profile and budget. A candidate passes only when it preserves all singleton and held-out mappings, remains within the activation and weight limits, learns a fresh sixth feature using the spare output, and preserves the original mappings after that new learning.
+The v2 run preserves the five-input/six-output topology, five route-strength profiles, five deterministic seeds, both task orders, all 26 held-out combinations and all 320 stimulation orders. It uses budgets **44, 48 and 52** with a maximum diagnostic cap of 56. This retains budget 44 as the directly comparable baseline while extending the correction window.
 
-The protocol is technically valid only when all 90 profile/budget/seed/order scenarios complete, all five seeded routes contribute positively, every cleanup update changes exactly one selected edge and consumes eligibility traces, all weights remain finite and bounded, and every disposable brain is released. A scientifically unsuccessful budget is archived as a measured result rather than treated as an invalid protocol.
+Candidate acceptance is reported per budget and profile. The protocol check and scientific acceptance remain separate: CI should fail for an invalid experiment, not merely because a candidate budget fails to suppress interference. The machine-readable artifact is `neurogenesis-plasticity-five-route-depth-v2`.
 
-## 4. Isolation and interpretation boundary
+## 2. Acceptance criteria
 
-No benchmark result changes the production JavaScript network, the shadow runtime used by the app, localStorage, or user saves. The fixed fixture tests only this five-input/six-output topology and its registered seeds and profiles. Passing it would be evidence for this bounded stress task—not a general learning guarantee, autonomous learning, or evidence of general intelligence.
+A scenario passes only when:
+- Every singleton and held-out combination retains expected activation of at least 0.15 and non-target activation at most 0.05.
+- All correct weights remain at or below 0.95, with finite weights in [0, 1].
+- A fresh sixth feature learns the unused sixth output.
+- All old mappings remain correct after the fresh association is learned.
 
-## 5. Verified results
+Protocol integrity separately requires all 90 profile/budget/seed/order scenarios, five distinct seeded routes, positive measured contribution from every route, in-budget one-edge corrections, consumed eligibility traces, and disposal of every WASM brain.
 
-Pending the first successful GitHub Actions run. The machine-readable artifact is published as `neurogenesis-plasticity-five-route-depth-v1`.
+## 3. Interpretation boundary
 
-## 6. Relation to the four-route result
-
-The preceding four-route experiment tested 90 independent brains. All 30 scenarios at budget 28 remained slightly above the 0.05 non-target ceiling (maximum 0.05330864). All 30 scenarios at budget 32 passed, and budget 36 produced no additional corrections. The five-route protocol raises the number of simultaneous seeded contributors and increases the registered cleanup budgets; it does not change the acceptance thresholds.
+This is a controlled supervised benchmark over one registered five-input/six-output topology. It does not demonstrate unsupervised or general-purpose learning, autonomous intelligence, or readiness to replace the production JavaScript network. No benchmark result modifies the live app or user saves.
