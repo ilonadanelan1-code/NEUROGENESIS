@@ -63,7 +63,7 @@ assert.equal(askedQuestion, "Сколько сердец у осьминога?"
   "the guided experiment must ask the configured recall question");
 assert.equal(show.disabled, false, "the network view must unlock after the experiment");
 assert.equal(result.hidden, false, "the experiment must expose a visible result");
-assert.match(result.textContent, /2 нейронных следа/u,
+assert.match(result.textContent, /Следов памяти активировано по отчёту: 2/u,
   "the result must report activated memory traces");
 assert.match(status.textContent, /Опыт завершён/u);
 
