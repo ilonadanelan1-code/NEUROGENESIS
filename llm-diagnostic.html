@@ -49,6 +49,16 @@ async function request(url,options,timeoutMs){
   return{response,duration,data,body:body.slice(0,500)};
  }finally{clearTimeout(timer);}
 }
+function imageProbe(url,timeoutMs){
+ return new Promise(resolve=>{
+  const image=new Image(),started=performance.now();let finished=false;
+  const timer=setTimeout(()=>finish({ok:false,reason:"тайм-аут "+Math.ceil(timeoutMs/1000)+" с"}),timeoutMs);
+  function finish(result){if(finished)return;finished=true;clearTimeout(timer);image.onload=null;image.onerror=null;resolve({...result,duration:Math.round(performance.now()-started)});}
+  image.onload=()=>finish({ok:true});
+  image.onerror=()=>finish({ok:false,reason:"браузер не загрузил диагностическое изображение"});
+  image.src=url+(url.includes("?")?"&":"?")+"probe="+Date.now();
+ });
+}
 async function run(){
  button.disabled=true;button.textContent="Проверяю…";results.replaceChildren();
  addRow("Источник",location.origin,"");
@@ -74,6 +84,12 @@ async function run(){
   }catch(probeError){
    const probeMessage=probeError&&probeError.name==="AbortError"?"тайм-аут 8 с":String(probeError&&probeError.message||probeError);
    addRow("Worker / · no-cors","даже контрольный запрос не завершился: "+probeMessage+"; проверь браузер, VPN или сетевую фильтрацию.","bad");
+  }
+  const imageResult=await imageProbe(WORKER+"/api/pixel.gif",10000);
+  if(imageResult.ok){
+   addRow("Worker / · изображение","доступен через загрузку ресурса · "+imageResult.duration+" мс; проблема связана с fetch или политикой браузера, а не с DNS/HTTPS.","ok");
+  }else{
+   addRow("Worker / · изображение",imageResult.reason+"; субресурсный запрос тоже не проходит.","bad");
   }
  }
  if(!token){addRow("GET /api/health","не проверен: нет сохранённого ключа","warn");}
