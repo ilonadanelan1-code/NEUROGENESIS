@@ -33,7 +33,7 @@
       const value = clean(text, 500);
       // "What/how about ..." explicitly points back to the topic already in progress.
       if (/^(?:(?:а|и|но)\s+)?(?:что|как)\s+(?:насч[её]т|по\s+поводу)(?=\s|$)/iu.test(value)) return false;
-      const interrogativeLead = /^(?:(?:а|и|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|чье|чьё|есть\s+ли|можно\s+ли|правда\s+ли)(?=\s|$)/iu;
+      const interrogativeLead = /^(?:(?:а|и|но|так|ну)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|чье|чьё|есть\s+ли|можно\s+ли|правда\s+ли)(?=\s|$)/iu;
       if (!value || hasReference(value) ||
           (!/[?？]\s*$/u.test(value) && !interrogativeLead.test(value))) return false;
       const body = value.replace(interrogativeLead, "").trim();
@@ -349,7 +349,7 @@
             ? overlap(opening, thread.title + " " + thread.keywords.join(" ") + " " + thread.lastUserText)
             : 1;
           const independentTopic = !!(opening && tokens(opening).length >= 2 && openingSimilarity < 0.12);
-          const independentQuestion = isStandaloneQuestion(text) && similarity < 0.12;
+          const independentQuestion = isStandaloneQuestion(text);
           if (likelyAnswer) {
             relation = "answer_to_question";
             answerQuestionText = matchedQuestion.text;

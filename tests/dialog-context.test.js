@@ -87,6 +87,25 @@ assert.match(conceptFollowUp.query, /контекст диалога/u);
 assert.doesNotMatch(conceptFollowUp.query, /Сколько часов ты спал/u,
   "the new topic must not inherit the earlier sleep question");
 const octopusQuestion = "Сколько сердец у осьминога?";
+// A shared interrogative word must not merge two different factual questions.
+let countTopic = engine.track(engine.empty(), {
+  role: "user", text: "Сколько часов занимает изучение нового материала?", time: 80
+});
+countTopic = engine.track(countTopic, {
+  role: "assistant", text: "Длительность зависит от сложности материала.", time: 81
+});
+assert.ok(engine.overlap(octopusQuestion,
+  countTopic.threads.find(row => row.id === countTopic.activeThreadId).title) > 0,
+  "the fixture must reproduce a lexical overlap between unrelated questions");
+assert.equal(engine.resolve(countTopic, octopusQuestion).applied, false,
+  "a self-contained factual question must not inherit context just because the old topic shares the word 'сколько'");
+const collisionOctopus = engine.track(countTopic, {
+  role: "user", text: octopusQuestion, time: 82
+});
+assert.notEqual(collisionOctopus.activeThreadId, countTopic.activeThreadId,
+  "a standalone factual question must start a new topic even when one generic word overlaps");
+assert.equal(collisionOctopus.messages[collisionOctopus.messages.length - 1].relation, "new_topic");
+
 assert.equal(engine.resolve(pendingBase, octopusQuestion).applied, false,
   "a short factual question with its own subject must not inherit the previous topic");
 const octopusTopic = engine.track(pendingBase, {
@@ -95,6 +114,16 @@ const octopusTopic = engine.track(pendingBase, {
 assert.notEqual(octopusTopic.activeThreadId, pendingBase.activeThreadId,
   "a standalone octopus question must open a separate topic instead of contaminating memory retrieval");
 assert.equal(octopusTopic.messages[octopusTopic.messages.length - 1].relation, "new_topic");
+const shortOctopusFollowUp = engine.resolve(octopusTopic, "Сколько сердец?");
+assert.equal(shortOctopusFollowUp.applied, true,
+  "a shortened question should inherit the immediately active octopus topic");
+assert.match(shortOctopusFollowUp.query, /Сколько сердец у осьминога/u);
+const discourseFollowUp = engine.resolve(octopusTopic, "Так сколько в итоге?");
+assert.equal(discourseFollowUp.applied, true,
+  "a leading 'так' must be recognised as a contextual follow-up, not a new standalone topic");
+assert.match(discourseFollowUp.query, /Сколько сердец у осьминога/u,
+  "the contextual follow-up must resolve to the octopus question rather than an older topic");
+
 assert.equal(octopusTopic.threads.find(row => row.id === pendingBase.activeThreadId).pendingQuestion.answered, false,
   "the unrelated previous topic's pending question must remain unanswered");
 const octopusQuestionWithoutMark = "Сколько сердец у осьминога";
