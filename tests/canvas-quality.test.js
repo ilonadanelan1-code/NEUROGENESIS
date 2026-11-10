@@ -10,8 +10,12 @@ const phone = api.resolve(390, 844, 3, { maxDpr: 2 });
 assert.equal(phone.dpr, 2, "ordinary phone dimensions should retain a crisp 2x backing scale");
 assert.ok(phone.pixels <= phone.maxPixels);
 
+const compactTablet = api.resolve(800, 600, 3, { maxDpr: 2.25 });
+assert.equal(compactTablet.dpr, 2.25, "compact tablet view should retain the configured high-DPI ceiling");
 const tablet = api.resolve(1024, 768, 2.5, { maxDpr: 2.25 });
-assert.equal(tablet.dpr, 2.25, "tablet scale should retain the configured high-DPI ceiling");
+assert.ok(tablet.limited && tablet.dpr < 2.25 && tablet.dpr > 1.8,
+  "larger tablet buffers should lower density only as much as the memory budget requires");
+assert.ok(tablet.pixels <= 2800000);
 
 for (const [width, height, dpr] of [
   [1440, 900, 2],
