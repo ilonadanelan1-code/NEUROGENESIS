@@ -3226,12 +3226,33 @@
   function scoreMemory(query, item, searchQueries = []) {
     return matchMemory(query, item, searchQueries).score;
   }
-  function buildGraphRecall(query,limit=12) {
+  function buildGraphRecall(query,limit=12,searchQueries=[]) {
     if(!KNOWLEDGE_GRAPH||!KNOWLEDGE)return {queryTokens:[],anchors:[],matches:[]};
     try {
       const engine=KNOWLEDGE_GRAPH.create(KNOWLEDGE);
       const graph=engine.build(memories);
-      return typeof engine.search==="function"?engine.search(graph,query,limit):{queryTokens:[],anchors:[],matches:[]};
+      if(typeof engine.search!=="function")return {queryTokens:[],anchors:[],matches:[]};
+      const queries=[...new Set([query,...(Array.isArray(searchQueries)?searchQueries:[])].map(value=>String(value||"").trim()).filter(Boolean))].slice(0,4);
+      const matches=new Map(),anchors=new Map(),queryTokens=new Set();
+      for(const candidate of queries) {
+        const result=engine.search(graph,candidate,limit);
+        for(const token of result.queryTokens||[])queryTokens.add(token);
+        for(const anchor of result.anchors||[]) {
+          const previous=anchors.get(anchor.id);
+          if(!previous||Number(anchor.score||0)>Number(previous.score||0))anchors.set(anchor.id,anchor);
+        }
+        for(const match of result.matches||[]) {
+          const key=match.claimNodeId||match.claimId||match.memoryId;
+          if(!key)continue;
+          const previous=matches.get(key);
+          if(!previous||Number(match.score||0)>Number(previous.score||0))matches.set(key,match);
+        }
+      }
+      return {
+        queryTokens:[...queryTokens].slice(0,48),
+        anchors:[...anchors.values()].sort((a,b)=>Number(b.score||0)-Number(a.score||0)).slice(0,12),
+        matches:[...matches.values()].sort((a,b)=>Number(b.score||0)-Number(a.score||0)).slice(0,limit)
+      };
     } catch(error) {
       console.warn("Knowledge graph retrieval failed:",error);
       return {queryTokens:[],anchors:[],matches:[]};
@@ -3409,7 +3430,7 @@
     const causalAuditText=causalAudit&&REASONING_AUDIT?REASONING_AUDIT.create(KNOWLEDGE).format(causalAudit):"";
     const causalClaimIds = new Set(causalRecall && causalRecall.claimIds || []);
     const structuredAnswer = KNOWLEDGE ? KNOWLEDGE.answerQuestion(query, allClaims) : null;
-    const graphRecall=buildGraphRecall(query,16);
+    const graphRecall=buildGraphRecall(query,16,semanticSearchQueries);
     const graphByMemory=new Map();
     for(const match of graphRecall.matches||[]) {
       if(!match.memoryId)continue;
