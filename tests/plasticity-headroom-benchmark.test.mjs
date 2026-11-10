@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import createModule from "../dist/neurogenesis.mjs";
 import "../neuro-wasm-adapter.js";
 import "../plasticity-headroom-benchmark.js";
@@ -33,6 +35,25 @@ const runtime = {
 };
 
 const report = globalThis.NGPlasticityHeadroomBenchmark.run({ runtime });
+
+const reportDirectory = process.env.NG_BENCHMARK_REPORT_DIR || "benchmark-reports";
+const reportPath = join(reportDirectory, "plasticity-headroom-v4.json");
+await mkdir(reportDirectory, { recursive: true });
+const reportArtifact = {
+  schemaVersion: 1,
+  generatedAt: new Date().toISOString(),
+  commit: process.env.GITHUB_SHA || null,
+  workflowRunId: process.env.GITHUB_RUN_ID || null,
+  workflowAttempt: process.env.GITHUB_RUN_ATTEMPT || null,
+  benchmark: report.kind,
+  benchmarkVersion: globalThis.NGPlasticityHeadroomBenchmark.version,
+  report
+};
+await writeFile(reportPath, JSON.stringify(reportArtifact, null, 2) + "\\n", "utf8");
+const persistedArtifact = JSON.parse(await readFile(reportPath, "utf8"));
+assert.equal(persistedArtifact.report.kind, report.kind);
+assert.equal(persistedArtifact.report.passed, report.passed);
+console.log("NEUROGENESIS plasticity report artifact saved: " + reportPath);
 console.log("NEUROGENESIS asymmetric plasticity headroom benchmark: " + JSON.stringify({
   passed: report.passed,
   protocol: report.protocol,
