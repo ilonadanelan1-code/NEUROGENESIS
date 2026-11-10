@@ -20,6 +20,9 @@ const oldTopic = {
   ]
 };
 const explicitQuestion = engine.local("Сколько сердец у осьминога?", oldTopic, knowledge);
+const ambiguousHeartCount = engine.local("Сколько сердец?", oldTopic, knowledge);
+assert.equal(ambiguousHeartCount.contextRelation, "follow_up",
+  "a short question without its own named object should be resolved against the active subject");
 assert.equal(explicitQuestion.contextRelation, "new_topic",
   "a fully specified object question must not inherit an unrelated active subject");
 assert.match(explicitQuestion.canonicalQuestion, /осьминога/u);

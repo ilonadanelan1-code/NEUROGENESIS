@@ -3360,10 +3360,10 @@
     }
     const submittedQuery = query;
     const semanticRelation = semanticPlan && semanticPlan.contextRelation || "";
-    const trustedSemanticFollowUp = !!(semanticPlan &&
+    const trustedSemanticDecision = !!(semanticPlan &&
       ["model", "local", "local_fallback"].includes(semanticPlan.source) &&
       Number(semanticPlan.confidence) >= (semanticPlan.source === "model" ? 0.58 : 0.5) &&
-      ["follow_up", "same_topic"].includes(semanticRelation));
+      ["new_topic", "follow_up", "same_topic"].includes(semanticRelation));
     const dialogueResolution = DIALOG_CONTEXT && semanticRelation !== "new_topic"
       ? DIALOG_CONTEXT.resolve(dialogContext, submittedQuery)
       : { applied:false, query:submittedQuery, title:"", reason:semanticRelation === "new_topic" ? "semantic_new_topic" : "dialog_context_unavailable" };
@@ -3376,7 +3376,7 @@
       setFeedback("СМЫСЛОВОЙ РАЗБОР · НУЖНО УТОЧНЕНИЕ");
       return;
     }
-    if (dialoguePlan && dialoguePlan.needsClarification && !trustedSemanticFollowUp) {
+    if (dialoguePlan && dialoguePlan.needsClarification && !trustedSemanticDecision) {
       say("assistant", dialoguePlan.clarification);
       setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
       return;

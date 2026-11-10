@@ -32,8 +32,8 @@ function local(input,context={},knowledge=null){
  const switchTopic=/^(?:другая тема|сменим тему|теперь поговорим о|отдельный вопрос|новая тема|давай о другом)\b/iu.test(query);
  let relation="same_topic";
  if(switchTopic||!active)relation="new_topic";
+ else if(referential||(interrogative&&words.length<=2&&!definitionQuestion&&!namedObject))relation=recent.length?"follow_up":"unclear";
  else if(explicit){const t=[active.title||"",active.contextSummary||"",...recent.map(x=>x.text||"")].join(" ");relation=tokenOverlap(query,t,knowledge)>=0.34?"same_topic":"new_topic";}
- else if(referential||(interrogative&&words.length<=2))relation=recent.length?"follow_up":"unclear";
  else if(interrogative)relation=recent.length?"follow_up":"new_topic";
  const lastUser=[...recent].reverse().find(x=>x.role==="user");
  const resolved=resolution&&resolution.applied&&resolution.context?[...(resolution.context.recentExchange||[])].reverse().find(x=>x.role==="user"):null;
