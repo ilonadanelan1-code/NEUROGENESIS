@@ -9,7 +9,8 @@ const neurons = [
   { id: "b", type: "memory" },
   { id: "c", type: "logic" },
   { id: "d", type: "output" },
-  { id: "e", type: "sensory" }
+  { id: "e", type: "sensory" },
+  { id: "z", type: "sensory" }
 ];
 const synapses = [
   { from: "a", to: "b" },
@@ -33,8 +34,8 @@ assert.equal(unknownSelection, null);
 assert.equal(focus.build([], synapses, "a"), null);
 assert.equal(focus.build(neurons, [], "a").nodeIds.length, 1);
 
-const isolated = focus.build(neurons, synapses, "e");
-assert.deepEqual([...isolated.nodeIds], ["e"]);
+const isolated = focus.build(neurons, synapses, "z");
+assert.deepEqual([...isolated.nodeIds], ["z"]);
 assert.deepEqual([...isolated.edgeKeys], []);
 
 console.log("NEUROGENESIS neuron focus: incoming/outgoing neighborhood, unrelated-edge exclusion, isolated nodes and invalid selections passed.");
