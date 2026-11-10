@@ -424,7 +424,7 @@
   }
 
   function selectiveCleanup(fixture, budget, negativeRate) {
-    const safeBudget = Math.max(0, Math.min(8, Math.floor(Number(budget) || 0)));
+    const safeBudget = Math.max(0, Math.min(12, Math.floor(Number(budget) || 0)));
     const safeNegativeRate = Number.isFinite(negativeRate)
       ? Math.max(0, Math.min(1, negativeRate)) : 1.0;
     const initial = evaluateAll(fixture.brain, fixture);

@@ -35,12 +35,33 @@ The protocol test requires all 30 scenarios, both task orders for each seed/prof
 
 The protocol pass and scientific candidate pass are intentionally separate. A valid experiment remains a successful CI test even when the fixed two-correction policy fails the harder acceptance criteria. Such a failure is retained as a result; the budget and thresholds are not relaxed to make the benchmark green.
 
-## 4. Verified results
+## 4. Verified results — GitHub Actions run #526
 
-The first run (#525) confirmed that the stress seeding drove the false output to saturation, but exposed a measurement flaw: leave-one-route-out probes could not attribute contributions while the output remained at 1.0. The protocol was corrected to probe each seeded route in isolation against a no-input baseline. The two-correction cap was not changed. A fresh full run is pending. The machine-readable artifact is published as neurogenesis-plasticity-three-route-stress-v1.
+**Workflow:** successful validation and GitHub Pages deployment on commit e6d49aa7f8b55b21d7b051f657b5fe1605050637. The 30-scenario report was archived as the neurogenesis-plasticity-three-route-stress-v1 artifact.
+
+| Measure | Result |
+|---|---:|
+| Seeds × task orders × weight profiles | 5 × 2 × 3 = 30 |
+| Scenarios with three positive route contributions | 30/30 |
+| False output above the 0.05 limit before cleanup | 30/30 |
+| False output above the 0.05 limit after cleanup | 30/30 |
+| Combined false-output activation | 1.0 in every scenario |
+| Full retention + transfer acceptance | 0/30 |
+| Headroom checks | 30/30 |
+| Fresh fifth-feature learning | 30/30 |
+| Old mappings retained after fresh learning | 0/30 |
+| Corrections used | 60 total; exactly 2 per scenario |
+| Corrections aimed at one of the three seeded false routes | 60/60 |
+| Brains left undisposed | 0 |
+
+In the equal-medium profile, each seeded cross-route weight rose from 0 to 0.674601. The ranking selected two of the three routes; each selected weight fell to 0.380663, while the third remained at 0.674601. The isolated activation contributions of all three remained above the 0.05 acceptance limit. In ascending and descending profiles, the same qualitative failure persisted: the two-correction cap could not clear the false output.
+
+The initial #525 run correctly revealed output saturation but used an invalid leave-one-out attribution metric. Run #526 replaced that metric with isolated one-route probes against a no-input baseline. The corrected protocol passed; the scientific candidate did not. This distinction is preserved in the JSON artifact.
 
 ## 5. Interpretation boundary and next step
 
-A pass would support only this fixed three-route stress fixture and its tested seeds/profiles. A failure would show that the two-correction policy does not cover this specific multi-route condition; it would not justify silently increasing the cap. Any later proposal to integrate selective correction into a disposable shadow network must be based on the archived evidence and a separate review.
+The failure is not an attribution-ranking miss: all 60 correction episodes targeted one of the three deliberately seeded routes into the false output. The failure is insufficient correction depth. Two total episodes leave one route untouched and also leave corrected links individually strong. The next diagnostic benchmark compares fixed total budgets of 2, 3, 6, and 9 while holding the learning rates, stress weights, and activation limits constant. These larger budgets are experiment-only comparisons; no production correction budget is being adopted or raised.
+
+No production learning rule, application state, or user save data is modified by this research benchmark.
 
 No production learning rule, application state, or user save data is modified by this research benchmark.
