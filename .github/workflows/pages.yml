@@ -48,6 +48,7 @@ jobs:
           node --check experience-benchmark.js
           node --check contrastive-benchmark.js
           node --check compositional-benchmark.js
+          node --check retention-scaling-benchmark.js
           node --check memory.js
           node --input-type=module --check < server/llm-worker.js
 
@@ -87,6 +88,7 @@ jobs:
           node tests/experience-benchmark.test.mjs
           node tests/contrastive-benchmark.test.mjs
           node tests/compositional-benchmark.test.mjs
+          node tests/retention-scaling-benchmark.test.mjs
 
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4
