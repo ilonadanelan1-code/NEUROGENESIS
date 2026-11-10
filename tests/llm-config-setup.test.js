@@ -20,7 +20,7 @@ assert.match(memory, /clientToken:value\.clientToken\.trim\(\)/u,
 assert.match(memory, /localStorage\.setItem\(LLM_CONFIG_KEY, JSON\.stringify\(config\)\)/u,
   "the corrected endpoint must persist for the next launch");
 assert.ok(!html.includes(legacyEndpoint), "the published app must not contain the old incorrect hostname");
-const release = html.match(/DIGITAL ORGANISM · (\\d+\\.\\d+\\.\\d+)/u);
+const release = html.match(/DIGITAL ORGANISM · (\d+\.\d+\.\d+)/u);
 assert.ok(release, "the app must expose a semantic release version");
 const releaseParts = release[1].split(".").map(Number);
 assert.ok(releaseParts[0] > 0 || releaseParts[1] > 58 || (releaseParts[1] === 58 && releaseParts[2] > 49),
