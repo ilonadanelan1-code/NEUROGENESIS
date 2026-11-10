@@ -135,9 +135,90 @@ The current C ABI and adapter do not expose per-brain allocator attribution or a
 
 Wall-clock values are diagnostics from the CI runner, not portable performance guarantees. Compare them only within the same runner/toolchain context.
 
-## 7. Results
+## 7. Measured results
 
-This section is populated only from the actual GitHub Actions output for the commit that runs this benchmark. A green CI job alone is not evidence of retention or scaling success; the benchmark assertions must also pass.
+Measured by GitHub Actions PR run **#42762750247**, validation job **129652076562**, on the Stage 3 PR head. The benchmark's own assertions passed; this is not inferred from the job status alone.
+
+### 7.1 Reward valence
+
+All controls used a 0.4 starting weight and the same delayed trace (**0.42956254**) after visible activity had faded.
+
+| Reward | Weight before | Weight after | Delta | Trace consumed |
+| ---: | ---: | ---: | ---: | --- |
+| +1 | 0.40000001 | 0.50739062 | +0.10739061 | yes |
+| −1 | 0.40000001 | 0.29260936 | −0.10739064 | yes |
+| 0 | 0.40000001 | 0.40000001 | 0 | yes |
+
+### 7.2 Retention and interference
+
+Before additional composition training, all four scenarios passed the baseline: the four primitive mappings and all 11 multi-feature combinations were correct. Mean/minimum correct route weight was **0.43456256**; maximum cross-route weight was **0**.
+
+The unprotected condition intentionally uses scalar positive reward on co-active composition paths without replay. It detected forgetting in both task orders:
+
+| Condition | Cycle | Minimum expected activation across all 11 combinations | Maximum non-target activation | Maximum cross-route weight | Retention |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Unprotected, forward | 1 | 0.80407941 | 0.64762843 | 0.32712278 | failed |
+| Unprotected, forward | 2 | 1.00000000 | 1.00000000 | 0.67396271 | failed |
+| Unprotected, forward | 3 | 1.00000000 | 1.00000000 | 1.00000000 | failed |
+| Unprotected, reverse | 1 | 0.80256623 | 0.82842112 | 0.32712278 | failed |
+| Unprotected, reverse | 2 | 1.00000000 | 1.00000000 | 0.67396271 | failed |
+| Unprotected, reverse | 3 | 1.00000000 | 1.00000000 | 1.00000000 | failed |
+| Protected, forward | 1 | 1.00000000 | 0 | 0 | passed |
+| Protected, forward | 2 | 1.00000000 | 0 | 0 | passed |
+| Protected, forward | 3 | 1.00000000 | 0 | 0 | passed |
+| Protected, reverse | 1 | 1.00000000 | 0 | 0 | passed |
+| Protected, reverse | 2 | 1.00000000 | 0 | 0 | passed |
+| Protected, reverse | 3 | 1.00000000 | 0 | 0 | passed |
+
+Protected runs performed **576 singleton replay episodes each**. After every cycle they passed all four primitive patterns, all three trained union compositions, and all eight still-unseen compositions. They also retained finite bounded weights. Both unprotected runs failed primitive, unseen, and trained-composition response checks; their final maximum cross-route weight reached 1.0.
+
+This supports a narrow conclusion: in this particular graph and task schedule, repeated singleton contrastive rehearsal countered the cross-route interference caused by the scalar reward rule. It is not evidence of a general anti-forgetting algorithm.
+
+### 7.3 Scaling across seeds
+
+All nine independent scenarios passed. Every held-out combination and every stimulation-order permutation was evaluated. The maximum non-target activation and order spread were exactly zero in these deterministic runs.
+
+| Features | Seed | Neurons | Synapses | Training episodes | Held-out combinations | Permutations | Minimum expected activation | Training ms | Held-out inference ms |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 17 | 9 | 20 | 16 | 11 | 60 | 0.43456256 | 0.304 | 1.099 |
+| 4 | 29 | 9 | 20 | 16 | 11 | 60 | 0.43456256 | 0.284 | 1.257 |
+| 4 | 43 | 9 | 20 | 16 | 11 | 60 | 0.43456256 | 0.277 | 1.076 |
+| 5 | 17 | 11 | 30 | 25 | 26 | 320 | 0.54197299 | 0.540 | 6.315 |
+| 5 | 29 | 11 | 30 | 25 | 26 | 320 | 0.54197299 | 0.532 | 6.681 |
+| 5 | 43 | 11 | 30 | 25 | 26 | 320 | 0.54197299 | 0.524 | 6.323 |
+| 6 | 17 | 13 | 42 | 36 | 57 | 1,950 | 0.64983177 | 0.911 | 51.560 |
+| 6 | 29 | 13 | 42 | 36 | 57 | 1,950 | 0.64983177 | 0.922 | 52.301 |
+| 6 | 43 | 13 | 42 | 36 | 57 | 0.64983177 | 1.008 | 44.009 |
+
+For every scenario:
+- maximum non-target activation: **0** (required ≤ 0.05);
+- maximum stimulation-order spread: **0** (required ≤ 0.000001);
+- all primitive mappings remained correct;
+- all weights remained finite and within [0, 1].
+
+The 6-feature inference pass covers 57 held-out combinations and 1,950 permutations per seed. These timings are specific to the GitHub Actions runner and should not be treated as device/mobile performance estimates.
+
+### 7.4 Resource and lifecycle measurements
+
+- WASM binary artifact: **25,477 bytes**.
+- Retention suite: **106.821 ms**.
+- Scaling suite: **178.554 ms**.
+- Disposable brains created: **16**.
+- Disposable brains remaining after the run: **0**.
+- Per-brain memory: **not measurable through the current API**; `perBrainMemoryBytes=null`.
+
+The benchmark therefore reports graph cardinality and wall time, but does not fabricate a RAM figure.
+
+### 7.5 CI interpretation
+
+PR run **#42762750247** completed successfully:
+- Validate application: **success**.
+- C++ core build/tests: **success**.
+- Emscripten setup and WASM build/smoke tests: **success**.
+- Stage 2 compositional regression and Stage 3 retention/scaling assertions: **success**.
+- Existing regression suite: **success**.
+- Deploy job: **skipped**, as expected for a pull-request event. A successful Pages deployment must be checked after merge on `main`.
+
 
 ## 8. Interpretation limits
 
