@@ -32,7 +32,7 @@
     const isStandaloneQuestion = text => {
       const value = clean(text, 500);
       // "What/how about ..." explicitly points back to the topic already in progress.
-      if (/^(?:(?:а|и|но)\s+)?(?:что|как)\s+(?:насч[её]т|по\s+поводу)\b/iu.test(value)) return false;
+      if (/^(?:(?:а|и|но)\s+)?(?:что|как)\s+(?:насч[её]т|по\s+поводу)(?=\s|$)/iu.test(value)) return false;
       const interrogativeLead = /^(?:(?:а|и|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|чье|чьё|есть\s+ли|можно\s+ли|правда\s+ли)(?=\s|$)/iu;
       if (!value || hasReference(value) ||
           (!/[?？]\s*$/u.test(value) && !interrogativeLead.test(value))) return false;
