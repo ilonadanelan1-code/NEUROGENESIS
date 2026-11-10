@@ -74,7 +74,7 @@
     }
 
     const before = measure(xs, ys, minDistance);
-    const separationDistance = minDistance;
+    const separationDistance = minDistance + 2;
     let completedIterations = 0;
     for (let iteration = 0; iteration < iterations; iteration++) {
       const grid = buildGrid(xs, ys, separationDistance);
@@ -107,7 +107,7 @@
         xs[i] += forceX[i] * scale; ys[i] += forceY[i] * scale;
       }
       completedIterations = iteration + 1;
-      if (measure(xs, ys, minDistance).overlaps === 0) break;
+      if (measure(xs, ys, separationDistance).overlaps === 0) break;
     }
 
     const after = measure(xs, ys, minDistance);
