@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const root = globalThis;
   const EDGE_EPSILON = 1e-7;
 
   function finite(value, name) {
