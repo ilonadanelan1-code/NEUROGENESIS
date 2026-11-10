@@ -18,7 +18,7 @@ assert.match(html, /APP_TOKEN[\s\S]*?не ключ OpenRouter[\s\S]*?UPSTREAM_AP
   "the setup UI must distinguish the application token from the provider API key");
 assert.match(memory, /ОШИБКА · " \+ reason/u,
   "the settings panel must show the actual connection error instead of a generic failure label");
-assert.match(memory, /replace\(\/\\\\s\+\/gu, " "\)/u,
+assert.ok(memory.includes('replace(/\\s+/gu, " ").trim()'),
   "connection errors must collapse whitespace before presentation");
 assert.match(worker, /if \(url\.pathname === "\/" && request\.method === "GET"\)/u,
   "the deployed Worker must expose its unauthenticated, non-secret root diagnostic");
