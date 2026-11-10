@@ -114,6 +114,7 @@
 
     const diagnostics = api.wasmDiagnostics();
     if (diagnostics.state !== "ready") {
+      clearResult();
       currentSnapshot = null;
       addOptions(inputSelect, [], "");
       addOptions(positiveSelect, [], "");
