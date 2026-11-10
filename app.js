@@ -35,6 +35,7 @@
   let synapses = [];
   let layoutUndoSnapshot = null;
   let layoutUndoSignature = "";
+  let focusMode = false;
   let selectedId = null;
   let running = false;
   let connectMode = false;
@@ -586,6 +587,7 @@
   function selectNeuron(id) {
     selectedId = id;
     nodesDirty = true;
+    if(focusMode) connectionsDirty = true;
     visualDirty = true;
     renderInspector(); updateMetrics();
     scheduleFrame();
@@ -750,6 +752,10 @@
       const right=left+width/view.zoom+240, bottom=top+height/view.zoom+240;
       const denseGraph = neurons.length > 100 || synapses.length > 320;
       const overview = denseGraph && view.zoom < .62;
+      const focusSnapshot = focusMode && window.NGNeuronFocus
+        ? window.NGNeuronFocus.build(neurons, synapses, selectedId)
+        : null;
+      const focusEdgeKeys = focusSnapshot ? new Set(focusSnapshot.edgeKeys) : null;
       for(let i=0;i<synapses.length;i++){
         const edge=synapses[i],a=getNeuron(edge.from),b=getNeuron(edge.to);
         if(!a||!b) continue;
@@ -763,12 +769,27 @@
         curveByKey.set(key,{a,b,mx,my});
         glowPath.moveTo(a.x,a.y);glowPath.quadraticCurveTo(mx,my,b.x,b.y);
         linePath.moveTo(a.x,a.y);linePath.quadraticCurveTo(mx,my,b.x,b.y);
-        if(selectedId&&(edge.from===selectedId||edge.to===selectedId)){
+        const isFocusEdge = focusEdgeKeys
+          ? focusEdgeKeys.has(key)
+          : !!(selectedId&&(edge.from===selectedId||edge.to===selectedId));
+        if(isFocusEdge){
           focusPath.moveTo(a.x,a.y);focusPath.quadraticCurveTo(mx,my,b.x,b.y);focusEdges++;
         }
       }
       connectionCtx.lineCap="round";connectionCtx.lineJoin="round";
-      if(overview){
+      if(focusEdgeKeys){
+        connectionCtx.strokeStyle="rgba(110,205,221,.035)";
+        connectionCtx.lineWidth=.62/view.zoom;
+        connectionCtx.stroke(linePath);
+        if(focusEdges){
+          connectionCtx.strokeStyle="rgba(48,185,190,.24)";
+          connectionCtx.lineWidth=4/view.zoom;
+          connectionCtx.stroke(focusPath);
+          connectionCtx.strokeStyle="rgba(132,245,226,.96)";
+          connectionCtx.lineWidth=1.55/view.zoom;
+          connectionCtx.stroke(focusPath);
+        }
+      }else if(overview){
         if(synapses.length<1400){
           connectionCtx.strokeStyle="rgba(48,185,190,.035)";
           connectionCtx.lineWidth=1.8/view.zoom;connectionCtx.stroke(glowPath);
@@ -845,14 +866,25 @@
       const left=-view.x/view.zoom-100,top=-view.y/view.zoom-100;
       const right=left+width/view.zoom+200,bottom=top+height/view.zoom+200;
       const compactView=view.zoom<.42||((neurons.length>100||synapses.length>320)&&view.zoom<.68);
+      const focusSnapshot = focusMode && window.NGNeuronFocus
+        ? window.NGNeuronFocus.build(neurons, synapses, selectedId)
+        : null;
+      const focusNodeIds = focusSnapshot ? new Set(focusSnapshot.nodeIds) : null;
       const spriteSize=compactView?96:184,spriteOffset=spriteSize/2;
       nodeCtx.save();nodeCtx.translate(view.x,view.y);nodeCtx.scale(view.zoom,view.zoom);
       for(const neuron of neurons){
         if(neuron.x<left||neuron.x>right||neuron.y<top||neuron.y>bottom) continue;
         const searching=!!searchTerm&&neuron.name.toLowerCase().includes(searchTerm);
-        nodeCtx.globalAlpha=(searchTerm&&!searching)?.16:1;
+        const searchAlpha=(searchTerm&&!searching)?.16:1;
+        const focusAlpha=(focusNodeIds&&!focusNodeIds.has(neuron.id))?.13:1;
+        nodeCtx.globalAlpha=searchAlpha*focusAlpha;
         nodeCtx.drawImage(getNeuronSprite(neuron.type,compactView),
           neuron.x-spriteOffset,neuron.y-spriteOffset,spriteSize,spriteSize);
+        if(focusNodeIds&&focusNodeIds.has(neuron.id)&&neuron.id!==selectedId){
+          nodeCtx.beginPath();nodeCtx.arc(neuron.x,neuron.y,compactView?23:31,0,Math.PI*2);
+          nodeCtx.strokeStyle="rgba(122,226,218,.5)";
+          nodeCtx.lineWidth=1.2/view.zoom;nodeCtx.stroke();
+        }
         if(neuron.id===selectedId||connectFrom===neuron.id){
           nodeCtx.beginPath();nodeCtx.arc(neuron.x,neuron.y,compactView?29:41,0,Math.PI*2);
           nodeCtx.strokeStyle=connectFrom===neuron.id?"rgba(255,207,126,.95)":"rgba(230,255,249,.92)";
@@ -863,11 +895,13 @@
       nodeCtx.restore();
       if(view.zoom>.22||selectedId||searchTerm){
         const crowded=neurons.length>60;
-        const labelTargets=(crowded||view.zoom<=.38)
-          ?neurons.filter(neuron=>neuron.id===selectedId||
-            (searchTerm&&neuron.name.toLowerCase().includes(searchTerm))||
-            connectFrom===neuron.id).slice(0,32)
-          :neurons.slice(0,80);
+        const labelTargets=focusNodeIds
+          ?neurons.filter(neuron=>focusNodeIds.has(neuron.id)).slice(0,32)
+          :(crowded||view.zoom<=.38)
+            ?neurons.filter(neuron=>neuron.id===selectedId||
+              (searchTerm&&neuron.name.toLowerCase().includes(searchTerm))||
+              connectFrom===neuron.id).slice(0,32)
+            :neurons.slice(0,80);
         const occupied=[];nodeCtx.font="10px Inter,system-ui,sans-serif";
         for(const neuron of labelTargets){
           const point=screenAt(neuron);
@@ -1226,6 +1260,17 @@
   $("center-button").addEventListener("click",fitNetwork);
   $("layout-button").addEventListener("click",separateNeuronLayout);
   $("undo-layout-button").addEventListener("click",undoNeuronLayout);
+  $("focus-button").addEventListener("click",()=>{
+    if(!selectedId){showToast("Сначала выбери нейрон");return;}
+    focusMode=!focusMode;
+    const button=$("focus-button");
+    button.setAttribute("aria-pressed",String(focusMode));
+    button.title=focusMode?"Показать всю сеть":"Показать связи выбранного нейрона";
+    button.setAttribute("aria-label",focusMode?"Показать всю сеть":"Показать связи выбранного нейрона");
+    connectionsDirty=true;nodesDirty=true;visualDirty=true;
+    showToast(focusMode?"Фокус: выбранный нейрон и его соседи":"Показана вся сеть");
+    scheduleFrame();
+  });
   $("save-button").addEventListener("click",()=>{saveState();showToast("Сеть сохранена на этом устройстве");});
   $("delete-button").addEventListener("click",()=>{if(selectedId&&confirm("Удалить выбранный нейрон и все его связи?"))removeNeuron(selectedId);});
   $("neuron-name").addEventListener("change",event=>{const n=currentNeuron();if(n){n.name=event.target.value.trim()||"Безымянный нейрон";event.target.value=n.name;nodesDirty=true;markDirty();syncWasmShadow();}});

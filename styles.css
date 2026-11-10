@@ -307,3 +307,7 @@ select.text-input{color-scheme:dark}
 #wasm-learning-state[data-state="ready"]{color:#80e0bc}
 #wasm-learning-state[data-state="loading"]{color:#e6c78b}
 #wasm-learning-state[data-state="error"],#wasm-learning-state[data-state="unavailable"]{color:#e5a7af}
+
+.focus-tool{font-size:16px;color:#9de8d9}
+.focus-tool[aria-pressed="true"]{border-color:rgba(120,240,223,.82);color:#e5fff9;background:linear-gradient(145deg,rgba(29,94,91,.95),rgba(10,42,54,.96));box-shadow:0 0 17px rgba(78,226,210,.2),inset 0 0 0 1px rgba(120,240,223,.12)}
+@media(max-width:640px){.focus-tool{font-size:16px}}

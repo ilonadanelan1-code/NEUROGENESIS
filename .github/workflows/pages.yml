@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check activation.js
           node --check neuron-layout.js
+          node --check neuron-focus.js
           node --check app.js
           node --check knowledge.js
           node --check goals.js
@@ -67,6 +68,9 @@ jobs:
 
       - name: Test collision-aware neuron layout
         run: node tests/neuron-layout.test.mjs
+
+      - name: Test selected-neuron focus mode
+        run: node tests/neuron-focus.test.mjs
 
       - name: Check app assets, DOM references and startup contracts
         run: |
