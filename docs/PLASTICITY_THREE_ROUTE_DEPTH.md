@@ -32,10 +32,24 @@ Across every budget, headroom and fresh fifth-feature learning passed 10/10, but
 
 The corrected response is linear over the three strong routes in this fixture: at nine total corrections the three remaining route weights were each 0.123867, producing a combined false response of 0.371602. This is why the original two-episode policy cannot solve this particular high-strength conflict.
 
-## 4. Verified results — protocol v2 pending
+## 4. Verified results — protocol v2, GitHub Actions run #528
 
-The next comparison fixes the same task and rates and tests total correction budgets 18, 21, and 24 across 30 fresh seed/order scenarios. This is an experiment-only extension, not a production policy change. The artifact is published as neurogenesis-plasticity-three-route-depth-v2.
+The 30-scenario v2 protocol completed successfully with all C++/WASM, previous benchmark, and regression checks passing. Its report was uploaded as neurogenesis-plasticity-three-route-depth-v2.
 
-## 5. Interpretation boundary
+| Total correction budget | Full acceptance | Scenarios above 0.05 | Mean corrections used | Final false-output activation |
+|---:|---:|---:|---:|---:|
+| 18 | 0/10 | 10/10 | 18 | 0.06897666 |
+| 21 | 5/10 | 0/10 | 20.5 | 0 |
+| 24 | 10/10 | 0/10 | 21 | 0 |
+
+At budget 21, all five reverse-order cases passed using 20 corrections; all five forward-order cases stopped at 21 and failed the final old-map-retention check. At budget 24, each forward-order case required 22 updates and each reverse-order case stopped at 20, so all ten passed. In all passing cases the three false-route weights were below the fixed 0.05 limit and the original mappings remained intact after fresh-feature learning. Every scenario retained headroom, passed fifth-feature learning, bounded all weights, and disposed its WASM brain.
+
+The protocol itself passed all 30 scenarios. The combined report's candidate flag remains false because the deliberately insufficient 18- and 21-budget controls are included; the 24-budget candidate passed 10/10.
+
+## 5. Verified results — profile generalization pending
+
+The next comparison tests budgets 22 and 24 on all three pre-registered weight profiles (equal, ascending, descending), with the same five seeds and both task orders: 60 fresh disposable WASM brains. Its purpose is to see whether the observed 22-correction forward / 20-correction reverse requirement generalizes beyond equal-strength routes. No production budget is changed.
+
+## 6. Interpretation boundary
 
 A higher budget is not being adopted merely because it may pass this fixture. The comparison is diagnostic evidence to identify the repeated-update depth required for this deliberately strong conflict. Any future policy change must also pass mixed-strength and unseen multi-route conditions before any disposable shadow-network proposal.
