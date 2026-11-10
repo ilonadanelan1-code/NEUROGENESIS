@@ -4,11 +4,12 @@
   const root = typeof window !== "undefined" ? window : globalThis;
   const INITIAL_WEIGHT = 0.005;
   const BASE_LEARNING_RATE = 0.25;
-  const COMPOSITION_LEARNING_RATE = 0.25;
-  const POSITIVE_RATE = 0.05;
-  const NEGATIVE_RATE = 0.25;
+  const COMPOSITION_LEARNING_RATE = 0.05;
+  const POSITIVE_RATE = 0.02;
+  const NEGATIVE_RATE = 0.35;
   const LOW_SYMMETRIC_RATE = 0.05;
   const HIGH_SYMMETRIC_RATE = 0.25;
+  const FRESH_ASSOCIATION_SWEEPS = 8;
   const TARGET_MIN_ACTIVATION = 0.15;
   const NON_TARGET_MAX_ACTIVATION = 0.05;
   const MAX_CORRECT_WEIGHT_FOR_HEADROOM = 0.95;
@@ -18,9 +19,10 @@
   const CYCLES = 3;
   const SEEDS = Object.freeze([101, 211]);
   const MODES = Object.freeze([
-    Object.freeze({ id: "symmetric-high", positiveRate: HIGH_SYMMETRIC_RATE, negativeRate: HIGH_SYMMETRIC_RATE, replaySweeps: 3 }),
-    Object.freeze({ id: "symmetric-low", positiveRate: LOW_SYMMETRIC_RATE, negativeRate: LOW_SYMMETRIC_RATE, replaySweeps: 1 }),
-    Object.freeze({ id: "asymmetric", positiveRate: POSITIVE_RATE, negativeRate: NEGATIVE_RATE, replaySweeps: 1 })
+    Object.freeze({ id: "symmetric-high", updateRule: "legacy", positiveRate: HIGH_SYMMETRIC_RATE, negativeRate: HIGH_SYMMETRIC_RATE, replaySweeps: 3 }),
+    Object.freeze({ id: "symmetric-low", updateRule: "legacy", positiveRate: LOW_SYMMETRIC_RATE, negativeRate: LOW_SYMMETRIC_RATE, replaySweeps: 1 }),
+    Object.freeze({ id: "bounded-symmetric", updateRule: "bounded", positiveRate: POSITIVE_RATE, negativeRate: POSITIVE_RATE, replaySweeps: 2 }),
+    Object.freeze({ id: "asymmetric", updateRule: "bounded", positiveRate: POSITIVE_RATE, negativeRate: NEGATIVE_RATE, replaySweeps: 2 })
   ]);
 
   function now() {
@@ -89,7 +91,7 @@
     } catch (error) { brain.dispose(); throw error; }
   }
 
-  function contrastiveEpisode(brain, inputId, positiveId, negativeId, positiveRate, negativeRate) {
+  function contrastiveEpisode(brain, inputId, positiveId, negativeId, positiveRate, negativeRate, updateRule = "bounded") {
     settle(brain);
     if (!brain.stimulate(inputId, 1) || !brain.stimulate(positiveId, 1) ||
         !brain.stimulate(negativeId, 1)) throw new Error("Could not prepare contrastive episode");
@@ -104,8 +106,10 @@
         before.neurons.some(neuron => neuron.activation > EPSILON)) {
       throw new Error("Contrastive episode did not leave traces after activity faded");
     }
-    const changed = brain.learnContrastiveRewardAsymmetric(
-      positiveRate, negativeRate, inputId, positiveId, negativeId);
+    const changed = updateRule === "legacy"
+      ? brain.learnContrastiveReward(positiveRate, inputId, positiveId, negativeId)
+      : brain.learnContrastiveRewardAsymmetric(
+        positiveRate, negativeRate, inputId, positiveId, negativeId);
     const after = brain.snapshot();
     return {
       changed,
@@ -130,7 +134,7 @@
       for (const negative of negatives) {
         contrastiveEpisode(fixture.brain, fixture.inputIds[feature],
           fixture.outputIds[target], fixture.outputIds[negative],
-          BASE_LEARNING_RATE, BASE_LEARNING_RATE);
+          BASE_LEARNING_RATE, BASE_LEARNING_RATE, "legacy");
         episodes++;
       }
     }
@@ -152,7 +156,7 @@
       edge.eligibility > EPSILON
     ).length;
     if (traces < selected) throw new Error("Composition episode produced fewer eligible routes than expected");
-    const changed = brain.learnFromReward(COMPOSITION_LEARNING_RATE, 1, 0);
+    const changed = brain.learnFromRewardHomeostatic(COMPOSITION_LEARNING_RATE, 1, 0);
     const after = brain.snapshot();
     return { changed, traceConsumed: after.synapses.every(edge => edge.eligibility <= EPSILON), selectedRoutes: selected, traces };
   }
@@ -170,7 +174,7 @@
       for (const negative of negatives) {
         const row = contrastiveEpisode(fixture.brain, fixture.inputIds[feature],
           fixture.outputIds[target], fixture.outputIds[negative],
-          mode.positiveRate, mode.negativeRate);
+          mode.positiveRate, mode.negativeRate, mode.updateRule);
         if (!row.traceConsumed || row.positiveWeightDelta < -EPSILON ||
             row.negativeWeightDelta > EPSILON) throw new Error("Replay violated its signed update contract");
         episodes++;
@@ -275,10 +279,10 @@
     const negativeOrder = outputIds.map((_v, i) => i).filter(i => i !== target);
     if (reverseOrder) negativeOrder.reverse();
     let episodes = 0;
-    for (let sweep = 0; sweep < 3; sweep++) {
+    for (let sweep = 0; sweep < FRESH_ASSOCIATION_SWEEPS; sweep++) {
       for (const negative of negativeOrder) {
         const row = contrastiveEpisode(brain, input, outputIds[target], outputIds[negative],
-          mode.positiveRate, mode.negativeRate);
+          mode.positiveRate, mode.negativeRate, mode.updateRule);
         if (!row.traceConsumed) throw new Error("Fresh association reward did not consume eligibility");
         episodes++;
       }
@@ -352,6 +356,8 @@
           replaySweepsPerTask: mode.replaySweeps,
           initialTrainingRate: BASE_LEARNING_RATE,
           compositionLearningRate: COMPOSITION_LEARNING_RATE,
+          compositionUpdateRule: "homeostatic",
+          replayUpdateRule: mode.updateRule,
           targetMinActivation: TARGET_MIN_ACTIVATION,
           nonTargetMaxActivation: NON_TARGET_MAX_ACTIVATION,
           maxCorrectWeightForHeadroom: MAX_CORRECT_WEIGHT_FOR_HEADROOM
@@ -399,13 +405,13 @@
     const asym = scenarios.filter(row => row.mode === "asymmetric");
     const controls = scenarios.filter(row => row.mode !== "asymmetric");
     const checks = {
-      allScenariosCompleted: scenarios.length === 12,
+      allScenariosCompleted: scenarios.length === 16,
       allAsymmetricScenariosRetainOldMappings: asym.length === 4 && asym.every(row => row.retentionPassed),
       allAsymmetricScenariosKeepPlasticityHeadroom: asym.length === 4 && asym.every(row => row.headroomPassed),
       allAsymmetricScenariosLearnFreshAssociation: asym.length === 4 && asym.every(row => row.freshAssociation.passed),
       allOldMappingsSurviveFreshLearning: asym.length === 4 && asym.every(row => row.oldAfterFresh.passed),
       allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded && row.allWeightsBoundedAfterFresh),
-      controlsAreReported: controls.length === 8,
+      controlsAreReported: controls.length === 12,
       noProtectedConditionWasSilentlyOmitted: scenarios.every(row =>
         row.episodes.initialSingleton > 0 && row.episodes.compositions === CYCLES * TASKS.length)
     };
@@ -424,7 +430,9 @@
         targetMinActivation: TARGET_MIN_ACTIVATION,
         nonTargetMaxActivation: NON_TARGET_MAX_ACTIVATION,
         maxCorrectWeightForHeadroom: MAX_CORRECT_WEIGHT_FOR_HEADROOM,
-        freshAssociationSweeps: 3
+        compositionLearningRate: COMPOSITION_LEARNING_RATE,
+        compositionUpdateRule: "homeostatic",
+        freshAssociationSweeps: FRESH_ASSOCIATION_SWEEPS
       },
       checks,
       scenarios,
@@ -434,7 +442,9 @@
         asymmetricFreshLearningPasses: asym.filter(row => row.freshAssociation.passed).length,
         controlRetentionPasses: controls.filter(row => row.retentionPassed).length,
         controlHeadroomPasses: controls.filter(row => row.headroomPassed).length,
-        controlFreshLearningPasses: controls.filter(row => row.freshAssociation.passed).length
+        controlFreshLearningPasses: controls.filter(row => row.freshAssociation.passed).length,
+        boundedSymmetricHeadroomPasses: scenarios.filter(row => row.mode === "bounded-symmetric" && row.headroomPassed).length,
+        boundedSymmetricRetentionPasses: scenarios.filter(row => row.mode === "bounded-symmetric" && row.retentionPassed).length
       },
       createdBrains,
       timingMs: Number((now() - started).toFixed(3))
@@ -442,7 +452,7 @@
   }
 
   root.NGPlasticityHeadroomBenchmark = Object.freeze({
-    version: 1,
+    version: 2,
     run,
     protocol: Object.freeze({
       modes: MODES,
