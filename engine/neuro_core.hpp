@@ -55,6 +55,13 @@ public:
                                            std::uint32_t positive_neuron_id,
                                            std::uint32_t negative_neuron_id);
 
+    // Experimental asymmetric contrastive update for isolated shadow experiments.
+    // Positive and negative paths use independent rates; valid calls consume all traces.
+    std::uint32_t learn_contrastive_reward_asymmetric(
+        float positive_learning_rate, float negative_learning_rate,
+        std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+        std::uint32_t negative_neuron_id);
+
     const std::vector<Neuron>& neurons() const noexcept { return neurons_; }
     const std::vector<Synapse>& synapses() const noexcept { return synapses_; }
     const Neuron* find_neuron(std::uint32_t id) const noexcept;
