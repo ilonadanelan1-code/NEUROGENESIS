@@ -84,6 +84,36 @@ The previous contradictory-label task remains a separate conflict/interference s
 
 Every mode/seed/order case creates a fresh WASM brain. The test wrapper counts all 16 creations and requires all 16 to be disposed. No brain attaches to the live application network. The benchmark does not invoke persistence or import/export.
 
-## Status
+## Verified results — GitHub Actions run #500
 
-Protocol version 4 follows the measured version-3 borderline residual-interference result rather than hiding it. Results are pending the next GitHub Actions run. Do not claim success until native C++ tests, C ABI tests, real WASM adapter tests, float32 parity tests, all existing regressions and every benchmark assertion pass.
+**Status:** passed on the current `main` commit `6bd010e0f110c22669582c047b5816c8ea832b4e` (2026-11-10).
+
+The required workflow completed successfully:
+
+- Native C++ core build and tests: passed.
+- WebAssembly build, adapter tests, and C++/JavaScript numerical parity: passed.
+- Experience, contrastive, four-feature compositional, and retention/scaling benchmarks: passed.
+- Plasticity headroom benchmark v4: passed; its test asserted `report.passed === true`.
+- Full application regression suite: passed.
+- GitHub Pages deployment: passed.
+
+The benchmark report contains 16 independent scenarios: four update modes × two seeds (101 and 211) × forward/reverse task order. The aggregate pass means all 16 scenarios met the benchmark's per-scenario acceptance conditions: old mappings remained functional after the three composition cycles, a fifth feature was trained using the mode's own update rule, old mappings and held-out combinations remained correct after that new learning, and all weights remained finite and in [0, 1].
+
+The four bounded-asymmetric scenarios additionally passed the explicit plasticity-headroom assertions:
+
+- Every correct primitive weight remained at or below 0.95.
+- No correct primitive edge reached the saturation threshold of 0.98.
+- All 11 held-out combinations and 60 stimulation permutations remained within the response limits.
+- The fresh fifth-feature target activated to at least 0.15; every non-target output stayed at or below 0.05.
+- All 11 old held-out combinations still passed after fresh-feature learning.
+
+The CI test prints per-scenario measurements in its job log, but this repository revision does not preserve a machine-readable benchmark report artifact. Therefore this document records the assertions and verified aggregate outcome, not invented per-seed weight values or timing figures. A follow-up engineering task should persist the full JSON report as a CI artifact so later experiments can compare numerical trajectories directly.
+
+[Workflow run #500](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42802629783) · [Verified commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/6bd010e0f110c22669582c047b5816c8ea832b4e)
+
+## Interpretation and next research step
+
+This result supports a narrow engineering conclusion: under this fixed, supervised four-feature task schedule, the bounded asymmetric replay mode preserved the tested mappings, kept room below the weight ceiling, learned one additional feature, and retained earlier responses afterward. It does **not** establish general lifelong learning, open-ended autonomy, language understanding, relational reasoning, or human-like memory.
+
+The immediate next task is to make the evidence easier to inspect and harder to lose: persist the complete benchmark JSON as a CI artifact, then use those recorded measurements to design a lower-cost retention strategy. Do not switch the production JavaScript network to the experimental update rule until there is a separate integration decision and regression evidence.
+
