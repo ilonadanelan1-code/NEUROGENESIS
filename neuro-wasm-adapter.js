@@ -342,7 +342,9 @@
             const negative = sourceToCore.get(String(negativeSourceId));
             if (input == null || positive == null || negative == null) return 0;
             return coreBrain.learnContrastiveRewardAsymmetric(
-              positiveLearningRate, negativeLearningRate, input, positive, negative);
+              finite(positiveLearningRate, "positiveLearningRate"),
+              finite(negativeLearningRate, "negativeLearningRate"),
+              input, positive, negative);
           },
           snapshot() {
             const state = coreBrain.snapshot();
