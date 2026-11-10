@@ -211,6 +211,94 @@ int main() {
             contrastive_brain.synapses()[1].weight == 0.0f,
             "contrastive updates must clamp both potentiation and weakening to the valid range");
 
+    Brain asymmetric_brain;
+    const auto asymmetric_input = asymmetric_brain.add_neuron(
+        "asymmetric-input", NeuronKind::Sensory, 0, 0, 1);
+    const auto asymmetric_positive = asymmetric_brain.add_neuron(
+        "asymmetric-positive", NeuronKind::Output, 1, 0, 1);
+    const auto asymmetric_negative = asymmetric_brain.add_neuron(
+        "asymmetric-negative", NeuronKind::Output, 1, 1, 1);
+    const auto asymmetric_unassigned = asymmetric_brain.add_neuron(
+        "asymmetric-unassigned", NeuronKind::Output, 1, 2, 1);
+    require(asymmetric_brain.add_synapse(asymmetric_input, asymmetric_positive, 0.5f) &&
+            asymmetric_brain.add_synapse(asymmetric_input, asymmetric_negative, 0.4f) &&
+            asymmetric_brain.add_synapse(asymmetric_input, asymmetric_unassigned, 0.3f),
+            "asymmetric fixture must create selected and unassigned routes");
+    require(asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_positive, 0.8f) &&
+            asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_negative, 0.6f) &&
+            asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_unassigned, 0.7f),
+            "asymmetric fixture must assign independent eligibility traces");
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                0.25f, 0.5f, asymmetric_input, asymmetric_positive, asymmetric_negative) == 2,
+            "asymmetric update must independently apply positive and negative rates");
+    require(std::abs(asymmetric_brain.synapses()[0].weight - 0.7f) < 1.0e-5f &&
+            std::abs(asymmetric_brain.synapses()[1].weight - 0.1f) < 1.0e-5f &&
+            std::abs(asymmetric_brain.synapses()[2].weight - 0.3f) < 1.0e-5f,
+            "asymmetric rates must affect only their selected routes with the correct magnitude");
+    require(std::all_of(asymmetric_brain.synapses().begin(), asymmetric_brain.synapses().end(),
+                        [](const auto& edge) { return edge.eligibility == 0.0f; }),
+            "valid asymmetric reward must consume selected and unrelated traces");
+
+    require(asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_positive, 0.4f),
+            "asymmetric invalid-argument fixture must restore a trace");
+    const float asymmetric_invalid_trace = asymmetric_brain.synapses()[0].eligibility;
+    const float asymmetric_invalid_weight = asymmetric_brain.synapses()[0].weight;
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                nan, 0.5f, asymmetric_input, asymmetric_positive, asymmetric_negative) == 0 &&
+            asymmetric_brain.synapses()[0].eligibility == asymmetric_invalid_trace &&
+            asymmetric_brain.synapses()[0].weight == asymmetric_invalid_weight,
+            "non-finite positive rate must reject atomically without consuming traces");
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                0.25f, infinity, asymmetric_input, asymmetric_positive, asymmetric_negative) == 0 &&
+            asymmetric_brain.synapses()[0].eligibility == asymmetric_invalid_trace,
+            "non-finite negative rate must reject atomically without consuming traces");
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                0.25f, 0.5f, asymmetric_input, asymmetric_positive, 999999) == 0 &&
+            asymmetric_brain.synapses()[0].eligibility == asymmetric_invalid_trace,
+            "unknown asymmetric target IDs must be rejected without mutation");
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                0.25f, 0.5f, asymmetric_input, asymmetric_positive, asymmetric_positive) == 0 &&
+            asymmetric_brain.synapses()[0].eligibility == asymmetric_invalid_trace,
+            "identical asymmetric target IDs must be rejected without mutation");
+
+    Brain legacy_symmetric_brain;
+    Brain equal_rate_brain;
+    const auto legacy_input = legacy_symmetric_brain.add_neuron("input", NeuronKind::Sensory, 0, 0, 1);
+    const auto legacy_positive = legacy_symmetric_brain.add_neuron("positive", NeuronKind::Output, 0, 0, 1);
+    const auto legacy_negative = legacy_symmetric_brain.add_neuron("negative", NeuronKind::Output, 0, 0, 1);
+    const auto equal_input = equal_rate_brain.add_neuron("input", NeuronKind::Sensory, 0, 0, 1);
+    const auto equal_positive = equal_rate_brain.add_neuron("positive", NeuronKind::Output, 0, 0, 1);
+    const auto equal_negative = equal_rate_brain.add_neuron("negative", NeuronKind::Output, 0, 0, 1);
+    require(legacy_symmetric_brain.add_synapse(legacy_input, legacy_positive, 0.45f) &&
+            legacy_symmetric_brain.add_synapse(legacy_input, legacy_negative, 0.35f) &&
+            equal_rate_brain.add_synapse(equal_input, equal_positive, 0.45f) &&
+            equal_rate_brain.add_synapse(equal_input, equal_negative, 0.35f),
+            "symmetric compatibility fixtures must create matching routes");
+    require(legacy_symmetric_brain.set_synapse_eligibility(legacy_input, legacy_positive, 0.65f) &&
+            legacy_symmetric_brain.set_synapse_eligibility(legacy_input, legacy_negative, 0.55f) &&
+            equal_rate_brain.set_synapse_eligibility(equal_input, equal_positive, 0.65f) &&
+            equal_rate_brain.set_synapse_eligibility(equal_input, equal_negative, 0.55f),
+            "symmetric compatibility fixtures must have identical traces");
+    const auto legacy_changed = legacy_symmetric_brain.learn_contrastive_reward(
+        0.3f, legacy_input, legacy_positive, legacy_negative);
+    const auto equal_changed = equal_rate_brain.learn_contrastive_reward_asymmetric(
+        0.3f, 0.3f, equal_input, equal_positive, equal_negative);
+    require(legacy_changed == equal_changed &&
+            legacy_symmetric_brain.synapses()[0].weight == equal_rate_brain.synapses()[0].weight &&
+            legacy_symmetric_brain.synapses()[1].weight == equal_rate_brain.synapses()[1].weight,
+            "equal asymmetric rates must preserve the legacy symmetric method exactly");
+
+    require(asymmetric_brain.set_synapse_weight(asymmetric_input, asymmetric_positive, 0.98f) &&
+            asymmetric_brain.set_synapse_weight(asymmetric_input, asymmetric_negative, 0.02f) &&
+            asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_positive, 1.0f) &&
+            asymmetric_brain.set_synapse_eligibility(asymmetric_input, asymmetric_negative, 1.0f),
+            "asymmetric boundary fixture must restore near-limit weights and full traces");
+    require(asymmetric_brain.learn_contrastive_reward_asymmetric(
+                5.0f, 5.0f, asymmetric_input, asymmetric_positive, asymmetric_negative) == 2 &&
+            asymmetric_brain.synapses()[0].weight == 1.0f &&
+            asymmetric_brain.synapses()[1].weight == 0.0f,
+            "asymmetric rates must clamp to [0,1] and weights must stay within [0,1]");
+
     ng_brain_handle* api_brain = ng_brain_create();
     require(api_brain != nullptr, "C ABI must allocate an independent brain handle");
 
