@@ -245,30 +245,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Run four-route cleanup depth benchmark
-        run: node tests/plasticity-four-route-depth-benchmark.test.mjs
-
-      - name: Upload four-route cleanup depth report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: neurogenesis-plasticity-four-route-depth-v1
-          path: benchmark-reports/plasticity-four-route-depth-v1.json
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Run five-route cleanup depth benchmark v4
-        run: node tests/plasticity-five-route-depth-benchmark.test.mjs
-
-      - name: Upload five-route cleanup depth v4 report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: neurogenesis-plasticity-five-route-depth-v4
-          path: benchmark-reports/plasticity-five-route-depth-v4.json
-          if-no-files-found: warn
-          retention-days: 30
-
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4
         with:
