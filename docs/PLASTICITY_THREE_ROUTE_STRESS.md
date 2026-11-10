@@ -29,7 +29,7 @@ The acceptance limits are unchanged: expected activation at least 0.15, non-targ
 
 ## 3. Attribution and safeguards
 
-The report stores each route's pre-cleanup weight, weight increment, full false-output activation, activation with that route omitted, and marginal contribution. It also stores post-cleanup route evidence, correction targets, held-out retention, headroom, fresh-feature learning, and old-map retention after fresh learning.
+The report stores each route's pre-cleanup weight, weight increment, isolated single-input activation above the no-input baseline, and the combined three-input false-output activation. The isolated probe avoids a false zero-contribution reading when the combined output saturates at 1.0. It also stores post-cleanup route evidence, correction targets, held-out retention, headroom, fresh-feature learning, and old-map retention after fresh learning.
 
 The protocol test requires all 30 scenarios, both task orders for each seed/profile, exactly three distinct seeded routes, positive measured contribution from all three routes, a false output not belonging to the mapping, no more than two cleanup episodes, single-edge-only corrections, consumed eligibility traces, bounded weights, and disposal of every brain.
 
@@ -37,7 +37,7 @@ The protocol pass and scientific candidate pass are intentionally separate. A va
 
 ## 4. Verified results
 
-Pending the first complete GitHub Actions run. The machine-readable artifact is published as neurogenesis-plasticity-three-route-stress-v1.
+The first run (#525) confirmed that the stress seeding drove the false output to saturation, but exposed a measurement flaw: leave-one-route-out probes could not attribute contributions while the output remained at 1.0. The protocol was corrected to probe each seeded route in isolation against a no-input baseline. The two-correction cap was not changed. A fresh full run is pending. The machine-readable artifact is published as neurogenesis-plasticity-three-route-stress-v1.
 
 ## 5. Interpretation boundary and next step
 

@@ -281,18 +281,18 @@
 
   function measureCompetingRoutes(brain, fixture, featureIndices, outputIndex) {
     const activation = evaluateOutputActivation(brain, fixture, featureIndices, outputIndex);
+    const baselineActivation = evaluateOutputActivation(brain, fixture, [], outputIndex);
     const snapshot = brain.snapshot();
     const routes = featureIndices.map(featureIndex => {
-      const without = featureIndices.filter(index => index !== featureIndex);
-      const activationWithoutRoute = evaluateOutputActivation(brain, fixture, without, outputIndex);
+      const isolatedActivation = evaluateOutputActivation(brain, fixture, [featureIndex], outputIndex);
       const edge = snapshot.synapses.find(row =>
         row.from === fixture.inputIds[featureIndex] && row.to === fixture.outputIds[outputIndex]);
-      const marginalActivation = activation - activationWithoutRoute;
+      const marginalActivation = isolatedActivation - baselineActivation;
       return {
         feature: fixture.featureNames[featureIndex],
         featureIndex,
         weight: edge ? edge.weight : null,
-        activationWithoutRoute,
+        isolatedActivation,
         marginalActivation,
         contributes: Number.isFinite(marginalActivation) && marginalActivation > EPSILON
       };
@@ -301,6 +301,7 @@
       output: fixture.outputNames[outputIndex],
       outputIndex,
       activation,
+      baselineActivation,
       routeCount: routes.filter(row => row.contributes).length,
       routes
     };
