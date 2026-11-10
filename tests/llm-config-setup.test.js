@@ -57,5 +57,11 @@ assert.match(diagnostic, /mode:"no-cors"/u,
   "the diagnostic page must distinguish browser network reachability from CORS response access");
 assert.match(diagnostic, /проверка Authorization может зависать на CORS preflight/u,
   "the diagnostic page must report authenticated preflight failures precisely");
+assert.match(diagnostic, /function imageProbe\(url,timeoutMs\)/u,
+  "the diagnostic page must include a browser image-load probe independent of fetch and CORS");
+assert.match(diagnostic, /api\/pixel\.gif/u,
+  "the diagnostic page must exercise the Worker image transport endpoint");
+assert.match(diagnostic, /Worker \/ · изображение/u,
+  "the diagnostic page must report the result of the independent image probe");
 
 console.log("NEUROGENESIS LLM setup contracts: known Worker endpoint, distinct secrets, specific errors and automatic Worker deployment passed.");
