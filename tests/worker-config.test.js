@@ -8,6 +8,8 @@ const deploy = fs.readFileSync(".github/workflows/deploy-worker.yml", "utf8");
 
 assert.match(config, /^main\s*=\s*"server\/llm-worker\.js"\s*$/mu,
   "Wrangler must deploy the Worker entry point tested by CI");
+assert.match(config, /^workers_dev\s*=\s*true\s*$/mu,
+  "The production Worker must explicitly keep its workers.dev route enabled");
 assert.match(config, /^\[vars\]\s*$/mu,
   "Wrangler must declare its non-secret production variables");
 
@@ -42,9 +44,9 @@ assert.match(deploy, /apiToken:\s*\$\{\{\s*secrets\.CLOUDFLARE_API_TOKEN\s*\}\}/
 assert.match(deploy, /accountId:\s*\$\{\{\s*secrets\.CLOUDFLARE_ACCOUNT_ID\s*\}\}/u,
   "the Cloudflare account ID must be supplied through GitHub Secrets");
 assert.match(deploy, /command:\s*deploy/u,
-  "the manual workflow must deploy the exact Wrangler project");
+  "the manual Worker workflow must deploy the exact Wrangler project");
 
 console.log(
-  "NEUROGENESIS Worker configuration contracts: entry point, three public variables, " +
-  "two isolated secrets and manual production deployment passed."
+  "NEUROGENESIS Worker configuration contracts: entry point, enabled workers.dev route, " +
+  "three public variables, two isolated secrets and manual production deployment passed."
 );

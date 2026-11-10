@@ -1,6 +1,7 @@
 name = "neurogenesis-llm-proxy"
 main = "server/llm-worker.js"
 compatibility_date = "2026-11-09"
+workers_dev = true
 
 [vars]
 APP_ORIGIN = "https://ilonadanelan1-code.github.io"
