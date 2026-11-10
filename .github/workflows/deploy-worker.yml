@@ -26,3 +26,20 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
+
+      - name: Verify public workers.dev endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
+            "https://neurogenesis-llm-proxy.ilonadanel1.workers.dev/")"
+          node -e '
+            let data;
+            try { data = JSON.parse(process.argv[1]); }
+            catch { throw new Error("Worker root endpoint did not return valid JSON"); }
+            if (data.ok !== true || data.service !== "NEUROGENESIS LLM proxy") {
+              throw new Error("Unexpected Worker health payload: " + JSON.stringify(data));
+            }
+            console.log("Public Worker DNS and HTTP endpoint are reachable.");
+          ' "$response"
