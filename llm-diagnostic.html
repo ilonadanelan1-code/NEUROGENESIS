@@ -62,6 +62,13 @@ function imageProbe(url,timeoutMs){
 async function run(){
  button.disabled=true;button.textContent="Проверяю…";results.replaceChildren();
  addRow("Источник",location.origin,"");
+ try{
+  const sameOrigin=await request(location.href,{method:"GET"},7000);
+  addRow("GitHub Pages · same-origin fetch",sameOrigin.response.ok?"HTTP "+sameOrigin.response.status+" · работает · "+sameOrigin.duration+" мс":"HTTP "+sameOrigin.response.status+" · неожиданный ответ","ok");
+ }catch(error){
+  const message=error&&error.name==="AbortError"?"тайм-аут 7 с":String(error&&error.message||error);
+  addRow("GitHub Pages · same-origin fetch","не работает: "+message,"bad");
+ }
  const config=readConfig();
  const savedEndpoint=config&&typeof config.endpoint==="string"?config.endpoint.trim().replace(/\/+$/u,""):"";
  const token=config&&typeof config.clientToken==="string"?config.clientToken.trim():"";
