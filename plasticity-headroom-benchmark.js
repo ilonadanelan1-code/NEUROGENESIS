@@ -68,18 +68,42 @@
     Object.freeze({ id: "ABCD-dense-union", features: Object.freeze([0, 1, 2, 3]) })
   ]);
 
+  function buildDimensions(specification = {}) {
+    const featureCount = Number.isInteger(specification.featureCount)
+      ? specification.featureCount : FEATURE_COUNT;
+    const outputCount = Number.isInteger(specification.outputCount)
+      ? specification.outputCount : featureCount + 1;
+    if (featureCount < FEATURE_COUNT || featureCount > 5 || outputCount !== featureCount + 1) {
+      throw new TypeError("Plasticity benchmark dimensions must use four or five features and exactly one spare output");
+    }
+    const features = Array.from({ length: featureCount }, (_value, index) => index);
+    const heldOut = Array.from({ length: featureCount - 1 }, (_value, index) => index + 2)
+      .flatMap(size => combinations(features, size));
+    const tasks = featureCount === 4 ? TASKS : Object.freeze([
+      Object.freeze({ id: "AB-union", features: Object.freeze([0, 1]) }),
+      Object.freeze({ id: "CDE-union", features: Object.freeze([2, 3, 4]) }),
+      Object.freeze({ id: "ABCDE-dense-union", features: Object.freeze([0, 1, 2, 3, 4]) })
+    ]);
+    const maxCleanupBudget = Number.isInteger(specification.maxCleanupBudget)
+      ? specification.maxCleanupBudget : (featureCount === 4 ? 36 : 48);
+    if (maxCleanupBudget < 1 || maxCleanupBudget > 60) {
+      throw new TypeError("Diagnostic cleanup budget must be between 1 and 60 episodes");
+    }
+    return Object.freeze({ featureCount, outputCount, heldOut, tasks, maxCleanupBudget });
+  }
+
   function settle(brain) {
     for (let i = 0; i < 12; i++) brain.step(0.25, 0);
     brain.resetEligibility();
   }
-  function createFixture(runtime, seed) {
+  function createFixture(runtime, seed, dimensions) {
     const brain = runtime.createBrain();
     try {
       const rng = createRng(seed);
-      const outputs = shuffle(Array.from({ length: OUTPUT_COUNT }, (_v, i) => i), rng);
-      const mapping = outputs.slice(0, FEATURE_COUNT);
-      const featureNames = Array.from({ length: FEATURE_COUNT }, (_v, i) => "F" + (i + 1));
-      const outputNames = Array.from({ length: OUTPUT_COUNT }, (_v, i) => "O" + (i + 1));
+      const outputs = shuffle(Array.from({ length: dimensions.outputCount }, (_v, i) => i), rng);
+      const mapping = outputs.slice(0, dimensions.featureCount);
+      const featureNames = Array.from({ length: dimensions.featureCount }, (_v, i) => "F" + (i + 1));
+      const outputNames = Array.from({ length: dimensions.outputCount }, (_v, i) => "O" + (i + 1));
       const inputIds = featureNames.map((name, i) =>
         brain.addNeuron("headroom-feature-" + name, "sensory", 0, i, 1));
       const outputIds = outputNames.map((name, i) =>
@@ -87,7 +111,14 @@
       for (const input of inputIds) for (const output of outputIds) {
         if (!brain.addSynapse(input, output, INITIAL_WEIGHT)) throw new Error("Could not build complete headroom graph");
       }
-      return { brain, inputIds, outputIds, mapping, featureNames, outputNames, seed };
+      return {
+        brain, inputIds, outputIds, mapping, featureNames, outputNames, seed,
+        featureCount: dimensions.featureCount,
+        outputCount: dimensions.outputCount,
+        heldOut: dimensions.heldOut,
+        tasks: dimensions.tasks,
+        maxCleanupBudget: dimensions.maxCleanupBudget
+      };
     } catch (error) { brain.dispose(); throw error; }
   }
 
@@ -123,7 +154,7 @@
 
   function trainInitialMappings(fixture, seed, reverseOrder) {
     const rng = createRng((seed ^ 0x31415926) >>> 0);
-    let features = shuffle(Array.from({ length: FEATURE_COUNT }, (_v, i) => i), rng);
+    let features = shuffle(Array.from({ length: fixture.featureCount }, (_v, i) => i), rng);
     if (reverseOrder) features.reverse();
     let episodes = 0;
     for (const feature of features) {
@@ -163,7 +194,7 @@
 
   function replaySweep(fixture, seed, reverseOrder, mode) {
     const rng = createRng(seed >>> 0);
-    let features = shuffle(Array.from({ length: FEATURE_COUNT }, (_v, i) => i), rng);
+    let features = shuffle(Array.from({ length: fixture.featureCount }, (_v, i) => i), rng);
     if (reverseOrder) features.reverse();
     let episodes = 0;
     for (const feature of features) {
@@ -223,9 +254,9 @@
     };
   }
   function evaluateAll(brain, fixture) {
-    const singleton = Array.from({ length: FEATURE_COUNT }, (_v, i) => [i])
+    const singleton = Array.from({ length: fixture.featureCount }, (_v, i) => [i])
       .map(pattern => evaluatePattern(brain, fixture, pattern));
-    const heldOut = HELD_OUT.map(pattern => evaluatePattern(brain, fixture, pattern));
+    const heldOut = fixture.heldOut.map(pattern => evaluatePattern(brain, fixture, pattern));
     return {
       singletonPatterns: singleton.length,
       heldOutPatterns: heldOut.length,
@@ -242,8 +273,8 @@
     const snapshot = fixture.brain.snapshot();
     const correct = [];
     const cross = [];
-    for (let feature = 0; feature < FEATURE_COUNT; feature++) {
-      for (let output = 0; output < OUTPUT_COUNT; output++) {
+    for (let feature = 0; feature < fixture.featureCount; feature++) {
+      for (let output = 0; output < fixture.outputCount; output++) {
         const edge = snapshot.synapses.find(row =>
           row.from === fixture.inputIds[feature] && row.to === fixture.outputIds[output]);
         if (!edge) continue;
@@ -311,13 +342,13 @@
     const featureIndices = Array.isArray(specification.featureIndices)
       ? specification.featureIndices.slice() : [0, 1, 2];
     if (featureIndices.length < 3 || new Set(featureIndices).size !== featureIndices.length ||
-        featureIndices.some(index => !Number.isInteger(index) || index < 0 || index >= FEATURE_COUNT)) {
+        featureIndices.some(index => !Number.isInteger(index) || index < 0 || index >= fixture.featureCount)) {
       throw new TypeError("A multi-route stress fixture requires at least three distinct valid feature indices");
     }
     const outputIndex = Number.isInteger(specification.outputIndex)
       ? specification.outputIndex
       : fixture.outputIds.findIndex((_id, index) => !fixture.mapping.includes(index));
-    if (outputIndex < 0 || outputIndex >= OUTPUT_COUNT || fixture.mapping.includes(outputIndex)) {
+    if (outputIndex < 0 || outputIndex >= fixture.outputCount || fixture.mapping.includes(outputIndex)) {
       throw new TypeError("The stress output must be an unused false output");
     }
     const episodesPerRoute = Array.isArray(specification.boostEpisodes)
@@ -379,6 +410,7 @@
       positiveRate,
       routes,
       evidence,
+      allSeededRoutesContribute: evidence.routeCount === featureIndices.length,
       allThreeRoutesContribute: evidence.routeCount >= 3
     };
   }
@@ -386,14 +418,14 @@
   function leakageCandidates(fixture) {
     const { brain, inputIds, outputIds, mapping } = fixture;
     const scores = new Map();
-    for (const pattern of HELD_OUT) {
+    for (const pattern of fixture.heldOut) {
       const expected = new Set(pattern.map(index => mapping[index]));
       for (const order of permutations(pattern)) {
         settle(brain);
         for (const index of order) brain.stimulate(inputIds[index], 1);
         brain.step(0.1, 0);
         const snapshot = brain.snapshot();
-        for (let outputIndex = 0; outputIndex < OUTPUT_COUNT; outputIndex++) {
+        for (let outputIndex = 0; outputIndex < fixture.outputCount; outputIndex++) {
           if (expected.has(outputIndex)) continue;
           const output = snapshot.neurons.find(neuron => neuron.id === outputIds[outputIndex]);
           const activation = output ? output.activation : NaN;
@@ -424,7 +456,7 @@
   }
 
   function selectiveCleanup(fixture, budget, negativeRate) {
-    const safeBudget = Math.max(0, Math.min(36, Math.floor(Number(budget) || 0)));
+    const safeBudget = Math.max(0, Math.min(fixture.maxCleanupBudget, Math.floor(Number(budget) || 0)));
     const safeNegativeRate = Number.isFinite(negativeRate)
       ? Math.max(0, Math.min(1, negativeRate)) : 1.0;
     const initial = evaluateAll(fixture.brain, fixture);
@@ -495,7 +527,7 @@
 
   function trainFreshAssociation(fixture, mode, reverseOrder) {
     const { brain, outputIds, outputNames } = fixture;
-    const input = brain.addNeuron("headroom-fresh-feature", "sensory", 0, FEATURE_COUNT, 1);
+    const input = brain.addNeuron("headroom-fresh-feature", "sensory", 0, fixture.featureCount, 1);
     for (const output of outputIds) {
       if (!brain.addSynapse(input, output, INITIAL_WEIGHT)) throw new Error("Could not add fresh feature routes");
     }
@@ -530,15 +562,15 @@
     };
   }
 
-  function runScenario(runtime, mode, seed, reverseOrder, scenarioOptions = {}) {
-    const fixture = createFixture(runtime, seed);
+  function runScenario(runtime, mode, seed, reverseOrder, scenarioOptions = {}, dimensions = buildDimensions()) {
+    const fixture = createFixture(runtime, seed, dimensions);
     const started = now();
     const { brain, mapping, featureNames, outputNames } = fixture;
     try {
       const initialEpisodes = trainInitialMappings(fixture, seed, reverseOrder);
       const baseline = evaluateAll(brain, fixture);
       if (!baseline.passed) throw new Error("Initial single-feature map failed before retention stress");
-      const tasks = reverseOrder ? TASKS.slice().reverse() : TASKS.slice();
+      const tasks = reverseOrder ? fixture.tasks.slice().reverse() : fixture.tasks.slice();
       const history = [];
       let compositionEpisodes = 0;
       let replayEpisodes = 0;
@@ -585,7 +617,7 @@
         mapping: Object.fromEntries(featureNames.map((name, i) => [name, outputNames[mapping[i]]])),
         protocol: {
           cycles: CYCLES,
-          tasksPerCycle: TASKS.map(task => task.id),
+          tasksPerCycle: fixture.tasks.map(task => task.id),
           positiveLearningRate: mode.positiveRate,
           negativeLearningRate: mode.negativeRate,
           replaySweepsPerTask: mode.replaySweeps,
@@ -630,6 +662,7 @@
     if (!runtime || typeof runtime.createBrain !== "function") {
       throw new TypeError("A ready NEUROGENESIS WASM runtime is required");
     }
+    const dimensions = buildDimensions(options.scenarioOptions && options.scenarioOptions.dimensions || {});
     const modes = Array.isArray(options.modes) ? options.modes : MODES;
     const seeds = Array.isArray(options.seeds) ? options.seeds : SEEDS;
     const targetModeId = typeof options.targetModeId === "string" && options.targetModeId
@@ -653,7 +686,7 @@
     for (const mode of modes) {
       for (const seed of seeds) {
         for (const reverseOrder of [false, true]) {
-          scenarios.push(runScenario(runtime, mode, seed, reverseOrder, options.scenarioOptions || {}));
+          scenarios.push(runScenario(runtime, mode, seed, reverseOrder, options.scenarioOptions || {}, dimensions));
           createdBrains++;
         }
       }
@@ -674,7 +707,7 @@
       allWeightsBounded: scenarios.every(row => row.weights.allWeightsBounded && row.allWeightsBoundedAfterFresh),
       controlsAreReported: controls.length === expectedCount - target.length,
       noProtectedConditionWasSilentlyOmitted: scenarios.every(row =>
-        row.episodes.initialSingleton > 0 && row.episodes.compositions === CYCLES * TASKS.length)
+        row.episodes.initialSingleton > 0 && row.episodes.compositions === CYCLES * dimensions.tasks.length)
     };
     const passed = Object.values(checks).every(Boolean);
     return {
@@ -682,10 +715,10 @@
       passed,
       targetModeId,
       protocol: {
-        featureCount: FEATURE_COUNT,
-        outputCount: OUTPUT_COUNT,
-        heldOutCombinationCount: HELD_OUT.length,
-        heldOutPermutationCount: HELD_OUT.reduce((sum, pattern) => sum + permutations(pattern).length, 0),
+        featureCount: dimensions.featureCount,
+        outputCount: dimensions.outputCount,
+        heldOutCombinationCount: dimensions.heldOut.length,
+        heldOutPermutationCount: dimensions.heldOut.reduce((sum, pattern) => sum + permutations(pattern).length, 0),
         cycles: CYCLES,
         seeds: seeds.slice(),
         modes: modes.map(mode => ({ ...mode })),
@@ -695,6 +728,7 @@
         compositionLearningRate: COMPOSITION_LEARNING_RATE,
         compositionUpdateRule: "homeostatic",
         freshAssociationSweeps: FRESH_ASSOCIATION_SWEEPS,
+        maxDiagnosticCleanupBudget: dimensions.maxCleanupBudget,
         scenarioOptions: options.scenarioOptions || null
       },
       checks,
