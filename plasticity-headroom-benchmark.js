@@ -243,8 +243,26 @@
       const values = rows.map(row => row.responses[name]);
       return Math.max(...values) - Math.min(...values);
     });
+    const unexpectedNames = fixture.outputNames.filter(name => !expected.includes(name));
+    let worstUnexpected = null;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      for (const name of unexpectedNames) {
+        const activation = rows[rowIndex].responses[name];
+        if (!Number.isFinite(activation)) continue;
+        if (!worstUnexpected || activation > worstUnexpected.activation) {
+          worstUnexpected = {
+            output: name,
+            activation,
+            order: orders[rowIndex].map(index => fixture.featureNames[index])
+          };
+        }
+      }
+    }
     return {
       features: features.map(index => fixture.featureNames[index]),
+      maxUnexpectedOutput: worstUnexpected ? worstUnexpected.output : null,
+      maxUnexpectedOutputActivation: worstUnexpected ? worstUnexpected.activation : 0,
+      maxUnexpectedOrder: worstUnexpected ? worstUnexpected.order : [],
       permutationCount: rows.length,
       minExpected: Math.min(...rows.map(row => row.minExpected)),
       maxUnexpected: Math.max(...rows.map(row => row.maxUnexpected)),

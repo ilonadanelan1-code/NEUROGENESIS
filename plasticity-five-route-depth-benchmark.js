@@ -139,10 +139,23 @@
           row.profile === profile.id && row.budget === budget))
       }))
     );
+    const residualDiagnostics = scenarios.flatMap(row =>
+      row.retained.heldOut.filter(pattern => !pattern.passed).map(pattern => ({
+        profile: row.profile,
+        budget: row.budget,
+        seed: row.seed,
+        trainingOrder: row.trainingOrder,
+        features: pattern.features,
+        worstUnexpectedOutput: pattern.maxUnexpectedOutput,
+        activation: pattern.maxUnexpectedOutputActivation,
+        inputOrder: pattern.maxUnexpectedOrder,
+        maxOrderSpread: pattern.maxOrderSpread
+      }))
+    ).sort((a, b) => b.activation - a.activation);
 
     return {
-      kind: "NEUROGENESIS five-route cleanup-depth benchmark v3",
-      version: 3,
+      kind: "NEUROGENESIS five-route cleanup-depth benchmark v4",
+      version: 4,
       passed: protocolPassed,
       protocolPassed,
       candidate56PassedAllProfiles: PROFILES.every(profile =>
@@ -190,13 +203,14 @@
       },
       byBudget,
       byProfileAndBudget,
+      residualDiagnostics,
       scenarios,
       timingMs: batches.reduce((sum, row) => sum + row.report.timingMs, 0)
     };
   }
 
   root.NGPlasticityFiveRouteDepth = Object.freeze({
-    version: 3,
+    version: 4,
     run,
     seeds: SEEDS,
     budgets: BUDGETS,

@@ -37,10 +37,10 @@ const runtime = {
 
 const report = globalThis.NGPlasticityFiveRouteDepth.run({ runtime });
 const reportDirectory = process.env.NG_BENCHMARK_REPORT_DIR || "benchmark-reports";
-const reportPath = join(reportDirectory, "plasticity-five-route-depth-v3.json");
+const reportPath = join(reportDirectory, "plasticity-five-route-depth-v4.json");
 await mkdir(reportDirectory, { recursive: true });
 const artifact = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   generatedAt: new Date().toISOString(),
   commit: process.env.GITHUB_SHA || null,
   workflowRunId: process.env.GITHUB_RUN_ID || null,
@@ -53,8 +53,9 @@ await writeFile(reportPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");
 const persisted = JSON.parse(await readFile(reportPath, "utf8"));
 assert.equal(persisted.report.kind, report.kind);
 assert.equal(persisted.report.scenarios.length, 90);
+assert.ok(Array.isArray(persisted.report.residualDiagnostics));
 
-console.log("NEUROGENESIS five-route cleanup-depth v3 summary: " + JSON.stringify({
+console.log("NEUROGENESIS five-route cleanup-depth v4 summary: " + JSON.stringify({
   passed: report.passed,
   candidate52PassedAllProfiles: report.candidate52PassedAllProfiles,
   candidate54PassedAllProfiles: report.candidate54PassedAllProfiles,
@@ -62,6 +63,7 @@ console.log("NEUROGENESIS five-route cleanup-depth v3 summary: " + JSON.stringif
   checks: report.checks,
   byBudget: report.byBudget,
   byProfileAndBudget: report.byProfileAndBudget,
+  residualDiagnostics: report.residualDiagnostics,
   createdBrains, activeBrains
 }));
 
@@ -81,6 +83,14 @@ assert.equal(report.protocol.outputCount, 6);
 assert.equal(report.protocol.heldOutCombinationCount, 26);
 assert.equal(report.protocol.heldOutPermutationCount, 320);
 assert.equal(report.protocol.maxDiagnosticCleanupBudget, 60);
+assert.ok(Array.isArray(report.residualDiagnostics));
+assert.ok(report.residualDiagnostics.length > 0);
+for (const row of report.residualDiagnostics) {
+  assert.equal(typeof row.worstUnexpectedOutput, "string");
+  assert.ok(Number.isFinite(row.activation));
+  assert.ok(Array.isArray(row.features));
+  assert.ok(Array.isArray(row.inputOrder));
+}
 for (const budget of [52, 54, 56]) {
   const allPassed = report.byBudget.find(row => row.budget === budget)?.fullAcceptancePasses === 30;
   assert.equal(report["candidate" + budget + "PassedAllProfiles"], allPassed,

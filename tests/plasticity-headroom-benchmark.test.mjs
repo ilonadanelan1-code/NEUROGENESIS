@@ -116,6 +116,11 @@ for (const scenario of report.scenarios) {
   assert.equal(scenario.baseline.passed, true, scenario.mode + " baseline map");
   assert.equal(scenario.retained.heldOutPatterns, 11);
   assert.equal(scenario.retained.permutations, 60);
+  for (const pattern of scenario.retained.heldOut) {
+    assert.equal(typeof pattern.maxUnexpectedOutput, "string");
+    assert.ok(Number.isFinite(pattern.maxUnexpectedOutputActivation));
+    assert.ok(Array.isArray(pattern.maxUnexpectedOrder));
+  }
   assert.equal(scenario.weights.allWeightsBounded, true);
   assert.equal(scenario.allWeightsBoundedAfterFresh, true);
   assert.equal(scenario.episodes.initialSingleton, 16);
