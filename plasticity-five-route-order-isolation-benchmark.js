@@ -62,7 +62,7 @@
       allWeightsBoundedAfterFresh: scenario.allWeightsBoundedAfterFresh,
       learningStages: scenario.learningStages, passed: scenario.passed,
       episodes: scenario.episodes, timingMs: scenario.timingMs
-    }))));
+    })));
 
     const expectedCount = PROFILES.length * SEEDS.length * ORDER_VARIANTS.length;
     const checks = {
