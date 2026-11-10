@@ -240,8 +240,15 @@ try {
   assert.equal(contrastiveShadow.stimulate("contrast-positive", 0.6), true);
   assert.equal(contrastiveShadow.step(0.1, 0.9), true);
   for (let step = 0; step < 12; step++) contrastiveShadow.step(0.25, 0.9);
-  assert.equal(contrastiveShadow.learnFromRewardHomeostatic(0.2, 1, 0), 1,
-    "the shadow controller must expose the homeostatic reward path");
+  const beforeHomeostatic = contrastiveShadow.snapshot();
+  assert.ok(beforeHomeostatic.synapses.every(row => row.eligibility > 0),
+    "the stimulated input must leave traces on both output paths through propagation");
+  assert.equal(contrastiveShadow.learnFromRewardHomeostatic(0.2, 1, 0), 2,
+    "the shadow controller must expose the homeostatic reward path for every active trace");
+  const afterHomeostatic = contrastiveShadow.snapshot();
+  assert.ok(afterHomeostatic.synapses.every((row, index) =>
+    row.weight > beforeHomeostatic.synapses[index].weight && row.eligibility === 0),
+    "homeostatic reward must update all eligible propagated routes and consume their traces");
   assert.equal(contrastiveShadow.diagnostics().sequenceRewards, 3);
 } finally {
   contrastiveShadow.dispose();
