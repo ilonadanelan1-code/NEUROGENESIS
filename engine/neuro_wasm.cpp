@@ -136,6 +136,20 @@ std::uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle,
     }
 }
 
+std::uint32_t ng_brain_learn_contrastive_reward_asymmetric(
+    ng_brain_handle* handle, float positive_learning_rate, float negative_learning_rate,
+    std::uint32_t input_neuron_id, std::uint32_t positive_neuron_id,
+    std::uint32_t negative_neuron_id) {
+    if (!handle) return 0;
+    try {
+        return handle->brain.learn_contrastive_reward_asymmetric(
+            positive_learning_rate, negative_learning_rate, input_neuron_id,
+            positive_neuron_id, negative_neuron_id);
+    } catch (...) {
+        return 0;
+    }
+}
+
 void ng_brain_step(ng_brain_handle* handle, float delta_seconds, float eligibility_retention) {
     if (!handle || !std::isfinite(delta_seconds) || !std::isfinite(eligibility_retention)) return;
     try {
