@@ -26,6 +26,37 @@ The CI test requires all 20 scenarios to complete; both task orders to be repres
 
 The report separately records how many scenarios meet the full retention and transfer acceptance criteria. A scientifically unsuccessful candidate is reported as a measured failure rather than hidden by relaxed thresholds.
 
-## 4. Status
+## 4. Verified results — GitHub Actions run #523
 
-Results are pending the first successful workflow run. The original four-scenario suite remains the mandatory regression gate. No production network or user save data is changed by either benchmark.
+**Status:** all validation, research benchmarks, regression tests, and GitHub Pages deployment passed on commit `1072b7737dbf3ab3324d999945674709e7d29fec` (2026-11-10). The full machine-readable report was uploaded as `neurogenesis-plasticity-selective-cleanup-robustness-v1`.
+
+All **20 of 20** seed/order scenarios passed the complete acceptance criteria:
+
+| Measure | Result |
+|---|---:|
+| Seeds | 10 |
+| Task orders per seed | 2 |
+| Total scenarios | 20 |
+| Retention passes | 20/20 |
+| Headroom passes | 20/20 |
+| Fresh fifth-feature learning | 20/20 |
+| Old combinations after fresh learning | 20/20 |
+| Maximum cleanup used per scenario | 2 |
+| Maximum non-target activation after cleanup | 0 |
+| Minimum expected activation | 0.63688087 |
+| Maximum correct primitive weight | 0.63689101 |
+| Disposable brains left alive | 0 |
+
+All ten forward-order scenarios used exactly two targeted corrections; all ten reverse-order scenarios needed none. Every correction changed exactly one selected cross-route weight, consumed eligibility traces, and left every unrelated weight unchanged. The weight bounds and headroom checks passed in all scenarios.
+
+Across the 20 scenarios the benchmark used **4,040 total episodes**. A two-sweep reference at 345 episodes per scenario would use 6,900 episodes. The measured selective method therefore used about **41.45% fewer total episodes** for this fixed task schedule.
+
+[Successful workflow run #523 and JSON artifact](https://github.com/ilonadanelan1-code/NEUROGENESIS/actions/runs/42828687166) · [Verified source commit](https://github.com/ilonadanelan1-code/NEUROGENESIS/commit/1072b7737dbf3ab3324d999945674709e7d29fec)
+
+## 5. Interpretation and next step
+
+The two-correction policy generalised across the ten tested deterministic seed values and both existing task orders. The exact same measured forward-order leakage pattern recurred for every tested seed, and the correction ranking selected the same number of edges. This makes the result stronger than the original four-scenario result, but still bounded to the current complete four-feature/five-output graph and fixed composition tasks.
+
+The next research step is to create a pre-registered stress fixture where a false output receives contributions from at least three competing input routes, then test whether the same score ranking selects the right subset under the unchanged two-correction cap. Also vary the graph's cross-route initial weights without tuning the acceptance limits. If the cap fails, preserve the failed report and determine whether the cause is attribution ambiguity or an insufficient budget; do not silently raise the cap.
+
+No production learning rule, application state, or user save data was changed by these experiments.
