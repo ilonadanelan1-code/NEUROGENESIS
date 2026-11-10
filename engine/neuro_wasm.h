@@ -24,6 +24,9 @@ uint32_t ng_brain_learn_contrastive_reward(ng_brain_handle* handle, float learni
                                            uint32_t input_neuron_id,
                                            uint32_t positive_neuron_id,
                                            uint32_t negative_neuron_id);
+uint32_t ng_brain_learn_contrastive_reward_asymmetric(
+    ng_brain_handle* handle, float positive_learning_rate, float negative_learning_rate,
+    uint32_t input_neuron_id, uint32_t positive_neuron_id, uint32_t negative_neuron_id);
 void ng_brain_step(ng_brain_handle* handle, float delta_seconds, float eligibility_retention);
 
 uint32_t ng_brain_neuron_count(const ng_brain_handle* handle);
