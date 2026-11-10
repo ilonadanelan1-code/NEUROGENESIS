@@ -3,7 +3,7 @@
 
   const root = typeof window !== "undefined" ? window : globalThis;
   const SEEDS = Object.freeze([7, 17, 29, 43, 59]);
-  const BUDGETS = Object.freeze([2, 3, 6, 9]);
+  const BUDGETS = Object.freeze([18, 21, 24]);
   const BOOST_EPISODES = Object.freeze([2, 2, 2]);
 
   function run(options = {}) {
@@ -132,7 +132,7 @@
     });
     return {
       kind: "NEUROGENESIS three-route cleanup-depth diagnostic benchmark",
-      version: 1,
+      version: 2,
       passed: protocolPassed,
       protocolPassed,
       candidatePassed: scenarios.length === expectedScenarios && scenarios.every(row => row.passed),
@@ -152,7 +152,7 @@
         targetMinActivation: 0.15,
         nonTargetMaxActivation: 0.05,
         maxCorrectWeightForHeadroom: 0.95,
-        maxDiagnosticCleanupBudget: 12
+        maxDiagnosticCleanupBudget: 24
       },
       checks,
       summary: {
@@ -170,7 +170,7 @@
   }
 
   root.NGPlasticityThreeRouteDepth = Object.freeze({
-    version: 1,
+    version: 2,
     run,
     seeds: SEEDS,
     budgets: BUDGETS

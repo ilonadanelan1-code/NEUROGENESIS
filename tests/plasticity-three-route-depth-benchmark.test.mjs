@@ -37,7 +37,7 @@ const runtime = {
 
 const report = globalThis.NGPlasticityThreeRouteDepth.run({ runtime });
 const reportDirectory = process.env.NG_BENCHMARK_REPORT_DIR || "benchmark-reports";
-const reportPath = join(reportDirectory, "plasticity-three-route-depth-v1.json");
+const reportPath = join(reportDirectory, "plasticity-three-route-depth-v2.json");
 await mkdir(reportDirectory, { recursive: true });
 const artifact = {
   schemaVersion: 1,
@@ -52,7 +52,7 @@ const artifact = {
 await writeFile(reportPath, JSON.stringify(artifact, null, 2) + "\n", "utf8");
 const persisted = JSON.parse(await readFile(reportPath, "utf8"));
 assert.equal(persisted.report.kind, report.kind);
-assert.equal(persisted.report.scenarios.length, 40);
+assert.equal(persisted.report.scenarios.length, 30);
 
 console.log("NEUROGENESIS three-route cleanup-depth summary: " + JSON.stringify({
   passed: report.passed,
@@ -72,7 +72,9 @@ assert.equal(report.checks.cleanupRespectsItsDeclaredBudget, true);
 assert.equal(report.checks.everyCorrectionTargetsOneEdgeAndConsumesTraces, true);
 assert.equal(report.checks.allWeightsRemainFiniteAndBounded, true);
 assert.equal(report.checks.everyDisposableBrainWasCreated, true);
-assert.equal(createdBrains, 40);
+assert.deepEqual(report.protocol.budgets, [18, 21, 24]);
+assert.equal(report.version, 2);
+assert.equal(createdBrains, 30);
 assert.equal(activeBrains, 0);
 
 for (const scenario of report.scenarios) {

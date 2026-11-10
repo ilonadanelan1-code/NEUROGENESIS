@@ -179,8 +179,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neurogenesis-plasticity-three-route-depth-v1
-          path: benchmark-reports/plasticity-three-route-depth-v1.json
+          name: neurogenesis-plasticity-three-route-depth-v2
+          path: benchmark-reports/plasticity-three-route-depth-v2.json
           if-no-files-found: warn
           retention-days: 30
 
