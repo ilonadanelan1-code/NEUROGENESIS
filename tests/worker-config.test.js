@@ -37,6 +37,12 @@ for (const name of ["APP_TOKEN", "UPSTREAM_API_KEY"]) {
   assert.doesNotMatch(config, new RegExp("^\\s*" + name + "\\s*=", "mu"),
     "the secret " + name + " must never be committed in wrangler.toml");
 }
+assert.match(worker, /url\.pathname === "\/api\/pixel\.gif" && request\.method === "GET"/u,
+  "the Worker must expose a read-only public image probe for browser transport diagnostics");
+assert.match(worker, /new Response\(PIXEL_GIF/u,
+  "the image probe must return a fixed one-pixel GIF without touching auth or provider secrets");
+assert.match(worker, /"Content-Type": "image\/gif"/u,
+  "the browser transport probe must use a valid image media type");
 assert.match(deploy, /workflow_dispatch:/u,
   "production Worker deployment must remain an explicit manual action");
 assert.match(deploy, /apiToken:\s*\$\{\{\s*secrets\.CLOUDFLARE_API_TOKEN\s*\}\}/u,
