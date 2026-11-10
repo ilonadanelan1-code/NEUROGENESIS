@@ -1,0 +1,79 @@
+name: NEUROGENESIS deep plasticity research
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neurogenesis-deep-plasticity-research
+  cancel-in-progress: false
+
+jobs:
+  five-route-benchmarks:
+    name: Five-route research suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.1
+
+      - name: Build WebAssembly module
+        run: |
+          emcmake cmake -S engine -B build/wasm -DCMAKE_BUILD_TYPE=Release -DNG_BUILD_WASM=ON -DBUILD_TESTING=OFF
+          cmake --build build/wasm --parallel 2
+
+      - name: Verify WebAssembly artifacts
+        run: |
+          test -s dist/neurogenesis.mjs
+          test -s dist/neurogenesis.wasm
+
+      - name: Test five-route order isolation benchmark v1
+        timeout-minutes: 30
+        run: node tests/plasticity-five-route-order-isolation-benchmark.test.mjs
+
+      - name: Upload five-route order isolation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-five-route-order-isolation-v1
+          path: benchmark-reports/plasticity-five-route-order-isolation-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Test five-route composition order benchmark v1
+        timeout-minutes: 30
+        run: node tests/plasticity-five-route-composition-order-benchmark.test.mjs
+
+      - name: Upload five-route composition order report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-five-route-composition-order-v1
+          path: benchmark-reports/plasticity-five-route-composition-order-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Test five-route cleanup-budget benchmark v1
+        timeout-minutes: 30
+        run: node tests/plasticity-five-route-cleanup-budget-benchmark.test.mjs
+
+      - name: Upload five-route cleanup-budget report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-plasticity-five-route-cleanup-budget-v1
+          path: benchmark-reports/plasticity-five-route-cleanup-budget-v1.json
+          if-no-files-found: warn
+          retention-days: 30
