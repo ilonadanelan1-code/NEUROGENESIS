@@ -74,7 +74,7 @@
     }
 
     const before = measure(xs, ys, minDistance);
-    const separationDistance = minDistance + 2;
+    const separationDistance = minDistance;
     let completedIterations = 0;
     for (let iteration = 0; iteration < iterations; iteration++) {
       const grid = buildGrid(xs, ys, separationDistance);
