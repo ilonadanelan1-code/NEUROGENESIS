@@ -51,5 +51,11 @@ assert.match(diagnostic, /значение скрыто/u,
   "the diagnostic page must never display the saved application token");
 assert.match(diagnostic, /mode:"cors"/u,
   "the diagnostic page must exercise browser CORS enforcement from GitHub Pages");
+assert.match(diagnostic, /mode:options&&options\.mode==="no-cors"\?"no-cors":"cors"/u,
+  "the diagnostic request helper must support an opaque transport-only probe");
+assert.match(diagnostic, /mode:"no-cors"/u,
+  "the diagnostic page must distinguish browser network reachability from CORS response access");
+assert.match(diagnostic, /Authorization may be hanging on CORS preflight/u,
+  "the diagnostic page must report authenticated preflight failures precisely");
 
 console.log("NEUROGENESIS LLM setup contracts: known Worker endpoint, distinct secrets, specific errors and automatic Worker deployment passed.");
