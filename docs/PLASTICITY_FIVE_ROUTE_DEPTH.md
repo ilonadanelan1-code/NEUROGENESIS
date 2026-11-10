@@ -57,6 +57,10 @@ The top-level report also lists each failed held-out pattern with profile, budge
 
 The machine-readable artifact is `neurogenesis-plasticity-five-route-depth-v4`.
 
+## Protocol v5 — independent order isolation
+
+V5 independently varies initial mapping traversal, composition-task sequence and replay traversal in a full 2×2×2 design. It fixes fresh-association order forward in every condition and records intermediate held-out evaluations after composition and replay stages. See [the order-isolation protocol](PLASTICITY_ORDER_ISOLATION.md).
+
 ## Acceptance and integrity boundaries
 
 A scenario passes only when expected activation is at least 0.15, non-target activation is at most 0.05, correct weights remain at or below 0.95, a fresh sixth feature learns the spare output, and old mappings remain correct after that new association.

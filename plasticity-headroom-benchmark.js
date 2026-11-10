@@ -580,16 +580,48 @@
     };
   }
 
+  function resolveOrderControls(order) {
+    if (typeof order === "boolean" || order == null) {
+      const reverse = Boolean(order);
+      return { id: reverse ? "reverse" : "forward", initialReverse: reverse,
+        compositionReverse: reverse, replayReverse: reverse, freshReverse: reverse };
+    }
+    if (!order || typeof order !== "object" || typeof order.id !== "string" || !order.id ||
+        ["initialReverse", "compositionReverse", "replayReverse", "freshReverse"]
+          .some(key => typeof order[key] !== "boolean")) {
+      throw new TypeError("Order conditions require an ID and four explicit boolean order controls");
+    }
+    return { id: order.id, initialReverse: order.initialReverse,
+      compositionReverse: order.compositionReverse, replayReverse: order.replayReverse,
+      freshReverse: order.freshReverse };
+  }
+
+  function summarizeDiagnosticPatterns(brain, fixture) {
+    const patterns = fixture.heldOut.filter(pattern => pattern.length === fixture.featureCount - 1);
+    const measured = patterns.map(pattern => evaluatePattern(brain, fixture, pattern));
+    const failures = measured.filter(row => !row.passed).map(row => ({
+      features: row.features, worstUnexpectedOutput: row.maxUnexpectedOutput,
+      activation: row.maxUnexpectedOutputActivation, minExpected: row.minExpected,
+      maxOrderSpread: row.maxOrderSpread
+    }));
+    return { patternCount: measured.length, passedPatternCount: measured.length - failures.length,
+      maxUnexpectedActivation: Math.max(0, ...measured.map(row => row.maxUnexpected)),
+      maxOrderSpread: Math.max(0, ...measured.map(row => row.maxOrderSpread)), failures };
+  }
+
   function runScenario(runtime, mode, seed, reverseOrder, scenarioOptions = {}, dimensions = buildDimensions()) {
+    const orderControls = resolveOrderControls(reverseOrder);
     const fixture = createFixture(runtime, seed, dimensions);
     const started = now();
     const { brain, mapping, featureNames, outputNames } = fixture;
     try {
-      const initialEpisodes = trainInitialMappings(fixture, seed, reverseOrder);
+      const initialEpisodes = trainInitialMappings(fixture, seed, orderControls.initialReverse);
       const baseline = evaluateAll(brain, fixture);
       if (!baseline.passed) throw new Error("Initial single-feature map failed before retention stress");
-      const tasks = reverseOrder ? fixture.tasks.slice().reverse() : fixture.tasks.slice();
+      const tasks = orderControls.compositionReverse ? fixture.tasks.slice().reverse() : fixture.tasks.slice();
       const history = [];
+      const learningStages = [];
+      const captureLearningStages = scenarioOptions.captureLearningStages === true;
       let compositionEpisodes = 0;
       let replayEpisodes = 0;
       for (let cycle = 1; cycle <= CYCLES; cycle++) {
@@ -598,11 +630,19 @@
           const composition = trainComposition(fixture, task.features);
           if (!composition.traceConsumed) throw new Error("Composition reward did not consume eligibility");
           compositionEpisodes++;
+          if (captureLearningStages) learningStages.push({
+            cycle, taskId: task.id, stage: "after-composition",
+            ...summarizeDiagnosticPatterns(brain, fixture)
+          });
           for (let sweep = 0; sweep < mode.replaySweeps; sweep++) {
             replayEpisodes += replaySweep(fixture,
               (seed + cycle * 1009 + taskIndex * 131 + sweep * 17) >>> 0,
-              reverseOrder, mode);
+              orderControls.replayReverse, mode);
           }
+          if (captureLearningStages) learningStages.push({
+            cycle, taskId: task.id, stage: "after-replay",
+            ...summarizeDiagnosticPatterns(brain, fixture)
+          });
         }
         const evaluation = evaluateAll(brain, fixture);
         history.push({ cycle, evaluation, weights: weightMetrics(fixture) });
@@ -622,7 +662,7 @@
       const headroomPassed = weights.maxCorrectWeight <= MAX_CORRECT_WEIGHT_FOR_HEADROOM &&
         weights.saturatedCorrectEdges === 0 &&
         weights.correctEdgesBelow95Percent === weights.correctEdges;
-      const freshAssociation = trainFreshAssociation(fixture, mode, reverseOrder);
+      const freshAssociation = trainFreshAssociation(fixture, mode, orderControls.freshReverse);
       const oldAfterFresh = evaluateAll(brain, fixture);
       const allWeightsBoundedAfterFresh = brain.snapshot().synapses.every(edge =>
         Number.isFinite(edge.weight) && edge.weight >= 0 && edge.weight <= 1);
@@ -631,7 +671,9 @@
       return {
         mode: mode.id,
         seed,
-        trainingOrder: reverseOrder ? "reverse" : "forward",
+        trainingOrder: typeof reverseOrder === "boolean"
+          ? (reverseOrder ? "reverse" : "forward") : orderControls.id,
+        orderControls: { ...orderControls },
         mapping: Object.fromEntries(featureNames.map((name, i) => [name, outputNames[mapping[i]]])),
         protocol: {
           cycles: CYCLES,
@@ -657,6 +699,7 @@
         },
         baseline,
         history,
+        learningStages,
         stressSeed,
         stressAfterCleanup,
         cleanup,
@@ -698,20 +741,33 @@
     if (new Set(modes.map(mode => mode.id)).size !== modes.length) {
       throw new TypeError("Benchmark mode IDs must be unique");
     }
+    const orderConditions = options.orderVariants == null ? [false, true] : options.orderVariants;
+    if (!Array.isArray(orderConditions) || !orderConditions.length ||
+        orderConditions.some(condition => {
+          if (typeof condition === "boolean") return false;
+          return !condition || typeof condition !== "object" || typeof condition.id !== "string" ||
+            !condition.id || ["initialReverse", "compositionReverse", "replayReverse", "freshReverse"]
+              .some(key => typeof condition[key] !== "boolean");
+        })) {
+      throw new TypeError("Order variants must be a non-empty array of booleans or explicit order-control objects");
+    }
+    const orderIds = orderConditions.map(condition =>
+      typeof condition === "boolean" ? (condition ? "reverse" : "forward") : condition.id);
+    if (new Set(orderIds).size !== orderIds.length) throw new TypeError("Order variant IDs must be unique");
     const started = now();
     const scenarios = [];
     let createdBrains = 0;
     for (const mode of modes) {
       for (const seed of seeds) {
-        for (const reverseOrder of [false, true]) {
-          scenarios.push(runScenario(runtime, mode, seed, reverseOrder, options.scenarioOptions || {}, dimensions));
+        for (const orderCondition of orderConditions) {
+          scenarios.push(runScenario(runtime, mode, seed, orderCondition, options.scenarioOptions || {}, dimensions));
           createdBrains++;
         }
       }
     }
     const target = scenarios.filter(row => row.mode === targetModeId);
     const controls = scenarios.filter(row => row.mode !== targetModeId);
-    const expectedCount = modes.length * seeds.length * 2;
+    const expectedCount = modes.length * seeds.length * orderConditions.length;
     const checks = {
       allScenariosCompleted: scenarios.length === expectedCount,
       allAsymmetricScenariosRetainOldMappings: target.length === seeds.length * 2 &&
@@ -739,6 +795,7 @@
         heldOutPermutationCount: dimensions.heldOut.reduce((sum, pattern) => sum + permutations(pattern).length, 0),
         cycles: CYCLES,
         seeds: seeds.slice(),
+        orderConditions: orderIds.slice(),
         modes: modes.map(mode => ({ ...mode })),
         targetMinActivation: TARGET_MIN_ACTIVATION,
         nonTargetMaxActivation: NON_TARGET_MAX_ACTIVATION,
