@@ -831,8 +831,15 @@
       if (disposed || state !== "ready" || !runtime) return null;
       try {
         const settings = options && typeof options === "object" ? options : {};
-        const source = copySnapshot(getSnapshot());
+        let source = getSnapshot();
         if (settings.resetState === true) {
+          const copyRows = rows => Array.isArray(rows)
+            ? rows.map(row => row && typeof row === "object" ? { ...row } : row)
+            : [];
+          source = {
+            neurons: copyRows(source && source.neurons),
+            synapses: copyRows(source && source.synapses)
+          };
           for (const neuron of source.neurons) {
             if (!neuron || typeof neuron !== "object") continue;
             neuron.activity = 0;
