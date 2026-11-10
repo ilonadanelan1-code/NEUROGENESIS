@@ -89,6 +89,7 @@ jobs:
           node tests/contrastive-benchmark.test.mjs
           node tests/compositional-benchmark.test.mjs
           node tests/retention-scaling-benchmark.test.mjs
+          node tests/plasticity-headroom-benchmark.test.mjs
 
       - name: Upload WebAssembly runtime
         uses: actions/upload-artifact@v4
