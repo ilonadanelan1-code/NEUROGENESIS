@@ -4102,17 +4102,18 @@
     }
   }
 
-  async function interpretMemoryQuery(query) {
+  function prepareMemoryQueryContext(query) {
     const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : null;
     const context = { ...(report || {}), resolution };
     const localPlan = SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function"
       ? SEMANTIC_QUERY.local(query, context, KNOWLEDGE)
       : { source:"local", contextRelation:"new_topic", canonicalQuestion:query, searchQueries:[query], confidence:0.4 };
-    if (!SEMANTIC_QUERY || typeof SEMANTIC_QUERY.buildRequest !== "function" ||
-        !LLM_GATEWAY || !llmHttpAdapter || llmRequestInFlight ||
-        (SEMANTIC_QUERY.isStructuredCommand && SEMANTIC_QUERY.isStructuredCommand(query))) return localPlan;
+    return { report, context, localPlan };
+  }
 
+  async function interpretMemoryQuery(query, prepared) {
+    const { report, context, localPlan } = prepared;
     llmRequestInFlight = true;
     try {
       if (!llmVerified) await testLLMConnection();
@@ -4213,8 +4214,14 @@
     const askButton = $("ask-button");
     const forceLocal = action === "ask" && askButton && askButton.dataset.ngForceLocal === "true";
     if (forceLocal) delete askButton.dataset.ngForceLocal;
-    const semanticPlan = action === "ask" && !forceLocal
-      ? await interpretMemoryQuery(value) : null;
+    const preparedQuery = action === "ask" && !forceLocal ? prepareMemoryQueryContext(value) : null;
+    const canUseSemanticModel = !!(preparedQuery && SEMANTIC_QUERY &&
+      typeof SEMANTIC_QUERY.buildRequest === "function" && LLM_GATEWAY && llmHttpAdapter &&
+      !llmRequestInFlight &&
+      !(SEMANTIC_QUERY.isStructuredCommand && SEMANTIC_QUERY.isStructuredCommand(value)));
+    const semanticPlan = canUseSemanticModel
+      ? await interpretMemoryQuery(value, preparedQuery)
+      : preparedQuery ? preparedQuery.localPlan : null;
     const relationHint = semanticPlan && semanticPlan.contextRelation === "new_topic"
       ? "new_topic"
       : semanticPlan && ["follow_up", "same_topic"].includes(semanticPlan.contextRelation)
