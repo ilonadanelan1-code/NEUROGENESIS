@@ -333,6 +333,17 @@
             if (input == null || positive == null || negative == null) return 0;
             return coreBrain.learnContrastiveReward(learningRate, input, positive, negative);
           },
+          learnContrastiveRewardAsymmetric(
+            positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+            inputSourceId, positiveSourceId, negativeSourceId
+          ) {
+            const input = sourceToCore.get(String(inputSourceId));
+            const positive = sourceToCore.get(String(positiveSourceId));
+            const negative = sourceToCore.get(String(negativeSourceId));
+            if (input == null || positive == null || negative == null) return 0;
+            return coreBrain.learnContrastiveRewardAsymmetric(
+              positiveLearningRate, negativeLearningRate, input, positive, negative);
+          },
           snapshot() {
             const state = coreBrain.snapshot();
             return {
@@ -587,6 +598,25 @@
       }
     }
 
+    function learnContrastiveRewardAsymmetric(
+      positiveLearningRate = 0.05, negativeLearningRate = 0.05,
+      inputSourceId, positiveSourceId, negativeSourceId
+    ) {
+      if (disposed || state !== "ready" || !brain) return 0;
+      try {
+        const changed = brain.learnContrastiveRewardAsymmetric(
+          finite(positiveLearningRate, "positiveLearningRate"),
+          finite(negativeLearningRate, "negativeLearningRate"),
+          inputSourceId, positiveSourceId, negativeSourceId
+        );
+        sequenceRewards++;
+        return recordLearningOverlay(changed);
+      } catch (error) {
+        fail(error, "WebAssembly asymmetric contrastive reward failed");
+        return 0;
+      }
+    }
+
     function resetEligibility() {
       if (disposed || state !== "ready" || !brain) return false;
       try {
@@ -656,7 +686,8 @@
     }
 
     return Object.freeze({
-      start, rebuild, stimulate, step, learn, learnFromReward, learnContrastiveReward, resetEligibility,
+      start, rebuild, stimulate, step, learn, learnFromReward, learnContrastiveReward,
+      learnContrastiveRewardAsymmetric, resetEligibility,
       snapshot, learnedWeights, restoreLearnedWeights, diagnostics, dispose
     });
   }
