@@ -11,16 +11,16 @@ const endpoint = "https://neurogenesis-llm-proxy.ilonadanelan1.workers.dev";
 assert.ok(html.includes('id="llm-endpoint"') && html.includes('value="' + endpoint + '"'),
   "the known deployed Worker address must be prefilled for a fresh browser");
 const legacyEndpoint = "https://neurogenesis-llm-proxy.ilonadanel1.workers.dev";
-assert.match(memory, /const LEGACY_LLM_ENDPOINT\\s*=\\s*"https:\\/\\/neurogenesis-llm-proxy\\.ilonadanel1\\.workers\\.dev"/u,
+assert.match(memory, /const LEGACY_LLM_ENDPOINT\s*=\s*"https:\/\/neurogenesis-llm-proxy\.ilonadanel1\.workers\.dev"/u,
   "the migration must recognise only the hostname typo previously shown to the user");
-assert.match(memory, /endpointWithoutTrailingSlash === LEGACY_LLM_ENDPOINT[\\s\\S]*?DEFAULT_LLM_ENDPOINT/u,
+assert.match(memory, /endpointWithoutTrailingSlash === LEGACY_LLM_ENDPOINT[\s\S]*?DEFAULT_LLM_ENDPOINT/u,
   "a saved copy of the known typo must migrate to the real Worker hostname");
-assert.match(memory, /clientToken:value\\.clientToken\\.trim\\(\\)/u,
+assert.match(memory, /clientToken:value\.clientToken\.trim\(\)/u,
   "hostname migration must preserve the existing APP_TOKEN");
-assert.match(memory, /localStorage\\.setItem\\(LLM_CONFIG_KEY, JSON\\.stringify\\(config\\)\\)/u,
+assert.match(memory, /localStorage\.setItem\(LLM_CONFIG_KEY, JSON\.stringify\(config\)\)/u,
   "the corrected endpoint must persist for the next launch");
 assert.ok(!html.includes(legacyEndpoint), "the published app must not contain the old incorrect hostname");
-assert.match(html, /DIGITAL ORGANISM · 0\\.58\\.49/u,
+assert.match(html, /DIGITAL ORGANISM · 0\.58\.49/u,
   "the app release version must advance so mobile browsers fetch the migration");
 
 assert.match(memory, /const DEFAULT_LLM_ENDPOINT\s*=\s*"https:\/\/neurogenesis-llm-proxy\.ilonadanelan1\.workers\.dev"/u,

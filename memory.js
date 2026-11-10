@@ -71,7 +71,7 @@
       if (value && typeof value.endpoint === "string" && typeof value.clientToken === "string" &&
           value.endpoint.trim() && value.clientToken.trim()) {
         const savedEndpoint = value.endpoint.trim();
-        const endpointWithoutTrailingSlash = savedEndpoint.replace(/\\/+$/u, "");
+        const endpointWithoutTrailingSlash = savedEndpoint.replace(/\/+$/u, "");
         // Migrate the single known typo from earlier setup guidance. Keep the
         // user's APP_TOKEN untouched and preserve any other custom endpoint.
         const endpoint = endpointWithoutTrailingSlash === LEGACY_LLM_ENDPOINT
