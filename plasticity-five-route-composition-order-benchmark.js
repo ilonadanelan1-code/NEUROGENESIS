@@ -65,7 +65,7 @@
       freshAssociation: scenario.freshAssociation, oldAfterFresh: scenario.oldAfterFresh,
       learningStages: scenario.learningStages, passed: scenario.passed,
       episodes: scenario.episodes
-    }))));
+    })));
     const expectedCount = PROFILES.length * SEEDS.length * ORDER_VARIANTS.length;
     const checks = {
       allScenariosCompleted: scenarios.length === expectedCount,
