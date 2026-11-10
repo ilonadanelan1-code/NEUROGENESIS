@@ -37,7 +37,7 @@ assert.equal(normalized.at(-1), "memory.js");
 for (const ref of scripts) {
   assert.ok(ref.includes("?v=" + version), "every script must use the current cache version: " + ref);
 }
-assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.38"/u);
+assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css\?v=0\.58\.39"/u);
 
 assert.match(adapter, /function createBrainFromSnapshot\(snapshot\)/u);
 assert.match(adapter, /function createDisposableExperiment\(snapshot\)/u);
@@ -46,6 +46,10 @@ assert.match(adapter, /settings\.resetState === true/u);
 assert.match(disposableSession, /function runContrastiveTrial\(options = \{\}\)/u);
 assert.match(disposableSession, /isolation-contract-violation/u);
 assert.match(disposableUi, /wasmCreateDisposableExperiment\(options\)/u);
+assert.match(disposableUi, /function snapshotSignature\(snapshot\)/u);
+assert.match(disposableUi, /proposalBecameStale/u);
+assert.match(disposableUi, /function handleSelectionChange\(\)/u);
+assert.match(disposableUi, /if \(!refresh\(\) \|\| !latestProposal \|\| !latestReport\) return/u);
 assert.match(html, /id="wasm-experiment-run"/u);
 assert.match(html, /id="wasm-experiment-export"/u);
 assert.match(adapter, /policy: "manual-review-only"/u);
