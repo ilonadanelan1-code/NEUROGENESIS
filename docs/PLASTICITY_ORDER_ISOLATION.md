@@ -78,3 +78,17 @@ The 24 permutations measured at each checkpoint are permutations of the stimulat
 Before considering any production change, the next experiment should compare the problematic fixed sequence, the successful CDE → AB → ABCDE sequence, and schedules that alternate the order of the two pair tasks between learning cycles. This checks whether the safe result is robust to schedule variation rather than relying on one fixed permutation.
 
 No benchmark result in this document changes the live learning rule or user saves.
+
+
+## Protocol v3 — cleanup budget comparison with new seeds
+
+This experiment tests whether a budget of 40 one-edge corrections is sufficient when using the successful ABCDE → CDE → AB task sequence, and contrasts it with the previously failing AB → CDE → ABCDE sequence.
+
+- New deterministic seeds: 71, 83, 97, 109, 127 (no overlap with prior five-route seeds).
+- Budgets: 32, 36, 40, 44, 48 and 56.
+- Profiles: equal-medium, ascending and descending.
+- Two composition orders, with initial mapping, replay and fresh-association traversal held forward.
+- 180 disposable WASM brains total; no per-task diagnostic checkpoints, to keep this budget sweep isolated from the v5/v6 checkpoint cost.
+- Each scenario still verifies five positively contributing seeded routes, bounded weights, single-edge trace-consuming cleanup events, fresh association learning and old-map retention after fresh learning.
+
+The acceptance decision is based on the full scenario criteria, not only whether the cleanup stage itself falls below the activation threshold. A low budget that clears cross-talk but damages an expected association or prevents fresh learning is not accepted. The experiment does not alter production learning or user data.
