@@ -298,8 +298,10 @@ function create(options={}){
    relativePositionBias:relativePositionBias[index].slice(),vector:head.vector.slice()
   }));
   const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:pass.headPasses.reduce((sum,head)=>sum+head.weights[index],0)/heads}));
-  const targetIndexInVocabulary=sequence[safeIndex].tokenIndex;
-  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:sequence[safeIndex].subwordBuckets.length,
+  const targetFeature=sequence[safeIndex],targetIndexInVocabulary=targetFeature.tokenIndex;
+  const targetEmbedding=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary]:zeros(dimension),tokenVector=targetEmbedding.slice();
+  for(const bucket of targetFeature.subwordBuckets)for(let i=0;i<dimension;i++)tokenVector[i]+=subwordEmbeddings[bucket][i]/targetFeature.subwordBuckets.length;
+  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:targetFeature.subwordBuckets.length,tokenVector,
    contextualVector:pass.norm2.output.slice(),attention:aggregate,heads:headRows,predictions:topPredictions(pass.probabilities,vocabulary),
    targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
    normalization:{first:pass.norm1.output.slice(),second:pass.norm2.output.slice()},feedForward:{hidden:pass.ffHidden.slice(),output:pass.ffOutput.slice()}};

@@ -69,6 +69,8 @@ assert.equal(oovAnalysis.unknownTokens.length,1);assert.equal(oovAnalysis.unknow
 const oovScore=model.score("нейрон поглощает сигнал",1);
 assert.equal(oovScore.targetKnown,false);assert.equal(oovScore.targetProbability,null);
 assert.ok(oovScore.subwordFeatures>0&&oovScore.contextualVector.every(Number.isFinite));
+assert.ok(oovScore.tokenVector.length===12&&oovScore.tokenVector.every(Number.isFinite)&&oovScore.tokenVector.some(value=>value!==0),
+ "an OOV token must expose its own composed character n-gram vector");
 assert.ok(oovScore.attention.some(row=>row.token==="нейрон")&&oovScore.attention.some(row=>row.token==="сигнал"),
  "unknown words must receive a subword context representation");
 const firstRunState=model.exportState();
