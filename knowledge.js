@@ -58,6 +58,15 @@
       const y=Number(words[1]),start=localDateStart(y,monthIndex,1);
       return period(start,localDateStart(y,monthIndex+1,1),"month",monthNames[monthIndex][0]+" "+y);
     }
+    match=text.match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/iu);
+    if(match) {
+      const d=Number(match[1]),monthAt=monthNames.findIndex(forms=>forms.includes(normalise(match[2]))),y=Number(match[3]);
+      if(monthAt<0)return null;
+      const start=localDateStart(y,monthAt,d),check=new Date(start);
+      if(check.getFullYear()===y&&check.getMonth()===monthAt&&check.getDate()===d)
+        return period(start,localDateStart(y,monthAt,d+1),"day",String(d).padStart(2,"0")+"."+String(monthAt+1).padStart(2,"0")+"."+y);
+      return null;
+    }
     match=text.match(/^(летом|лето|лета|весной|весна|весне|осенью|осень|осени|зимой|зима|зиме)\s+(\d{4})$/u);
     if(match) {
       const season=match[1],y=Number(match[2]);
@@ -184,6 +193,12 @@
       else if(relation==="through")metadata.validTo=parsed.end;
       else if(relation==="after")metadata.validFrom=parsed.end;
       return {text:raw.slice(0,found.index).trim(),...metadata};
+    }
+    const trailingDate=raw.match(/^(.+?)\s+(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{4})[.!?]?$/u);
+    if(trailingDate) {
+      const parsed=parseTemporalPeriod(trailingDate[2],referenceTime);
+      if(parsed)return {text:trailingDate[1].trim(),expression:trailingDate[2],precision:parsed.precision,
+        relation:"during",validFrom:parsed.start,validTo:parsed.end,status:"current"};
     }
     const firstParts=raw.split(/\s+/u);
     for(let size=Math.min(3,firstParts.length-1);size>=1;size--) {
