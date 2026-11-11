@@ -57,11 +57,15 @@ function local(input,context={},knowledge=null){
   .flatMap(row=>row.predictions.slice(0,2).filter(item=>item.probability>=0.16).map(item=>item.token))
   .filter(token=>!words.includes(token)))].slice(0,8):[];
  const contextualQuery=contextualHints.join(" ");
+ const phraseModel=window.NGPhraseComposition&&typeof window.NGPhraseComposition.analyse==="function"?window.NGPhraseComposition:null;
+ const phraseStatus=phraseModel&&typeof phraseModel.status==="function"?phraseModel.status():null;
+ const phraseComposition=phraseStatus&&phraseStatus.trained&&contextualModel&&contextualStatus&&contextualStatus.trained
+  ?phraseModel.analyse(query,contextualModel,CORE,knowledge):null;
  const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
-  contextualAnalysis,contextualHints};
+  contextualAnalysis,contextualHints,phraseComposition};
 }
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";

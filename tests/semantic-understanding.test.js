@@ -180,6 +180,21 @@ for (const item of propositions) {
   if (item.scopeEffect) assert.equal(proposition.polarityScope.effect, item.scopeEffect, item.text);
 }
 
+const compositionalRoleCases = [
+  ["нейрон получает сигнал", "нейрон", "получает", "сигнал"],
+  ["сигнал получает нейрон", "сигнал", "получает", "нейрон"],
+  ["ключ открывает замок", "ключ", "открывает", "замок"],
+  ["замок открывает ключ", "замок", "открывает", "ключ"],
+  ["сеть обрабатывает данные", "сеть", "обрабатывает", "данные"],
+  ["сигнал активирует нейрон", "сигнал", "активирует", "нейрон"]
+];
+for (const [text, subject, predicate, object] of compositionalRoleCases) {
+  const proposition = core.analyse(text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.subject, subject, "subject role must follow phrase order: " + text);
+  assert.equal(proposition.predicate, predicate, "predicate must be preserved: " + text);
+  assert.equal(proposition.object, object, "object role must follow phrase order: " + text);
+}
+
 const polarityScopeCases = [
   {
     text: "Не все нейроны активируются.",

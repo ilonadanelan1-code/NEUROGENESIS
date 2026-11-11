@@ -334,10 +334,17 @@ const contextualModel = window.NGContextualModel.create({ dimension: 8, windowSi
 contextualModel.train(["нейрон получает сигнал", "сеть получает данные", "память хранит информацию"],
   { epochs: 4, learningRate: 0.02 });
 window.NGContextualAttention = contextualModel;
+const phraseModel = window.NGPhraseCompositionModel.create({dimension:8,seed:17});
+phraseModel.train(["нейрон получает сигнал","сеть получает данные","ключ открывает замок","программа использует ключ"],
+  contextualModel,window.NGSemanticCore,knowledge,{epochs:12,learningRate:0.04});
+window.NGPhraseComposition = phraseModel;
 const contextualPlan = engine.local("Нейрон получает сигнал", {}, knowledge);
 assert.equal(contextualPlan.version, 4);
 assert.ok(contextualPlan.contextualAnalysis && contextualPlan.contextualAnalysis.trained,
   "a trained contextual representation must flow into the semantic query result");
 assert.ok(contextualPlan.contextualAnalysis.positions.length > 0);
 assert.ok(Array.isArray(contextualPlan.contextualHints));
+assert.ok(contextualPlan.phraseComposition&&contextualPlan.phraseComposition.trained,
+  "trained phrase composition must flow into the local semantic query plan");
+assert.equal(contextualPlan.phraseComposition.weakFrame.subject,"нейрон");
 console.log("NEUROGENESIS semantic query planner: passed, including contextual attention integration.");

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const root=typeof window!=="undefined"?window:globalThis;
-  const Model=root.NGContextualModel;
+  const Model=root.NGContextualModel,Composition=root.NGPhraseCompositionModel;
   if(!Model||typeof document==="undefined")return;
   const STORAGE_KEY="neurogenesis.contextual-attention.v1";
   const STARTER_CORPUS=[
@@ -18,17 +18,18 @@
   const output=byId("contextual-attention-output");
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
   let model=Model.create({dimension:12,windowSize:4,heads:3,seed:9173});
+  let phraseModel=Composition?Composition.create({dimension:12,seed:24081}):null;
   let checkpointRequiresRetraining=false;
   function save(){
-    try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),corpus:corpusInput.value}));}
+    try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),compositionState:phraseModel?phraseModel.exportState():null,corpus:corpusInput.value}));}
     catch(_){}
   }
   function renderStatus(message=""){
-    const status=model.status();
+    const status=model.status(),phraseStatus=phraseModel&&phraseModel.status();
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
     metrics.textContent=message||(status.trained
       ?"Головы: "+status.heads+" · окно: ±"+status.windowSize+" · словарь: "+status.vocabularySize+
-       " · блоки: "+status.transformerBlocks+" · шаги: "+status.trainingSteps+" · subword: "+status.subwordBuckets+" корзин · train loss: "+Number(status.lastLoss).toFixed(3)+
+       " · блоки: "+status.transformerBlocks+" · фразовая модель: "+(phraseStatus&&phraseStatus.trained?"обучена":"не обучена")+" · шаги: "+status.trainingSteps+" · subword: "+status.subwordBuckets+" корзин · train loss: "+Number(status.lastLoss).toFixed(3)+
        (status.lastTraining?" · val loss: "+(status.lastTraining.validationLoss==null?"н/д":Number(status.lastTraining.validationLoss).toFixed(3))+
         " · test loss: "+(status.lastTraining.testLoss==null?"н/д":Number(status.lastTraining.testLoss).toFixed(3)):"")
       :"Архитектура: "+status.transformerBlocks+" блока · "+status.heads+" головы · окно ±"+status.windowSize+" · символьные n-граммы · LayerNorm · FFN. Добавь предложения и запусти обучение.");
@@ -44,7 +45,9 @@
       checkpointRequiresRetraining=true;
     }
   }
+  if(phraseModel&&saved&&saved.compositionState){try{phraseModel.loadState(saved.compositionState);}catch(_){}}
   root.NGContextualAttention=model;
+  root.NGPhraseComposition=phraseModel;
   renderStatus();
   if(checkpointRequiresRetraining){
     stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
@@ -55,7 +58,11 @@
     if(!rows.length){renderStatus("Добавь хотя бы одно предложение для обучения.");return;}
     trainButton.disabled=true;trainButton.textContent="ОБУЧЕНИЕ…";
     try{
-      const report=model.train(rows,{epochs:55,learningRate:0.035,splitSeed:902});save();
+      const report=model.train(rows,{epochs:55,learningRate:0.035,splitSeed:902});
+      let phraseReport=null,phraseError="";
+      if(phraseModel){try{phraseReport=phraseModel.train(rows,model,root.NGSemanticCore,root.NGKnowledge,{epochs:35,learningRate:0.045});root.NGPhraseComposition=phraseModel;}
+        catch(error){phraseError=error.message;}}
+      save();
       renderStatus(report.splitFallback
         ?"Обучено на небольшом корпусе · "+report.trainRows+" предложений · "+report.epochs+" эпох. Отложенная оценка не выполнялась: недостаточно независимых примеров."
         :"Готово · train "+report.trainExamples+" примеров · val "+report.validationExamples+
@@ -66,6 +73,8 @@
          " · train loss "+report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3)+
          " · val loss "+report.validationLoss.toFixed(3)+
          " · test loss "+(report.testLoss==null?"недостаточно известных слов":report.testLoss.toFixed(3)));
+      if(phraseReport)renderStatus("Контекстный encoder обучен · фразовый head обучен на слабых метках: "+phraseReport.sentences+" предложений · роли "+phraseReport.roleExamples+" · отношения "+phraseReport.relationExamples+" · training acc "+Math.round(phraseReport.roleTrainingAccuracy*100)+"%/"+Math.round(phraseReport.relationTrainingAccuracy*100)+"%. Это не независимая проверка.");
+      else if(phraseError)renderStatus("Контекстная модель обучена; фразовая модель пока не обучилась: "+phraseError);
       stateLabel.textContent="ОБУЧЕНА";
     }catch(error){renderStatus("Обучение не выполнено: "+error.message);}
     finally{trainButton.disabled=false;trainButton.textContent="Обучить контекстную модель";}
@@ -80,7 +89,7 @@
         .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
       const guesses=row.predictions.slice(0,3)
         .map(item=>item.token+" "+Math.round(item.probability*100)+"%").join(" · ");
-      lines.push(row.token+" ← среднее внимание: "+(links||"нет контекста"));
+      lines.push(row.token+(row.targetKnown?"":" [OOV · субслова]")+" ← среднее внимание: "+(links||"нет контекста"));
       for(const head of row.heads){
         const detail=head.attention.slice().sort((a,b)=>b.weight-a.weight)
           .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
@@ -93,6 +102,14 @@
       }
       lines.push("  предсказание по контексту: "+guesses);
     }
+    const composition=phraseModel&&phraseModel.status().trained?phraseModel.analyse(text,model,root.NGSemanticCore,root.NGKnowledge):null;
+    if(composition){
+      lines.push("","ФРАЗОВАЯ СТРУКТУРА · слабая супервизия");
+      lines.push("Разметка ядра: субъект "+(composition.weakFrame.subject||"—")+" · предикат "+(composition.weakFrame.predicate||"—")+" · объект "+(composition.weakFrame.object||"—"));
+      lines.push("Роли модели: "+composition.roles.map(row=>row.token+" → "+row.role+" ("+Math.round(row.confidence*100)+"%)").join(" · "));
+      lines.push("Связи: "+(composition.edges.slice(0,8).map(edge=>edge.fromToken+" → "+edge.toToken+" ["+edge.relation+" "+Math.round(edge.confidence*100)+"%]").join(" · ")||"уверенных связей пока нет"));
+      lines.push("Вектор композиции: "+composition.phraseVector.length+" измерений · weak train examples: "+(composition.training&&composition.training.roleExamples||0));
+    }else lines.push("Фразовая модель ещё не обучена. Запусти обучение корпуса для построения графа зависимостей.");
     output.textContent=lines.join("\n")||"Для этой фразы пока недостаточно известных слов.";
   });
 })();
