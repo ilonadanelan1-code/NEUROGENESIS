@@ -2,19 +2,48 @@
 const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
 const window={},sandbox={window,Math,Map,Set,JSON,Object,Array,String,Number,RegExp};
 vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),sandbox,{filename:"contextual-attention.js"});
-const api=window.NGContextualModel;assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V1");
-const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон","сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст","контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
-const model=api.create({dimension:12,windowSize:2,seed:9173}),report=model.train(corpus,{epochs:90,learningRate:.035});
-assert.ok(report.examples>20);assert.ok(report.finalLoss<report.initialLoss,"masked-token prediction loss must decrease after training");
-assert.equal(model.status().trained,true);assert.ok(model.status().trainingSteps>0);
-const attention=model.score("нейрон получает сигнал",1);assert.ok(attention&&attention.attention.length>=2);
-assert.ok(Math.abs(attention.attention.reduce((s,row)=>s+row.weight,0)-1)<1e-9);
-assert.equal(attention.attention.some(row=>row.token==="получает"),false,"masked target must not leak into context");
-assert.ok(attention.contextualVector.every(Number.isFinite));
-const analysis=model.analyse("нейрон получает сигнал");assert.equal(analysis.tokens.length,3);assert.ok(analysis.positions.length>0);
-const before=model.status().trainingSteps;model.train(["нейрон получает сигнал"],{epochs:2,learningRate:.02});assert.ok(model.status().trainingSteps>before);
-const restored=api.fromState(model.exportState());assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
-assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"));
-assert.throws(()=>restored.loadState({schema:api.schema,version:1,dimension:999,windowSize:2,vocabulary:[]}),/dimensions or vocabulary/u);
+const api=window.NGContextualModel;
+assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V2");
+const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
+ "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
+ "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
+const model=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const initialState=model.exportState(),report=model.train(corpus,{epochs:90,learningRate:.025});
+assert.ok(report.examples>20);
+assert.ok(report.finalLoss<report.initialLoss,"multi-head masked-token loss must decrease after training");
+assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
+assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
+const attention=model.score("нейрон получает сигнал",1);
+assert.ok(attention&&attention.attention.length>=2);
+assert.equal(attention.heads.length,3,"three separately parameterized attention heads must be exposed");
+for(const head of attention.heads){
+ assert.ok(Math.abs(head.attention.reduce((sum,row)=>sum+row.weight,0)-1)<1e-9,
+  "each head must produce a normalized attention distribution");
+ assert.ok(head.vector.length===4&&head.vector.every(Number.isFinite));
+ assert.equal(head.attention.some(row=>row.token==="получает"),false,"masked target must not leak into attention context");
+}
+assert.ok(attention.contextualVector.length===12&&attention.contextualVector.every(Number.isFinite));
+assert.ok(attention.normalization.first.every(Number.isFinite));
+assert.ok(attention.normalization.second.every(Number.isFinite));
+assert.equal(attention.feedForward.hidden.length,24);
+assert.ok(attention.feedForward.hidden.every(value=>Number.isFinite(value)&&value>=0));
+const trainedState=model.exportState();
+assert.notDeepEqual(trainedState.attentionHeads,initialState.attentionHeads,
+ "the attention heads must receive gradient updates");
+assert.notDeepEqual(trainedState.feedForward1,initialState.feedForward1,
+ "the feed-forward block must receive gradient updates");
+assert.notDeepEqual(trainedState.norm1Gamma,initialState.norm1Gamma,
+ "layer normalization scale must be trainable");
+const analysis=model.analyse("нейрон получает сигнал");
+assert.equal(analysis.tokens.length,3);assert.ok(analysis.positions.length>0);
+const before=model.status().trainingSteps;
+model.train(["нейрон получает сигнал"],{epochs:2,learningRate:.02});
+assert.ok(model.status().trainingSteps>before);
+const restored=api.fromState(model.exportState());
+assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
+assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"),
+ "the complete multi-head architecture must persist");
+assert.throws(()=>restored.loadState({schema:api.schema,version:2,dimension:999,windowSize:2,heads:3,vocabulary:[]}),/dimensions, heads or vocabulary/u);
+assert.throws(()=>api.create({dimension:10,heads:3}),/divisible/u);
 assert.throws(()=>api.create().train([],{}),/at least one training sentence/u);
-console.log("NEUROGENESIS contextual attention: training, masked prediction, attention and persistence passed.");
+console.log("NEUROGENESIS multi-head attention: heads, residuals, layer normalization, feed-forward training and persistence passed.");
