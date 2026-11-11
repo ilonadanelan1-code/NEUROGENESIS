@@ -10,7 +10,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-query.js"]) {
 }
 const engine = window.NGSemanticQuery;
 const knowledge = window.NGKnowledge;
-assert.ok(engine && engine.version === 1);
+assert.ok(engine && engine.version === 2);
 
 const oldTopic = {
   activeThread: { id:"T-old", title:"Изучение устройства нейросетей", contextSummary:"Обсуждение контекста диалога." },
