@@ -97,6 +97,8 @@ assert.equal(request.schema, "NEUROGENESIS_LLM_REQUEST_V2");
 assert.equal(request.metadata.semanticSchema, "NG_SEMANTIC_FRAME_V1");
 assert.match(request.messages[0].content, /субъект — осьминог, атрибут — сердца/u);
 assert.match(request.messages[0].content, /evidencePlan/u);
+assert.match(request.messages[0].content, /NG_PROPOSITION_FRAME_V1/u);
+assert.match(request.messages[0].content, /Не превращай вопрос, команду, цитату или пересказ источника в утверждение пользователя/u);
 assert.match(request.messages[0].content, /subjectFrom/u);
 assert.equal(request.messages.length, 2);
 assert.match(request.messages[0].content, /НЕ отвечай на вопрос/u);
@@ -121,6 +123,15 @@ const parsed = engine.parse(JSON.stringify({
   canonicalQuestion:"Сколько сердец у осьминога?",
   searchQueries:["сколько сердец у осьминога","число сердечных органов головоногого"],
   expectedAnswerType:"quantity",
+  semanticFrame:{
+    intent:"factual_question",answerType:"quantity",subject:"осьминог",attribute:"сердец",
+    proposition:{
+      kind:"question",subject:"осьминог",predicate:null,object:"сердец",relation:"has",
+      polarity:"unknown",modality:"interrogative",
+      temporal:{expression:null,relation:"unspecified"},
+      attribution:{speaker:"user",source:"user_utterance"},confidence:0.91
+    }
+  },
   confidence:0.97,
   evidencePlan:[
     {id:"country",question:"В какой стране находится Таллин?",subject:"Таллин",attribute:"страна"},
@@ -131,6 +142,10 @@ const parsed = engine.parse(JSON.stringify({
 assert.equal(parsed.source, "model");
 assert.equal(parsed.semanticFrame.schema, "NG_SEMANTIC_FRAME_V1");
 assert.equal(parsed.semanticFrame.answerType, "quantity");
+assert.equal(parsed.semanticFrame.proposition.schema, "NG_PROPOSITION_FRAME_V1");
+assert.equal(parsed.semanticFrame.proposition.kind, "question");
+assert.equal(parsed.semanticFrame.proposition.assertionStatus, "question",
+  "model-provided proposition framing must preserve question-vs-assertion status");
 assert.equal(parsed.contextRelation, "follow_up");
 assert.equal(parsed.expectedAnswerType, "quantity");
 assert.equal(parsed.version, 3);
