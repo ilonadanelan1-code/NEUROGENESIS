@@ -107,6 +107,69 @@ for (const item of heldOutCases) {
     item.name + " paraphrases must converge on the same subject/property evidence");
 }
 
+
+const chainMemories = [
+  { id: "M-TALLINN-COUNTRY", text: "Таллин находится в Эстонии.", claims: [{
+    id: "C-TALLINN-COUNTRY", kind: "fact", subject: "Таллин",
+    predicate: "находится в стране", object: "Эстония",
+    evidence: "Таллин находится в Эстонии.", verification: "user_supplied"
+  }] },
+  { id: "M-ESTONIA-PRESIDENT", text: "Президент Эстонии — Алар Карис.", claims: [{
+    id: "C-ESTONIA-PRESIDENT", kind: "fact", subject: "Эстония",
+    predicate: "президент", object: "Алар Карис",
+    evidence: "Президент Эстонии — Алар Карис.", verification: "user_supplied"
+  }] },
+  { id: "M-LATVIA-PRESIDENT", text: "Президент Латвии — Эдгарс Ринкевичс.", claims: [{
+    id: "C-LATVIA-PRESIDENT", kind: "fact", subject: "Латвия",
+    predicate: "президент", object: "Эдгарс Ринкевичс",
+    evidence: "Президент Латвии — Эдгарс Ринкевичс.", verification: "user_supplied"
+  }] }
+];
+const evidencePlan = [
+  { id: "country", question: "В какой стране находится Таллин?", subject: "Таллин", attribute: "страна" },
+  { id: "president", question: "Кто руководит этой страной?", attribute: "президент",
+    subjectFrom: { stepId: "country", field: "object" }, dependsOn: ["country"] }
+];
+const chainFrame = core.analyse("В какой стране находится Таллин и кто президент этой страны?",
+  { contextRelation: "new_topic" }, knowledge);
+const chainRecall = retrieval.rankClaims(chainFrame, chainMemories, knowledge, evidencePlan);
+assert.equal(chainRecall.requirements.length, 2);
+assert.equal(chainRecall.requirements[0].matched, true,
+  "the first independent requirement must retrieve the city-country relation");
+assert.equal(chainRecall.requirements[1].matched, true,
+  "the dependent requirement must resolve its subject from the previous claim's object");
+assert.equal(chainRecall.complete, true);
+assert.ok(chainRecall.paths.some(path => path.claimIds.length === 2),
+  "a two-step answer must retain the complete claim path");
+assert.ok(chainRecall.evidence.some(item => item.id === "M-TALLINN-COUNTRY"));
+assert.ok(chainRecall.evidence.some(item => item.id === "M-ESTONIA-PRESIDENT"));
+assert.ok(!chainRecall.evidence.some(item => item.id === "M-LATVIA-PRESIDENT"),
+  "a matching property on another country must not be joined into the chain");
+const chainRequest = retrieval.buildRequest("В какой стране находится Таллин и кто президент этой страны?",
+  "В какой стране находится Таллин и кто президент этой страны?", chainFrame, chainRecall.evidence, chainRecall);
+assert.equal(chainRequest.metadata.requiredSteps, 2);
+assert.equal(chainRequest.metadata.coveredSteps, 2);
+assert.match(chainRequest.messages[0].content, /связывай соседние шаги только через явно совпадающие сущности/u);
+const incomplete = retrieval.rankClaims(chainFrame, [chainMemories[0]], knowledge, evidencePlan);
+assert.equal(incomplete.complete, false,
+  "a dependent step without its source fact must remain unresolved");
+assert.equal(incomplete.requirements[1].matched, false);
+const conflictMemories = [...chainMemories, {
+  id: "M-TALLINN-CONFLICT", text: "Таллин находится в Латвии.", claims: [{
+    id: "C-TALLINN-CONFLICT", kind: "fact", subject: "Таллин",
+    predicate: "находится в стране", object: "Латвия",
+    evidence: "Таллин находится в Латвии.", verification: "user_supplied"
+  }]
+}];
+const conflictRecall = retrieval.rankClaims(chainFrame, conflictMemories, knowledge, evidencePlan);
+assert.ok(conflictRecall.conflicts.length > 0,
+  "retrieved contradictory claims must be carried into the synthesis evidence package");
+assert.equal(retrieval.normaliseEvidencePlan([
+  { id: "first", subject: "Таллин", attribute: "страна" },
+  { id: "bad", attribute: "президент", subjectFrom: { stepId: "future", field: "object" } }
+], chainFrame).length, 1,
+"a step may not depend on an unknown or future step");
+
 const evidence = retrieval.buildEvidence([{ item: memory, score: scores[0].target }, { item: unrelated, score: scores[0].unrelated }]);
 assert.equal(evidence.length, 2);
 assert.equal(evidence[0].id, "M-OCTOPUS");
@@ -122,6 +185,7 @@ const parsed = retrieval.parseAnswer(JSON.stringify({
 }), evidence);
 assert.ok(parsed);
 assert.deepEqual(Array.from(parsed.usedSources), ["M-OCTOPUS"]);
+assert.deepEqual(Array.from(parsed.usedClaims), [], "legacy answers may omit claim-level citations");
 assert.equal(parsed.confidence, 0.94);
 assert.equal(retrieval.parseAnswer(JSON.stringify({
   answer: "У осьминога три сердца.", usedSources: ["INVENTED"], confidence: 0.99, insufficientEvidence: false
