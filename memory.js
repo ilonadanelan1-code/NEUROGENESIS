@@ -3524,7 +3524,8 @@
       return;
     }
     const claimRecall=SEMANTIC_RETRIEVAL&&semanticFrame&&typeof SEMANTIC_RETRIEVAL.rankClaims==="function"
-      ?SEMANTIC_RETRIEVAL.rankClaims(semanticFrame,memories,KNOWLEDGE,semanticPlan&&semanticPlan.evidencePlan)
+      ?SEMANTIC_RETRIEVAL.rankClaims(semanticFrame,memories,KNOWLEDGE,semanticPlan&&semanticPlan.evidencePlan,
+        {allowFallback:!(semanticPlan&&semanticPlan.evidencePlanInvalid)})
       :null;
     const claimMemoryScores=new Map((claimRecall&&claimRecall.memoryScores||[]).map(row=>[row.id,row.score]));
     const ranked = memories.map(item => {
@@ -3563,6 +3564,13 @@
     if(unresolvedSteps.length) claimAuditLines.push("НЕПОДТВЕРЖДЁННЫЕ ШАГИ: "+
       unresolvedSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
       ". Для этих частей в локальной памяти не найдено достаточных утверждений.");
+    if(semanticPlan&&semanticPlan.evidencePlanInvalid) claimAuditLines.push(
+      "ПЛАН ДОКАЗАТЕЛЬСТВ ОТКЛОНЁН: в смысловом плане найдены некорректные или потерянные зависимости. Синтез по частичному плану отключён.");
+    const ambiguousSteps=(claimRecall&&Array.isArray(claimRecall.requirements)?claimRecall.requirements:[])
+      .filter(step=>step.ambiguous);
+    if(ambiguousSteps.length) claimAuditLines.push("НЕОДНОЗНАЧНЫЕ ВЕТВИ: "+
+      ambiguousSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
+      ". Зависимые шаги не продолжались по произвольно выбранному объекту.");
     const claimConflicts=claimRecall&&Array.isArray(claimRecall.conflicts)?claimRecall.conflicts:[];
     if(claimConflicts.length) claimAuditLines.push("ПРОТИВОРЕЧИЯ В ЛОКАЛЬНОЙ ПАМЯТИ:\n"+
       claimConflicts.slice(0,4).map(conflict=>
@@ -3590,19 +3598,19 @@
       return true;
     }
     const canSynthesize = !!(SEMANTIC_RETRIEVAL && semanticFrame && semanticPlan &&
-      semanticPlan.source === "model" && llmVerified && LLM_GATEWAY &&
+      semanticPlan.source === "model" && !semanticPlan.evidencePlanInvalid && llmVerified && LLM_GATEWAY &&
       LLM_GATEWAY.status && LLM_GATEWAY.status().connected && !llmRequestInFlight);
     if (canSynthesize) {
       try {
-        const evidence=claimRecall&&Array.isArray(claimRecall.evidence)&&claimRecall.evidence.length
-          ?claimRecall.evidence
+        const evidence=claimRecall
+          ?(Array.isArray(claimRecall.evidence)?claimRecall.evidence:[])
           :SEMANTIC_RETRIEVAL.buildEvidence(ranked.map(hit=>({item:hit.item,score:hit.score})),8);
         if (evidence.length) {
           const request=SEMANTIC_RETRIEVAL.buildRequest(raw,query,semanticFrame,evidence,claimRecall);
           llmRequestInFlight=true;
           setFeedback("СМЫСЛОВОЙ СИНТЕЗ · СОБИРАЮ ОТВЕТ ИЗ ЛОКАЛЬНЫХ ДОКАЗАТЕЛЬСТВ…");
           return LLM_GATEWAY.generate(request).then(rawAnswer=>{
-            const parsed=SEMANTIC_RETRIEVAL.parseAnswer(rawAnswer,evidence);
+            const parsed=SEMANTIC_RETRIEVAL.parseAnswer(rawAnswer,evidence,claimRecall);
             if (!parsed || !parsed.usedSources.length) return deliverRankedAnswer();
             return deliverRankedAnswer(parsed.answer,parsed.usedSources,parsed.usedClaims);
           }).catch(error=>{
