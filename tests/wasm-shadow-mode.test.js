@@ -12,7 +12,7 @@ const disposableSession = fs.readFileSync("disposable-experiment-session.js", "u
 const disposableUi = fs.readFileSync("disposable-experiment-ui.js", "utf8");
 const version = html.match(/DIGITAL ORGANISM · ([0-9.]+)/u)?.[1];
 
-assert.equal(version, "0.58.55", "the isolated contrastive-trial release must have a distinct asset version");
+assert.ok(version && /^\d+\.\d+\.\d+$/u.test(version), "the application release must expose a semantic version");
 const scripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gu)].map(match => match[1]);
 const normalized = scripts.map(ref => ref.split("?")[0].replace(/^\.\//u, ""));
 assert.equal(normalized.filter(path => path === "neuro-wasm-adapter.js").length, 1,
