@@ -3523,12 +3523,16 @@
         related.length + " ЗАПИСЕЙ · " + activated + " СЛЕДОВ АКТИВИРОВАНО");
       return;
     }
+    const claimRecall=SEMANTIC_RETRIEVAL&&semanticFrame&&typeof SEMANTIC_RETRIEVAL.rankClaims==="function"
+      ?SEMANTIC_RETRIEVAL.rankClaims(semanticFrame,memories,KNOWLEDGE,semanticPlan&&semanticPlan.evidencePlan)
+      :null;
+    const claimMemoryScores=new Map((claimRecall&&claimRecall.memoryScores||[]).map(row=>[row.id,row.score]));
     const ranked = memories.map(item => {
       const base=scoreMemory(query,item,semanticSearchQueries),graphHit=graphByMemory.get(item.id);
       const frameHit=SEMANTIC_RETRIEVAL&&semanticFrame
         ?SEMANTIC_RETRIEVAL.scoreRecord(semanticFrame,item,KNOWLEDGE)
         :{score:0,subjectScore:0,attributeScore:0,matchedClaimIds:[]};
-      return {item,score:Math.max(base,graphHit?graphHit.score:0,frameHit.score),
+      return {item,score:Math.max(base,graphHit?graphHit.score:0,frameHit.score,claimMemoryScores.get(item.id)||0),
         semanticFrameMatch:frameHit,graphPathType:graphHit?graphHit.pathType:null};
     }).filter(hit => hit.score >= 0.19).sort((a, b) => b.score - a.score).slice(0, 4);
     if (!ranked.length) {
@@ -3575,9 +3579,11 @@
       LLM_GATEWAY.status && LLM_GATEWAY.status().connected && !llmRequestInFlight);
     if (canSynthesize) {
       try {
-        const evidence=SEMANTIC_RETRIEVAL.buildEvidence(ranked.map(hit=>({item:hit.item,score:hit.score})),8);
+        const evidence=claimRecall&&Array.isArray(claimRecall.evidence)&&claimRecall.evidence.length
+          ?claimRecall.evidence
+          :SEMANTIC_RETRIEVAL.buildEvidence(ranked.map(hit=>({item:hit.item,score:hit.score})),8);
         if (evidence.length) {
-          const request=SEMANTIC_RETRIEVAL.buildRequest(raw,query,semanticFrame,evidence);
+          const request=SEMANTIC_RETRIEVAL.buildRequest(raw,query,semanticFrame,evidence,claimRecall);
           llmRequestInFlight=true;
           setFeedback("СМЫСЛОВОЙ СИНТЕЗ · СОБИРАЮ ОТВЕТ ИЗ ЛОКАЛЬНЫХ ДОКАЗАТЕЛЬСТВ…");
           return LLM_GATEWAY.generate(request).then(rawAnswer=>{
