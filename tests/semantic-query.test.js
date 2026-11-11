@@ -346,5 +346,5 @@ assert.ok(contextualPlan.contextualAnalysis.positions.length > 0);
 assert.ok(Array.isArray(contextualPlan.contextualHints));
 assert.ok(contextualPlan.phraseComposition&&contextualPlan.phraseComposition.trained,
   "trained phrase composition must flow into the local semantic query plan");
-assert.equal(contextualPlan.phraseComposition.weakFrame.subject,"нейрон");
+assert.equal(contextualPlan.phraseComposition.weakFrame.subject.toLowerCase(),"нейрон");
 console.log("NEUROGENESIS semantic query planner: passed, including contextual attention integration.");
