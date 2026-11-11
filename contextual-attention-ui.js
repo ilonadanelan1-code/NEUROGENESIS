@@ -55,7 +55,7 @@
     trainButton.disabled=true;trainButton.textContent="ОБУЧЕНИЕ…";
     try{
       const report=model.train(rows,{epochs:55,learningRate:0.035});save();
-      renderStatus("Готово: "+report.examples+" примеров · "+report.epochs+" эпох · "+report.heads+" головы · ошибка "
+      renderStatus("Готово: "+report.examples+" примеров · "+report.epochs+" эпох · "+report.heads+" головы · ошибка "+
         report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3));
       stateLabel.textContent="ОБУЧЕНА";
     }catch(error){renderStatus("Обучение не выполнено: "+error.message);}
