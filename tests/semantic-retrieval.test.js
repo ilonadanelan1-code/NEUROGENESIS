@@ -8,7 +8,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-retrieval.js"]
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const knowledge = window.NGKnowledge, core = window.NGSemanticCore, retrieval = window.NGSemanticRetrieval;
-assert.ok(retrieval && retrieval.version === 3);
+assert.ok(retrieval && retrieval.version === 4);
 assert.deepEqual(Array.from(knowledge.tokens("сердец")), ["сердц"],
   "irregular Russian genitive plural should normalize to the same stem as «сердца»");
 assert.deepEqual(Array.from(knowledge.tokens("сердца")), ["сердц"],
@@ -449,4 +449,81 @@ const partial = retrieval.parseAnswer(JSON.stringify({
 }), evidence);
 assert.ok(partial && partial.usedSources.length === 1,
   "a grounded partial answer must retain its valid source IDs instead of being discarded");
+
+// Independent claim-level verification: a valid source ID alone is not enough.
+const simpleCountryRecall = retrieval.rankClaims(chainFrame, chainMemories, knowledge, [
+  { id: "country", subject: "Таллин", attribute: "страна" }
+]);
+const validSimpleClaimAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Эстонии.",
+  conclusions: [{ stepId: "country", text: "Таллин находится в Эстонии.",
+    polarity: "positive", modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] }],
+  usedSources: ["M-TALLINN-COUNTRY"], usedClaims: ["C-TALLINN-COUNTRY"],
+  confidence: 0.92, insufficientEvidence: false
+}), simpleCountryRecall.evidence, simpleCountryRecall);
+assert.ok(validSimpleClaimAnswer,
+  "the stricter verifier must preserve a valid single-step structured answer");
+const wrongObjectAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Латвии.",
+  conclusions: [{ stepId: "country", text: "Таллин находится в Латвии.",
+    polarity: "positive", modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] }],
+  usedSources: ["M-TALLINN-COUNTRY"], usedClaims: ["C-TALLINN-COUNTRY"],
+  confidence: 0.99, insufficientEvidence: false
+}), simpleCountryRecall.evidence, simpleCountryRecall);
+assert.equal(wrongObjectAnswer, null,
+  "a model may not replace the source claim's object while keeping its valid provenance ID");
+const extraUnsupportedText = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Эстонии. Президент этой страны — Эдгарс Ринкевичс.",
+  conclusions: [
+    { stepId: "country", text: "Таллин находится в Эстонии.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] },
+    { stepId: "president", text: "Президент этой страны — Эдгарс Ринкевичс.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-ESTONIA-PRESIDENT"] }
+  ],
+  usedSources: ["M-TALLINN-COUNTRY", "M-ESTONIA-PRESIDENT"],
+  usedClaims: ["C-TALLINN-COUNTRY", "C-ESTONIA-PRESIDENT"],
+  confidence: 0.99, insufficientEvidence: false
+}), chainRecall.evidence, chainRecall);
+assert.equal(extraUnsupportedText, null,
+  "the answer must not append claims that are absent from the verified step conclusions");
+const wrongParentEvidence = JSON.parse(JSON.stringify(chainRecall.evidence));
+for (const row of wrongParentEvidence) for (const claim of row.claims || []) {
+  if (claim.id === "C-ESTONIA-PRESIDENT") {
+    claim.subject = "Латвия";
+    claim.resolvedSubject = "Латвия";
+  }
+}
+const wrongParentAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Эстонии. Президент Латвии — Алар Карис.",
+  conclusions: [
+    { stepId: "country", text: "Таллин находится в Эстонии.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] },
+    { stepId: "president", text: "Президент Латвии — Алар Карис.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-ESTONIA-PRESIDENT"] }
+  ],
+  usedSources: ["M-TALLINN-COUNTRY", "M-ESTONIA-PRESIDENT"],
+  usedClaims: ["C-TALLINN-COUNTRY", "C-ESTONIA-PRESIDENT"],
+  confidence: 0.99, insufficientEvidence: false
+}), wrongParentEvidence, chainRecall);
+assert.equal(wrongParentAnswer, null,
+  "a child claim must name the exact entity supplied by its cited parent object");
+const wrongRelationEvidence = JSON.parse(JSON.stringify(chainRecall.evidence));
+for (const row of wrongRelationEvidence) for (const claim of row.claims || []) {
+  if (claim.id === "C-ESTONIA-PRESIDENT") claim.predicate = "граничит с";
+}
+const wrongRelationAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Эстонии. Эстония граничит с Аларом Карисом.",
+  conclusions: [
+    { stepId: "country", text: "Таллин находится в Эстонии.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] },
+    { stepId: "president", text: "Эстония граничит с Аларом Карисом.",
+      polarity: "positive", modality: "asserted", claimIds: ["C-ESTONIA-PRESIDENT"] }
+  ],
+  usedSources: ["M-TALLINN-COUNTRY", "M-ESTONIA-PRESIDENT"],
+  usedClaims: ["C-TALLINN-COUNTRY", "C-ESTONIA-PRESIDENT"],
+  confidence: 0.99, insufficientEvidence: false
+}), wrongRelationEvidence, chainRecall);
+assert.equal(wrongRelationAnswer, null,
+  "a claim ID cannot authorize a conclusion whose predicate no longer matches the requested relation");
+
 console.log("NEUROGENESIS semantic retrieval: entity/property matching, paraphrase invariance, evidence provenance and grounded answer validation passed.");

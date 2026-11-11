@@ -3628,7 +3628,7 @@
           llmRequestInFlight=true;
           setFeedback("СМЫСЛОВОЙ СИНТЕЗ · СОБИРАЮ ОТВЕТ ИЗ ЛОКАЛЬНЫХ ДОКАЗАТЕЛЬСТВ…");
           return LLM_GATEWAY.generate(request).then(rawAnswer=>{
-            const parsed=SEMANTIC_RETRIEVAL.parseAnswer(rawAnswer,evidence,claimRecall);
+            const parsed=SEMANTIC_RETRIEVAL.parseAnswer(rawAnswer,evidence,claimRecall,KNOWLEDGE);
             if (!parsed || !parsed.usedSources.length) return deliverRankedAnswer();
             return deliverRankedAnswer(parsed.answer,parsed.usedSources,parsed.usedClaims);
           }).catch(error=>{

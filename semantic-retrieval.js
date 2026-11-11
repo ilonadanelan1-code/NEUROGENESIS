@@ -236,7 +236,7 @@
           const scored = scoreClaimForStep(origin.subject, step.attribute, source.claim, knowledge, source.unstructured);
           const rawScore = Math.max(0, Math.min(1, scored.score));
           const score = origin.parent ? Math.sqrt(rawScore * origin.parent.score) : rawScore;
-          if (score < 0.42) continue;
+          if (score < 0.42 || (!source.unstructured && Number(scored.relationScore || 0) < 0.34)) continue;
           const parentClaimIds = origin.parent && Array.isArray(origin.parent.pathClaimIds)
             ? origin.parent.pathClaimIds : [];
           const parentMemoryIds = origin.parent && Array.isArray(origin.parent.pathMemoryIds)
@@ -244,7 +244,7 @@
           candidates.set(source.key, {
             stepId: step.id, memoryId: source.item.id, memoryText: source.item.text || "",
             claim: source.claim, claimKey: source.key, role: source.role,
-            score, rawScore, resolvedSubject: origin.subject,
+            score, rawScore, relationScore: Number(scored.relationScore || 0), resolvedSubject: origin.subject,
             subjectVerified: !source.unstructured && !!clean(source.claim.subject, 180),
             pathClaimIds: [...parentClaimIds, clean(source.claim.id, 100)].filter(Boolean),
             pathMemoryIds: [...parentMemoryIds, source.item.id]
@@ -306,7 +306,7 @@
         evidence: clean(claim.evidence || hit.memoryText, 700),
         resolvedSubject: clean(hit.resolvedSubject, 180), subjectVerified: hit.subjectVerified === true,
         pathClaimIds: hit.pathClaimIds.slice(0, 4), pathMemoryIds: hit.pathMemoryIds.slice(0, 4),
-        matchScore: Math.max(0, Math.min(1, hit.score))
+        matchScore: Math.max(0, Math.min(1, hit.score)), relationScore: Math.max(0, Math.min(1, Number(hit.relationScore) || 0))
       });
     }
     const evidence = [...grouped.values()].sort((a, b) => b.score - a.score).slice(0, 12)
@@ -388,7 +388,7 @@
           "Если хотя бы один обязательный шаг не подтверждён, дай только обоснованную часть и явно признай неполноту.",
           "Верни только JSON без Markdown с полями answer, conclusions, usedSources, usedClaims, confidence, insufficientEvidence.",
           "Каждый элемент conclusions: {stepId, text, polarity: positive|negative, modality: asserted|possible, claimIds:[ID]}. Для каждого шага укажи отдельный вывод и только ID утверждений, закрывающих именно этот шаг.",
-          "Для polarity negative в text явно сохрани отрицание; для modality possible в text явно обозначь гипотезу/возможность. answer должен дословно включать каждый text из conclusions, не меняя его смысл.",
+          "Для polarity negative в text явно сохрани отрицание; для modality possible в text явно обозначь гипотезу/возможность. Каждый text должен явно называть субъект и object источника и сохранять отношение predicate. answer должен состоять только из text элементов conclusions, без дополнительных утверждений.",
           "usedSources и usedClaims могут содержать только ID из evidence. confidence — оценка опоры на данные, не вероятность истинности."
         ].join("\\n") },
         { role: "user", content: "Построй ответ по этому пакету данных. Не пересказывай вопрос вместо ответа. Для каждого вывода сохраняй связь с конкретным утверждением и записью.\\n" + JSON.stringify(payload) }
@@ -423,7 +423,7 @@
     const requirements = recall && Array.isArray(recall.requirements) ? recall.requirements : [];
     const hasQualifiedEvidence = rows.some(row => (Array.isArray(row.claims) ? row.claims : [])
       .some(claim => ["negative", "hypothesis"].includes(claim && claim.evidenceRole)));
-    const requiresStructured = plan.length > 1 || hasQualifiedEvidence ||
+    const requiresStructured = !!(recall && plan.length) || plan.length > 1 || hasQualifiedEvidence ||
       requirements.some(item => item && (item.ambiguous || item.conflicted));
     let usedSources = [...new Set((Array.isArray(value.usedSources) ? value.usedSources : [])
       .filter(id => typeof id === "string").map(id => clean(id, 100)).filter(id => allowed.has(id)))].slice(0, 8);
@@ -446,6 +446,9 @@
         if (!step || !conclusionText || seenSteps.has(stepId) || !Array.isArray(row.claimIds) || !row.claimIds.length) return null;
         if (requirement && (requirement.ambiguous || requirement.conflicted || requirement.blockedBy)) return null;
         if (!["positive", "negative"].includes(polarity) || !["asserted", "possible"].includes(modality)) return null;
+        if (modality === "possible" && !(requirement && requirement.hypothesisMatchCount > 0)) return null;
+        if (polarity === "negative" && !(requirement && requirement.negativeMatchCount > 0)) return null;
+        if (modality === "asserted" && polarity === "positive" && !(requirement && requirement.matched)) return null;
         const cited = [...new Set(row.claimIds.filter(id => typeof id === "string").map(id => clean(id, 100)))];
         if (!cited.length || cited.length !== row.claimIds.length) return null;
         const matches = cited.map(id => allowedClaims.get(id));
@@ -464,24 +467,40 @@
           } else if (role !== "asserted") {
             return null;
           }
+          let expectedSubject = step.subject;
           if (step.subjectFrom) {
             const parentId = step.subjectFrom.stepId;
             const parentRequirement = requirementById.get(parentId);
             if (!parentRequirement || !parentRequirement.matched || parentRequirement.ambiguous || parentRequirement.conflicted) return null;
-            const parentClaimIds = new Set();
+            const pathIds = new Set(Array.isArray(claim.pathClaimIds) ? claim.pathClaimIds : []);
+            const parentClaims = [];
             for (const row2 of rows) for (const parentClaim of Array.isArray(row2.claims) ? row2.claims : []) {
-              if (Array.isArray(parentClaim.stepIds) && parentClaim.stepIds.includes(parentId) && parentClaim.id) parentClaimIds.add(parentClaim.id);
+              if (parentClaim && parentClaim.id && pathIds.has(parentClaim.id) &&
+                  Array.isArray(parentClaim.stepIds) && parentClaim.stepIds.includes(parentId)) parentClaims.push(parentClaim);
             }
-            if (!Array.isArray(claim.pathClaimIds) || !claim.pathClaimIds.some(id => parentClaimIds.has(id))) return null;
-            if (claim.subjectVerified !== true || !claim.resolvedSubject) return null;
+            const parentObjects = distinctEntities(parentClaims.map(parentClaim => parentClaim.object), window.NGKnowledge);
+            if (parentObjects.length !== 1) return null;
+            expectedSubject = parentObjects[0];
+            if (!sameEntity(expectedSubject, claim.subject, window.NGKnowledge)) return null;
           }
+          const activeKnowledge = window.NGKnowledge || null;
+          if (claim.subjectVerified !== true || !claim.resolvedSubject ||
+              !sameEntity(claim.subject, claim.resolvedSubject, activeKnowledge) ||
+              !sameEntity(expectedSubject, claim.subject, activeKnowledge)) return null;
+          const verifiedRelation = scoreClaimForStep(expectedSubject, step.attribute, claim, activeKnowledge, false);
+          if (verifiedRelation.score < 0.42 || verifiedRelation.relationScore < 0.34 ||
+              Number(claim.relationScore) < 0.34) return null;
+          if (!claimTextSupports(conclusionText, claim, activeKnowledge)) return null;
         }
         if (modality === "possible" && !/(?:возмож|предполож|гипотез|вероят|может|may be|might be|possible)/iu.test(conclusionText)) return null;
-        if (polarity === "negative" && !/(?:^|[^\p{L}])не(?:$|[^\p{L}])|нет|отсутств|не является|не приводит/iu.test(conclusionText)) return null;
-        if (!normaliseText(answer).includes(normaliseText(conclusionText))) return null;
+        const hasNegation = /(?:^|[^\p{L}])не(?:$|[^\p{L}])|нет|отсутств|не является|не приводит/iu.test(conclusionText);
+        if (polarity === "negative" && !hasNegation) return null;
+        if (polarity === "positive" && hasNegation) return null;
         accepted.push({ stepId, claimIds: cited, text: conclusionText });
         seenSteps.add(stepId);
       }
+      const expectedAnswer = accepted.map(item => item.text).join(" ");
+      if (normaliseText(answer) !== normaliseText(expectedAnswer)) return null;
       const missingCoveredStep = requirements.some(item => item && item.matched && !seenSteps.has(item.id));
       const unresolvedStep = plan.some(step => {
         const requirement = requirementById.get(step.id);
@@ -506,5 +525,39 @@
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
       .replace(/[^a-zа-я0-9]+/giu, " ").trim().replace(/\s+/gu, " ");
   }
-  window.NGSemanticRetrieval = Object.freeze({ version: 3, scoreRecord, buildEvidence, normaliseEvidencePlan, rankClaims, buildRequest, parseAnswer });
+  const EVIDENCE_STOP_TOKENS = new Set(["в","во","на","у","из","с","со","к","ко","по","и","или","the","of","a","an","to","in","on","at","by"]);
+  const NUMBER_TOKEN_ALIASES = {
+    ноль:["0"], один:["1"], одна:["1"], одно:["1"], два:["2"], две:["2"], три:["3"],
+    четыре:["4"], пять:["5"], шесть:["6"], семь:["7"], восемь:["8"], девять:["9"], десять:["10"],
+    zero:["0"], one:["1"], two:["2"], three:["3"], four:["4"], five:["5"],
+    six:["6"], seven:["7"], eight:["8"], nine:["9"], ten:["10"]
+  };
+  function evidenceTokenGroups(value, knowledge) {
+    const rows = knowledge && typeof knowledge.tokens === "function"
+      ? knowledge.tokens(value) : normaliseText(value).split(" ");
+    return [...new Set((Array.isArray(rows) ? rows : []).filter(token =>
+      typeof token === "string" && token.length > 1 && !EVIDENCE_STOP_TOKENS.has(token)
+    ))].map(token => [token, ...(NUMBER_TOKEN_ALIASES[token] || [])]);
+  }
+  function fieldCovered(text, value, knowledge) {
+    const wanted = evidenceTokenGroups(value, knowledge);
+    const available = new Set(evidenceTokenGroups(text, knowledge).flat());
+    return wanted.length > 0 && wanted.every(group => group.some(token => available.has(token)));
+  }
+  function predicateCovered(text, predicate, knowledge) {
+    if (GENERIC_PREDICATE.test(clean(predicate, 100))) return true;
+    const wanted = evidenceTokenGroups(predicate, knowledge).flat();
+    const available = evidenceTokenGroups(text, knowledge).flat();
+    return wanted.some(token => available.some(candidate =>
+      candidate === token || (candidate.length >= 4 && token.length >= 4 &&
+        (candidate.startsWith(token) || token.startsWith(candidate)))
+    ));
+  }
+  function claimTextSupports(text, claim, knowledge) {
+    return !!(claim && claim.subject && claim.predicate && claim.object &&
+      fieldCovered(text, claim.subject, knowledge) &&
+      fieldCovered(text, claim.object, knowledge) &&
+      predicateCovered(text, claim.predicate, knowledge));
+  }
+  window.NGSemanticRetrieval = Object.freeze({ version: 4, scoreRecord, buildEvidence, normaliseEvidencePlan, rankClaims, buildRequest, parseAnswer });
 })();
