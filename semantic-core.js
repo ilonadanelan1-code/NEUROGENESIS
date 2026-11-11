@@ -80,7 +80,8 @@
   }
 
   function surfaceSlots(value) {
-    const text = clean(value, 800).replace(/[?!.…]+$/u, "")
+    const text = clean(value, 800).replace(/^(?:(?:а|и|ну|так|но)\s+)+/iu, "")
+      .replace(/[?!.…]+$/u, "")
       .replace(/[—–]/gu, " ").replace(/[,;:]+/gu, " ").replace(/\s+/gu, " ").trim();
     const action = "(?:(?:пожалуйста|подскажи|назови|скажи|укажи|определи|уточни)\\s+)*";
     let match;
@@ -92,6 +93,13 @@
     // Verb-medial order: "Сколько сердец имеет осьминог?"
     match = text.match(/^(?:сколько|как много|какое количество)\s+(.+?)\s+(?:имеет|насчитывает|содержит|обладает)\s+(.+)$/iu);
     if (match) return { subject: clean(match[2], 160), attribute: stripAttributeNoise(match[1]), relation: "has" };
+
+    // Short pronoun-only follow-ups inherit subject and attribute from the active turn.
+    match = text.match(/^у\s+(него|неё|нее|них|этого|этой|этих)\s+(?:сколько|как много|какое количество)$/iu);
+    if (match) return { subject: clean(match[1], 160), attribute: "", relation: "has" };
+
+    match = text.match(/^(?:сколько|как много|какое количество)\s+у\s+(него|неё|нее|них|этого|этой|этих)$/iu);
+    if (match) return { subject: clean(match[1], 160), attribute: "", relation: "has" };
 
     // Inverted order: "У осьминога сколько сердец?"
     match = text.match(/^у\s+(.+?)\s+(?:сколько|как много|какое количество)\s+(.+)$/iu);

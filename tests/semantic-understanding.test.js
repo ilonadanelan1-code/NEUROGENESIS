@@ -80,6 +80,14 @@ for (const [query, answer, intent] of intentCases) {
   assert.equal(frame.intent, intent, "intent for: " + query);
 }
 
+const ellipticalPronoun = core.analyse("А у него сколько?", {
+  contextRelation: "follow_up",
+  contextText: "Сколько сердец у осьминога?"
+}, knowledge);
+assert.match(ellipticalPronoun.subject.text, /осьминог/iu);
+assert.match(ellipticalPronoun.attribute.text, /сердец/iu);
+assert.equal(ellipticalPronoun.subject.certainty, "context_candidate");
+
 const negative = core.analyse("Почему сеть не активируется?", { contextRelation: "new_topic" }, knowledge);
 assert.equal(negative.constraints.polarity, "negative");
 
