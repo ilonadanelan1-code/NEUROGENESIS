@@ -175,7 +175,65 @@ for (const item of propositions) {
   if (item.temporal) assert.equal(proposition.temporal.relation, item.temporal, item.text);
   if (item.assertionStatus) assert.equal(proposition.assertionStatus, item.assertionStatus, item.text);
   if (item.source) assert.equal(proposition.attribution.source, item.source, item.text);
+  if (item.scope) assert.equal(proposition.polarityScope.scope, item.scope, item.text);
+  if (item.quantifier) assert.equal(proposition.polarityScope.quantifier, item.quantifier, item.text);
+  if (item.scopeEffect) assert.equal(proposition.polarityScope.effect, item.scopeEffect, item.text);
 }
+
+const polarityScopeCases = [
+  {
+    text: "Не все нейроны активируются.",
+    kind: "assertion", subject: /нейрон/iu, predicate: /активируются/iu,
+    polarity: "mixed", scope: "quantifier", quantifier: "all", scopeEffect: "not_all"
+  },
+  {
+    text: "Все нейроны не активируются.",
+    kind: "assertion", subject: /нейрон/iu, predicate: /активируются/iu,
+    polarity: "negative", scope: "quantifier", quantifier: "all", scopeEffect: "all_negative"
+  },
+  {
+    text: "Ни один нейрон не активируется.",
+    kind: "assertion", subject: /нейрон/iu, predicate: /активируется/iu,
+    polarity: "negative", scope: "quantifier", quantifier: "none", scopeEffect: "none_negative"
+  },
+  {
+    text: "Сеть не всегда активируется.",
+    kind: "assertion", subject: /сеть/iu, predicate: /активируется/iu,
+    polarity: "mixed", scope: "temporal", quantifier: "always", scopeEffect: "not_always"
+  },
+  {
+    text: "Сеть всегда не активируется.",
+    kind: "assertion", subject: /сеть/iu, predicate: /активируется/iu,
+    polarity: "negative", scope: "temporal", quantifier: "always", scopeEffect: "always_negative"
+  }
+];
+for (const item of polarityScopeCases) {
+  const proposition = core.analyse(item.text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.kind, item.kind, item.text);
+  assert.match(proposition.subject || "", item.subject, item.text);
+  assert.match(proposition.predicate || "", item.predicate, item.text);
+  assert.equal(proposition.polarity, item.polarity, item.text);
+  assert.equal(proposition.polarityScope.scope, item.scope, item.text);
+  assert.equal(proposition.polarityScope.quantifier, item.quantifier, item.text);
+  assert.equal(proposition.polarityScope.effect, item.scopeEffect, item.text);
+}
+const ambiguousScope = core.analyse("Не все нейроны не активируются.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(ambiguousScope.kind, "fragment",
+  "double negation with a not-all quantifier must remain an unresolved fragment");
+assert.equal(ambiguousScope.polarity, "unknown");
+assert.equal(ambiguousScope.polarityScope.scope, "ambiguous");
+assert.equal(ambiguousScope.polarityScope.effect, "ambiguous");
+
+const localNotAll = core.extractProposition("Не все нейроны активируются.", "statement", {});
+const forgedScope = core.validateProposition({
+  kind: "assertion", polarity: "negative", modality: "asserted",
+  polarityScope: { scope: "predicate", quantifier: "unspecified", effect: "negative" }
+}, localNotAll);
+assert.equal(forgedScope.polarity, "mixed",
+  "model framing must not collapse not-all into ordinary predicate negation");
+assert.equal(forgedScope.polarityScope.effect, "not_all");
 const noFactFromQuestion = core.analyse("Сколько сердец у осьминога?", {
   contextRelation: "new_topic"
 }, knowledge).proposition;

@@ -175,13 +175,72 @@
     return { expression: null, relation: "unspecified" };
   }
 
+  function polarityScopeSignal(value) {
+    const text = normalise(value);
+    const neutral = {
+      scope: "none", quantifier: "unspecified", effect: "none",
+      polarity: "positive", confidence: 0.35
+    };
+    if (!text) return neutral;
+
+    const notAll = text.match(/\bне\s+(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b/u);
+    if (notAll) {
+      const tail = text.slice(notAll.index + notAll[0].length);
+      if (/\bне\b/u.test(tail)) {
+        return { scope: "ambiguous", quantifier: "all", effect: "ambiguous",
+          polarity: "unknown", confidence: 0.62 };
+      }
+      return { scope: "quantifier", quantifier: "all", effect: "not_all",
+        polarity: "mixed", confidence: 0.76 };
+    }
+
+    const none = text.match(/\bни\s+(?:один|одна|одно|одни|одного|одной|одному|одну)\b/u);
+    if (none && /\bне\b/u.test(text.slice(none.index + none[0].length))) {
+      return { scope: "quantifier", quantifier: "none", effect: "none_negative",
+        polarity: "negative", confidence: 0.78 };
+    }
+
+    const notAlways = text.match(/\bне\s+всегда\b/u);
+    if (notAlways) {
+      const tail = text.slice(notAlways.index + notAlways[0].length);
+      if (/\bне\b/u.test(tail)) {
+        return { scope: "ambiguous", quantifier: "always", effect: "ambiguous",
+          polarity: "unknown", confidence: 0.60 };
+      }
+      return { scope: "temporal", quantifier: "always", effect: "not_always",
+        polarity: "mixed", confidence: 0.76 };
+    }
+    if (/\bвсегда\s+не\b/u.test(text)) {
+      return { scope: "temporal", quantifier: "always", effect: "always_negative",
+        polarity: "negative", confidence: 0.76 };
+    }
+
+    const all = text.match(/\b(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b/u);
+    if (all && /\bне\b/u.test(text.slice(all.index + all[0].length))) {
+      return { scope: "quantifier", quantifier: "all", effect: "all_negative",
+        polarity: "negative", confidence: 0.72 };
+    }
+    if (/\bне\b/u.test(text)) {
+      return { scope: "predicate", quantifier: "unspecified", effect: "negative",
+        polarity: "negative", confidence: 0.74 };
+    }
+    return neutral;
+  }
+
+  function cleanQuantifiedSubject(value) {
+    return clean(value, 180)
+      .replace(/^(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую|ни\s+(?:один|одна|одно|одни|одного|одной|одному|одну))\s+/iu, "")
+      .trim();
+  }
+
   function extractProposition(value, intent = "conversation", slots = {}) {
     const original = clean(value, 800);
     const text = original.replace(/[?!.…]+$/u, "").trim();
     const temporal = temporalSignal(original);
+    const polarityScope = polarityScopeSignal(original);
     const base = {
       kind: "fragment", subject: "", predicate: "", object: "",
-      relation: "", polarity: "positive", modality: "unknown",
+      relation: "", polarity: polarityScope.polarity, polarityScope, modality: "unknown",
       temporal, attribution: { speaker: "user", source: "user_utterance", reportedBy: "" },
       confidence: 0.28
     };
@@ -244,16 +303,24 @@
     const temporalWithoutPrefix = temporal.expression
       ? statement.replace(temporal.expression, "").replace(/^\s*[,—–-]\s*/u, "").trim()
       : statement;
+    if (polarityScope.effect === "ambiguous") {
+      return { ...base, kind: "fragment", polarity: "unknown", modality: "unknown", confidence: 0.32 };
+    }
+    const propositionText = temporalWithoutPrefix
+      .replace(/^не\s+(?=(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b)/iu, "")
+      .replace(/\bне\s+всегда\s+/u, "")
+      .replace(/\bвсегда\s+не\s+/u, "");
 
-    const causal = temporalWithoutPrefix.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(приводит|приводят|приводить|вызывает|вызывают|влияет|влияют|повышает|повышают|снижает|снижают|уменьшает|уменьшают|увеличивает|увеличивают)\s+(к|на|от|в|из-за)\s+(.+)$/iu);
+    const causal = propositionText.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(приводит|приводят|приводить|вызывает|вызывают|влияет|влияют|повышает|повышают|снижает|снижают|уменьшает|уменьшают|увеличивает|увеличивают)\s+(к|на|от|в|из-за)\s+(.+)$/iu);
     if (causal) {
       const modality = causal[2] ? "possible" : explicitPossible ? "possible" : "asserted";
       return {
         ...base, kind: conditional ? "conditional" : opinion ? "opinion" : (modality === "possible" ? "hypothesis" : "assertion"),
-        subject: clean(causal[1], 180),
+        subject: cleanQuantifiedSubject(causal[1]),
         predicate: clean(causal[4] + " " + causal[5], 100),
         object: clean(causal[6], 220), relation: "causal",
-        polarity: causal[3] ? "negative" : "positive",
+        polarity: polarityScope.scope !== "none" ? polarityScope.polarity : causal[3] ? "negative" : "positive",
+        polarityScope,
         modality: conditional ? "conditional" : opinion ? "opinion" : modality,
         confidence: 0.82,
         attribution: opinion
@@ -262,7 +329,7 @@
       };
     }
 
-    match = temporalWithoutPrefix.match(/^у\s+(.+?)\s+(?:(есть|имеется|имеются)\s+)?(.+)$/iu);
+    match = propositionText.match(/^у\s+(.+?)\s+(?:(есть|имеется|имеются)\s+)?(.+)$/iu);
     if (match) {
       return {
         ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
@@ -273,7 +340,7 @@
       };
     }
 
-    match = temporalWithoutPrefix.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|создаёт|создает|создают|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
+    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|создаёт|создает|создают|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
     if (match) {
       const modal = clean(match[2], 40);
       const predicate = clean(match[4], 80);
@@ -282,9 +349,10 @@
       return {
         ...base,
         kind: conditional ? "conditional" : opinion ? "opinion" : modality === "possible" ? "hypothesis" : "assertion",
-        subject: clean(match[1], 180), predicate, object: clean(match[5], 220),
+        subject: cleanQuantifiedSubject(match[1]), predicate, object: clean(match[5], 220),
         relation: /^(?:имеет|имеют|содержит|содержат|включает|включают)$/iu.test(predicate) ? "has" : "predicate",
-        polarity: match[3] ? "negative" : "positive",
+        polarity: polarityScope.scope !== "none" ? polarityScope.polarity : match[3] ? "negative" : "positive",
+        polarityScope,
         modality: conditional ? "conditional" : opinion ? "opinion" : modality,
         confidence: 0.74,
         attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
@@ -326,9 +394,28 @@
     const validPolarities = ["positive", "negative", "mixed", "unknown"];
     const sourcePolarity = validPolarities.includes(source.polarity) ? source.polarity : null;
     const basePolarity = validPolarities.includes(base.polarity) ? base.polarity : null;
+    const validScopeKinds = ["none", "predicate", "quantifier", "temporal", "ambiguous"];
+    const validQuantifiers = ["unspecified", "all", "none", "always", "unknown"];
+    const validScopeEffects = ["none", "negative", "not_all", "all_negative",
+      "none_negative", "not_always", "always_negative", "ambiguous"];
+    const validScope = value => value && typeof value === "object" &&
+      validScopeKinds.includes(value.scope) && validQuantifiers.includes(value.quantifier) &&
+      validScopeEffects.includes(value.effect)
+      ? { scope: value.scope, quantifier: value.quantifier, effect: value.effect }
+      : null;
+    const basePolarityScope = validScope(base.polarityScope);
+    const sourcePolarityScope = validScope(source.polarityScope);
+    const preserveLocalPolarityScope = !!basePolarityScope && basePolarityScope.scope !== "none" &&
+      Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
+    const polarityScope = preserveLocalPolarityScope ? basePolarityScope
+      : sourcePolarityScope || basePolarityScope ||
+        { scope: "none", quantifier: "unspecified", effect: "none" };
     const preserveNegativePolarity = basePolarity === "negative" &&
       Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
-    const polarity = preserveNegativePolarity ? "negative" : sourcePolarity || basePolarity || "unknown";
+    const preserveScopedPolarity = preserveLocalPolarityScope &&
+      ["negative", "mixed", "unknown"].includes(basePolarity);
+    const polarity = preserveScopedPolarity ? basePolarity
+      : preserveNegativePolarity ? "negative" : sourcePolarity || basePolarity || "unknown";
     const validModalities = ["asserted", "possible", "necessary", "conditional", "opinion",
       "reported", "quoted", "interrogative", "directive", "unknown"];
     const sourceModality = validModalities.includes(source.modality) ? source.modality : null;
@@ -360,6 +447,7 @@
       object: part(source.object || base.object, 220) || null,
       relation: part(source.relation || base.relation, 64) || null,
       polarity,
+      polarityScope,
       modality,
       temporal: {
         expression: part(temporal.expression, 100) || null,

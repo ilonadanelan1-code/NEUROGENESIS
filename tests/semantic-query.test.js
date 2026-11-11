@@ -229,6 +229,20 @@ assert.equal(forgedNegation.semanticFrame.proposition.kind, "assertion");
 assert.equal(forgedNegation.semanticFrame.proposition.polarity, "negative",
   "model framing must not silently erase a confidently detected negation");
 
+const forgedScope = parseWithForgedProposition(
+  "Не все нейроны активируются.",
+  "Не все нейроны активируются.",
+  {
+    kind: "assertion", subject: "нейроны", predicate: "активируются",
+    polarity: "negative", modality: "asserted", confidence: 0.99,
+    polarityScope: { scope: "predicate", quantifier: "unspecified", effect: "negative" },
+    attribution: { speaker: "user", source: "user_utterance" }
+  }
+);
+assert.equal(forgedScope.semanticFrame.proposition.polarity, "mixed");
+assert.equal(forgedScope.semanticFrame.proposition.polarityScope.effect, "not_all",
+  "the model must not collapse not-all quantifier scope into a simple negative predicate");
+
 assert.equal(engine.parse("Это не JSON"), null);
 const malformedDependency = engine.parse(JSON.stringify({
   contextRelation:"new_topic", canonicalQuestion:"Кто президент этой страны?",
