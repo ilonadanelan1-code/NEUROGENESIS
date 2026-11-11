@@ -1,5 +1,7 @@
 (() => {
   "use strict";
+  const INACTIVE_STATUSES = new Set(["historical","archived","retracted","expired","inactive"]);
+  const isCurrentClaim = claim => !!claim && (!claim.status || claim.status === "current");
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их твой твоя твое твои").split(/\s+/u));
   const RELATIONS = ["самый близкий друг","лучшая подруга","лучший друг","близкий друг","друг","подруга","коллега","наставник","учитель","партнер","партнёр","товарищ","брат","сестра","враг","знакомый","знакомая"];
   const OWNER = {"твой":"assistant","твоя":"assistant","твоё":"assistant","твои":"assistant","твое":"assistant","мой":"user","моя":"user","моё":"user","мои":"user","мое":"user","наш":"shared","наша":"shared","наше":"shared","наши":"shared"};
@@ -353,7 +355,7 @@
       const evidence = cleanPart(raw.evidence || evidenceFallback,1200);
       if (kind === "causal" && (!isValidCausalSubject(subject) || isReportedCausalStatement(evidence))) return null;
       const verification = ["unverified","subjective","self_reported","hypothesis"].includes(raw.verification) ? raw.verification : "unverified";
-      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:raw.status==="superseded"?"superseded":"current",supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
+      return {id:typeof raw.id==="string"?raw.id.slice(0,80):makeId(kind,evidence),kind,subject,predicate,object,holder:"user",polarity:raw.polarity!==false,source:"user_message",evidence,verification,extractionConfidence:Number.isFinite(Number(raw.extractionConfidence))?Math.max(0,Math.min(1,Number(raw.extractionConfidence))):0.7,traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),revision:raw.revision===true,status:(["current","superseded",...INACTIVE_STATUSES].includes(raw.status)?raw.status:"current"),supersededBy:typeof raw.supersededBy==="string"?raw.supersededBy.slice(0,80):null,modality:raw.modality==="possible"?"possible":"asserted",sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null};
     }).filter(Boolean);
   }
   function mergeClaims(existing,incoming) {
@@ -970,7 +972,7 @@
     for(let i=0;i<list.length;i++){
       for(let j=i+1;j<list.length;j++){
         const a=list[i],b=list[j];
-        if(!a||!b||a.kind!==b.kind)continue;
+        if(!a||!b||a.kind!==b.kind||!isCurrentClaim(a)||!isCurrentClaim(b))continue;
         if(a.kind==="relationship"){
           const sameSubject=sameEntity(a.subject,b.subject),sameObject=a.object===b.object;
           const samePredicate=canonicalEntity(a.predicate)===canonicalEntity(b.predicate);
@@ -979,13 +981,13 @@
           }else if(!sameSubject&&sameObject&&a.polarity&&b.polarity&&isBestFriend(a)&&isBestFriend(b)){
             conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
           }
-        }else if(a.kind==="identity"&&a.status!=="superseded"&&b.status!=="superseded"&&
+        }else if(a.kind==="identity"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
           sameEntity(a.subject,b.subject)&&(a.polarity!==b.polarity||!sameEntity(a.object,b.object))){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для ассистента сохранены разные описания роли."});
-        }else if(a.kind==="fact"&&a.status!=="superseded"&&b.status!=="superseded"&&
+        }else if(a.kind==="fact"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
           sameEntity(a.subject,b.subject)&&factFamily(a.predicate)===factFamily(b.predicate)&&!sameEntity(a.object,b.object)){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
-        }else if(a.kind==="preference"&&a.status!=="superseded"&&b.status!=="superseded"&&
+        }else if(a.kind==="preference"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
           sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
           conflicts.push({type:"direct",left:a,right:b,reason:"Одно предпочтение одновременно утверждается и отрицается."});
         }else if(a.kind==="causal"&&sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
@@ -1002,9 +1004,12 @@
       .sort((a,b)=>(Number(a.claim.createdAt)||0)-(Number(b.claim.createdAt)||0)||a.index-b.index)
       .map(row=>row.claim);
     const before = identities.map(claim=>[claim.id,claim.status,claim.supersededBy||null].join("|")).join(";");
-    for (const claim of identities) { claim.status = "current"; delete claim.supersededBy; }
+    for (const claim of identities) {
+      if (!INACTIVE_STATUSES.has(claim.status)) { claim.status = "current"; delete claim.supersededBy; }
+    }
     const active = [];
     for (const claim of identities) {
+      if (INACTIVE_STATUSES.has(claim.status)) continue;
       if (claim.revision) {
         for (const prior of active) {
           if (prior.id === claim.id) continue;
@@ -1035,10 +1040,13 @@
       .filter(row=>row.slot)
       .sort((a,b)=>(Number(a.claim.createdAt)||0)-(Number(b.claim.createdAt)||0)||a.index-b.index);
     const before = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null].join("|")).join(";");
-    for (const row of rows) { row.claim.status="current"; delete row.claim.supersededBy; }
+    for (const row of rows) {
+      if (!INACTIVE_STATUSES.has(row.claim.status)) { row.claim.status="current"; delete row.claim.supersededBy; }
+    }
     const activeBySlot = new Map();
     for (const row of rows) {
       const claim = row.claim;
+      if (INACTIVE_STATUSES.has(claim.status)) continue;
       const active = activeBySlot.get(row.slot) || [];
       if (claim.revision) {
         const keep = [];
