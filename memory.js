@@ -3559,11 +3559,19 @@
       (graphNote?"\n\n"+graphNote:"")+
       (currentModelDecisions().length?formatModelDecisionNote():"");
     const claimAuditLines=[];
-    const unresolvedSteps=(claimRecall&&Array.isArray(claimRecall.requirements)?claimRecall.requirements:[])
-      .filter(step=>!step.matched);
+    const claimRequirements=claimRecall&&Array.isArray(claimRecall.requirements)?claimRecall.requirements:[];
+    const unresolvedSteps=claimRequirements.filter(step=>!step.matched&&!step.negativeMatchCount&&!step.hypothesisMatchCount);
     if(unresolvedSteps.length) claimAuditLines.push("НЕПОДТВЕРЖДЁННЫЕ ШАГИ: "+
       unresolvedSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
       ". Для этих частей в локальной памяти не найдено достаточных утверждений.");
+    const negativeSteps=claimRequirements.filter(step=>step.negativeMatchCount>0);
+    if(negativeSteps.length) claimAuditLines.push("ОТРИЦАТЕЛЬНЫЕ УТВЕРЖДЕНИЯ: "+
+      negativeSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
+      ". Они не засчитывались как положительное подтверждение.");
+    const hypothesisSteps=claimRequirements.filter(step=>step.hypothesisMatchCount>0);
+    if(hypothesisSteps.length) claimAuditLines.push("ГИПОТЕЗЫ: "+
+      hypothesisSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
+      ". Они остаются предположениями и не считаются установленными фактами.");
     if(semanticPlan&&semanticPlan.evidencePlanInvalid) claimAuditLines.push(
       "ПЛАН ДОКАЗАТЕЛЬСТВ ОТКЛОНЁН: в смысловом плане найдены некорректные или потерянные зависимости. Синтез по частичному плану отключён.");
     const ambiguousSteps=(claimRecall&&Array.isArray(claimRecall.requirements)?claimRecall.requirements:[])
