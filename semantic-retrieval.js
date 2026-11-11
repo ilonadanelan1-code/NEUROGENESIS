@@ -17,8 +17,9 @@
     const attribute = clean(value.attribute && (value.attribute.text || value.attribute), 140);
     const text = clean(item.text, 1200);
     if (!subject && !attribute) return { score: 0, subjectScore: 0, attributeScore: 0, matchedClaimIds: [] };
-    const claims = Array.isArray(item.claims) ? item.claims.slice(0, 12) : [];
-    const candidates = claims.length
+    const rawClaims = Array.isArray(item.claims) ? item.claims.slice(0, 12) : [];
+    const claims = rawClaims.filter(claim => claim && (!claim.status || claim.status === "current") && !claim.supersededBy);
+    const candidates = rawClaims.length
       ? claims.map(claim => {
           const subjectText = [claim && claim.subject, claim && claim.holder].filter(Boolean).join(" ");
           const attributeText = [claim && claim.predicate, claim && claim.object].filter(Boolean).join(" ");
