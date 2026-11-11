@@ -449,6 +449,19 @@ assert.equal(expiredRecall.requirements[0].matched, false,
 assert.deepEqual(Array.from(retrieval.buildEvidence([{ item: expiredMemory, score: 0.9 }], 8, knowledge)[0].claims), [],
   "the grounded synthesis evidence package must not include expired claims");
 
+const fallbackTimestampClaim = {
+  id: "C-FALLBACK-TIME", kind: "fact", subject: "Механизм", predicate: "имеет",
+  object: "дату", status: "current",
+  validFrom: String(Date.now() - 60000), validTo: String(Date.now() + 60000),
+  evidence: "Механизм имеет дату."
+};
+const fallbackTimestampEvidence = retrieval.buildEvidence([{
+  item: { id: "M-FALLBACK-TIME", text: fallbackTimestampClaim.evidence, claims: [fallbackTimestampClaim] },
+  score: 0.9
+}], 8);
+assert.equal(fallbackTimestampEvidence[0].claims.length, 1,
+  "the standalone retrieval fallback must parse numeric timestamps supplied as strings");
+
 
 assert.equal(retrieval.normaliseEvidencePlan([
   { id: "root", subject: "Река Альфа", attribute: "страна" },
