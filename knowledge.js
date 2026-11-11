@@ -667,7 +667,7 @@
     if(!match)return null;
     const condition=cleanPart(match[1],180),expected=cleanPart(match[2],180);
     if(!condition||!expected)return null;
-    const storedRules=claims.filter(claim=>claim&&claim.kind==="rule"&&claim.isCurrentClaim(claim)&&sameEntity(claim.subject,condition)&&sameEntity(claim.object,expected));
+    const storedRules=claims.filter(claim=>claim&&claim.kind==="rule"&&isCurrentClaim(claim)&&sameEntity(claim.subject,condition)&&sameEntity(claim.object,expected));
     const observations=claims.filter(claim=>isCurrentClaim(claim)&&claim.kind==="observation"&&sameEntity(claim.subject,condition)&&sameEntity(claim.object,expected));
     const support=observations.filter(claim=>claim.polarity!==false);
     const counterexamples=observations.filter(claim=>claim.polarity===false);
@@ -748,7 +748,7 @@
   function deriveHypotheses(query,input) {
     const q=normalise(query),claims=Array.isArray(input)?input:[];
     if(!/^(?:какие новые гипотезы можно вывести(?: из памяти)?|выведи новые гипотезы(?: из памяти)?|сформируй новые гипотезы(?: из памяти)?|предложи гипотезы из памяти|что можно вывести из причинных связей)$/u.test(q))return null;
-    const edges=claims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.isCurrentClaim(claim)&&canonicalEntity(claim.subject)&&canonicalEntity(claim.object)).slice(-180);
+    const edges=claims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&isCurrentClaim(claim)&&canonicalEntity(claim.subject)&&canonicalEntity(claim.object)).slice(-180);
     if(edges.length<2)return null;
     const adjacency=new Map(),direct=new Set(),blockedEdges=new Set();
     const pairKey=(a,b)=>canonicalEntity(a)+"=>"+canonicalEntity(b);
@@ -910,7 +910,7 @@
     const causal=causalEvidence(query,claims);
     if(causal)return causal.answer;
     if (/^(?:кем ты был раньше|какая у тебя была роль|какую роль ты выполнял раньше|как я раньше тебя называл)$/u.test(q)) {
-      const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.isCurrentClaim(claim));
+      const current = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&isCurrentClaim(claim));
       const latest = current[current.length-1];
       const past = claims.filter(claim=>claim.kind==="identity"&&claim.subject==="assistant"&&claim.status==="superseded"&&(!latest||claim.supersededBy===latest.id));
       if (past.length) {
@@ -922,7 +922,7 @@
     }
     if (/^(?:кто ты|ты кто|кто вы|вы кто|что ты такое|что вы такое|расскажи о себе|представься)$/u.test(q)) {
       const intro = systemDescription();
-      const identities = claims.filter(claim => claim.kind === "identity" && claim.subject === "assistant" && claim.polarity && claim.isCurrentClaim(claim));
+      const identities = claims.filter(claim => claim.kind === "identity" && claim.subject === "assistant" && claim.polarity && isCurrentClaim(claim));
       const roles = [...new Set(identities.map(claim => normalise(claim.object)))];
       if (roles.length > 1) {
         return intro + " В моей памяти есть несколько актуальных описаний роли: " + [...new Set(identities.map(claim => claim.object))].join(", ") +
@@ -959,7 +959,7 @@
     if (profile) return profile;
 
     if (qWords.has("где") && (qWords.has("я") || qWords.has("мне") || qWords.has("меня"))) {
-      const location = claims.filter(claim => claim.kind === "fact" && claim.subject === "user" && claim.isCurrentClaim(claim) && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
+      const location = claims.filter(claim => claim.kind === "fact" && claim.subject === "user" && isCurrentClaim(claim) && /живу в|нахожусь в/u.test(claim.predicate)).slice(-1)[0];
       if (location) return "Ты сообщал мне, что живёшь в " + location.object + ". Я храню это как твоё самоописание, а не как независимо проверенные данные.";
     }
 
@@ -998,7 +998,7 @@
 
     const asksPreference = hasAny(["люблю","любишь","любит","нравится","нравятся","предпочитаю","предпочитаешь","обожаю","обожаешь"]);
     if (asksPreference) {
-      const preferences = claims.filter(claim => claim.kind === "preference" && claim.subject === "user" && claim.isCurrentClaim(claim));
+      const preferences = claims.filter(claim => claim.kind === "preference" && claim.subject === "user" && isCurrentClaim(claim));
       const relevantPreferences = preferences.map(claim => {
         const objectTokens = new Set(tokens(claim.object));
         const hits = [...queryTokens].filter(token => objectTokens.has(token)).length;
@@ -1012,7 +1012,7 @@
 
     const qTokens = new Set(tokens(q));
     if (!qTokens.size) return null;
-    const relevant = claims.filter(claim=>claim.isCurrentClaim(claim)).map(claim => {
+    const relevant = claims.filter(claim=>isCurrentClaim(claim)).map(claim => {
       const cTokens = new Set(tokens(claimSearchText(claim)));
       let hits = 0;
       for (const token of qTokens) if (cTokens.has(token)) hits++;
