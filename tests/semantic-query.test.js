@@ -102,11 +102,21 @@ assert.equal(parsed.evidencePlan.length, 2);
 assert.equal(parsed.evidencePlan[1].subjectFrom.stepId, "country");
 assert.equal(parsed.evidencePlan[1].subjectFrom.field, "object",
   "a dependent step must reference only the previous claim's object field");
+assert.equal(parsed.evidencePlanInvalid, true,
+  "a partially rejected model plan must be marked unsafe for grounded synthesis");
 assert.deepEqual(Array.from(parsed.evidencePlan[1].dependsOn), ["country"]);
 assert.equal(parsed.searchQueries.length, 3);
 assert.equal(parsed.searchQueries[0], parsed.canonicalQuestion,
   "the canonical form must be prepended when the model omitted it from search variants");
 assert.equal(engine.parse("Это не JSON"), null);
+const malformedDependency = engine.parse(JSON.stringify({
+  contextRelation:"new_topic", canonicalQuestion:"Кто президент этой страны?",
+  searchQueries:["Кто президент этой страны?"], confidence:0.9,
+  evidencePlan:[{id:"child",attribute:"президент",subjectFrom:{stepId:"future",field:"object"},dependsOn:["future"]}]
+}));
+assert.ok(malformedDependency && malformedDependency.evidencePlanInvalid,
+  "an entirely invalid dependency plan must not silently become a single-step query");
+
 const meaningFrame = window.NGSemanticCore.analyse("Сколько сердечных насосов у головоногого?", {contextRelation:"new_topic"}, knowledge);
 assert.equal(meaningFrame.answerType, "quantity");
 assert.match(meaningFrame.subject.text, /головоногого/u);
