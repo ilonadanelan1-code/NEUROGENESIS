@@ -80,7 +80,7 @@
         .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
       const guesses=row.predictions.slice(0,3)
         .map(item=>item.token+" "+Math.round(item.probability*100)+"%").join(" · ");
-      lines.push(row.token+" ← среднее внимание: "+(links||"нет контекста"));
+      lines.push(row.token+(row.targetKnown?"":" [OOV · субслова]")+" ← среднее внимание: "+(links||"нет контекста"));
       for(const head of row.heads){
         const detail=head.attention.slice().sort((a,b)=>b.weight-a.weight)
           .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");

@@ -65,7 +65,7 @@ for(const head of attention.heads){
 const analysis=model.analyse("нейрон получает сигнал");
 assert.equal(analysis.tokens.length,3);assert.ok(analysis.positions.length>0);
 const oovAnalysis=model.analyse("нейрон поглощает сигнал");
-assert.deepEqual(oovAnalysis.unknownTokens,["поглощает"]);assert.equal(oovAnalysis.oovCount,1);
+assert.equal(oovAnalysis.unknownTokens.length,1);assert.equal(oovAnalysis.unknownTokens[0],"поглощает");assert.equal(oovAnalysis.oovCount,1);
 const oovScore=model.score("нейрон поглощает сигнал",1);
 assert.equal(oovScore.targetKnown,false);assert.equal(oovScore.targetProbability,null);
 assert.ok(oovScore.subwordFeatures>0&&oovScore.contextualVector.every(Number.isFinite));
