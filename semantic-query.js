@@ -50,9 +50,18 @@ function local(input,context={},knowledge=null){
  const frame=CORE?CORE.analyse(query,{contextRelation:relation,contextText:relation==="follow_up"?subjectContext:""},knowledge):null;
  const anchorFrame=CORE&&relation==="follow_up"&&subjectContext?CORE.analyse(subjectContext,{contextRelation:"new_topic"},knowledge):null;
  const expanded=[...synonymExpansion(canonical,knowledge),...synonymExpansion(query,knowledge)];
- const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" ")].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
- return {version:3,source:"local",contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
-  expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54};
+ const contextualModel=window.NGContextualAttention&&typeof window.NGContextualAttention.analyse==="function"?window.NGContextualAttention:null;
+ const contextualStatus=contextualModel&&typeof contextualModel.status==="function"?contextualModel.status():null;
+ const contextualAnalysis=contextualStatus&&contextualStatus.trained?contextualModel.analyse(query):null;
+ const contextualHints=contextualAnalysis?[...new Set(contextualAnalysis.positions
+  .flatMap(row=>row.predictions.slice(0,2).filter(item=>item.probability>=0.16).map(item=>item.token))
+  .filter(token=>!words.includes(token)))].slice(0,8):[];
+ const contextualQuery=contextualHints.join(" ");
+ const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
+  contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
+ return {version:4,source:"local",contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
+  expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
+  contextualAnalysis,contextualHints};
 }
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";

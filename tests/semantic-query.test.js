@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const window = {};
 const sandbox = { window, Date, Math, Map, Set, JSON };
-for (const file of ["knowledge.js", "semantic-core.js", "semantic-query.js"]) {
+for (const file of ["knowledge.js", "semantic-core.js", "contextual-attention.js", "semantic-query.js"]) {
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const engine = window.NGSemanticQuery;
@@ -330,4 +330,14 @@ assert.match(inheritedFrame.attribute.text, /сердец/u);
 assert.equal(inheritedFrame.entities[0].certainty, "context_candidate");
 assert.equal(engine.isStructuredCommand("Покажи последние когнитивные циклы"), true);
 
-console.log("NEUROGENESIS semantic query planner: passed.");
+const contextualModel = window.NGContextualModel.create({ dimension: 8, windowSize: 2, seed: 11 });
+contextualModel.train(["нейрон получает сигнал", "сеть получает данные", "память хранит информацию"],
+  { epochs: 4, learningRate: 0.02 });
+window.NGContextualAttention = contextualModel;
+const contextualPlan = engine.local("Нейрон получает сигнал", {}, knowledge);
+assert.equal(contextualPlan.version, 4);
+assert.ok(contextualPlan.contextualAnalysis && contextualPlan.contextualAnalysis.trained,
+  "a trained contextual representation must flow into the semantic query result");
+assert.ok(contextualPlan.contextualAnalysis.positions.length > 0);
+assert.ok(Array.isArray(contextualPlan.contextualHints));
+console.log("NEUROGENESIS semantic query planner: passed, including contextual attention integration.");
