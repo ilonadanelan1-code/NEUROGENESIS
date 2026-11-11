@@ -81,13 +81,13 @@
       const y=Number(match[1]);
       return period(localDateStart(y,0,1),localDateStart(y+1,0,1),"year",String(y)+" год");
     }
-    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+год\w*$/u);
+    match=text.match(/^(позапрошл[\p{L}\p{M}]*|прошл[\p{L}\p{M}]*|эт[\p{L}\p{M}]*|следующ[\p{L}\p{M}]*)\s+год[\p{L}\p{M}]*$/u);
     if(match) {
       const offset=/^позапрошл/u.test(match[1])?-2:/^прошл/u.test(match[1])?-1:/^следующ/u.test(match[1])?1:0;
       const y=year+offset;
       return period(localDateStart(y,0,1),localDateStart(y+1,0,1),"year",String(y)+" год");
     }
-    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+месяц\w*$/u);
+    match=text.match(/^(позапрошл[\p{L}\p{M}]*|прошл[\p{L}\p{M}]*|эт[\p{L}\p{M}]*|следующ[\p{L}\p{M}]*)\s+месяц[\p{L}\p{M}]*$/u);
     if(match) {
       const offset=/^позапрошл/u.test(match[1])?-2:/^прошл/u.test(match[1])?-1:/^следующ/u.test(match[1])?1:0;
       const first=new Date(year,month+offset,1);
@@ -95,7 +95,7 @@
         localDateStart(first.getFullYear(),first.getMonth()+1,1),"month",
         first.toLocaleDateString("ru-RU",{month:"long",year:"numeric"}));
     }
-    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+недел\w*$/u);
+    match=text.match(/^(позапрошл[\p{L}\p{M}]*|прошл[\p{L}\p{M}]*|эт[\p{L}\p{M}]*|следующ[\p{L}\p{M}]*)\s+недел[\p{L}\p{M}]*$/u);
     if(match) {
       const mondayOffset=(anchor.getDay()+6)%7;
       const thisMonday=localDateStart(year,month,day-mondayOffset);
@@ -103,7 +103,7 @@
       const start=thisMonday+offset*7*86400000;
       return period(start,start+7*86400000,"week",new Date(start).toLocaleDateString("ru-RU")+" — "+new Date(start+6*86400000).toLocaleDateString("ru-RU"));
     }
-    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+(лет\w*|весн\w*|осен\w*|зим\w*)$/u);
+    match=text.match(/^(позапрошл[\p{L}\p{M}]*|прошл[\p{L}\p{M}]*|эт[\p{L}\p{M}]*|следующ[\p{L}\p{M}]*)\s+(лет[\p{L}\p{M}]*|весн[\p{L}\p{M}]*|осен[\p{L}\p{M}]*|зим[\p{L}\p{M}]*)$/u);
     if(match) {
       const qualifier=match[1], seasonWord=match[2];
       const seasonMonth=/^лет/u.test(seasonWord)?5:/^вес/u.test(seasonWord)?2:/^ос/u.test(seasonWord)?8:11;
@@ -132,7 +132,7 @@
       const start=localDateStart(year,month,day+offset);
       return period(start,start+86400000,"day",new Date(start).toLocaleDateString("ru-RU"));
     }
-    match=text.match(/^(\d+)\s+(день|дня|дней|недел\w*|месяц\w*|год|года|лет)\s+назад$/u);
+    match=text.match(/^(\d+)\s+(день|дня|дней|недел[\p{L}\p{M}]*|месяц[\p{L}\p{M}]*|год|года|лет)\s+назад$/u);
     if(match) {
       const count=Math.max(1,Math.min(1000,Number(match[1])));
       let start;

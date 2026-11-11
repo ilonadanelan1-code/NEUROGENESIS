@@ -92,6 +92,18 @@ assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/хрон
 assert.match(knowledge.answerQuestion("Что ты знаешь обо мне?", []),/нет конкретных сведений о тебе/u,"an empty user profile should be explained without inventing facts");
 
 const temporalAnchor = new Date(2026,10,11,12,0,0,0).getTime();
+
+const lastMonthPeriod=knowledge.parseTemporalPeriod("прошлом месяце",temporalAnchor);
+assert.equal(lastMonthPeriod.start,new Date(2026,9,1).getTime(),
+  "a relative month must resolve despite Russian inflection");
+assert.equal(lastMonthPeriod.end,new Date(2026,10,1).getTime());
+const previousSummerPeriod=knowledge.parseTemporalPeriod("прошлого лета",temporalAnchor);
+assert.equal(previousSummerPeriod.start,new Date(2026,5,1).getTime(),
+  "a relative season must accept Russian inflected word endings");
+const threeWeeksAgo=knowledge.parseTemporalPeriod("3 недели назад",temporalAnchor);
+assert.equal(threeWeeksAgo.start,new Date(2026,9,21).getTime(),
+  "a counted relative duration must recognize Cyrillic suffixes");
+
 const lastYearFact = knowledge.extractClaims("В прошлом году я жил в Сочи", temporalAnchor)[0];
 assert.ok(lastYearFact, "a past-tense self-report with a relative year should be extracted");
 assert.equal(lastYearFact.predicate,"живу в");
