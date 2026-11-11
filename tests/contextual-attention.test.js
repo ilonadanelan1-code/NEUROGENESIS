@@ -3,7 +3,7 @@ const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("nod
 const window={},sandbox={window,Math,Map,Set,JSON,Object,Array,String,Number,RegExp};
 vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),sandbox,{filename:"contextual-attention.js"});
 const api=window.NGContextualModel;
-assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V4");
+assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V5");
 const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
  "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
  "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
@@ -33,6 +33,8 @@ assert.ok(report.attemptedTrainingSteps>=report.trainingSteps);
 assert.ok(report.finalLoss<report.initialLoss,"multi-head masked-token loss must decrease after training");
 assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
 assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
+assert.equal(model.status().transformerBlocks,2,"the encoder must stack two independent transformer blocks");
+assert.equal(initialState.blocks.length,2);assert.equal(model.exportState().blocks.length,2);
 const attention=model.score("нейрон получает сигнал",1);
 assert.ok(attention&&attention.attention.length>=2);
 assert.equal(attention.heads.length,3,"three separately parameterized attention heads must be exposed");
@@ -48,18 +50,16 @@ assert.ok(attention.normalization.second.every(Number.isFinite));
 assert.equal(attention.feedForward.hidden.length,24);
 assert.ok(attention.feedForward.hidden.every(value=>Number.isFinite(value)&&value>=0));
 const trainedState=model.exportState();
-assert.notDeepEqual(trainedState.attentionHeads,initialState.attentionHeads,
- "the attention heads must receive gradient updates");
-assert.notDeepEqual(trainedState.feedForward1,initialState.feedForward1,
- "the feed-forward block must receive gradient updates");
-assert.notDeepEqual(trainedState.norm1Gamma,initialState.norm1Gamma,
- "layer normalization scale must be trainable");
-assert.notDeepEqual(trainedState.relativePositionBias,initialState.relativePositionBias,
- "per-head relative positional biases must receive gradient updates");
+for(let layer=0;layer<2;layer++){
+ assert.notDeepEqual(trainedState.blocks[layer].attentionHeads,initialState.blocks[layer].attentionHeads,"each block attention receives gradients");
+ assert.notDeepEqual(trainedState.blocks[layer].feedForward1,initialState.blocks[layer].feedForward1,"each block FFN receives gradients");
+ assert.notDeepEqual(trainedState.blocks[layer].norm1Gamma,initialState.blocks[layer].norm1Gamma,"each block LayerNorm is trainable");
+ assert.notDeepEqual(trainedState.blocks[layer].relativePositionBias,initialState.blocks[layer].relativePositionBias,"each block position bias is trainable");
+ }
 assert.notDeepEqual(trainedState.subwordEmbeddings,initialState.subwordEmbeddings,
  "character n-gram embeddings must receive gradient updates");
 for(const head of attention.heads){
- assert.equal(head.relativePositionBias.length,4);
+ assert.equal(head.relativePositionBias.length,5);
  assert.ok(head.relativePositionBias.every(Number.isFinite));
 }
 const analysis=model.analyse("нейрон получает сигнал");
@@ -86,9 +86,9 @@ assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
 assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"training diagnostics must persist with the selected checkpoint");
 assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"),
  "the complete multi-head architecture must persist");
-assert.throws(()=>restored.loadState({schema:api.schema,version:4,dimension:999,windowSize:2,heads:3,vocabulary:[]}),/dimensions, heads or vocabulary/u);
-assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V3",version:3}),/Unsupported contextual model state/u);
-const malformedState=restored.exportState();malformedState.relativePositionBias[0].pop();
+assert.throws(()=>restored.loadState({schema:api.schema,version:5,dimension:999,windowSize:2,heads:3,transformerBlocks:2,vocabulary:[],blocks:[{},{}]}),/dimensions, heads, blocks or vocabulary/u);
+assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V4",version:4}),/Unsupported contextual model state/u);
+const malformedState=restored.exportState();malformedState.blocks[0].relativePositionBias[0].pop();
 assert.throws(()=>restored.loadState(malformedState),/weights are malformed/u);
 const malformedSubwords=restored.exportState();malformedSubwords.subwordEmbeddings.pop();
 assert.throws(()=>restored.loadState(malformedSubwords),/weights are malformed/u);
@@ -124,4 +124,4 @@ const compactRestored=api.fromState(compactModel.exportState());
 assert.equal(compactRestored.status().lastTraining.validationLoss,null,"null validation loss must survive checkpoint reload");
 assert.equal(compactRestored.status().lastTraining.testLoss,null,"null test loss must survive checkpoint reload");
 assert.equal(compactRestored.status().lastTraining.evaluationAvailable,false);
-console.log("NEUROGENESIS contextual attention v3: deterministic splits, validation-selected checkpoint, held-out test metrics and persistence passed.");
+console.log("NEUROGENESIS contextual attention v5: stacked transformer blocks, cross-layer gradients, subword OOV handling and checkpoint persistence passed.");

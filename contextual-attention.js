@@ -1,6 +1,6 @@
 (() => {
 "use strict";
-const SCHEMA="NG_CONTEXTUAL_ATTENTION_V4",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24;
+const SCHEMA="NG_CONTEXTUAL_ATTENTION_V5",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24,MAX_TRANSFORMER_BLOCKS=4;
 const clean=(value,limit=4000)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 function tokenize(value){return clean(value,6000).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,MAX_TOKENS)||[];}
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -62,21 +62,20 @@ function create(options={}){
  const random=makeRandom(options.seed),tokenSeed=finite(options.seed,173)+104729;
  let tokenRandom=makeRandom(tokenSeed);
  const scale=Math.sqrt(2/(dimension+headDimension));
+ const blockCount=Math.max(1,Math.min(MAX_TRANSFORMER_BLOCKS,Math.floor(finite(options.blocks,2))));
  const vocabulary=[],indices=new Map(),embeddings=[],subwordEmbeddings=matrix(SUBWORD_BUCKETS,dimension,random,.04),positions=matrix(windowSize*2,dimension,random,.04);
- const relativePositionBias=Array.from({length:heads},()=>zeros(windowSize*2));
- const attentionHeads=Array.from({length:heads},()=>({
-  query:matrix(headDimension,dimension,random,scale),
-  key:matrix(headDimension,dimension,random,scale),
-  value:matrix(headDimension,dimension,random,scale)
- }));
- let attentionOutput=matrix(dimension,dimension,random,Math.sqrt(2/(dimension*2)));
- let norm1Gamma=Array.from({length:dimension},()=>1),norm1Beta=zeros(dimension);
- let norm2Gamma=Array.from({length:dimension},()=>1),norm2Beta=zeros(dimension);
- let feedForward1=matrix(feedForwardDimension,dimension,random,Math.sqrt(2/dimension));
- let feedForward1Bias=zeros(feedForwardDimension);
- let feedForward2=matrix(dimension,feedForwardDimension,random,Math.sqrt(2/feedForwardDimension));
- let feedForward2Bias=zeros(dimension);
+ const makeBlock=()=>({
+  attentionHeads:Array.from({length:heads},()=>({query:matrix(headDimension,dimension,random,scale),key:matrix(headDimension,dimension,random,scale),value:matrix(headDimension,dimension,random,scale)})),
+  relativePositionBias:Array.from({length:heads},()=>zeros(windowSize*2+1)),
+  attentionOutput:matrix(dimension,dimension,random,Math.sqrt(2/(dimension*2))),
+  norm1Gamma:Array.from({length:dimension},()=>1),norm1Beta:zeros(dimension),norm2Gamma:Array.from({length:dimension},()=>1),norm2Beta:zeros(dimension),
+  feedForward1:matrix(feedForwardDimension,dimension,random,Math.sqrt(2/dimension)),feedForward1Bias:zeros(feedForwardDimension),
+  feedForward2:matrix(dimension,feedForwardDimension,random,Math.sqrt(2/feedForwardDimension)),feedForward2Bias:zeros(dimension)
+ });
+ const blocks=Array.from({length:blockCount},makeBlock);
  let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null;
+ function relativeSlot(delta){return Math.max(-windowSize,Math.min(windowSize,delta))+windowSize;}
+ function zeroMatrix(rows,cols){return Array.from({length:rows},()=>zeros(cols));}
 
  function addToken(raw){
   const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
@@ -105,114 +104,113 @@ function create(options={}){
    for(let i=0;i<sequence.length;i++){const context=contextFor(sequence,i);if(sequence[i].tokenIndex>=0&&context.length)examples.push({context,target:sequence[i].tokenIndex});}
   }return examples;
  }
+ function forwardBlock(inputRows,block){
+  const count=inputRows.length,headPasses=[],concatenated=Array.from({length:count},()=>[]);
+  for(let h=0;h<heads;h++){
+   const p=block.attentionHeads[h],queries=inputRows.map(row=>multiply(p.query,row.vector));
+   const keys=inputRows.map(row=>multiply(p.key,row.vector)),values=inputRows.map(row=>multiply(p.value,row.vector)),attentions=[];
+   for(let i=0;i<count;i++){
+    const keyIndexes=Array.from({length:count},(_,index)=>index);
+    const scores=keyIndexes.map(j=>dot(queries[i],keys[j])/Math.sqrt(headDimension)+block.relativePositionBias[h][relativeSlot(inputRows[j].offset-inputRows[i].offset)]);
+    const weights=softmax(scores),vector=zeros(headDimension);
+    for(let k=0;k<keyIndexes.length;k++)for(let d=0;d<headDimension;d++)vector[d]+=weights[k]*values[keyIndexes[k]][d];
+    concatenated[i].push(...vector);attentions.push({keyIndexes,scores,weights,vector});
+   }headPasses.push({queries,keys,values,attentions});
+  }
+  const rowPasses=[],outputRows=[];
+  for(let i=0;i<count;i++){
+   const projected=multiply(block.attentionOutput,concatenated[i]),residual1=inputRows[i].vector.map((v,k)=>v+projected[k]);
+   const norm1=layerNorm(residual1,block.norm1Gamma,block.norm1Beta);
+   const ffPre=multiply(block.feedForward1,norm1.output).map((v,k)=>v+block.feedForward1Bias[k]),ffHidden=ffPre.map(v=>Math.max(0,v));
+   const ffOutput=multiply(block.feedForward2,ffHidden).map((v,k)=>v+block.feedForward2Bias[k]);
+   const residual2=norm1.output.map((v,k)=>v+ffOutput[k]),norm2=layerNorm(residual2,block.norm2Gamma,block.norm2Beta);
+   rowPasses.push({projected,residual1,norm1,ffPre,ffHidden,ffOutput,residual2,norm2});outputRows.push({...inputRows[i],vector:norm2.output.slice()});
+  }return{inputRows,headPasses,concatenated,rowPasses,outputRows};
+ }
  function forward(context){
-  const rows=context.map(item=>{
+  const inputRows=context.map(item=>{
    const vector=zeros(dimension),embedding=item.tokenIndex>=0?embeddings[item.tokenIndex]:null,position=positions[item.slot];
-   for(let i=0;i<dimension;i++){
-    let subword=0;for(const bucket of item.subwordBuckets||[])subword+=subwordEmbeddings[bucket][i];
-    vector[i]=(embedding?embedding[i]:0)+(item.subwordBuckets&&item.subwordBuckets.length?subword/item.subwordBuckets.length:0)+position[i];
-   }
+   for(let i=0;i<dimension;i++){let subword=0;for(const bucket of item.subwordBuckets||[])subword+=subwordEmbeddings[bucket][i];
+    vector[i]=(embedding?embedding[i]:0)+(item.subwordBuckets&&item.subwordBuckets.length?subword/item.subwordBuckets.length:0)+position[i];}
    return{...item,vector};
   });
-  const mean=zeros(dimension);
-  for(const row of rows)for(let i=0;i<dimension;i++)mean[i]+=row.vector[i]/rows.length;
-  const headPasses=[],concatenated=[];
-  for(let h=0;h<heads;h++){
-   const parameters=attentionHeads[h],query=multiply(parameters.query,mean);
-   const keys=rows.map(row=>multiply(parameters.key,row.vector));
-   const values=rows.map(row=>multiply(parameters.value,row.vector));
-   const scores=keys.map((key,index)=>dot(query,key)/Math.sqrt(headDimension)+relativePositionBias[h][rows[index].slot]);
-   const weights=softmax(scores),vector=zeros(headDimension);
-   for(let row=0;row<rows.length;row++)for(let i=0;i<headDimension;i++)vector[i]+=weights[row]*values[row][i];
-   headPasses.push({query,keys,values,scores,weights,vector});
-   concatenated.push(...vector);
+  const layerPasses=[];let rows=inputRows;for(const block of blocks){const pass=forwardBlock(rows,block);layerPasses.push(pass);rows=pass.outputRows;}
+  const pooled=zeros(dimension);for(const row of rows)for(let i=0;i<dimension;i++)pooled[i]+=row.vector[i]/rows.length;
+  const logits=multiply(outputWeights,pooled).map((v,i)=>v+outputBias[i]);
+  return{inputRows,layerPasses,finalRows:rows,pooled,probabilities:softmax(logits)};
+ }
+ function createBlockGradients(){return{
+  attentionHeads:Array.from({length:heads},()=>({query:zeroMatrix(headDimension,dimension),key:zeroMatrix(headDimension,dimension),value:zeroMatrix(headDimension,dimension)})),
+  relativePositionBias:Array.from({length:heads},()=>zeros(windowSize*2+1)),attentionOutput:zeroMatrix(dimension,dimension),
+  norm1Gamma:zeros(dimension),norm1Beta:zeros(dimension),norm2Gamma:zeros(dimension),norm2Beta:zeros(dimension),
+  feedForward1:zeroMatrix(feedForwardDimension,dimension),feedForward1Bias:zeros(feedForwardDimension),
+  feedForward2:zeroMatrix(dimension,feedForwardDimension),feedForward2Bias:zeros(dimension)
+ };}
+ function backwardBlock(pass,outputGradients,block){
+  const count=pass.inputRows.length,g=createBlockGradients(),dProjected=zeroMatrix(count,dimension);
+  for(let i=0;i<count;i++){
+   const cache=pass.rowPasses[i],ln2=layerNormBackward(outputGradients[i],cache.norm2,block.norm2Gamma);
+   const dResidual2=ln2.inputGradient,dNorm1Direct=dResidual2.slice(),dFfOutput=dResidual2.slice();
+   for(let row=0;row<dimension;row++){
+    g.norm2Gamma[row]+=ln2.gammaGradient[row];g.norm2Beta[row]+=ln2.betaGradient[row];
+    for(let col=0;col<feedForwardDimension;col++)g.feedForward2[row][col]+=dFfOutput[row]*cache.ffHidden[col];
+    g.feedForward2Bias[row]+=dFfOutput[row];
+   }
+   const dFfHidden=transposeMultiply(block.feedForward2,dFfOutput),dFfPre=dFfHidden.map((v,k)=>cache.ffPre[k]>0?v:0);
+   for(let row=0;row<feedForwardDimension;row++){for(let col=0;col<dimension;col++)g.feedForward1[row][col]+=dFfPre[row]*cache.norm1.output[col];g.feedForward1Bias[row]+=dFfPre[row];}
+   const dNorm1FromFf=transposeMultiply(block.feedForward1,dFfPre),dNorm1=dNorm1Direct.map((v,k)=>v+dNorm1FromFf[k]);
+   const ln1=layerNormBackward(dNorm1,cache.norm1,block.norm1Gamma);
+   for(let k=0;k<dimension;k++){g.norm1Gamma[k]+=ln1.gammaGradient[k];g.norm1Beta[k]+=ln1.betaGradient[k];}
+   dProjected[i]=ln1.inputGradient;
+   for(let r=0;r<dimension;r++)for(let c=0;c<dimension;c++)g.attentionOutput[r][c]+=dProjected[i][r]*pass.concatenated[i][c];
   }
-  const projected=multiply(attentionOutput,concatenated);
-  const residual1=mean.map((value,index)=>value+projected[index]);
-  const norm1=layerNorm(residual1,norm1Gamma,norm1Beta);
-  const ffPre=multiply(feedForward1,norm1.output).map((value,index)=>value+feedForward1Bias[index]);
-  const ffHidden=ffPre.map(value=>Math.max(0,value));
-  const ffOutput=multiply(feedForward2,ffHidden).map((value,index)=>value+feedForward2Bias[index]);
-  const residual2=norm1.output.map((value,index)=>value+ffOutput[index]);
-  const norm2=layerNorm(residual2,norm2Gamma,norm2Beta);
-  const logits=multiply(outputWeights,norm2.output).map((value,index)=>value+outputBias[index]);
-  return{rows,mean,headPasses,concatenated,projected,residual1,norm1,ffPre,ffHidden,ffOutput,residual2,norm2,probabilities:softmax(logits)};
+  const dConcatenated=dProjected.map(row=>transposeMultiply(block.attentionOutput,row)),dInput=dProjected.map(row=>row.slice());
+  for(let h=0;h<heads;h++){
+   const head=pass.headPasses[h],p=block.attentionHeads[h],dQuery=zeroMatrix(count,headDimension),dKeys=zeroMatrix(count,headDimension),dValues=zeroMatrix(count,headDimension);
+   for(let i=0;i<count;i++){
+    const a=head.attentions[i],dHead=dConcatenated[i].slice(h*headDimension,(h+1)*headDimension);
+    const dWeights=a.keyIndexes.map(j=>dot(dHead,head.values[j])),weighted=dot(a.weights,dWeights),dScores=dWeights.map((v,k)=>a.weights[k]*(v-weighted));
+    for(let k=0;k<a.keyIndexes.length;k++){
+     const j=a.keyIndexes[k],slot=relativeSlot(pass.inputRows[j].offset-pass.inputRows[i].offset);
+     for(let d=0;d<headDimension;d++){dValues[j][d]+=a.weights[k]*dHead[d];dQuery[i][d]+=dScores[k]*head.keys[j][d]/Math.sqrt(headDimension);dKeys[j][d]+=dScores[k]*head.queries[i][d]/Math.sqrt(headDimension);}
+     g.relativePositionBias[h][slot]+=dScores[k];
+    }
+   }
+   for(let i=0;i<count;i++){
+    for(let d=0;d<headDimension;d++)for(let col=0;col<dimension;col++){
+     g.attentionHeads[h].query[d][col]+=dQuery[i][d]*pass.inputRows[i].vector[col];
+     g.attentionHeads[h].key[d][col]+=dKeys[i][d]*pass.inputRows[i].vector[col];
+     g.attentionHeads[h].value[d][col]+=dValues[i][d]*pass.inputRows[i].vector[col];
+    }
+    const q=transposeMultiply(p.query,dQuery[i]),k=transposeMultiply(p.key,dKeys[i]),v=transposeMultiply(p.value,dValues[i]);
+    for(let col=0;col<dimension;col++)dInput[i][col]+=q[col]+k[col]+v[col];
+   }
+  }return{inputGradients:dInput,gradients:g};
  }
  function trainExample(example,learningRate){
   const pass=forward(example.context),loss=-Math.log(Math.max(1e-12,pass.probabilities[example.target]||0));
   const dLogits=pass.probabilities.slice();dLogits[example.target]-=1;
-  const dOutputWeights=outputWeights.map((row,i)=>row.map((_,col)=>dLogits[i]*pass.norm2.output[col]));
-  const dNorm2=transposeMultiply(outputWeights,dLogits);
-  const ln2=layerNormBackward(dNorm2,pass.norm2,norm2Gamma);
-  const dResidual2=ln2.inputGradient;
-  const dNorm1Direct=dResidual2.slice(),dFfOutput=dResidual2.slice();
-  const dFeedForward2=feedForward2.map((row,i)=>row.map((_,col)=>dFfOutput[i]*pass.ffHidden[col]));
-  const dFeedForward2Bias=dFfOutput.slice();
-  const dFfHidden=transposeMultiply(feedForward2,dFfOutput);
-  const dFfPre=dFfHidden.map((value,index)=>pass.ffPre[index]>0?value:0);
-  const dFeedForward1=feedForward1.map((row,i)=>row.map((_,col)=>dFfPre[i]*pass.norm1.output[col]));
-  const dFeedForward1Bias=dFfPre.slice();
-  const dNorm1FromFf=transposeMultiply(feedForward1,dFfPre);
-  const dNorm1=dNorm1Direct.map((value,index)=>value+dNorm1FromFf[index]);
-  const ln1=layerNormBackward(dNorm1,pass.norm1,norm1Gamma);
-  const dResidual1=ln1.inputGradient;
-  const dMean=dResidual1.slice(),dProjected=dResidual1.slice();
-  const dAttentionOutput=attentionOutput.map((row,i)=>row.map((_,col)=>dProjected[i]*pass.concatenated[col]));
-  const dConcatenated=transposeMultiply(attentionOutput,dProjected);
-  const headGradients=[];
-  for(let h=0;h<heads;h++){
-   const head=pass.headPasses[h],offset=h*headDimension;
-   const dHead=dConcatenated.slice(offset,offset+headDimension);
-   const dAttention=head.values.map(value=>dot(dHead,value));
-   const weightedGradient=dot(head.weights,dAttention);
-   const dScores=dAttention.map((value,index)=>head.weights[index]*(value-weightedGradient));
-   const dQuery=zeros(headDimension),dKeys=head.keys.map(()=>zeros(headDimension)),dValues=head.values.map(()=>zeros(headDimension));
-   for(let row=0;row<pass.rows.length;row++)for(let i=0;i<headDimension;i++){
-    dValues[row][i]=head.weights[row]*dHead[i];
-    dQuery[i]+=dScores[row]*head.keys[row][i]/Math.sqrt(headDimension);
-    dKeys[row][i]=dScores[row]*head.query[i]/Math.sqrt(headDimension);
-   }
-   const parameters=attentionHeads[h];
-   const dQueryWeights=parameters.query.map((row,i)=>row.map((_,col)=>dQuery[i]*pass.mean[col]));
-   const dKeyWeights=matrix(headDimension,dimension,()=>0,0),dValueWeights=matrix(headDimension,dimension,()=>0,0);
-   const dMeanFromQuery=transposeMultiply(parameters.query,dQuery);
-   for(let i=0;i<dimension;i++)dMean[i]+=dMeanFromQuery[i];
-   const dInputRows=[];
-   for(let row=0;row<pass.rows.length;row++){
-    const item=pass.rows[row];
-    const dKeyWeightInput=transposeMultiply(parameters.key,dKeys[row]);
-    const dValueWeightInput=transposeMultiply(parameters.value,dValues[row]);
-    const dInput=dKeyWeightInput.map((value,index)=>value+dValueWeightInput[index]);
-    for(let i=0;i<headDimension;i++)for(let col=0;col<dimension;col++){
-     dKeyWeights[i][col]+=dKeys[row][i]*item.vector[col];
-     dValueWeights[i][col]+=dValues[row][i]*item.vector[col];
-    }
-    dInputRows.push(dInput);
-   }
-   headGradients.push({dQueryWeights,dKeyWeights,dValueWeights,dInputRows,dRelativePositionBias:dScores.slice()});
-  }
+  const dOutputWeights=outputWeights.map((row,i)=>row.map((_,col)=>dLogits[i]*pass.pooled[col]));
+  const dOutputBias=dLogits.slice(),dPooled=transposeMultiply(outputWeights,dLogits);
+  let rowGradients=pass.finalRows.map(()=>dPooled.map(v=>v/pass.finalRows.length));const blockGradients=Array(blockCount);
+  for(let layer=blockCount-1;layer>=0;layer--){const back=backwardBlock(pass.layerPasses[layer],rowGradients,blocks[layer]);blockGradients[layer]=back.gradients;rowGradients=back.inputGradients;}
   const embeddingGradients=new Map(),subwordGradients=new Map(),positionGradients=new Map();
-  for(let row=0;row<pass.rows.length;row++){
-   const item=pass.rows[row],gradient=dMean.map(value=>value/pass.rows.length);
-   for(const headGradient of headGradients)for(let i=0;i<dimension;i++)gradient[i]+=headGradient.dInputRows[row][i];
+  for(let row=0;row<pass.inputRows.length;row++){
+   const item=pass.inputRows[row],gradient=rowGradients[row];
    if(item.tokenIndex>=0&&!embeddingGradients.has(item.tokenIndex))embeddingGradients.set(item.tokenIndex,zeros(dimension));
    const buckets=item.subwordBuckets||[];for(const bucket of buckets)if(!subwordGradients.has(bucket))subwordGradients.set(bucket,zeros(dimension));
    if(!positionGradients.has(item.slot))positionGradients.set(item.slot,zeros(dimension));
    const eg=item.tokenIndex>=0?embeddingGradients.get(item.tokenIndex):null,pg=positionGradients.get(item.slot);
    for(let i=0;i<dimension;i++){if(eg)eg[i]+=gradient[i];pg[i]+=gradient[i];for(const bucket of buckets)subwordGradients.get(bucket)[i]+=gradient[i]/buckets.length;}
   }
-  const update=(weights,gradients)=>{for(let row=0;row<weights.length;row++)for(let col=0;col<weights[row].length;col++)weights[row][col]-=learningRate*clipped(gradients[row][col]);};
-  const updateVector=(weights,gradients)=>{for(let i=0;i<weights.length;i++)weights[i]-=learningRate*clipped(gradients[i]);};
-  update(outputWeights,dOutputWeights);update(attentionOutput,dAttentionOutput);
-  update(feedForward1,dFeedForward1);update(feedForward2,dFeedForward2);
-  updateVector(outputBias,dLogits);updateVector(feedForward1Bias,dFeedForward1Bias);updateVector(feedForward2Bias,dFeedForward2Bias);
-  updateVector(norm1Gamma,ln1.gammaGradient);updateVector(norm1Beta,ln1.betaGradient);
-  updateVector(norm2Gamma,ln2.gammaGradient);updateVector(norm2Beta,ln2.betaGradient);
-  for(let h=0;h<heads;h++){
-   update(attentionHeads[h].query,headGradients[h].dQueryWeights);
-   update(attentionHeads[h].key,headGradients[h].dKeyWeights);
-   update(attentionHeads[h].value,headGradients[h].dValueWeights);
-   updateVector(relativePositionBias[h],headGradients[h].dRelativePositionBias);
+  const update=(weights,grads)=>{for(let r=0;r<weights.length;r++)for(let c=0;c<weights[r].length;c++)weights[r][c]-=learningRate*clipped(grads[r][c]);};
+  const updateVector=(weights,grads)=>{for(let i=0;i<weights.length;i++)weights[i]-=learningRate*clipped(grads[i]);};
+  update(outputWeights,dOutputWeights);updateVector(outputBias,dOutputBias);
+  for(let layer=0;layer<blockCount;layer++){
+   const block=blocks[layer],g=blockGradients[layer];update(block.attentionOutput,g.attentionOutput);update(block.feedForward1,g.feedForward1);update(block.feedForward2,g.feedForward2);
+   updateVector(block.feedForward1Bias,g.feedForward1Bias);updateVector(block.feedForward2Bias,g.feedForward2Bias);
+   updateVector(block.norm1Gamma,g.norm1Gamma);updateVector(block.norm1Beta,g.norm1Beta);updateVector(block.norm2Gamma,g.norm2Gamma);updateVector(block.norm2Beta,g.norm2Beta);
+   for(let h=0;h<heads;h++){update(block.attentionHeads[h].query,g.attentionHeads[h].query);update(block.attentionHeads[h].key,g.attentionHeads[h].key);update(block.attentionHeads[h].value,g.attentionHeads[h].value);updateVector(block.relativePositionBias[h],g.relativePositionBias[h]);}
   }
   for(const[token,gradient]of embeddingGradients)updateVector(embeddings[token],gradient);
   for(const[bucket,gradient]of subwordGradients)updateVector(subwordEmbeddings[bucket],gradient);
@@ -283,7 +281,7 @@ function create(options={}){
    validationCoverage:validationExamples.length?validationExamples.length/Math.max(1,rowsForTargets(validationRows)):null,
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
-   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,
+   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension};
   return{...lastTraining};
  }
@@ -295,76 +293,66 @@ function create(options={}){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));if(!tokens.length)return null;
   const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
   const context=contextFor(sequence,safeIndex);if(!context.length)return null;
-  const pass=forward(context),headRows=pass.headPasses.map((head,index)=>({
-   head:index+1,attention:pass.rows.map((row,position)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:head.weights[position]})),
-   relativePositionBias:relativePositionBias[index].slice(),vector:head.vector.slice()
-  }));
-  const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:pass.headPasses.reduce((sum,head)=>sum+head.weights[index],0)/heads}));
-  const targetFeature=sequence[safeIndex],targetIndexInVocabulary=targetFeature.tokenIndex;
-  const targetEmbedding=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary]:zeros(dimension),tokenVector=targetEmbedding.slice();
-  for(const bucket of targetFeature.subwordBuckets)for(let i=0;i<dimension;i++)tokenVector[i]+=subwordEmbeddings[bucket][i]/targetFeature.subwordBuckets.length;
-  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:targetFeature.subwordBuckets.length,tokenVector,
-   contextualVector:pass.norm2.output.slice(),attention:aggregate,heads:headRows,predictions:topPredictions(pass.probabilities,vocabulary),
-   targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
-   normalization:{first:pass.norm1.output.slice(),second:pass.norm2.output.slice()},feedForward:{hidden:pass.ffHidden.slice(),output:pass.ffOutput.slice()}};
+  const pass=forward(context),last=pass.layerPasses[blockCount-1];
+  const headRows=last.headPasses.map((head,index)=>{
+   const accumulated=zeros(context.length),vector=zeros(headDimension);
+   for(let query=0;query<context.length;query++){const a=head.attentions[query];for(let k=0;k<a.keyIndexes.length;k++)accumulated[a.keyIndexes[k]]+=a.weights[k]/context.length;for(let d=0;d<headDimension;d++)vector[d]+=a.vector[d]/context.length;}
+   return{head:index+1,attention:accumulated.map((weight,row)=>({token:tokens[safeIndex+context[row].offset],offset:context[row].offset,distance:Math.abs(context[row].offset),weight})),relativePositionBias:blocks[blockCount-1].relativePositionBias[index].slice(),vector};
+  });
+  const aggregate=context.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:headRows.reduce((sum,head)=>sum+head.attention[index].weight,0)/heads}));
+  const target=sequence[safeIndex],targetIndexInVocabulary=target.tokenIndex,tokenVector=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary].slice():zeros(dimension);
+  for(const bucket of target.subwordBuckets)for(let i=0;i<dimension;i++)tokenVector[i]+=subwordEmbeddings[bucket][i]/target.subwordBuckets.length;
+  const rows=last.rowPasses,meanVector=selector=>Array.from({length:dimension},(_,i)=>rows.reduce((sum,row)=>sum+selector(row)[i],0)/rows.length);
+  const hidden=Array.from({length:feedForwardDimension},(_,i)=>rows.reduce((sum,row)=>sum+row.ffHidden[i],0)/rows.length);
+  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:target.subwordBuckets.length,tokenVector,contextualVector:pass.pooled.slice(),attention:aggregate,heads:headRows,predictions:topPredictions(pass.probabilities,vocabulary),
+   targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,normalization:{first:meanVector(row=>row.norm1.output),second:pass.pooled.slice()},
+   feedForward:{hidden,output:meanVector(row=>row.ffOutput)},transformerBlocks:blockCount};
  }
  function analyse(text){const tokens=tokenize(text),positions=[];for(let i=0;i<tokens.length;i++){const row=score(text,i);if(row)positions.push(row);}
   const unknownTokens=tokens.filter(token=>!indices.has(token));
-  return{schema:SCHEMA,version:4,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,
+  return{schema:SCHEMA,version:5,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,transformerBlocks:blockCount,windowSize,maxWindowSize:MAX_WINDOW_SIZE,
    knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,positions};}
- function status(){return{schema:SCHEMA,version:4,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
+ function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
-  const copy=rows=>rows.map(row=>row.slice());
-  return{schema:SCHEMA,version:4,dimension,windowSize,heads,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),
-   positions:copy(positions),relativePositionBias:copy(relativePositionBias),attentionHeads:attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),
-   attentionOutput:copy(attentionOutput),norm1Gamma:norm1Gamma.slice(),norm1Beta:norm1Beta.slice(),
-   norm2Gamma:norm2Gamma.slice(),norm2Beta:norm2Beta.slice(),feedForward1:copy(feedForward1),
-   feedForward1Bias:feedForward1Bias.slice(),feedForward2:copy(feedForward2),feedForward2Bias:feedForward2Bias.slice(),
-   outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};
+  const copy=rows=>rows.map(row=>row.slice()),copyBlock=block=>({
+   attentionHeads:block.attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),relativePositionBias:copy(block.relativePositionBias),attentionOutput:copy(block.attentionOutput),
+   norm1Gamma:block.norm1Gamma.slice(),norm1Beta:block.norm1Beta.slice(),norm2Gamma:block.norm2Gamma.slice(),norm2Beta:block.norm2Beta.slice(),
+   feedForward1:copy(block.feedForward1),feedForward1Bias:block.feedForward1Bias.slice(),feedForward2:copy(block.feedForward2),feedForward2Bias:block.feedForward2Bias.slice()
+  });
+  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};
  }
  function loadState(state){
-  if(!state||state.schema!==SCHEMA||state.version!==4)throw new TypeError("Unsupported contextual model state.");
-  if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||
-   !Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY)throw new TypeError("Contextual model dimensions, heads or vocabulary are invalid.");
-  const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>
-   Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
+  if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
+  if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||!Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
+   throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
+  const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
   const validVector=(values,length)=>Array.isArray(values)&&values.length===length&&values.every(value=>Number.isFinite(Number(value)));
-  const count=state.vocabulary.length;
-  const validHeads=Array.isArray(state.attentionHeads)&&state.attentionHeads.length===heads&&state.attentionHeads.every(head=>
-   head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension));
-  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||
-   !validMatrix(state.relativePositionBias,heads,windowSize*2)||!validHeads||
-   !validMatrix(state.attentionOutput,dimension,dimension)||!validVector(state.norm1Gamma,dimension)||!validVector(state.norm1Beta,dimension)||
-   !validVector(state.norm2Gamma,dimension)||!validVector(state.norm2Beta,dimension)||
-   !validMatrix(state.feedForward1,feedForwardDimension,dimension)||!validVector(state.feedForward1Bias,feedForwardDimension)||
-   !validMatrix(state.feedForward2,dimension,feedForwardDimension)||!validVector(state.feedForward2Bias,dimension)||
-   !validMatrix(state.outputWeights,count,dimension)||!validVector(state.outputBias,count))
+  const count=state.vocabulary.length,validBlock=block=>block&&Array.isArray(block.attentionHeads)&&block.attentionHeads.length===heads&&
+   block.attentionHeads.every(head=>head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension))&&
+   validMatrix(block.relativePositionBias,heads,windowSize*2+1)&&validMatrix(block.attentionOutput,dimension,dimension)&&validVector(block.norm1Gamma,dimension)&&validVector(block.norm1Beta,dimension)&&validVector(block.norm2Gamma,dimension)&&validVector(block.norm2Beta,dimension)&&
+   validMatrix(block.feedForward1,feedForwardDimension,dimension)&&validVector(block.feedForward1Bias,feedForwardDimension)&&validMatrix(block.feedForward2,dimension,feedForwardDimension)&&validVector(block.feedForward2Bias,dimension);
+  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||!state.blocks.every(validBlock)||!validMatrix(state.outputWeights,count,dimension)||!validVector(state.outputBias,count))
    throw new TypeError("Contextual model weights are malformed.");
   vocabulary.length=0;indices.clear();
-  state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
-   if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});
+  state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});
   const copy=rows=>rows.map(row=>row.map(Number)),copyVector=values=>values.map(Number);
   embeddings.length=0;embeddings.push(...copy(state.embeddings));subwordEmbeddings.splice(0,subwordEmbeddings.length,...copy(state.subwordEmbeddings));positions.splice(0,positions.length,...copy(state.positions));
-  relativePositionBias.splice(0,relativePositionBias.length,...copy(state.relativePositionBias));
-  for(let h=0;h<heads;h++){attentionHeads[h].query=copy(state.attentionHeads[h].query);attentionHeads[h].key=copy(state.attentionHeads[h].key);attentionHeads[h].value=copy(state.attentionHeads[h].value);}
-  attentionOutput=copy(state.attentionOutput);norm1Gamma=copyVector(state.norm1Gamma);norm1Beta=copyVector(state.norm1Beta);
-  norm2Gamma=copyVector(state.norm2Gamma);norm2Beta=copyVector(state.norm2Beta);
-  feedForward1=copy(state.feedForward1);feedForward1Bias=copyVector(state.feedForward1Bias);
-  feedForward2=copy(state.feedForward2);feedForward2Bias=copyVector(state.feedForward2Bias);
-  outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
-  trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
-  const report=state.lastTraining;
-  lastTraining=report&&typeof report==="object"&&
-   (report.validationLoss==null||Number.isFinite(Number(report.validationLoss)))
-   ?{...report,validationLoss:report.validationLoss==null?null:Number(report.validationLoss),
-     testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
+  for(let layer=0;layer<blockCount;layer++){
+   const source=state.blocks[layer],target=blocks[layer];
+   for(let h=0;h<heads;h++){target.attentionHeads[h].query=copy(source.attentionHeads[h].query);target.attentionHeads[h].key=copy(source.attentionHeads[h].key);target.attentionHeads[h].value=copy(source.attentionHeads[h].value);}
+   target.relativePositionBias=copy(source.relativePositionBias);target.attentionOutput=copy(source.attentionOutput);target.norm1Gamma=copyVector(source.norm1Gamma);target.norm1Beta=copyVector(source.norm1Beta);
+   target.norm2Gamma=copyVector(source.norm2Gamma);target.norm2Beta=copyVector(source.norm2Beta);target.feedForward1=copy(source.feedForward1);target.feedForward1Bias=copyVector(source.feedForward1Bias);
+   target.feedForward2=copy(source.feedForward2);target.feedForward2Bias=copyVector(source.feedForward2Bias);
+  }
+  outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
+  const report=state.lastTraining;lastTraining=report&&typeof report==="object"&&(report.validationLoss==null||Number.isFinite(Number(report.validationLoss)))?{...report,validationLoss:report.validationLoss==null?null:Number(report.validationLoss),testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
   return status();
  }
  const initialCheckpoint=exportState();
  return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures});
 }
-function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads});model.loadState(state);return model;}
+function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
-root.NGContextualModel=Object.freeze({schema:SCHEMA,version:4,create,fromState,tokenize,subwordFeatures});
+root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures});
 })();

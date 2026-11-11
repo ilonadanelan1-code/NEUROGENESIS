@@ -28,10 +28,10 @@
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
     metrics.textContent=message||(status.trained
       ?"Головы: "+status.heads+" · окно: ±"+status.windowSize+" · словарь: "+status.vocabularySize+
-       " · шаги: "+status.trainingSteps+" · subword: "+status.subwordBuckets+" корзин · train loss: "+Number(status.lastLoss).toFixed(3)+
+       " · блоки: "+status.transformerBlocks+" · шаги: "+status.trainingSteps+" · subword: "+status.subwordBuckets+" корзин · train loss: "+Number(status.lastLoss).toFixed(3)+
        (status.lastTraining?" · val loss: "+(status.lastTraining.validationLoss==null?"н/д":Number(status.lastTraining.validationLoss).toFixed(3))+
         " · test loss: "+(status.lastTraining.testLoss==null?"н/д":Number(status.lastTraining.testLoss).toFixed(3)):"")
-      :"Архитектура: "+status.heads+" головы · окно ±"+status.windowSize+" · обучаемые позиционные смещения · остаточные связи · LayerNorm · FFN. Добавь предложения и запусти обучение.");
+      :"Архитектура: "+status.transformerBlocks+" блока · "+status.heads+" головы · окно ±"+status.windowSize+" · символьные n-граммы · LayerNorm · FFN. Добавь предложения и запусти обучение.");
   }
   let saved=null;
   try{saved=JSON.parse(root.localStorage?.getItem(STORAGE_KEY)||"null");}catch(_){}
@@ -40,7 +40,7 @@
   if(saved&&saved.state){
     try{model.loadState(saved.state);}
     catch(_){
-      // A previous checkpoint is intentionally not misread as the v4 subword-aware model.
+      // A previous checkpoint is intentionally not misread as the v5 stacked-transformer model.
       checkpointRequiresRetraining=true;
     }
   }
@@ -48,7 +48,7 @@
   renderStatus();
   if(checkpointRequiresRetraining){
     stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
-    metrics.textContent="Архитектура обновлена: добавлены обучаемые символьные n-граммы для неизвестных слов. Твои обучающие предложения сохранены — запусти обучение заново.";
+    metrics.textContent="Архитектура обновлена: теперь используются два последовательных Transformer-блока. Твои обучающие предложения сохранены — запусти обучение заново.";
   }
   trainButton.addEventListener("click",()=>{
     const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
