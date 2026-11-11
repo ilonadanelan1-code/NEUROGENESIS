@@ -17,7 +17,7 @@
   const stateLabel=byId("contextual-model-state"),metrics=byId("contextual-model-metrics");
   const output=byId("contextual-attention-output");
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
-  let model=Model.create({dimension:12,windowSize:2,heads:3,seed:9173});
+  let model=Model.create({dimension:12,windowSize:4,heads:3,seed:9173});
   let checkpointRequiresRetraining=false;
   function save(){
     try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),corpus:corpusInput.value}));}
@@ -28,9 +28,9 @@
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
     metrics.textContent=message||(status.trained
       ?"Головы: "+status.heads+" · размер головы: "+status.headDimension+
-       " · FFN: "+status.feedForwardDimension+" · словарь: "+status.vocabularySize+
+       " · окно: ±"+status.windowSize+" · FFN: "+status.feedForwardDimension+" · словарь: "+status.vocabularySize+
        " · шаги: "+status.trainingSteps+" · ошибка: "+Number(status.lastLoss).toFixed(3)
-      :"Архитектура: "+status.heads+" головы · остаточные связи · LayerNorm · FFN. Добавь предложения и запусти обучение.");
+      :"Архитектура: "+status.heads+" головы · окно ±"+status.windowSize+" · обучаемые позиционные смещения · остаточные связи · LayerNorm · FFN. Добавь предложения и запусти обучение.");
   }
   let saved=null;
   try{saved=JSON.parse(root.localStorage?.getItem(STORAGE_KEY)||"null");}catch(_){}
@@ -39,7 +39,7 @@
   if(saved&&saved.state){
     try{model.loadState(saved.state);}
     catch(_){
-      // A previous single-head checkpoint is intentionally not misread as a multi-head model.
+      // A previous checkpoint is intentionally not misread as the v3 positional-bias model.
       checkpointRequiresRetraining=true;
     }
   }
@@ -47,7 +47,7 @@
   renderStatus();
   if(checkpointRequiresRetraining){
     stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
-    metrics.textContent="Архитектура обновлена до трёх голов. Твои обучающие предложения сохранены — запусти обучение заново.";
+    metrics.textContent="Архитектура обновлена: расширенное контекстное окно и обучаемые позиционные смещения. Твои обучающие предложения сохранены — запусти обучение заново.";
   }
   trainButton.addEventListener("click",()=>{
     const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
@@ -68,14 +68,19 @@
     const analysis=model.analyse(text),lines=[];
     for(const row of analysis.positions){
       const links=row.attention.slice().sort((a,b)=>b.weight-a.weight)
-        .map(item=>item.token+" "+Math.round(item.weight*100)+"%").join(" · ");
+        .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
       const guesses=row.predictions.slice(0,3)
         .map(item=>item.token+" "+Math.round(item.probability*100)+"%").join(" · ");
       lines.push(row.token+" ← среднее внимание: "+(links||"нет контекста"));
       for(const head of row.heads){
         const detail=head.attention.slice().sort((a,b)=>b.weight-a.weight)
-          .map(item=>item.token+" "+Math.round(item.weight*100)+"%").join(" · ");
+          .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
         lines.push("  голова "+head.head+": "+detail);
+        const positionalBias=head.relativePositionBias.map((value,index)=>{
+          const offset=index<analysis.windowSize?index-analysis.windowSize:index-analysis.windowSize+1;
+          return (offset>0?"+":"")+offset+":"+value.toFixed(3);
+        }).join(" · ");
+        lines.push("    позиционные bias: "+positionalBias);
       }
       lines.push("  предсказание по контексту: "+guesses);
     }

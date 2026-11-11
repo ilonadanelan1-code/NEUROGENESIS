@@ -1,6 +1,6 @@
 (() => {
 "use strict";
-const SCHEMA="NG_CONTEXTUAL_ATTENTION_V2",MAX_VOCABULARY=512,MAX_TOKENS=96;
+const SCHEMA="NG_CONTEXTUAL_ATTENTION_V3",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8;
 const clean=(value,limit=4000)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 function tokenize(value){return clean(value,6000).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,MAX_TOKENS)||[];}
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
@@ -34,9 +34,10 @@ function create(options={}){
   (options.heads==null?[3,2,1].find(value=>dimension%value===0):0);
  if(!heads)throw new RangeError("Model dimension must be divisible by the requested attention heads.");
  const headDimension=dimension/heads,feedForwardDimension=dimension*2;
- const windowSize=Math.max(1,Math.min(4,Math.floor(finite(options.windowSize,2))));
+ const windowSize=Math.max(1,Math.min(MAX_WINDOW_SIZE,Math.floor(finite(options.windowSize,4))));
  const random=makeRandom(options.seed),scale=Math.sqrt(2/(dimension+headDimension));
  const vocabulary=[],indices=new Map(),embeddings=[],positions=matrix(windowSize*2,dimension,random,.04);
+ const relativePositionBias=Array.from({length:heads},()=>zeros(windowSize*2));
  const attentionHeads=Array.from({length:heads},()=>({
   query:matrix(headDimension,dimension,random,scale),
   key:matrix(headDimension,dimension,random,scale),
@@ -91,7 +92,7 @@ function create(options={}){
    const parameters=attentionHeads[h],query=multiply(parameters.query,mean);
    const keys=rows.map(row=>multiply(parameters.key,row.vector));
    const values=rows.map(row=>multiply(parameters.value,row.vector));
-   const scores=keys.map(key=>dot(query,key)/Math.sqrt(headDimension));
+   const scores=keys.map((key,index)=>dot(query,key)/Math.sqrt(headDimension)+relativePositionBias[h][rows[index].slot]);
    const weights=softmax(scores),vector=zeros(headDimension);
    for(let row=0;row<rows.length;row++)for(let i=0;i<headDimension;i++)vector[i]+=weights[row]*values[row][i];
    headPasses.push({query,keys,values,scores,weights,vector});
@@ -159,7 +160,7 @@ function create(options={}){
     }
     dInputRows.push(dInput);
    }
-   headGradients.push({dQueryWeights,dKeyWeights,dValueWeights,dInputRows});
+   headGradients.push({dQueryWeights,dKeyWeights,dValueWeights,dInputRows,dRelativePositionBias:dScores.slice()});
   }
   const embeddingGradients=new Map(),positionGradients=new Map();
   for(let row=0;row<pass.rows.length;row++){
@@ -181,6 +182,7 @@ function create(options={}){
    update(attentionHeads[h].query,headGradients[h].dQueryWeights);
    update(attentionHeads[h].key,headGradients[h].dKeyWeights);
    update(attentionHeads[h].value,headGradients[h].dValueWeights);
+   updateVector(relativePositionBias[h],headGradients[h].dRelativePositionBias);
   }
   for(const[token,gradient]of embeddingGradients)updateVector(embeddings[token],gradient);
   for(const[slot,gradient]of positionGradients)updateVector(positions[slot],gradient);
@@ -208,10 +210,10 @@ function create(options={}){
   const context=contextFor(sequence,safeIndex).filter(row=>row.tokenIndex>=0);
   if(!context.length)return null;
   const pass=forward(context),headRows=pass.headPasses.map((head,index)=>({
-   head:index+1,attention:pass.rows.map((row,position)=>({token:tokens[safeIndex+row.offset],offset:row.offset,weight:head.weights[position]})),
-   vector:head.vector.slice()
+   head:index+1,attention:pass.rows.map((row,position)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:head.weights[position]})),
+   relativePositionBias:relativePositionBias[index].slice(),vector:head.vector.slice()
   }));
-  const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,
+  const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),
    weight:pass.headPasses.reduce((sum,head)=>sum+head.weights[index],0)/heads}));
   return{token:tokens[safeIndex],index:safeIndex,contextualVector:pass.norm2.output.slice(),attention:aggregate,heads:headRows,
    predictions:topPredictions(pass.probabilities,vocabulary),targetProbability:pass.probabilities[sequence[safeIndex]]||0,
@@ -219,20 +221,20 @@ function create(options={}){
    feedForward:{hidden:pass.ffHidden.slice(),output:pass.ffOutput.slice()}};
  }
  function analyse(text){const tokens=tokenize(text),positions=[];for(let i=0;i<tokens.length;i++){const row=score(text,i);if(row)positions.push(row);}
-  return{schema:SCHEMA,version:2,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,positions};}
- function status(){return{schema:SCHEMA,version:2,vocabularySize:vocabulary.length,dimension,windowSize,heads,headDimension,
+  return{schema:SCHEMA,version:3,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,positions};}
+ function status(){return{schema:SCHEMA,version:3,vocabularySize:vocabulary.length,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice());
-  return{schema:SCHEMA,version:2,dimension,windowSize,heads,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),
-   positions:copy(positions),attentionHeads:attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),
+  return{schema:SCHEMA,version:3,dimension,windowSize,heads,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),
+   positions:copy(positions),relativePositionBias:copy(relativePositionBias),attentionHeads:attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),
    attentionOutput:copy(attentionOutput),norm1Gamma:norm1Gamma.slice(),norm1Beta:norm1Beta.slice(),
    norm2Gamma:norm2Gamma.slice(),norm2Beta:norm2Beta.slice(),feedForward1:copy(feedForward1),
    feedForward1Bias:feedForward1Bias.slice(),feedForward2:copy(feedForward2),feedForward2Bias:feedForward2Bias.slice(),
    outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss};
  }
  function loadState(state){
-  if(!state||state.schema!==SCHEMA||state.version!==2)throw new TypeError("Unsupported contextual model state.");
+  if(!state||state.schema!==SCHEMA||state.version!==3)throw new TypeError("Unsupported contextual model state.");
   if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||
    !Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY)throw new TypeError("Contextual model dimensions, heads or vocabulary are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>
@@ -241,7 +243,8 @@ function create(options={}){
   const count=state.vocabulary.length;
   const validHeads=Array.isArray(state.attentionHeads)&&state.attentionHeads.length===heads&&state.attentionHeads.every(head=>
    head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension));
-  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||!validHeads||
+  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||
+   !validMatrix(state.relativePositionBias,heads,windowSize*2)||!validHeads||
    !validMatrix(state.attentionOutput,dimension,dimension)||!validVector(state.norm1Gamma,dimension)||!validVector(state.norm1Beta,dimension)||
    !validVector(state.norm2Gamma,dimension)||!validVector(state.norm2Beta,dimension)||
    !validMatrix(state.feedForward1,feedForwardDimension,dimension)||!validVector(state.feedForward1Bias,feedForwardDimension)||
@@ -253,6 +256,7 @@ function create(options={}){
    if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});
   const copy=rows=>rows.map(row=>row.map(Number)),copyVector=values=>values.map(Number);
   embeddings.length=0;embeddings.push(...copy(state.embeddings));positions.splice(0,positions.length,...copy(state.positions));
+  relativePositionBias.splice(0,relativePositionBias.length,...copy(state.relativePositionBias));
   for(let h=0;h<heads;h++){attentionHeads[h].query=copy(state.attentionHeads[h].query);attentionHeads[h].key=copy(state.attentionHeads[h].key);attentionHeads[h].value=copy(state.attentionHeads[h].value);}
   attentionOutput=copy(state.attentionOutput);norm1Gamma=copyVector(state.norm1Gamma);norm1Beta=copyVector(state.norm1Beta);
   norm2Gamma=copyVector(state.norm2Gamma);norm2Beta=copyVector(state.norm2Beta);
@@ -266,5 +270,5 @@ function create(options={}){
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
-root.NGContextualModel=Object.freeze({schema:SCHEMA,version:2,create,fromState,tokenize});
+root.NGContextualModel=Object.freeze({schema:SCHEMA,version:3,create,fromState,tokenize});
 })();
