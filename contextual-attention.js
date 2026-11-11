@@ -219,47 +219,56 @@ function create(options={}){
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,160);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
   const split=splitCorpus(rows,trainOptions.splitSeed);
-  // Isolated evaluations must never inherit weights or token initialization from an earlier run.
-  loadState(initialCheckpoint);
-  tokenRandom=makeRandom(tokenSeed);
-  const trainExamples=collectExamples(split.train,true);
-  const validationExamples=collectExamples(split.validation,false);
-  const testExamples=collectExamples(split.test,false);
-  if(!trainExamples.length||vocabulary.length<2)throw new Error("Training needs at least two known words in the training split.");
-  if(!validationExamples.length)throw new Error("The validation split has no known target words in context. Add more varied training sentences.");
+  loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
+  let trainRows=split.train,validationRows=split.validation,testRows=split.test;
+  let trainExamples=collectExamples(trainRows,true);
+  let validationExamples=collectExamples(validationRows,false),testExamples=collectExamples(testRows,false);
+  let evaluationMode="held_out_sentences",splitFallback=false;
+  if(!validationExamples.length){
+   // Tiny/low-overlap corpora cannot support meaningful sentence-level validation.
+   // Train on the complete corpus, but explicitly report that no held-out score exists.
+   loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
+   trainRows=rows;validationRows=[];testRows=[];
+   trainExamples=collectExamples(trainRows,true);validationExamples=[];testExamples=[];
+   evaluationMode="train_only_insufficient_validation";splitFallback=true;
+  }
+  if(!trainExamples.length||vocabulary.length<2)throw new Error("Training needs at least two known words in the training corpus.");
   const epochs=Math.max(1,Math.min(240,Math.floor(finite(trainOptions.epochs,40))));
   const learningRate=Math.max(.0001,Math.min(.2,finite(trainOptions.learningRate,.025)));
   const patience=Math.max(2,Math.min(60,Math.floor(finite(trainOptions.patience,Math.max(6,Math.min(30,epochs*.25))))));
-  const initialTrain=evaluateExamples(trainExamples),initialValidation=evaluateExamples(validationExamples);
+  const initialTrain=evaluateExamples(trainExamples);
+  const initialValidation=validationExamples.length?evaluateExamples(validationExamples):{loss:null,accuracy:null,examples:0};
   let bestValidationLoss=initialValidation.loss,bestEpoch=0,bestState=exportState(),staleEpochs=0,epochsRun=0,earlyStopped=false;
-  for(let epoch=0;epoch<epochs;epoch++){
-   for(const example of trainExamples)trainExample(example,learningRate);
-   trainingSteps+=trainExamples.length;epochsRun=epoch+1;
-   const validation=evaluateExamples(validationExamples);
-   if(validation.loss<bestValidationLoss-1e-8){
-    bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;
-   }else{
-    staleEpochs++;
-    if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}
+  if(splitFallback){
+   for(let epoch=0;epoch<epochs;epoch++){for(const example of trainExamples)trainExample(example,learningRate);trainingSteps+=trainExamples.length;epochsRun=epoch+1;}
+   bestEpoch=null;bestState=exportState();
+  }else{
+   for(let epoch=0;epoch<epochs;epoch++){
+    for(const example of trainExamples)trainExample(example,learningRate);
+    trainingSteps+=trainExamples.length;epochsRun=epoch+1;
+    const validation=evaluateExamples(validationExamples);
+    if(validation.loss<bestValidationLoss-1e-8){bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;}
+    else{staleEpochs++;if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}}
    }
   }
-  const attemptedSteps=trainingSteps;
-  loadState(bestState);
-  const selectedSteps=trainingSteps;
-  const finalTrain=evaluateExamples(trainExamples),finalValidation=evaluateExamples(validationExamples);
-  // Test is inspected only after restoring the validation-selected checkpoint.
-  const finalTest=evaluateExamples(testExamples);
+  const attemptedSteps=trainingSteps;loadState(bestState);const selectedSteps=trainingSteps;
+  const finalTrain=evaluateExamples(trainExamples);
+  const finalValidation=validationExamples.length?evaluateExamples(validationExamples):{loss:null,accuracy:null,examples:0};
+  const finalTest=testExamples.length?evaluateExamples(testExamples):{loss:null,accuracy:null,examples:0};
   lastLoss=finalTrain.loss;
-  const eligibleTargets=rowsForTargets(split.validation)+rowsForTargets(split.test);
-  const coveredTargets=validationExamples.length+testExamples.length;
+  const eligibleTargets=rowsForTargets(validationRows)+rowsForTargets(testRows),coveredTargets=validationExamples.length+testExamples.length;
   lastTraining={examples:trainExamples.length,trainExamples:trainExamples.length,validationExamples:validationExamples.length,
-   testExamples:testExamples.length,trainRows:split.train.length,validationRows:split.validation.length,testRows:split.test.length,
-   uniqueRows:split.uniqueRows,duplicateRows:split.duplicateRows,splitSeed:split.seed,epochs:epochsRun,requestedEpochs:epochs,
+   testExamples:testExamples.length,trainRows:trainRows.length,validationRows:validationRows.length,testRows:testRows.length,
+   requestedTrainRows:split.train.length,requestedValidationRows:split.validation.length,requestedTestRows:split.test.length,
+   uniqueRows:split.uniqueRows,duplicateRows:split.duplicateRows,splitSeed:split.seed,splitFallback,
+   evaluationMode,evaluationAvailable:!splitFallback&&validationExamples.length>0,epochs:epochsRun,requestedEpochs:epochs,
    bestEpoch,patience,earlyStopped,learningRate,initialLoss:initialTrain.loss,finalLoss:finalTrain.loss,
    initialValidationLoss:initialValidation.loss,validationLoss:finalValidation.loss,validationAccuracy:finalValidation.accuracy,
-   testLoss:finalTest.loss,testAccuracy:finalTest.accuracy,validationCoverage:validationExamples.length/Math.max(1,rowsForTargets(split.validation)),
-   testCoverage:testExamples.length/Math.max(1,rowsForTargets(split.test)),heldOutCoverage:coveredTargets/Math.max(1,eligibleTargets),
-   evaluationIsolated:true,lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,
+   testLoss:finalTest.loss,testAccuracy:finalTest.accuracy,
+   validationCoverage:validationExamples.length?validationExamples.length/Math.max(1,rowsForTargets(validationRows)):null,
+   testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
+   heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
+   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension};
   return{...lastTraining};
  }
@@ -329,8 +338,10 @@ function create(options={}){
   outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
   trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
   const report=state.lastTraining;
-  lastTraining=report&&Number.isFinite(Number(report.validationLoss))
-   ?{...report,validationLoss:Number(report.validationLoss),testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
+  lastTraining=report&&typeof report==="object"&&
+   (report.validationLoss==null||Number.isFinite(Number(report.validationLoss)))
+   ?{...report,validationLoss:report.validationLoss==null?null:Number(report.validationLoss),
+     testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
   return status();
  }
  const initialCheckpoint=exportState();
