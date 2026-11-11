@@ -265,6 +265,6 @@ assert.equal(protectedNegative.polarity, "negative",
   "a confident local negation must not be flipped to positive by model framing");
 
 
-console.log("NEUROGENESIS semantic understanding benchmark: "
+console.log("NEUROGENESIS semantic understanding benchmark: " +
   equivalentQuantityQuestions.length + " paraphrases, " +
   intentCases.length + " intent/type cases, context and validation checks passed.");
