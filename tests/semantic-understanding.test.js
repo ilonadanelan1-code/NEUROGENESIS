@@ -199,7 +199,72 @@ assert.equal(validatedProposition.assertionStatus, "question",
 assert.equal(validatedProposition.confidence, 1);
 assert.equal(validatedProposition.attribution.source, "assistant_output");
 
+const protectedClassificationCases = [
+  {
+    name: "question",
+    base: { kind: "question", confidence: 0.78, polarity: "positive", modality: "interrogative",
+      attribution: { speaker: "user", source: "user_utterance" } },
+    raw: { kind: "assertion", polarity: "negative", modality: "asserted",
+      attribution: { speaker: "assistant", source: "assistant_output" } },
+    expectedKind: "question", expectedModality: "interrogative", expectedSource: "user_utterance"
+  },
+  {
+    name: "reported speech",
+    base: { kind: "reported", confidence: 0.76, polarity: "positive", modality: "reported",
+      attribution: { speaker: "unknown", source: "reported_speech", reportedBy: "Иван" } },
+    raw: { kind: "assertion", modality: "asserted",
+      attribution: { speaker: "user", source: "user_utterance" } },
+    expectedKind: "reported", expectedModality: "reported", expectedSource: "reported_speech"
+  },
+  {
+    name: "hypothesis",
+    base: { kind: "hypothesis", confidence: 0.82, polarity: "positive", modality: "possible",
+      attribution: { speaker: "user", source: "user_utterance" } },
+    raw: { kind: "assertion", modality: "asserted" },
+    expectedKind: "hypothesis", expectedModality: "possible", expectedSource: "user_utterance"
+  },
+  {
+    name: "opinion",
+    base: { kind: "opinion", confidence: 0.72, polarity: "positive", modality: "opinion",
+      attribution: { speaker: "user", source: "user_opinion", reportedBy: "user" } },
+    raw: { kind: "assertion", modality: "asserted",
+      attribution: { speaker: "assistant", source: "assistant_output" } },
+    expectedKind: "opinion", expectedModality: "opinion", expectedSource: "user_opinion"
+  },
+  {
+    name: "conditional",
+    base: { kind: "conditional", confidence: 0.82, polarity: "positive", modality: "conditional",
+      attribution: { speaker: "user", source: "user_utterance" } },
+    raw: { kind: "assertion", modality: "asserted" },
+    expectedKind: "conditional", expectedModality: "conditional", expectedSource: "user_utterance"
+  },
+  {
+    name: "request",
+    base: { kind: "request", confidence: 0.72, polarity: "positive", modality: "directive",
+      attribution: { speaker: "user", source: "user_utterance" } },
+    raw: { kind: "assertion", modality: "asserted" },
+    expectedKind: "request", expectedModality: "directive", expectedSource: "user_utterance"
+  }
+];
+for (const item of protectedClassificationCases) {
+  const result = core.validateProposition(item.raw, item.base);
+  assert.equal(result.kind, item.expectedKind, item.name + ": model must not rewrite a protected speech act");
+  assert.equal(result.assertionStatus, item.expectedKind === "question" ? "question"
+    : item.expectedKind === "reported" ? "reported"
+    : item.expectedKind === "hypothesis" ? "hypothetical"
+    : item.expectedKind, item.name + ": assertion status must follow the protected kind");
+  assert.equal(result.modality, item.expectedModality, item.name + ": modality must remain consistent");
+  assert.equal(result.attribution.source, item.expectedSource, item.name + ": attribution must remain grounded");
+}
+const protectedNegative = core.validateProposition({
+  kind: "assertion", polarity: "positive", modality: "asserted"
+}, {
+  kind: "assertion", polarity: "negative", modality: "asserted", confidence: 0.74
+});
+assert.equal(protectedNegative.polarity, "negative",
+  "a confident local negation must not be flipped to positive by model framing");
 
-console.log("NEUROGENESIS semantic understanding benchmark: " +
+
+console.log("NEUROGENESIS semantic understanding benchmark: "
   equivalentQuantityQuestions.length + " paraphrases, " +
   intentCases.length + " intent/type cases, context and validation checks passed.");

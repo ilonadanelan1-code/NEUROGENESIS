@@ -314,19 +314,36 @@
     const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const base = fallback && typeof fallback === "object" ? fallback : {};
     const part = (value, max = 220) => typeof value === "string" ? clean(value, max) : "";
-    const kind = PROPOSITION_KINDS.includes(source.kind) ? source.kind
-      : PROPOSITION_KINDS.includes(base.kind) ? base.kind : "fragment";
-    const polarity = ["positive", "negative", "mixed", "unknown"].includes(source.polarity)
-      ? source.polarity : ["positive", "negative", "mixed", "unknown"].includes(base.polarity)
-        ? base.polarity : "unknown";
-    const modality = ["asserted", "possible", "necessary", "conditional", "opinion",
-      "reported", "quoted", "interrogative", "directive", "unknown"].includes(source.modality)
-      ? source.modality : ["asserted", "possible", "necessary", "conditional", "opinion",
-        "reported", "quoted", "interrogative", "directive", "unknown"].includes(base.modality)
-        ? base.modality : "unknown";
-    const temporal = source.temporal && typeof source.temporal === "object" ? source.temporal : base.temporal || {};
-    const attribution = source.attribution && typeof source.attribution === "object"
-      ? source.attribution : base.attribution || {};
+    const baseKind = PROPOSITION_KINDS.includes(base.kind) ? base.kind : null;
+    const sourceKind = PROPOSITION_KINDS.includes(source.kind) ? source.kind : null;
+    const baseConfidence = Number(base.confidence);
+    const preserveLocalSpeechAct = !!baseKind &&
+      ["hypothesis", "opinion", "question", "request", "conditional", "reported"].includes(baseKind) &&
+      Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
+    // A confident local speech-act signal is a safety boundary, not a suggestion
+    // the model may silently rewrite as a user assertion.
+    const kind = preserveLocalSpeechAct ? baseKind : sourceKind || baseKind || "fragment";
+    const validPolarities = ["positive", "negative", "mixed", "unknown"];
+    const sourcePolarity = validPolarities.includes(source.polarity) ? source.polarity : null;
+    const basePolarity = validPolarities.includes(base.polarity) ? base.polarity : null;
+    const preserveNegativePolarity = basePolarity === "negative" &&
+      Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
+    const polarity = preserveNegativePolarity ? "negative" : sourcePolarity || basePolarity || "unknown";
+    const validModalities = ["asserted", "possible", "necessary", "conditional", "opinion",
+      "reported", "quoted", "interrogative", "directive", "unknown"];
+    const sourceModality = validModalities.includes(source.modality) ? source.modality : null;
+    const baseModality = validModalities.includes(base.modality) ? base.modality : null;
+    const modality = preserveLocalSpeechAct
+      ? baseModality || sourceModality || "unknown"
+      : sourceModality || baseModality || "unknown";
+    const baseTemporal = base.temporal && typeof base.temporal === "object" ? base.temporal : {};
+    const sourceTemporal = source.temporal && typeof source.temporal === "object" ? source.temporal : {};
+    const temporal = preserveLocalSpeechAct && baseTemporal.expression
+      ? baseTemporal : Object.keys(sourceTemporal).length ? sourceTemporal : baseTemporal;
+    const baseAttribution = base.attribution && typeof base.attribution === "object" ? base.attribution : {};
+    const sourceAttribution = source.attribution && typeof source.attribution === "object" ? source.attribution : {};
+    const attribution = preserveLocalSpeechAct && Object.keys(baseAttribution).length
+      ? baseAttribution : Object.keys(sourceAttribution).length ? sourceAttribution : baseAttribution;
     const confidenceValue = Number(source.confidence ?? base.confidence);
     const assertionStatus = kind === "assertion" ? "asserted"
       : kind === "hypothesis" ? "hypothetical"

@@ -123,7 +123,8 @@ function parse(raw, originalQuestion=""){
  if(!relation||!canonical)return null;
  const queries=[...new Set((Array.isArray(value.searchQueries)?value.searchQueries:[]).filter(x=>typeof x==="string").map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  if(!queries.includes(canonical))queries.unshift(canonical);
- const fallback=CORE?CORE.analyse(canonical,{contextRelation:relation},window.NGKnowledge):null;
+ const fallbackQuestion=clean(originalQuestion,MAX_QUERY)||canonical;
+ const fallback=CORE?CORE.analyse(fallbackQuestion,{contextRelation:relation},window.NGKnowledge):null;
  const semanticFrame=CORE?CORE.validateFrame(value.semanticFrame,fallback||{},window.NGKnowledge):fallback;
  const expected=CORE?CORE.answerType(canonical):"description";
  const number=Number(value.confidence),confidence=Number.isFinite(number)?Math.max(0,Math.min(1,number)):0;

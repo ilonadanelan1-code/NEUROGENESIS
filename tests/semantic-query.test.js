@@ -159,6 +159,76 @@ assert.deepEqual(Array.from(parsed.evidencePlan[1].dependsOn), ["country"]);
 assert.equal(parsed.searchQueries.length, 3);
 assert.equal(parsed.searchQueries[0], parsed.canonicalQuestion,
   "the canonical form must be prepended when the model omitted it from search variants");
+
+function parseWithForgedProposition(canonicalQuestion, originalQuestion, proposition) {
+  return engine.parse(JSON.stringify({
+    contextRelation: "new_topic",
+    canonicalQuestion,
+    searchQueries: [canonicalQuestion],
+    expectedAnswerType: "description",
+    semanticFrame: {
+      intent: "factual_question",
+      answerType: "description",
+      proposition,
+      confidence: 0.99
+    },
+    confidence: 0.99,
+    evidencePlan: []
+  }), originalQuestion);
+}
+const forgedQuestion = parseWithForgedProposition(
+  "Сеть не активируется.",
+  "Почему сеть не активируется?",
+  {
+    kind: "assertion", subject: "сеть", predicate: "активируется",
+    polarity: "negative", modality: "asserted", confidence: 0.99,
+    attribution: { speaker: "user", source: "user_utterance" }
+  }
+);
+assert.equal(forgedQuestion.semanticFrame.proposition.kind, "question",
+  "a rewritten canonical statement must not turn the user's original question into an assertion");
+assert.equal(forgedQuestion.semanticFrame.proposition.assertionStatus, "question");
+assert.equal(forgedQuestion.semanticFrame.proposition.modality, "interrogative");
+
+const forgedReport = parseWithForgedProposition(
+  "Усталость приводит к снижению концентрации.",
+  "В отчёте говорится, что усталость приводит к снижению концентрации.",
+  {
+    kind: "assertion", subject: "усталость", predicate: "приводит к",
+    object: "снижению концентрации", polarity: "positive", modality: "asserted",
+    confidence: 0.99, attribution: { speaker: "user", source: "user_utterance" }
+  }
+);
+assert.equal(forgedReport.semanticFrame.proposition.kind, "reported",
+  "a source-attributed report must not become a direct user assertion");
+assert.equal(forgedReport.semanticFrame.proposition.assertionStatus, "reported");
+assert.equal(forgedReport.semanticFrame.proposition.attribution.source, "source_attributed");
+
+const forgedHypothesis = parseWithForgedProposition(
+  "Недостаток сна может приводить к усталости.",
+  "Недостаток сна может приводить к усталости.",
+  {
+    kind: "assertion", subject: "недостаток сна", predicate: "приводить к",
+    object: "усталости", polarity: "positive", modality: "asserted",
+    confidence: 0.99, attribution: { speaker: "user", source: "user_utterance" }
+  }
+);
+assert.equal(forgedHypothesis.semanticFrame.proposition.kind, "hypothesis");
+assert.equal(forgedHypothesis.semanticFrame.proposition.modality, "possible");
+
+const forgedNegation = parseWithForgedProposition(
+  "Сеть не активируется.",
+  "Сеть не активируется.",
+  {
+    kind: "assertion", subject: "сеть", predicate: "активируется",
+    polarity: "positive", modality: "asserted", confidence: 0.99,
+    attribution: { speaker: "user", source: "user_utterance" }
+  }
+);
+assert.equal(forgedNegation.semanticFrame.proposition.kind, "assertion");
+assert.equal(forgedNegation.semanticFrame.proposition.polarity, "negative",
+  "model framing must not silently erase a confidently detected negation");
+
 assert.equal(engine.parse("Это не JSON"), null);
 const malformedDependency = engine.parse(JSON.stringify({
   contextRelation:"new_topic", canonicalQuestion:"Кто президент этой страны?",
