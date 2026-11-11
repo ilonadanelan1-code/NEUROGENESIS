@@ -2,6 +2,8 @@
 "use strict";
 const SCHEMA="NG_PHRASE_COMPOSITION_V1",ROLES=["other","subject","predicate","object"],
  RELATIONS=["none","subject_to_predicate","predicate_to_object","subject_to_object"],MAX_SENTENCES=160,MAX_TOKENS=48;
+function normaliseFrameText(value){return String(value==null?"":value).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").replace(/\s+/gu," ").trim();}
+
 const clean=(value,limit=500)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 const zeros=n=>Array.from({length:n},()=>0);
 const dot=(a,b)=>a.reduce((sum,value,index)=>sum+value*b[index],0);
@@ -135,8 +137,8 @@ function create(options={}){
   }
   for(let i=0;i<phraseVector.length;i++)phraseVector[i]/=6;
   return{schema:SCHEMA,trained:trainingSteps>0,tokens:data.tokens,roles,nodes,edges,relationCandidates:relationCandidates.slice(0,24),
-   phraseVector,roleVectors,weakFrame:{kind:data.frame.kind||"unknown",subject:data.frame.subject||"",predicate:data.frame.predicate||"",object:data.frame.object||"",
-    relation:data.frame.relation||"",polarity:data.frame.polarity||"unknown",modality:data.frame.modality||"unknown",confidence:Number(data.frame.confidence)||0},
+   phraseVector,roleVectors,weakFrame:{kind:data.frame.kind||"unknown",subject:normaliseFrameText(data.frame.subject||""),predicate:normaliseFrameText(data.frame.predicate||""),object:normaliseFrameText(data.frame.object||""),
+    relation:normaliseFrameText(data.frame.relation||""),polarity:data.frame.polarity||"unknown",modality:data.frame.modality||"unknown",confidence:Number(data.frame.confidence)||0},
    supervision:"weak_semantic_parser_labels",training:lastTraining?{...lastTraining}:null};
  }
  function status(){return{schema:SCHEMA,dimension,featureSize,roleCount:ROLES.length,relationCount:RELATIONS.length,trainingSteps,trained:trainingSteps>0,lastTraining:lastTraining?{...lastTraining}:null};}
