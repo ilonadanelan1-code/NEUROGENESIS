@@ -40,6 +40,73 @@ for (const row of scores) {
 }
 assert.ok(Math.max(...scores.map(row => row.target)) - Math.min(...scores.map(row => row.target)) < 0.001,
   "different surface word orders with the same meaning should retrieve the same evidence");
+const heldOutCases = [
+  {
+    name: "book chapters",
+    queries: ["Сколько глав у романа?", "У романа сколько глав?", "Назови число глав у романа."],
+    record: { id: "M-NOVEL", text: "В романе 24 главы.", claims: [{
+      id: "C-NOVEL", kind: "fact", subject: "роман", predicate: "содержит",
+      object: "24 главы", evidence: "В романе 24 главы."
+    }] },
+    distractor: { id: "M-COLLECTION", text: "В сборнике 10 глав.", claims: [{
+      id: "C-COLLECTION", kind: "fact", subject: "сборник", predicate: "содержит",
+      object: "10 глав", evidence: "В сборнике 10 глав."
+    }] }
+  },
+  {
+    name: "building floors",
+    queries: ["Сколько этажей у здания?", "У здания сколько этажей?", "Назови количество этажей у здания."],
+    record: { id: "M-BUILDING", text: "В здании 12 этажей.", claims: [{
+      id: "C-BUILDING", kind: "fact", subject: "здание", predicate: "имеет",
+      object: "12 этажей", evidence: "В здании 12 этажей."
+    }] },
+    distractor: { id: "M-HOUSE", text: "В частном доме 2 этажа.", claims: [{
+      id: "C-HOUSE", kind: "fact", subject: "частный дом", predicate: "имеет",
+      object: "2 этажа", evidence: "В частном доме 2 этажа."
+    }] }
+  },
+  {
+    name: "city population",
+    queries: ["Население Таллина?", "Каково население Таллина?"],
+    record: { id: "M-TALLINN", text: "Население Таллина составляет 450 тысяч человек.", claims: [{
+      id: "C-TALLINN", kind: "fact", subject: "Таллин", predicate: "имеет население",
+      object: "450 тысяч человек", evidence: "Население Таллина составляет 450 тысяч человек."
+    }] },
+    distractor: { id: "M-TARTU", text: "Население Тарту составляет 95 тысяч человек.", claims: [{
+      id: "C-TARTU", kind: "fact", subject: "Тарту", predicate: "имеет население",
+      object: "95 тысяч человек", evidence: "Население Тарту составляет 95 тысяч человек."
+    }] }
+  },
+  {
+    name: "tower height",
+    queries: ["Какова высота Эйфелевой башни?", "Высота Эйфелевой башни?"],
+    record: { id: "M-TOWER", text: "Высота Эйфелевой башни — 330 метров.", claims: [{
+      id: "C-TOWER", kind: "fact", subject: "Эйфелева башня", predicate: "имеет высоту",
+      object: "330 метров", evidence: "Высота Эйфелевой башни — 330 метров."
+    }] },
+    distractor: { id: "M-BRIDGE", text: "Высота моста — 80 метров.", claims: [{
+      id: "C-BRIDGE", kind: "fact", subject: "мост", predicate: "имеет высоту",
+      object: "80 метров", evidence: "Высота моста — 80 метров."
+    }] }
+  }
+];
+for (const item of heldOutCases) {
+  const values = item.queries.map(question => {
+    const frame = core.analyse(question, { contextRelation: "new_topic" }, knowledge);
+    const target = retrieval.scoreRecord(frame, item.record, knowledge).score;
+    const distractorScore = retrieval.scoreRecord(frame, item.distractor, knowledge).score;
+    return { question, frame, target, distractorScore };
+  });
+  for (const row of values) {
+    assert.ok(row.target > 0.65,
+      item.name + " must be retrievable from a meaning frame: " + row.question);
+    assert.ok(row.target > row.distractorScore + 0.25,
+      item.name + " must distinguish the requested subject from a distractor sharing the property");
+  }
+  assert.ok(Math.max(...values.map(row => row.target)) - Math.min(...values.map(row => row.target)) < 0.001,
+    item.name + " paraphrases must converge on the same subject/property evidence");
+}
+
 const evidence = retrieval.buildEvidence([{ item: memory, score: scores[0].target }, { item: unrelated, score: scores[0].unrelated }]);
 assert.equal(evidence.length, 2);
 assert.equal(evidence[0].id, "M-OCTOPUS");
