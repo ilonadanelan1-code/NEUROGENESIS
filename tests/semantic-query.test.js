@@ -173,6 +173,16 @@ const separatedQuestionPlan = parseQuestionPlan(separatedQuestions, [
 assert.equal(separatedQuestionPlan.evidencePlanInvalid, false,
   "two interrogative sentences in one user message must be recognized as a two-step request");
 
+const fivePartQuestion = "Кто создал механизм, в каком году его создали, где его разработали, сколько этапов у разработки и зачем механизм применяют?";
+const fourStepsForFiveParts = parseQuestionPlan(fivePartQuestion, [
+  { id: "creator", subject: "механизм", attribute: "создатель" },
+  { id: "year", subject: "создание механизма", attribute: "год" },
+  { id: "place", subject: "механизм", attribute: "место разработки" },
+  { id: "stages", subject: "разработка механизма", attribute: "число этапов" }
+]);
+assert.ok(fourStepsForFiveParts && fourStepsForFiveParts.evidencePlanInvalid,
+  "requests with more than four explicit parts must not pass through the four-step plan limit as if complete");
+
 const meaningFrame = window.NGSemanticCore.analyse("Сколько сердечных насосов у головоногого?", {contextRelation:"new_topic"}, knowledge);
 assert.equal(meaningFrame.answerType, "quantity");
 assert.match(meaningFrame.subject.text, /головоногого/u);
