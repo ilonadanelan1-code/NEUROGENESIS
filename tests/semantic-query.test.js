@@ -26,6 +26,8 @@ assert.equal(ambiguousHeartCount.contextRelation, "follow_up",
 assert.equal(explicitQuestion.contextRelation, "new_topic",
   "a fully specified object question must not inherit an unrelated active subject");
 assert.match(explicitQuestion.canonicalQuestion, /осьминога/u);
+assert.equal(explicitQuestion.evidencePlan.length, 0,
+  "a simple single-fact question must not be expanded into a multi-hop plan");
 assert.equal(explicitQuestion.semanticFrame.schema, "NG_SEMANTIC_FRAME_V1");
 assert.equal(explicitQuestion.semanticFrame.answerType, "quantity");
 assert.match(explicitQuestion.semanticFrame.subject.text, /осьминог/u);
@@ -97,7 +99,9 @@ assert.equal(parsed.contextRelation, "follow_up");
 assert.equal(parsed.expectedAnswerType, "quantity");
 assert.equal(parsed.version, 3);
 assert.equal(parsed.evidencePlan.length, 2);
-assert.deepEqual(parsed.evidencePlan[1].subjectFrom, {stepId:"country",field:"object"});
+assert.equal(parsed.evidencePlan[1].subjectFrom.stepId, "country");
+assert.equal(parsed.evidencePlan[1].subjectFrom.field, "object",
+  "a dependent step must reference only the previous claim's object field");
 assert.deepEqual(Array.from(parsed.evidencePlan[1].dependsOn), ["country"]);
 assert.equal(parsed.searchQueries.length, 3);
 assert.equal(parsed.searchQueries[0], parsed.canonicalQuestion,

@@ -19,23 +19,25 @@
     if (!subject && !attribute) return { score: 0, subjectScore: 0, attributeScore: 0, matchedClaimIds: [] };
     const claims = Array.isArray(item.claims) ? item.claims.slice(0, 12) : [];
     const candidates = claims.length
-      ? claims.map(claim => ({
-          id: clean(claim && claim.id, 100),
-          subjectText: [claim && claim.subject, claim && claim.holder].filter(Boolean).join(" "),
-          attributeText: [claim && claim.predicate, claim && claim.object, claim && claim.evidence].filter(Boolean).join(" "),
-          fullText: [claim && claim.subject, claim && claim.predicate, claim && claim.object, claim && claim.evidence].filter(Boolean).join(" ")
-        }))
-      : [{ id: "", subjectText: text, attributeText: text, fullText: text }];
+      ? claims.map(claim => {
+          const subjectText = [claim && claim.subject, claim && claim.holder].filter(Boolean).join(" ");
+          const attributeText = [claim && claim.predicate, claim && claim.object].filter(Boolean).join(" ");
+          return {
+            id: clean(claim && claim.id, 100),
+            subjectText, attributeText,
+            fullText: [claim && claim.subject, claim && claim.predicate, claim && claim.object, claim && claim.evidence].filter(Boolean).join(" "),
+            hasStructuredSubject: !!subjectText.trim(),
+            hasStructuredAttribute: !!attributeText.trim()
+          };
+        })
+      : [{ id: "", subjectText: text, attributeText: text, fullText: text,
+          hasStructuredSubject: false, hasStructuredAttribute: false }];
     let best = { score: 0, subjectScore: 0, attributeScore: 0, matchedClaimIds: [] };
     for (const candidate of candidates) {
-      const subjectScore = subject ? Math.max(
-        match(subject, candidate.subjectText, knowledge),
-        match(subject, candidate.fullText, knowledge)
-      ) : 0;
-      const attributeScore = attribute ? Math.max(
-        match(attribute, candidate.attributeText, knowledge),
-        match(attribute, candidate.fullText, knowledge)
-      ) : 0;
+      const subjectTarget = candidate.hasStructuredSubject ? candidate.subjectText : candidate.fullText;
+      const attributeTarget = candidate.hasStructuredAttribute ? candidate.attributeText : candidate.fullText;
+      const subjectScore = subject ? match(subject, subjectTarget, knowledge) : 0;
+      const attributeScore = attribute ? match(attribute, attributeTarget, knowledge) : 0;
       let score;
       if (subject && attribute) {
         const harmonic = subjectScore + attributeScore > 0

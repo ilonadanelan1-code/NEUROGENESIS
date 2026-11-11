@@ -8,7 +8,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-retrieval.js"]
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const knowledge = window.NGKnowledge, core = window.NGSemanticCore, retrieval = window.NGSemanticRetrieval;
-assert.ok(retrieval && retrieval.version === 1);
+assert.ok(retrieval && retrieval.version === 2);
 assert.deepEqual(Array.from(knowledge.tokens("сердец")), ["сердц"],
   "irregular Russian genitive plural should normalize to the same stem as «сердца»");
 assert.deepEqual(Array.from(knowledge.tokens("сердца")), ["сердц"],
@@ -123,6 +123,18 @@ const chainMemories = [
     id: "C-LATVIA-PRESIDENT", kind: "fact", subject: "Латвия",
     predicate: "президент", object: "Эдгарс Ринкевичс",
     evidence: "Президент Латвии — Эдгарс Ринкевичс.", verification: "user_supplied"
+  }] },
+  { id: "M-REFERENCE-ONLY", text: "Президент Латвии — Эдгарс Ринкевичс; в справке также упоминается Эстония.", claims: [{
+    id: "C-REFERENCE-ONLY", kind: "fact", subject: "Латвия",
+    predicate: "президент", object: "Эдгарс Ринкевичс",
+    evidence: "Президент Латвии — Эдгарс Ринкевичс; справка также упоминает Эстонию.",
+    verification: "user_supplied"
+  }] },
+  { id: "M-ATTRIBUTE-ONLY", text: "Эстония граничит с Латвией; в заметке упоминается президент.", claims: [{
+    id: "C-ATTRIBUTE-ONLY", kind: "fact", subject: "Эстония",
+    predicate: "граничит с", object: "Латвией",
+    evidence: "Эстония граничит с Латвией; в заметке также упоминается президент Эстонии.",
+    verification: "user_supplied"
   }] }
 ];
 const evidencePlan = [
@@ -145,6 +157,10 @@ assert.ok(chainRecall.evidence.some(item => item.id === "M-TALLINN-COUNTRY"));
 assert.ok(chainRecall.evidence.some(item => item.id === "M-ESTONIA-PRESIDENT"));
 assert.ok(!chainRecall.evidence.some(item => item.id === "M-LATVIA-PRESIDENT"),
   "a matching property on another country must not be joined into the chain");
+assert.ok(!chainRecall.evidence.some(item => item.id === "M-REFERENCE-ONLY"),
+  "an entity mentioned only in evidence text must not override the claim's explicit subject");
+assert.ok(!chainRecall.evidence.some(item => item.id === "M-ATTRIBUTE-ONLY"),
+  "an attribute mentioned only in evidence text must not override the claim's explicit predicate");
 const chainRequest = retrieval.buildRequest("В какой стране находится Таллин и кто президент этой страны?",
   "В какой стране находится Таллин и кто президент этой страны?", chainFrame, chainRecall.evidence, chainRecall);
 assert.equal(chainRequest.metadata.requiredSteps, 2);
@@ -194,6 +210,13 @@ assert.deepEqual(Array.from(parsed.usedSources), ["M-OCTOPUS"]);
 assert.deepEqual(Array.from(parsed.usedClaims), ["C-OCTOPUS"],
   "claim citations must be restricted to IDs present in retrieved evidence");
 assert.equal(parsed.confidence, 0.94);
+const legacyParsed = retrieval.parseAnswer(JSON.stringify({
+  answer: "В старой версии ответа перечислен источник без списка claim IDs.",
+  usedSources: ["M-OCTOPUS"], confidence: 0.9, insufficientEvidence: false
+}), evidence);
+assert.ok(legacyParsed && legacyParsed.usedSources.length === 1,
+  "the legacy grounded answer format without usedClaims must remain accepted");
+assert.equal(legacyParsed.usedClaims.length, 0);
 assert.equal(retrieval.parseAnswer(JSON.stringify({
   answer: "У осьминога три сердца.", usedSources: ["INVENTED"], confidence: 0.99, insufficientEvidence: false
 }), evidence), null, "answers without a valid local source must be rejected");
