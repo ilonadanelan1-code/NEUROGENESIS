@@ -32,9 +32,9 @@
 
   function answerType(value, knowledge) {
     const query = normalise(value, knowledge);
-    if (/(?:^|\s)(?:сколько|скольк\w*|как много|какое количество|каково количество|количеств\w*|число|численност\w*)(?:\s|$)/u.test(query)) return "quantity";
+    if (/(?:^|\s)(?:сколько|скольк[а-яё]*|как много|какое количество|каково количество|количеств[а-яё]*|число|численност[а-яё]*)(?:\s|$)/u.test(query)) return "quantity";
     if (/(?:^|\s)(?:когда|во сколько|какого числа|в каком году|в какой день|дата|с какого года)(?:\s|$)/u.test(query)) return "time";
-    if (/(?:^|\s)(?:где|куда|откуда|в каком городе|в какой стране|где расположен\w*|где находится)(?:\s|$)/u.test(query)) return "location";
+    if (/(?:^|\s)(?:где|куда|откуда|в каком городе|в какой стране|где расположен[а-яё]*|где находится)(?:\s|$)/u.test(query)) return "location";
     if (/(?:^|\s)(?:кто такой|кто такая|кто такие|чей|чья|чьё|чье)(?:\s|$)/u.test(query)) return "person";
     if (/(?:^|\s)(?:правда ли|верно ли|можно ли|есть ли|существует ли)(?:\s|$)/u.test(query)) return "boolean";
     if (/(?:^|\s)(?:что такое|что значит|что означает|что представляет собой|определение)(?:\s|$)/u.test(query)) return "definition";
@@ -149,7 +149,7 @@
       return { subject: clean(match[1], 160), attribute, relation: "has_attribute" };
     }
 
-    match = text.match(/^(?:сколько|скольк\w*|как много|какое количество)\s+(.+)$/iu);
+    match = text.match(/^(?:сколько|скольк[а-яё]*|как много|какое количество)\s+(.+)$/iu);
     if (match) return { subject: "", attribute: stripAttributeNoise(match[1]), relation: "has" };
 
     return { subject: "", attribute: "", relation: "" };

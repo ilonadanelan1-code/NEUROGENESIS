@@ -72,7 +72,9 @@ const intentCases = [
   ["Когда начался эксперимент?", "time", "factual_question"],
   ["Правда ли, что у осьминога три сердца?", "boolean", "factual_question"],
   ["Сравни два способа обучения.", "comparison", "comparison_request"],
-  ["Сколько нейронов в сети?", "quantity", "factual_question"]
+  ["Сколько нейронов в сети?", "quantity", "factual_question"],
+  ["Назови количество сердечных камер у головоногого.", "quantity", "statement"],
+  ["Где расположено ядро системы?", "location", "factual_question"]
 ];
 for (const [query, answer, intent] of intentCases) {
   const frame = core.analyse(query, { contextRelation: "new_topic" }, knowledge);
