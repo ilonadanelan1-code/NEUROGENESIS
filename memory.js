@@ -4245,7 +4245,7 @@
       if (!llmVerified) await testLLMConnection();
       const request = SEMANTIC_QUERY.buildRequest(query, context, memories);
       const raw = await LLM_GATEWAY.generate(request);
-      const interpreted = SEMANTIC_QUERY.parse(raw);
+      const interpreted = SEMANTIC_QUERY.parse(raw, query);
       if (!interpreted) throw new Error("Модель вернула неполный план смыслового поиска.");
       if (interpreted.confidence < 0.58 ||
           (interpreted.contextRelation === "follow_up" && !(report && report.activeThread))) {

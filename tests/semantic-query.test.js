@@ -118,10 +118,10 @@ assert.ok(malformedDependency && malformedDependency.evidencePlanInvalid,
   "an entirely invalid dependency plan must not silently become a single-step query");
 
 
-const parseQuestionPlan = (canonicalQuestion, evidencePlan) => engine.parse(JSON.stringify({
+const parseQuestionPlan = (canonicalQuestion, evidencePlan, originalQuestion = canonicalQuestion) => engine.parse(JSON.stringify({
   contextRelation: "new_topic", canonicalQuestion, searchQueries: [canonicalQuestion],
   confidence: 0.9, evidencePlan
-}));
+}), originalQuestion);
 const simpleWithoutPlan = parseQuestionPlan("Сколько сердец у осьминога?", []);
 assert.equal(simpleWithoutPlan.evidencePlanInvalid, false,
   "a genuinely single-question query may keep the simple empty evidence plan");
@@ -142,6 +142,36 @@ const compoundComplete = parseQuestionPlan(compoundQuestion, [
 assert.equal(compoundComplete.evidencePlanInvalid, false,
   "a valid two-step plan must remain eligible for grounded retrieval");
 assert.equal(compoundComplete.evidencePlan.length, 2);
+
+const shortenedCanonical = parseQuestionPlan("В какой стране находится Таллин?", [
+  { id: "country", subject: "Таллин", attribute: "страна" }
+], compoundQuestion);
+assert.ok(shortenedCanonical && shortenedCanonical.evidencePlanInvalid,
+  "the model must not hide a second requested fact by shortening canonicalQuestion while the original user query remains compound");
+
+const threePartQuestion = "В каком регионе расположен порт, сколько у него причалов и кто им управляет?";
+const twoStepsForThreeParts = parseQuestionPlan(threePartQuestion, [
+  { id: "region", subject: "порт", attribute: "регион" },
+  { id: "berths", subject: "порт", attribute: "причалы" }
+]);
+assert.ok(twoStepsForThreeParts && twoStepsForThreeParts.evidencePlanInvalid,
+  "a plan with two steps cannot silently cover three explicit question parts");
+
+const alternativeConnectorQuestion = "Сколько этажей у здания, а какова его высота?";
+const connectorPlan = parseQuestionPlan(alternativeConnectorQuestion, [
+  { id: "floors", subject: "здание", attribute: "этажи" },
+  { id: "height", subject: "здание", attribute: "высота" }
+]);
+assert.equal(connectorPlan.evidencePlanInvalid, false,
+  "a second clause introduced by the Russian connector «а» must be counted as a separate requested fact");
+
+const separatedQuestions = "Кто разработал механизм? В каком году это произошло?";
+const separatedQuestionPlan = parseQuestionPlan(separatedQuestions, [
+  { id: "author", subject: "механизм", attribute: "разработчик" },
+  { id: "year", subject: "разработка механизма", attribute: "год" }
+]);
+assert.equal(separatedQuestionPlan.evidencePlanInvalid, false,
+  "two interrogative sentences in one user message must be recognized as a two-step request");
 
 const meaningFrame = window.NGSemanticCore.analyse("Сколько сердечных насосов у головоногого?", {contextRelation:"new_topic"}, knowledge);
 assert.equal(meaningFrame.answerType, "quantity");
