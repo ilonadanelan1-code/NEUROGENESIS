@@ -3528,7 +3528,10 @@
         {allowFallback:!(semanticPlan&&semanticPlan.evidencePlanInvalid)})
       :null;
     const claimMemoryScores=new Map((claimRecall&&claimRecall.memoryScores||[]).map(row=>[row.id,row.score]));
-    const ranked = memories.map(item => {
+    const ranked = memories.filter(item => {
+      const claims=Array.isArray(item&&item.claims)?item.claims:[];
+      return !claims.length||claims.some(claim=>claim&&(!claim.status||claim.status==="current")&&!claim.supersededBy);
+    }).map(item => {
       const base=scoreMemory(query,item,semanticSearchQueries),graphHit=graphByMemory.get(item.id);
       const frameHit=SEMANTIC_RETRIEVAL&&semanticFrame
         ?SEMANTIC_RETRIEVAL.scoreRecord(semanticFrame,item,KNOWLEDGE)
@@ -3550,8 +3553,15 @@
       ids.push(...(hit.item.traceIds || []), ...(hit.item.claims || []).map(claim => claim.traceId));
     }
     persist();
+    function visibleMemoryText(item) {
+      const claims=Array.isArray(item&&item.claims)?item.claims:[];
+      const current=claims.filter(claim=>claim&&(!claim.status||claim.status==="current")&&!claim.supersededBy);
+      const inactive=claims.some(claim=>claim&&((claim.status&&claim.status!=="current")||claim.supersededBy));
+      if(inactive&&current.length) return current.map(claim=>claim.evidence||[claim.subject,claim.predicate,claim.object].filter(Boolean).join(" — ")).filter(Boolean).join("; ");
+      return item.text;
+    }
     const fallbackAnswer = "Я нашёл " + ranked.length + (ranked.length === 1 ? " связанное воспоминание:" : " связанных воспоминаний:") +
-      "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + hit.item.text).join("\n\n") +
+      "\n\n" + ranked.map((hit, i) => (i + 1) + ". " + visibleMemoryText(hit.item)).join("\n\n") +
       "\n\nЭто сохранённые записи, а не независимо проверенные факты. Я сопоставил смысл запроса с локальной памятью; истинность самой записи требует отдельной проверки."+
       (semanticPlan && semanticPlan.source === "model"
         ? "\n\nСМЫСЛОВОЙ РАЗБОР: выполнен языковой моделью. Сам ответ основан только на найденных локальных записях."
