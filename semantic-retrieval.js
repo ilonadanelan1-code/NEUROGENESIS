@@ -113,7 +113,7 @@
         : [{ id: "", kind: "memory_text", subject: item.text || "", predicate: "", object: "",
             evidence: item.text || "", polarity: true, verification: "unstructured" }];
       claims.forEach((claim, index) => {
-        if (!claim || (claim.status === "superseded" && plan.length > 1)) return;
+        if (!claim || claim.status === "superseded") return;
         sourceClaims.push({ item, claim, index, key: clean(claim.id, 100) || item.id + ":text:" + index });
       });
     }
