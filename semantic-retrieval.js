@@ -259,7 +259,12 @@
         ].join("\n") },
         { role: "user", content: "Построй ответ по этому пакету данных. Не пересказывай вопрос вместо ответа. Для каждого вывода сохраняй связь с конкретным утверждением и записью.\n" + JSON.stringify(payload) }
       ],
-      metadata: { operation: "grounded_memory_answer", evidenceCount: rows.length, semanticSchema: "NG_SEMANTIC_FRAME_V1" }
+      metadata: {
+        operation: "grounded_memory_answer", evidenceCount: rows.length,
+        semanticSchema: "NG_SEMANTIC_FRAME_V1",
+        requiredSteps: payload.evidencePlan.length,
+        coveredSteps: payload.evidenceCoverage.filter(item => item.matched).length
+      }
     };
   }
   function parseAnswer(raw, evidence) {
