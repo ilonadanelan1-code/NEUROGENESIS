@@ -244,6 +244,7 @@
             stepId: step.id, memoryId: source.item.id, memoryText: source.item.text || "",
             claim: source.claim, claimKey: source.key, role: source.role,
             score, rawScore, resolvedSubject: origin.subject,
+            subjectVerified: !source.unstructured && !!clean(source.claim.subject, 180),
             pathClaimIds: [...parentClaimIds, clean(source.claim.id, 100)].filter(Boolean),
             pathMemoryIds: [...parentMemoryIds, source.item.id]
           });
@@ -302,7 +303,7 @@
         evidenceRole: hit.role, verification: clean(claim.verification, 40) || "unspecified",
         status: clean(claim.status, 32) || "current",
         evidence: clean(claim.evidence || hit.memoryText, 700),
-        resolvedSubject: clean(hit.resolvedSubject, 180),
+        resolvedSubject: clean(hit.resolvedSubject, 180), subjectVerified: hit.subjectVerified === true,
         pathClaimIds: hit.pathClaimIds.slice(0, 4), pathMemoryIds: hit.pathMemoryIds.slice(0, 4),
         matchScore: Math.max(0, Math.min(1, hit.score))
       });
@@ -471,7 +472,7 @@
               if (Array.isArray(parentClaim.stepIds) && parentClaim.stepIds.includes(parentId) && parentClaim.id) parentClaimIds.add(parentClaim.id);
             }
             if (!Array.isArray(claim.pathClaimIds) || !claim.pathClaimIds.some(id => parentClaimIds.has(id))) return null;
-            if (claim.resolvedSubject && !sameEntity(claim.resolvedSubject, claim.subject, null)) return null;
+            if (claim.subjectVerified !== true || !claim.resolvedSubject) return null;
           }
         }
         if (modality === "possible" && !/(?:возмож|предполож|гипотез|вероят|может|may be|might be|possible)/iu.test(conclusionText)) return null;
