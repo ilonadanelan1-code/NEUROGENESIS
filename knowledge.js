@@ -194,7 +194,7 @@
       else if(relation==="after")metadata.validFrom=parsed.end;
       return {text:raw.slice(0,found.index).trim(),...metadata};
     }
-    const trailingDate=raw.match(/^(.+?)\s+(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{4})[.!?]?$/u);
+    const trailingDate=raw.match(/^(.+?)\s+(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{4}|\d{1,2}\s+[а-яё]+\s+\d{4}(?:\s+год(?:а|у)?)?)[.!?]?$/iu);
     if(trailingDate) {
       const parsed=parseTemporalPeriod(trailingDate[2],referenceTime);
       if(parsed)return {text:trailingDate[1].trim(),expression:trailingDate[2],precision:parsed.precision,
@@ -256,8 +256,14 @@
       return wording+" Источник: «"+claim.evidence+"». Это твоё сообщение, а не независимая проверка.";
     }
     if(unique.length>1) {
-      return "В период «"+period+"» в памяти попадают несколько мест проживания: "+
-        unique.map(claim=>claim.object).join(", ")+". Их временные интервалы пересекаются или недостаточно точно ограничены; я не буду выбирать одно наугад.";
+      const details=unique.map(claim=>{
+        const window=claimTimeWindow(claim);
+        const from=window.from===null?"начало не указано":new Date(window.from).toLocaleDateString("ru-RU");
+        const to=window.to===null?"окончание не указано":new Date(window.to-1).toLocaleDateString("ru-RU");
+        return claim.object+" ("+from+" — "+to+")";
+      });
+      return "В период «"+period+"» встречаются записи о нескольких местах проживания: "+
+        details.join("; ")+". Запрошенный период может охватывать разные отрезки времени; без более точной даты я не буду выбирать одно место для всего периода.";
     }
     const undated=locations.filter(claim=>claim.status==="historical"&&claim.validFrom==null&&claim.validTo==null);
     if(undated.length) return "Я нашёл прежнее самоописание: "+undated.map(claim=>claim.object).join(", ")+
