@@ -263,6 +263,10 @@ const conditionalFrame = core.analyse("Если система получает 
 }, knowledge);
 assert.equal(conditionalFrame.propositionChain.items.length, 2);
 assert.equal(conditionalFrame.propositionChain.items[0].proposition.kind, "conditional");
+assert.equal(conditionalFrame.propositionChain.items[0].proposition.subject, "система");
+assert.equal(conditionalFrame.propositionChain.items[0].proposition.predicate, "получает");
+assert.equal(conditionalFrame.propositionChain.items[0].proposition.object, "сигнал");
+assert.equal(conditionalFrame.propositionChain.items[0].proposition.modality, "conditional");
 assert.equal(conditionalFrame.propositionChain.items[1].relationToPrevious.type, "condition_result");
 assert.equal(conditionalFrame.propositionChain.items[1].relationToPrevious.referenceId, "p1");
 
@@ -272,6 +276,13 @@ const causalFrame = core.analyse("Сеть не активируется, пот
 assert.equal(causalFrame.propositionChain.items.length, 2);
 assert.equal(causalFrame.propositionChain.items[1].relationToPrevious.type, "cause_of_previous");
 assert.equal(causalFrame.propositionChain.items[1].proposition.polarity, "negative");
+
+const resultFrame = core.analyse("Питание не работает. Поэтому сеть не активируется.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(resultFrame.propositionChain.items.length, 2);
+assert.equal(resultFrame.propositionChain.items[1].relationToPrevious.type, "result_of_previous");
+assert.equal(resultFrame.propositionChain.items[1].relationToPrevious.referenceId, "p1");
 
 const contrastFrame = core.analyse("Система работает, однако сеть не активируется.", {
   contextRelation: "new_topic"
