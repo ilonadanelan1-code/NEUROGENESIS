@@ -192,6 +192,8 @@
         certainty: rawSubject ? "model_candidate" : base.resolvedFrom ? "context_candidate" : "heuristic_candidate"
       });
     }
+    // The subject has priority, but the complete frame must still respect the eight-entity cap.
+    if (entities.length > 8) entities.length = 8;
     const suppliedConcepts = Array.isArray(source.concepts) ? source.concepts : [];
     const concepts = [...new Set([...suppliedConcepts, ...tokens(subject + " " + attribute, knowledge)]
       .map(item => clean(item, 64)).filter(Boolean))].slice(0, 24);

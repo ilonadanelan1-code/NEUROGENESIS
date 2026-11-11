@@ -105,6 +105,8 @@ assert.equal(untrusted.intent, "factual_question");
 assert.equal(untrusted.answerType, "description");
 assert.equal(untrusted.confidence, 1);
 assert.equal(untrusted.entities.length, 8);
+assert.equal(untrusted.entities[0].text, "осьминог",
+  "the primary subject must remain in the bounded entity list");
 
 console.log("NEUROGENESIS semantic understanding benchmark: " +
   equivalentQuantityQuestions.length + " paraphrases, " +

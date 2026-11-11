@@ -142,6 +142,19 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   gateway.register("test-provider", { async generate(payload) { return "Связный ответ"; } });
   assert.equal(gateway.status().connected, true);
   assert.equal(await gateway.generate(request), "Связный ответ");
+  const semanticPlanRequest = {
+    schema: "NEUROGENESIS_LLM_REQUEST_V2",
+    messages: [
+      { role: "system", content: "Определи смысл запроса, не отвечай." },
+      { role: "user", content: "Сколько сердец у осьминога?" }
+    ],
+    metadata: { operation: "semantic_query_interpretation" }
+  };
+  assert.equal(await gateway.generate(semanticPlanRequest), "Связный ответ",
+    "the bridge must accept V2 semantic interpretation requests as well as V1 dialogue requests");
+  await assert.rejects(() => gateway.generate({
+    schema: "NEUROGENESIS_LLM_REQUEST_V3", messages: [{ role: "user", content: "x" }]
+  }), /Некорректный запрос/u, "unsupported request versions must still be rejected");
   gateway.unregister("test-provider");
   assert.equal(gateway.status().connected, false);
 

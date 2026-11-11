@@ -250,8 +250,13 @@
     async function generate(request) {
       const adapter = providers.get(activeProvider);
       if (!adapter) throw new Error("Языковая модель пока не подключена. Контекст и интерфейс интеграции подготовлены.");
-      if (!request || request.schema !== "NEUROGENESIS_LLM_REQUEST_V1" || !Array.isArray(request.messages))
+      const supportedSchemas = new Set(["NEUROGENESIS_LLM_REQUEST_V1", "NEUROGENESIS_LLM_REQUEST_V2"]);
+      if (!request || !supportedSchemas.has(request.schema) || !Array.isArray(request.messages) ||
+          !request.messages.length || request.messages.length > 18 ||
+          request.messages.some(row => !row || !["system", "user", "assistant"].includes(row.role) ||
+            typeof row.content !== "string" || !row.content.trim())) {
         throw new Error("Некорректный запрос NEUROGENESIS к языковой модели.");
+      }
       const result = await adapter.generate(request);
       if (typeof result !== "string" || !result.trim()) throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
       return result.trim().slice(0, 8000);
