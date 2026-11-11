@@ -12,10 +12,23 @@
   }
   function claimIsCurrent(claim, knowledge) {
     if (knowledge && typeof knowledge.isCurrentClaim === "function") return knowledge.isCurrentClaim(claim);
-    const status = String(claim && claim.status || "current").toLowerCase();
-    return !!claim && status === "current" && !claim.supersededBy &&
-      !(claim.validTo && Date.parse(claim.validTo) <= Date.now()) &&
-      !(claim.validFrom && Date.parse(claim.validFrom) > Date.now());
+    if (!claim || String(claim.status || "current").toLowerCase() !== "current" || claim.supersededBy) return false;
+    const parse = value => {
+      if (value == null || value === "") return null;
+      if (typeof value === "number" && Number.isFinite(value)) return value > 0 && value < 1e12 ? value * 1000 : value;
+      if (typeof value === "string" && /^\\d+(?:\\.\\d+)?$/u.test(value.trim())) {
+        const number = Number(value.trim());
+        return number > 0 && number < 1e12 ? number * 1000 : number;
+      }
+      const date = Date.parse(value);
+      return Number.isFinite(date) ? date : null;
+    };
+    const hasFrom = claim.validFrom != null && claim.validFrom !== "";
+    const hasTo = claim.validTo != null && claim.validTo !== "";
+    const from = hasFrom ? parse(claim.validFrom) : null, to = hasTo ? parse(claim.validTo) : null;
+    return (!hasFrom || from !== null) && (!hasTo || to !== null) &&
+      !(from !== null && to !== null && from >= to) &&
+      (from === null || from <= Date.now()) && (to === null || Date.now() < to);
   }
   function scoreRecord(frame, record, knowledge) {
     const value = frame && typeof frame === "object" ? frame : {};
@@ -314,6 +327,9 @@
         modality: hit.role === "hypothesis" ? "possible" : "asserted",
         evidenceRole: hit.role, verification: clean(claim.verification, 40) || "unspecified",
         status: clean(claim.status, 32) || "current",
+        supersededBy: clean(claim.supersededBy, 100),
+        validFrom: claim.validFrom != null && Number.isFinite(Number(claim.validFrom)) ? Number(claim.validFrom) : null,
+        validTo: claim.validTo != null && Number.isFinite(Number(claim.validTo)) ? Number(claim.validTo) : null,
         evidence: clean(claim.evidence || hit.memoryText, 700),
         resolvedSubject: clean(hit.resolvedSubject, 180), subjectVerified: hit.subjectVerified === true,
         pathClaimIds: hit.pathClaimIds.slice(0, 4), pathMemoryIds: hit.pathMemoryIds.slice(0, 4),
