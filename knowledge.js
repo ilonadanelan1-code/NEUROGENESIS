@@ -4,10 +4,10 @@
   function parseClaimTime(value) {
     if (value === null || value === undefined || value === "") return null;
     if (typeof value === "number" && Number.isFinite(value) && value >= 0)
-      return value > 0 && value < 1e12 ? value * 1000 : value;
+      return value > 0 && value < 1e11 ? value * 1000 : value;
     if (typeof value === "string" && value.trim()) {
       const numeric = /^\d+(?:\.\d+)?$/u.test(value.trim()) ? Number(value.trim()) : NaN;
-      if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1e12 ? numeric * 1000 : numeric;
+      if (Number.isFinite(numeric)) return numeric > 0 && numeric < 1e11 ? numeric * 1000 : numeric;
       const parsed = Date.parse(value);
       return Number.isFinite(parsed) ? parsed : null;
     }
@@ -1055,14 +1055,14 @@
           }else if(!sameSubject&&sameObject&&a.polarity&&b.polarity&&isBestFriend(a)&&isBestFriend(b)){
             conflicts.push({type:"possible",left:a,right:b,reason:"Две разные персоны названы лучшим другом одного и того же человека."});
           }
-        }else if(a.kind==="identity"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
-          sameEntity(a.subject,b.subject)&&(a.polarity!==b.polarity||!sameEntity(a.object,b.object))){
+        }else if(a.kind==="identity"&&sameEntity(a.subject,b.subject)&&
+          (a.polarity!==b.polarity||!sameEntity(a.object,b.object))){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для ассистента сохранены разные описания роли."});
-        }else if(a.kind==="fact"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
-          sameEntity(a.subject,b.subject)&&factFamily(a.predicate)===factFamily(b.predicate)&&!sameEntity(a.object,b.object)){
+        }else if(a.kind==="fact"&&sameEntity(a.subject,b.subject)&&
+          factFamily(a.predicate)===factFamily(b.predicate)&&!sameEntity(a.object,b.object)){
           conflicts.push({type:"possible",left:a,right:b,reason:"Для одного самоописания сохранены разные значения."});
-        }else if(a.kind==="preference"&&isCurrentClaim(a)&&isCurrentClaim(b)&&
-          sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
+        }else if(a.kind==="preference"&&sameEntity(a.subject,b.subject)&&
+          sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
           conflicts.push({type:"direct",left:a,right:b,reason:"Одно предпочтение одновременно утверждается и отрицается."});
         }else if(a.kind==="causal"&&sameEntity(a.subject,b.subject)&&sameEntity(a.object,b.object)&&a.polarity!==b.polarity){
           conflicts.push({type:"direct",left:a,right:b,reason:"Одна и та же причинная связь одновременно утверждается и отрицается."});

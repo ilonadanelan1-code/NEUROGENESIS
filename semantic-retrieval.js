@@ -15,10 +15,10 @@
     if (!claim || String(claim.status || "current").toLowerCase() !== "current" || claim.supersededBy) return false;
     const parse = value => {
       if (value == null || value === "") return null;
-      if (typeof value === "number" && Number.isFinite(value)) return value > 0 && value < 1e12 ? value * 1000 : value;
+      if (typeof value === "number" && Number.isFinite(value)) return value > 0 && value < 1e11 ? value * 1000 : value;
       if (typeof value === "string" && /^\\d+(?:\\.\\d+)?$/u.test(value.trim())) {
         const number = Number(value.trim());
-        return number > 0 && number < 1e12 ? number * 1000 : number;
+        return number > 0 && number < 1e11 ? number * 1000 : number;
       }
       const date = Date.parse(value);
       return Number.isFinite(date) ? date : null;

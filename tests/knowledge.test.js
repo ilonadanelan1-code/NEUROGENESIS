@@ -484,7 +484,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,22);
+assert.equal(knowledge.version,23);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
@@ -540,6 +540,20 @@ assert.equal(knowledge.findConflicts([
   {...negative, validFrom:temporalNow-10000, validTo:temporalNow+10000}
 ], temporalNow).length, 1,
   "opposing claims with overlapping validity periods must still be reported as a conflict");
+
+const pastLocationConflicts = [
+  {...location, id:"C-PAST-SOCHI", object:"Сочи",
+    validFrom:temporalNow-200000, validTo:temporalNow-100000},
+  {...location, id:"C-PAST-PARIS", object:"Париж",
+    validFrom:temporalNow-200000, validTo:temporalNow-100000}
+];
+assert.equal(knowledge.findConflicts(pastLocationConflicts, temporalNow-150000).length, 1,
+  "as-of conflict checks must honour the requested historical time instead of rechecking against the wall clock");
+
+assert.equal(knowledge.parseClaimTime(1700000000), 1700000000000,
+  "Unix seconds must be converted to milliseconds");
+assert.equal(knowledge.parseClaimTime(946684800000), 946684800000,
+  "millisecond timestamps from before 2001 must not be misread as Unix seconds");
 
 const sameFactDifferentPeriods = knowledge.mergeClaims([], [
   {...location, id:"C-SOCHI-PERIOD-1", validFrom:temporalNow-100000, validTo:temporalNow-50000},
