@@ -105,6 +105,32 @@ for (const item of heldOutCases) {
   }
   assert.ok(Math.max(...values.map(row => row.target)) - Math.min(...values.map(row => row.target)) < 0.001,
     item.name + " paraphrases must converge on the same subject/property evidence");
+  const heldOutFrame = values[0].frame;
+  const heldOutClaim = item.record.claims[0];
+  const heldOutRecall = retrieval.rankClaims(heldOutFrame, [item.record], knowledge, [{
+    id: "heldout", subject: heldOutFrame.subject.text, attribute: heldOutFrame.attribute.text
+  }]);
+  assert.equal(heldOutRecall.complete, true,
+    item.name + " must also close a structured claim-level requirement");
+  const groundedHeldOut = retrieval.parseAnswer(JSON.stringify({
+    answer: heldOutClaim.evidence,
+    conclusions: [{ stepId: "heldout", text: heldOutClaim.evidence,
+      polarity: "positive", modality: "asserted", claimIds: [heldOutClaim.id] }],
+    usedSources: [item.record.id], usedClaims: [heldOutClaim.id],
+    confidence: 0.91, insufficientEvidence: false
+  }), heldOutRecall.evidence, heldOutRecall);
+  assert.ok(groundedHeldOut,
+    item.name + " source wording must pass the independent claim-level verifier");
+  const wrongHeldOutText = heldOutClaim.evidence.replace(heldOutClaim.object, item.distractor.claims[0].object);
+  const wrongHeldOut = retrieval.parseAnswer(JSON.stringify({
+    answer: wrongHeldOutText,
+    conclusions: [{ stepId: "heldout", text: wrongHeldOutText,
+      polarity: "positive", modality: "asserted", claimIds: [heldOutClaim.id] }],
+    usedSources: [item.record.id], usedClaims: [heldOutClaim.id],
+    confidence: 0.99, insufficientEvidence: false
+  }), heldOutRecall.evidence, heldOutRecall);
+  assert.equal(wrongHeldOut, null,
+    item.name + " must reject a distractor value even when the subject and source ID are valid");
 }
 
 

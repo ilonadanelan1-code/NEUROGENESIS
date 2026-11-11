@@ -529,13 +529,21 @@
   const NUMBER_TOKEN_ALIASES = {
     ноль:["0"], один:["1"], одна:["1"], одно:["1"], два:["2"], две:["2"], три:["3"],
     четыре:["4"], пять:["5"], шесть:["6"], семь:["7"], восемь:["8"], девять:["9"], десять:["10"],
+    "0":["ноль","zero"], "1":["один","одна","одно","one"], "2":["два","две","two"],
+    "3":["три","three"], "4":["четыре","four"], "5":["пять","five"],
+    "6":["шесть","six"], "7":["семь","seven"], "8":["восемь","eight"],
+    "9":["девять","nine"], "10":["десять","ten"],
     zero:["0"], one:["1"], two:["2"], three:["3"], four:["4"], five:["5"],
     six:["6"], seven:["7"], eight:["8"], nine:["9"], ten:["10"]
   };
   function evidenceTokenGroups(value, knowledge) {
+    const normalised = normaliseText(value).split(" ").filter(Boolean);
     const rows = knowledge && typeof knowledge.tokens === "function"
-      ? knowledge.tokens(value) : normaliseText(value).split(" ");
-    return [...new Set((Array.isArray(rows) ? rows : []).filter(token =>
+      ? knowledge.tokens(value) : normalised;
+    const numericAndNumberWords = normalised.filter(token =>
+      /^\d+$/u.test(token) || Object.prototype.hasOwnProperty.call(NUMBER_TOKEN_ALIASES, token)
+    );
+    return [...new Set([...(Array.isArray(rows) ? rows : []), ...numericAndNumberWords].filter(token =>
       typeof token === "string" && token.length > 1 && !EVIDENCE_STOP_TOKENS.has(token)
     ))].map(token => [token, ...(NUMBER_TOKEN_ALIASES[token] || [])]);
   }
