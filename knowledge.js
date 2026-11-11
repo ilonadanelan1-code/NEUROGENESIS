@@ -627,9 +627,9 @@
     const claim=extractSingleClaimCore(temporal.text);
     if(!claim)return null;
     claim.createdAt=parseClaimTime(referenceTime)||Date.now();
+    claim.validFrom=temporal.validFrom??null;
+    claim.validTo=temporal.validTo??null;
     if(temporal.status)claim.status=temporal.status;
-    if(temporal.validFrom!==null&&temporal.validFrom!==undefined)claim.validFrom=temporal.validFrom;
-    if(temporal.validTo!==null&&temporal.validTo!==undefined)claim.validTo=temporal.validTo;
     if(temporal.expression) {
       claim.temporalExpression=cleanPart(temporal.expression,100);
       claim.temporalPrecision=temporal.precision||"unknown";
