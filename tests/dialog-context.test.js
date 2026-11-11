@@ -526,4 +526,21 @@ assert.equal(boundedRoundTrip.threads.length, 16,
   "serialization and sanitization must preserve the topic-count limit");
 assert.equal(boundedRoundTrip.messages.length, 64,
   "serialization and sanitization must preserve the message-count limit");
+// A short acknowledgement and an answer to an assistant question must not replace the topic anchor.
+let focusState = engine.empty();
+focusState = engine.track(focusState, {role:"user",text:"Я хочу понять, как система удерживает контекст длительного разговора.",time:800});
+focusState = engine.track(focusState, {role:"assistant",text:"Контекст связывает новую реплику с предыдущими сообщениями. Это полезно?",time:801});
+focusState = engine.track(focusState, {role:"user",text:"Да",time:802});
+const focusView = engine.focus(focusState,"А почему?");
+assert.equal(focusView.anchor.text,"Я хочу понять, как система удерживает контекст длительного разговора.");
+assert.equal(focusView.latestUser.text,"Да");
+assert.equal(focusView.referenceType,"ellipsis");
+assert.equal(focusView.anchorCertainty,"candidate");
+assert.ok(focusView.latestAssistant.text.includes("Контекст связывает"));
+assert.equal(focusView.threadId,focusState.activeThreadId);
+assert.equal(engine.focus(focusState,"А почему это важно?").referenceType,"pronoun");
+const focusResolution = engine.resolve(focusState,"А почему?");
+assert.equal(focusResolution.context.focus.anchor.text,focusView.anchor.text);
+assert.match(focusResolution.query,/КАНДИДАТ ОПОРНОЙ РЕПЛИКИ/u);
+
 console.log("NEUROGENESIS dialogue context: passed.");

@@ -4232,7 +4232,8 @@
   function prepareMemoryQueryContext(query) {
     const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : null;
-    const context = { ...(report || {}), resolution };
+    const focus = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.focus === "function" ? DIALOG_CONTEXT.focus(dialogContext, query) : null;
+    const context = { ...(report || {}), resolution, focus };
     const localPlan = SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function"
       ? SEMANTIC_QUERY.local(query, context, KNOWLEDGE)
       : { source:"local", contextRelation:"new_topic", canonicalQuestion:query, searchQueries:[query], confidence:0.4 };
@@ -4270,7 +4271,8 @@
     const evidence = memories.map(item => ({ item, score:scoreMemory(evidenceQuery, item) }))
       .filter(row => row.score >= 0.1).sort((a, b) => b.score - a.score).slice(0, 8)
       .map(row => ({ id:row.item.id, text:row.item.text, kind:"memory", status:"user_supplied" }));
-    return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history }, evidence);
+    const focus = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.focus === "function" ? DIALOG_CONTEXT.focus(dialogContext, query) : null;
+    return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history, focus }, evidence);
   }
   async function askWithLLM(query) {
     if (llmRequestInFlight) {
@@ -4514,6 +4516,7 @@
     dialogContext: () => DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null,
     dialogHistory: (threadId, limit=12) => DIALOG_CONTEXT ? DIALOG_CONTEXT.history(dialogContext,threadId,limit) : [],
     resolveDialogReference: query => DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext,query) : {applied:false,query},
+    dialogFocus: query => DIALOG_CONTEXT && typeof DIALOG_CONTEXT.focus === "function" ? DIALOG_CONTEXT.focus(dialogContext, query) : null,
     planDialog: query => {
       if (!DIALOG_MANAGER) return null;
       const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;

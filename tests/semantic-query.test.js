@@ -58,6 +58,31 @@ for (const followUp of ["Сколько сердец?", "А у него скол
   assert.match(plan.semanticFrame.subject.text, /осьминог/u);
 }
 
+// A short «yes» reply must not replace the topic anchor or the current question type.
+const answerOnlyRecent = {
+ activeThread:{id:"T-octopus-answer",title:"Сердца осьминога",contextSummary:"Вопрос о количестве сердец осьминога."},
+ recentMessages:[
+  {threadId:"T-octopus-answer",role:"user",text:"Сколько сердец у осьминога?",relation:"new_topic"},
+  {threadId:"T-octopus-answer",role:"assistant",text:"У осьминога три сердца. Хочешь узнать, почему?",relation:"assistant_reply"},
+  {threadId:"T-octopus-answer",role:"user",text:"Да",relation:"answer_to_question",questionText:"Хочешь узнать, почему?"}
+ ],
+ focus:{threadId:"T-octopus-answer",anchor:{role:"user",text:"Сколько сердец у осьминога?",relation:"new_topic"},
+  candidates:[{text:"Сколько сердец у осьминога?"}],
+  latestUser:{text:"Да",relation:"answer_to_question",questionText:"Хочешь узнать, почему?"},
+  latestAssistant:{text:"У осьминога три сердца. Хочешь узнать, почему?"},referenceType:"ellipsis"},
+ resolution:{applied:true,context:{recentExchange:[
+  {role:"user",text:"Сколько сердец у осьминога?"},
+  {role:"assistant",text:"У осьминога три сердца. Хочешь узнать, почему?"},
+  {role:"user",text:"Да",relation:"answer_to_question"}
+ ]}}
+};
+const whyFollowUp=engine.local("А почему?",answerOnlyRecent,knowledge);
+assert.equal(whyFollowUp.expectedAnswerType,"causal");
+assert.equal(whyFollowUp.semanticFrame.answerType,"causal");
+assert.match(whyFollowUp.semanticFrame.subject.text,/осьминог/iu);
+assert.match(whyFollowUp.canonicalQuestion,/А почему\\?/u);
+assert.match(whyFollowUp.canonicalQuestion,/осьминога/u);
+
 const paraphrase = engine.local("Каково число сердечных насосов у головоногого?", {}, knowledge);
 assert.ok(paraphrase.searchQueries.some(query => /осьминог|головоног/u.test(query)),
   "offline synonym expansion should connect a cephalopod paraphrase");
@@ -79,6 +104,17 @@ assert.match(request.messages[1].content, /А у него сколько/u);
 assert.match(request.messages[1].content, /У осьминога три сердца/u);
 assert.match(request.messages[1].content, /activeTopic/u);
 assert.equal(request.metadata.operation, "semantic_query_interpretation");
+
+const focusRequest = engine.buildRequest("А у него сколько?",{
+ ...octopusTopic,
+ focus:{threadId:"T-octopus",referenceType:"pronoun",anchor:{text:"Сколько сердец у осьминога?"},
+  candidates:[{text:"Сколько сердец у осьминога?"}],
+  latestUser:{text:"Сколько сердец у осьминога?"},
+  latestAssistant:{text:"У осьминога три сердца."},anchorRecency:"nearby",needsDisambiguation:false}
+},[{id:"M1",text:"У осьминога три сердца."}]);
+assert.match(focusRequest.messages[1].content,/contextFocus/u);
+assert.match(focusRequest.messages[0].content,/последнюю реплику пользователя автоматически/u);
+assert.match(focusRequest.messages[1].content,/Сколько сердец у осьминога/u);
 
 const parsed = engine.parse(JSON.stringify({
   contextRelation:"follow_up",

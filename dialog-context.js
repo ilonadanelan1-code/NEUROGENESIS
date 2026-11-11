@@ -453,10 +453,65 @@
       });
       return state;
     }
+    function focus(rawState, input = "") {
+      const state = sanitize(rawState), thread = activeThread(state), query = clean(input, 500);
+      const referenceType = /(?:^|[\s])(?:он|она|они|его|ее|её|их|него|неё|нее|них|это|этот|эта|эти|там|тогда)(?=$|[\s?.,!])/iu.test(query)
+        ? "pronoun"
+        : /^(?:(?:а|и|ну|так|но)\s+)?(?:почему|зачем|как|что|где|куда|когда|сколько|а если|и если)(?:\s|[?？]|$)/iu.test(query)
+          ? "ellipsis" : "none";
+      if (!thread) return {
+        version:1, threadId:"", title:"", query, referenceType, anchor:null, candidates:[],
+        latestUser:null, latestAssistant:null, recentExchange:[], pendingQuestions:[],
+        contextSummary:"", anchorCertainty:"none", needsDisambiguation:false
+      };
+      const messages = state.messages.filter(row => row.threadId === thread.id);
+      const latest = role => {
+        const row = messages.slice().reverse().find(item => item.role === role);
+        return row ? {id:row.id,role:row.role,text:clean(row.text,320),time:row.time,
+          relation:row.relation,questionText:clean(row.questionText,220)} : null;
+      };
+      const acknowledgements = /^(?:да|нет|ага|угу|мгм|ок|окей|ладно|понял|поняла|понятно|ясно|спасибо|хорошо|конечно|возможно|не знаю|не помню|без понятия)$/u;
+      const isAnchor = row => {
+        if (!row || row.role !== "user") return false;
+        const value = normalise(row.text), count = tokens(row.text).length;
+        if (!value || acknowledgements.test(value)) return false;
+        // Answers to assistant questions remain in the exchange, but are not automatically promoted to topic anchors.
+        if (row.relation === "answer_to_question") return false;
+        if ((hasReference(row.text) || isShortFollowUp(row.text)) && !isStandaloneRequest(row.text)) return false;
+        return count >= 3 || isStandaloneRequest(row.text);
+      };
+      const candidates = messages.filter(isAnchor).slice(-3).reverse().map(row => ({
+        id:row.id,role:"user",text:clean(row.text,320),time:row.time,
+        relation:row.relation,questionText:clean(row.questionText,220)
+      }));
+      const newest = candidates[0] || null;
+      const fallback = thread.summaryParts.slice().reverse().find(row =>
+        row && typeof row.text === "string" && clean(row.text,180));
+      const anchor = newest || (fallback ? {
+        id:"",role:"user",text:clean(fallback.text,320),time:Math.max(0,Number(fallback.at)||0),
+        relation:"summary_candidate",questionText:"",source:"thread_summary"
+      } : null);
+      const recentExchange = messages.slice(-6).map(row => ({
+        id:row.id,role:row.role,text:clean(row.text,260),time:row.time,
+        relation:row.relation,questionText:clean(row.questionText,220)
+      }));
+      const anchorIndex = newest ? messages.findIndex(row => row.id === newest.id) : -1;
+      const anchorAge = anchorIndex >= 0 ? messages.length - 1 - anchorIndex : Infinity;
+      return {
+        version:1,threadId:thread.id,title:thread.title,query,referenceType,anchor,candidates,
+        latestUser:latest("user"),latestAssistant:latest("assistant"),recentExchange,
+        pendingQuestions:thread.pendingQuestions.filter(row=>!row.answered).map(row=>row.text),
+        contextSummary:summaryText(thread.summaryParts),
+        anchorCertainty:anchor?"candidate":"none",
+        anchorRecency:anchorIndex<0?(anchor?"summary":"none"):anchorAge<=4?"nearby":"older",
+        needsDisambiguation:referenceType!=="none"&&candidates.length>1
+      };
+    }
     function resolve(rawState, input) {
       const state = sanitize(rawState);
       const thread = activeThread(state);
       const raw = clean(input);
+      const discourseFocus = focus(state, raw);
       if (!thread || !raw || !isShortFollowUp(raw) ||
           (state.lastDecision && ["unresolved_return","ambiguous_return"].includes(state.lastDecision.kind))) return {
         query: raw, applied: false,
@@ -482,10 +537,13 @@
         lastAssistantText: priorAssistant ? priorAssistant.text : thread.lastAssistantText,
         recentExchange,
         pendingQuestion: pendingQuestions[0] || "",
-        pendingQuestions
+        pendingQuestions,
+        focus: discourseFocus
       };
       const pieces = [raw, "ТЕМА: " + context.title];
       if (context.contextSummary) pieces.push("РАНЕЕ СОХРАНЁННЫЕ ВЫДЕРЖКИ ИЗ РЕПЛИК ПОЛЬЗОВАТЕЛЯ: " + context.contextSummary);
+      if (discourseFocus.anchor) pieces.push("КАНДИДАТ ОПОРНОЙ РЕПЛИКИ ПОЛЬЗОВАТЕЛЯ (подсказка для разрешения ссылки, не установленный факт): " + clean(discourseFocus.anchor.text,300));
+      if (discourseFocus.candidates.length>1) pieces.push("ДРУГИЕ ВОЗМОЖНЫЕ ОПОРНЫЕ РЕПЛИКИ: " + discourseFocus.candidates.slice(1,3).map(row=>clean(row.text,220)).join(" | "));
       if (context.recentExchange.length) pieces.push("ПОСЛЕДНИЕ РЕПЛИКИ В ЭТОЙ ТЕМЕ: " +
         context.recentExchange.map(row => (row.role === "user" ? "Пользователь" : "Ассистент") +
           ": " + row.text).join(" | "));
@@ -528,7 +586,7 @@
       const id = threadId || state.activeThreadId;
       return state.messages.filter(row => row.threadId === id).slice(-Math.max(1, Math.min(24, Number(limit) || 12)));
     }
-    return { version: 1, empty, sanitize, track, rebuild, merge, resolve, report, history, overlap, hasReference, isLikelyAnswer };
+    return { version: 1, empty, sanitize, track, rebuild, merge, resolve, focus, report, history, overlap, hasReference, isLikelyAnswer };
   }
 
   window.NGDialogContext = Object.freeze({ version: 1, create });

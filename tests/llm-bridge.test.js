@@ -24,7 +24,13 @@ const context = {
     { threadId: "T-sleep", role: "user", text: "А почему?" }
   ]
 };
-const request = bridge.buildRequest("А почему?", context, [
+const focusContext={...context,focus:{
+ threadId:"T-sleep",referenceType:"ellipsis",anchor:{text:"Я плохо спал и чувствую усталость"},
+ candidates:[{text:"Я плохо спал и чувствую усталость"},{text:"Примерно четыре часа"}],
+ latestUser:{text:"Примерно четыре часа",relation:"answer_to_question"},
+ latestAssistant:{text:"Понял. А почему ты связываешь это с усталостью?"},needsDisambiguation:false
+}};
+const request = bridge.buildRequest("А почему?", focusContext, [
   { text: "Пользователь наблюдал усталость после короткого сна.", source: "M1", kind: "observation", status: "user_supplied" }
 ]);
 assert.equal(request.schema, "NEUROGENESIS_LLM_REQUEST_V1");
@@ -44,6 +50,10 @@ assert.equal(request.messages.some(row => row.content.includes("tool output")), 
   "non-dialogue roles must never enter the language model history");
 assert.ok(request.messages.some(row => row.content.includes("Сколько часов ты спал?")),
   "the active thread's previous assistant question must remain in context");
+assert.match(request.messages[request.messages.length-1].content,/КАНДИДАТ КОНТЕКСТНОГО ФОКУСА/u);
+assert.match(request.messages[request.messages.length-1].content,/Опорная реплика пользователя/u);
+assert.equal(request.metadata.focusAnchorCharacters,"Я плохо спал и чувствую усталость".length);
+assert.equal(request.metadata.focusCandidateCount,2);
 
 // Open clarification questions must be forwarded as unresolved context, not silently dropped.
 const pendingRequest = bridge.buildRequest("Примерно четыре часа", {
@@ -79,6 +89,11 @@ assert.equal(unscopedRequest.metadata.historyMessages, 0,
   "the LLM bridge must fail closed when the active thread ID is missing");
 assert.equal(unscopedRequest.messages.length, 2,
   "an unscoped request should contain only system policy and the current user message");
+const unscopedFocusRequest=bridge.buildRequest("Продолжим?",{
+ activeThread:{title:"Тема без ID"},recentMessages:[],
+ focus:{threadId:"T-foreign",anchor:{text:"Сведения из чужой темы"},candidates:[]}
+},[]);
+assert.doesNotMatch(unscopedFocusRequest.messages.map(row=>row.content).join("\n"),/Сведения из чужой темы/u);
 assert.doesNotMatch(unscopedRequest.messages.map(row => row.content).join("\n"),
   /Сведения из другой темы|Реплика без ID темы|Сводка без подтверждённого ID темы/u,
   "history and summaries without a confirmed active thread must not reach the model");
