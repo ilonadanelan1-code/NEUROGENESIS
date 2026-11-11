@@ -15,7 +15,7 @@ const clean=(v,n=MAX_QUERY)=>String(v==null?"":v).replace(/\s+/gu," ").trim().sl
 const normalise=v=>CORE?CORE.normalise(v,window.NGKnowledge):clean(v,1600).normalize("NFKC").toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/giu," ").trim().replace(/\s+/g," ");
 function requiredEvidenceSteps(question){
  const text=clean(question,MAX_QUERY).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
- const clauses=text.split(/\s+(?:а также|и|а|затем|после этого|при этом|and|then)\s+|[,，;]\s*(?=(?:кто|что|где|куда|откуда|когда|сколько|какой|какая|какое|какие|каков|как|чем|чего|кому|чья|чье|чьи|почему|зачем|есть ли|who|what|where|when|which|how)\b)|[?？!]+\s*/iu).filter(Boolean);
+ const clauses=text.split(/\s+(?:а также|и|а|затем|после этого|при этом|and|then)\s+|[,，;]\s*|[?？!]+\s*/iu).filter(Boolean);
  const marker=/(?:^|[^\p{L}])(?:кто|что|где|куда|откуда|когда|сколько|какой|какая|какое|какие|каков\p{L}*|как|чем|чего|кому|чья|чье|чьи|почему|зачем|ли|who|what|where|when|which|how)(?=$|[^\p{L}])/iu;
  return Math.min(4,clauses.filter(clause=>marker.test(clause)).length);
 }
