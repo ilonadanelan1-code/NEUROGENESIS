@@ -466,6 +466,121 @@
     };
   }
 
+  const PROPOSITION_CHAIN_SCHEMA = "NG_PROPOSITION_CHAIN_V1";
+  const PROPOSITION_LINK_TYPES = Object.freeze([
+    "root", "next_sentence", "condition_result", "cause_of_previous",
+    "result_of_previous", "contrast", "sequence", "addition", "unknown"
+  ]);
+
+  function splitDiscourseSegments(value) {
+    const source = clean(value, 800);
+    if (!source) return [];
+    const sentences = source.split(/(?<=[.!?;])\s+/u).map(part => part.trim()).filter(Boolean);
+    const segments = [];
+    const relationFor = marker => {
+      const key = normalise(marker);
+      if (key === "потому что") return "cause_of_previous";
+      if (["поэтому", "в результате", "из за этого"].includes(key)) return "result_of_previous";
+      if (["но", "однако"].includes(key)) return "contrast";
+      if (["затем", "потом", "после этого"].includes(key)) return "sequence";
+      if (["а также", "кроме того"].includes(key)) return "addition";
+      return "next_sentence";
+    };
+    const add = (text, relation) => {
+      const cleaned = clean(text, 800).replace(/^[,;:\s]+|[,;:\s]+$/gu, "").trim();
+      if (cleaned) segments.push({ text: cleaned, relation });
+    };
+
+    for (const sentenceRaw of sentences) {
+      let sentence = sentenceRaw.replace(/[.!?;]+$/u, "").trim();
+      if (!sentence) continue;
+
+      const conditional = sentence.match(/^если\s+(.+?),\s*то\s+(.+)$/iu);
+      if (conditional) {
+        add("Если " + conditional[1], segments.length ? "next_sentence" : "root");
+        add(conditional[2], "condition_result");
+        continue;
+      }
+
+      const leading = sentence.match(/^(потому что|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того)\s+(.+)$/iu);
+      if (leading) {
+        add(leading[2], segments.length ? relationFor(leading[1]) : "root");
+        continue;
+      }
+
+      const internal = sentence.match(/^(.+?),\s*(потому что|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того)\s+(.+)$/iu);
+      if (internal) {
+        add(internal[1], segments.length ? "next_sentence" : "root");
+        add(internal[3], relationFor(internal[2]));
+        continue;
+      }
+
+      add(sentence, segments.length ? "next_sentence" : "root");
+    }
+    return segments.slice(0, 6);
+  }
+
+  function validatePropositionChain(raw, fallback = null) {
+    const validContainer = value => value && typeof value === "object" &&
+      !Array.isArray(value) && Array.isArray(value.items);
+    const local = validContainer(fallback) ? fallback : null;
+    const supplied = validContainer(raw) ? raw : null;
+    const localItems = local ? local.items : [];
+    const sourceItems = localItems.length >= 2 ? localItems
+      : supplied ? supplied.items : localItems;
+    const items = [];
+    const known = new Set();
+
+    for (let index = 0; index < sourceItems.length && items.length < 6; index++) {
+      const row = sourceItems[index] && typeof sourceItems[index] === "object"
+        ? sourceItems[index] : {};
+      const id = clean(row.id || "p" + (index + 1), 8);
+      if (!/^p[1-6]$/u.test(id) || known.has(id)) continue;
+      const text = clean(row.text, 300);
+      if (!text) continue;
+      const link = row.relationToPrevious && typeof row.relationToPrevious === "object"
+        ? row.relationToPrevious : {};
+      const type = index === 0 ? "root"
+        : PROPOSITION_LINK_TYPES.includes(link.type) && link.type !== "root"
+          ? link.type : "unknown";
+      const referenceId = index === 0 ? null : clean(link.referenceId, 8);
+      if (index > 0 && !known.has(referenceId)) continue;
+      items.push({
+        id, text,
+        proposition: validateProposition(row.proposition, {}),
+        relationToPrevious: { type, referenceId }
+      });
+      known.add(id);
+    }
+
+    return {
+      schema: PROPOSITION_CHAIN_SCHEMA,
+      version: 1,
+      items: items.length >= 2 ? items : []
+    };
+  }
+
+  function extractPropositionChain(value) {
+    const segments = splitDiscourseSegments(value);
+    if (segments.length < 2) {
+      return { schema: PROPOSITION_CHAIN_SCHEMA, version: 1, items: [] };
+    }
+    const items = segments.map((segment, index) => {
+      const type = intentType(segment.text, answerType(segment.text));
+      const proposition = extractProposition(segment.text, type, surfaceSlots(segment.text));
+      return {
+        id: "p" + (index + 1),
+        text: segment.text,
+        proposition,
+        relationToPrevious: {
+          type: index === 0 ? "root" : segment.relation,
+          referenceId: index === 0 ? null : "p" + index
+        }
+      };
+    });
+    return validatePropositionChain({ schema: PROPOSITION_CHAIN_SCHEMA, version: 1, items });
+  }
+
   function validateFrame(raw, fallback = {}, knowledge = null) {
     const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const base = fallback && typeof fallback === "object" ? fallback : {};
@@ -528,6 +643,7 @@
       } : null,
       relation: clean(source.relation || base.relation, 64) || null,
       proposition: validateProposition(source.proposition, base.proposition),
+      propositionChain: validatePropositionChain(source.propositionChain, base.propositionChain),
       entities,
       concepts,
       constraints: {
@@ -574,6 +690,7 @@
       discourseRelation: relation,
       resolvedFrom,
       proposition: extractProposition(text, intent, slots),
+      propositionChain: extractPropositionChain(text),
       confidence: 0.56
     }, knowledge);
     frame.provenance = "heuristic";
@@ -615,6 +732,9 @@
     surfaceSlots,
     extractProposition,
     validateProposition,
+    validatePropositionChain,
+    splitDiscourseSegments,
+    extractPropositionChain,
     analyse,
     validateFrame,
     toSearchQueries

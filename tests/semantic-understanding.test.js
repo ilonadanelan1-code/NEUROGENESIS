@@ -247,6 +247,67 @@ assert.equal(noFactFromReportedSpeech.kind, "reported");
 assert.equal(noFactFromReportedSpeech.assertionStatus, "reported",
   "a source-attributed statement must not be flattened into a user assertion");
 
+const sequenceFrame = core.analyse("Система работает. Затем система активируется.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(sequenceFrame.propositionChain.schema, "NG_PROPOSITION_CHAIN_V1");
+assert.equal(sequenceFrame.propositionChain.items.length, 2);
+assert.equal(sequenceFrame.propositionChain.items[0].relationToPrevious.type, "root");
+assert.equal(sequenceFrame.propositionChain.items[0].proposition.predicate, "работает");
+assert.equal(sequenceFrame.propositionChain.items[1].relationToPrevious.type, "sequence");
+assert.equal(sequenceFrame.propositionChain.items[1].relationToPrevious.referenceId, "p1");
+assert.equal(sequenceFrame.propositionChain.items[1].proposition.predicate, "активируется");
+
+const conditionalFrame = core.analyse("Если система получает сигнал, то система активируется.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(conditionalFrame.propositionChain.items.length, 2);
+assert.equal(conditionalFrame.propositionChain.items[0].proposition.kind, "conditional");
+assert.equal(conditionalFrame.propositionChain.items[1].relationToPrevious.type, "condition_result");
+assert.equal(conditionalFrame.propositionChain.items[1].relationToPrevious.referenceId, "p1");
+
+const causalFrame = core.analyse("Сеть не активируется, потому что питание не работает.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(causalFrame.propositionChain.items.length, 2);
+assert.equal(causalFrame.propositionChain.items[1].relationToPrevious.type, "cause_of_previous");
+assert.equal(causalFrame.propositionChain.items[1].proposition.polarity, "negative");
+
+const contrastFrame = core.analyse("Система работает, однако сеть не активируется.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(contrastFrame.propositionChain.items.length, 2);
+assert.equal(contrastFrame.propositionChain.items[1].relationToPrevious.type, "contrast");
+
+const singleFrame = core.analyse("Система активируется.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(singleFrame.propositionChain.items.length, 0,
+  "single propositions must not be wrapped in a fake discourse chain");
+
+const unforcedAndFrame = core.analyse("Мне нравится сеть и память.", {
+  contextRelation: "new_topic"
+}, knowledge);
+assert.equal(unforcedAndFrame.propositionChain.items.length, 0,
+  "a coordinating 'и' inside one phrase must not trigger clause splitting");
+
+const forgedChain = core.validateFrame({
+  propositionChain: {
+    schema: "NG_PROPOSITION_CHAIN_V1", version: 1,
+    items: [
+      { id: "p1", text: "Подменённое предложение",
+        proposition: { kind: "assertion", subject: "подмена", predicate: "существует", confidence: 0.99 },
+        relationToPrevious: { type: "root", referenceId: null } },
+      { id: "p2", text: "Подменённое продолжение",
+        proposition: { kind: "assertion", subject: "подмена", predicate: "работает", confidence: 0.99 },
+        relationToPrevious: { type: "contrast", referenceId: "p1" } }
+    ]
+  }
+}, sequenceFrame, knowledge);
+assert.equal(forgedChain.propositionChain.items[0].text, "Система работает",
+  "a model must not silently replace a locally extracted proposition chain");
+assert.equal(forgedChain.propositionChain.items[1].relationToPrevious.type, "sequence");
+
 const validatedProposition = core.validateProposition({
   kind: "question", subject: "осьминог", predicate: "создать",
   polarity: "negative", modality: "interrogative", confidence: 3,
