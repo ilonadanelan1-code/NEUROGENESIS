@@ -11,7 +11,7 @@ for (const file of ["knowledge.js", "semantic-core.js"]) {
 }
 const core = window.NGSemanticCore;
 const knowledge = window.NGKnowledge;
-assert.ok(core && core.version === 3, "semantic core v2 must be loaded");
+assert.ok(core && core.version === 3, "semantic core v3 must be loaded");
 
 const equivalentQuantityQuestions = [
   { query: "Сколько сердец у осьминога?", subject: /осьминог/iu, attribute: /сердец/iu },
