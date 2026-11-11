@@ -169,6 +169,11 @@ assert.equal(retrieval.normaliseEvidencePlan([
   { id: "bad", attribute: "президент", subjectFrom: { stepId: "future", field: "object" } }
 ], chainFrame).length, 1,
 "a step may not depend on an unknown or future step");
+const staleRecord = { id: "M-OCTOPUS-OLD", text: memory.text,
+  claims: memory.claims.map(claim => ({ ...claim, status: "superseded" })) };
+const staleRecall = retrieval.rankClaims(scores[0].frame, [staleRecord], knowledge, []);
+assert.equal(staleRecall.requirements[0].matched, false,
+  "superseded claims must not be used as current evidence, even for a simple question");
 
 const evidence = retrieval.buildEvidence([{ item: memory, score: scores[0].target }, { item: unrelated, score: scores[0].unrelated }]);
 assert.equal(evidence.length, 2);
