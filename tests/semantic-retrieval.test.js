@@ -370,6 +370,10 @@ const archivedRecall = retrieval.rankClaims(
 );
 assert.equal(archivedRecall.requirements[0].matched, false,
   "archived claims must not be used as current evidence");
+assert.equal(retrieval.scoreRecord(
+  core.analyse("Содержит ли прототип старый модуль?", { contextRelation: "new_topic" }, knowledge),
+  { id: "M-ARCHIVED", text: archivedClaim.evidence, claims: [archivedClaim] }, knowledge
+).score, 0, "broad semantic scoring must not reintroduce archived claims after claim retrieval rejects them");
 
 assert.equal(retrieval.normaliseEvidencePlan([
   { id: "root", subject: "Река Альфа", attribute: "страна" },
