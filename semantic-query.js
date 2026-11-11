@@ -16,7 +16,7 @@ const normalise=v=>CORE?CORE.normalise(v,window.NGKnowledge):clean(v,1600).norma
 function requiredEvidenceSteps(question){
  const text=clean(question,MAX_QUERY).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
  const clauses=text.split(/\s+(?:а также|и|а|затем|после этого|при этом|and|then)\s+|[,，;]\s*|[?？!]+\s*/iu).filter(Boolean);
- const marker=/(?:^|[^\p{L}])(?:кто|что|где|куда|откуда|когда|сколько|какой|какая|какое|какие|каков\p{L}*|как|чем|чего|кому|чья|чье|чьи|почему|зачем|ли|who|what|where|when|which|how)(?=$|[^\p{L}])/iu;
+ const marker=/(?:^|[^\p{L}])(?:кто|что|где|куда|откуда|когда|сколько|какой\p{L}*|каков\p{L}*|как|чем|чего|кому|чья|чье|чьи|почему|зачем|ли|who|what|where|when|which|how)(?=$|[^\p{L}])/iu;
  return Math.min(4,clauses.filter(clause=>marker.test(clause)).length);
 }
 function tokens(v,k){const rows=k&&typeof k.tokens==="function"?k.tokens(v):CORE?CORE.tokens(v,k):normalise(v).split(" ").filter(x=>x.length>=3);return [...new Set((Array.isArray(rows)?rows:[]).filter(x=>typeof x==="string"&&x.length>1))].slice(0,48);}
