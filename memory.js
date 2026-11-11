@@ -3557,13 +3557,27 @@
         : "\n\nРЕЖИМ ПОИСКА: локальные языковые правила и смысловые ассоциации; произвольные переформулировки могут распознаваться не полностью.")+
       (graphNote?"\n\n"+graphNote:"")+
       (currentModelDecisions().length?formatModelDecisionNote():"");
+    const claimAuditLines=[];
+    const unresolvedSteps=(claimRecall&&Array.isArray(claimRecall.requirements)?claimRecall.requirements:[])
+      .filter(step=>!step.matched);
+    if(unresolvedSteps.length) claimAuditLines.push("НЕПОДТВЕРЖДЁННЫЕ ШАГИ: "+
+      unresolvedSteps.map(step=>step.question||[step.subject,step.attribute].filter(Boolean).join(" — ")).join("; ")+
+      ". Для этих частей в локальной памяти не найдено достаточных утверждений.");
+    const claimConflicts=claimRecall&&Array.isArray(claimRecall.conflicts)?claimRecall.conflicts:[];
+    if(claimConflicts.length) claimAuditLines.push("ПРОТИВОРЕЧИЯ В ЛОКАЛЬНОЙ ПАМЯТИ:\n"+
+      claimConflicts.slice(0,4).map(conflict=>
+        "• "+(conflict.reason||"Найдены несовместимые утверждения")+
+        "\n  1) "+(conflict.left&&conflict.left.evidence||"Источник не указан")+
+        "\n  2) "+(conflict.right&&conflict.right.evidence||"Источник не указан")
+      ).join("\n"));
+    const claimAuditNote=claimAuditLines.length?"\n\n"+claimAuditLines.join("\n\n"):"";
     function deliverRankedAnswer(generatedAnswer="",usedSources=[],usedClaims=[]) {
       const sourceNote=usedSources.length
         ? "\n\nИСТОЧНИКИ ЛОКАЛЬНОЙ ПАМЯТИ: "+usedSources.map(id=>String(id)).join(", ")+
           (usedClaims.length ? "\nИСПОЛЬЗОВАННЫЕ УТВЕРЖДЕНИЯ: "+usedClaims.map(id=>String(id)).join(", ") : "")+
           "\nСинтез использовал только перечисленные локальные записи и утверждения; внешние факты не добавлялись."
         : "";
-      say("assistant",generatedAnswer ? generatedAnswer+sourceNote : fallbackAnswer);
+      say("assistant",generatedAnswer ? generatedAnswer+sourceNote+claimAuditNote : fallbackAnswer+claimAuditNote);
       const brain = window.NGBrain;
       const activeTraceIds = [...new Set(ids)];
       if (brain && typeof brain.associateMemoryTraces === "function") brain.associateMemoryTraces(activeTraceIds);
