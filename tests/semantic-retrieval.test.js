@@ -181,11 +181,13 @@ assert.match(request.messages[0].content, /Не отвечай по общим �
 assert.match(request.messages[1].content, /M-OCTOPUS/u);
 const parsed = retrieval.parseAnswer(JSON.stringify({
   answer: "В сохранённой записи указано, что у осьминога три сердца.",
-  usedSources: ["M-OCTOPUS", "NOT-A-SOURCE"], confidence: 0.94, insufficientEvidence: false
+  usedSources: ["M-OCTOPUS", "NOT-A-SOURCE"], usedClaims: ["C-OCTOPUS", "NOT-A-CLAIM"],
+  confidence: 0.94, insufficientEvidence: false
 }), evidence);
 assert.ok(parsed);
 assert.deepEqual(Array.from(parsed.usedSources), ["M-OCTOPUS"]);
-assert.deepEqual(Array.from(parsed.usedClaims), [], "legacy answers may omit claim-level citations");
+assert.deepEqual(Array.from(parsed.usedClaims), ["C-OCTOPUS"],
+  "claim citations must be restricted to IDs present in retrieved evidence");
 assert.equal(parsed.confidence, 0.94);
 assert.equal(retrieval.parseAnswer(JSON.stringify({
   answer: "У осьминога три сердца.", usedSources: ["INVENTED"], confidence: 0.99, insufficientEvidence: false
@@ -196,4 +198,11 @@ const insufficient = retrieval.parseAnswer(JSON.stringify({
   confidence: 0.1, insufficientEvidence: true
 }), evidence);
 assert.ok(insufficient && insufficient.insufficientEvidence);
+const partial = retrieval.parseAnswer(JSON.stringify({
+  answer: "Я могу подтвердить только страну; второго факта в памяти нет.",
+  usedSources: ["M-OCTOPUS"], usedClaims: ["C-OCTOPUS"],
+  confidence: 0.58, insufficientEvidence: true
+}), evidence);
+assert.ok(partial && partial.usedSources.length === 1,
+  "a grounded partial answer must retain its valid source IDs instead of being discarded");
 console.log("NEUROGENESIS semantic retrieval: entity/property matching, paraphrase invariance, evidence provenance and grounded answer validation passed.");
