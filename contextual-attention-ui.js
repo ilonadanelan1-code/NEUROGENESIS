@@ -18,6 +18,7 @@
   const output=byId("contextual-attention-output");
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
   let model=Model.create({dimension:12,windowSize:2,heads:3,seed:9173});
+  let checkpointRequiresRetraining=false;
   function save(){
     try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),corpus:corpusInput.value}));}
     catch(_){}
@@ -39,12 +40,15 @@
     try{model.loadState(saved.state);}
     catch(_){
       // A previous single-head checkpoint is intentionally not misread as a multi-head model.
-      stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
-      metrics.textContent="Архитектура обновлена до трёх голов. Твои обучающие предложения сохранены — запусти обучение заново.";
+      checkpointRequiresRetraining=true;
     }
   }
   root.NGContextualAttention=model;
   renderStatus();
+  if(checkpointRequiresRetraining){
+    stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
+    metrics.textContent="Архитектура обновлена до трёх голов. Твои обучающие предложения сохранены — запусти обучение заново.";
+  }
   trainButton.addEventListener("click",()=>{
     const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
     if(!rows.length){renderStatus("Добавь хотя бы одно предложение для обучения.");return;}
