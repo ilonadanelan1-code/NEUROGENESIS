@@ -74,7 +74,7 @@
     });
   }
 
-  const GENERIC_PREDICATE = /^(?:име\\p{L}*|содерж\\p{L}*|включ\\p{L}*|насчитыва\\p{L}*|облада\\p{L}*|составля\\p{L}*|состо\\p{L}* из|has|contains|includes|comprises|consists of)$/iu;
+  const GENERIC_PREDICATE = /^(?:име\p{L}*|содерж\p{L}*|включ\p{L}*|насчитыва\p{L}*|облада\p{L}*|составля\p{L}*|состо\p{L}* из|has|contains|includes|comprises|consists of)$/iu;
   function sameEntity(left, right, knowledge) {
     if (!left || !right) return false;
     if (knowledge && typeof knowledge.sameEntity === "function") return knowledge.sameEntity(left, right);
@@ -475,7 +475,7 @@
           }
         }
         if (modality === "possible" && !/(?:возмож|предполож|гипотез|вероят|может|may be|might be|possible)/iu.test(conclusionText)) return null;
-        if (polarity === "negative" && !/(?:^|[^\\p{L}])не(?:$|[^\\p{L}])|нет|отсутств|не является|не приводит/iu.test(conclusionText)) return null;
+        if (polarity === "negative" && !/(?:^|[^\p{L}])не(?:$|[^\p{L}])|нет|отсутств|не является|не приводит/iu.test(conclusionText)) return null;
         if (!normaliseText(answer).includes(normaliseText(conclusionText))) return null;
         accepted.push({ stepId, claimIds: cited, text: conclusionText });
         seenSteps.add(stepId);
@@ -502,7 +502,7 @@
   }
   function normaliseText(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
-      .replace(/[^a-zа-я0-9]+/giu, " ").trim().replace(/\\s+/gu, " ");
+      .replace(/[^a-zа-я0-9]+/giu, " ").trim().replace(/\s+/gu, " ");
   }
   window.NGSemanticRetrieval = Object.freeze({ version: 3, scoreRecord, buildEvidence, normaliseEvidencePlan, rankClaims, buildRequest, parseAnswer });
 })();
