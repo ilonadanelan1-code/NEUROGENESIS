@@ -9,6 +9,10 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-retrieval.js"]
 }
 const knowledge = window.NGKnowledge, core = window.NGSemanticCore, retrieval = window.NGSemanticRetrieval;
 assert.ok(retrieval && retrieval.version === 1);
+assert.deepEqual(Array.from(knowledge.tokens("сердец")), ["сердц"],
+  "irregular Russian genitive plural should normalize to the same stem as «сердца»");
+assert.deepEqual(Array.from(knowledge.tokens("сердца")), ["сердц"],
+  "the direct plural form should preserve the same semantic stem");
 const memory = {
   id: "M-OCTOPUS", text: "У осьминога три сердца.",
   claims: [{ id: "C-OCTOPUS", kind: "fact", subject: "осьминог", predicate: "имеет",
