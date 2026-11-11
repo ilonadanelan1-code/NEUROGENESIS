@@ -131,10 +131,20 @@ assert.match(knowledge.answerQuestion("Где я жил в прошлом год
   "undated history must not be assigned to an arbitrary calendar year");
 
 const explicitMonth=knowledge.parseTemporalPeriod("июня 2024",temporalAnchor);
-assert.equal(explicitMonth,null,
-  "an incomplete month phrase without a recognized month-first form should not be guessed");
-const explicitMonthNamed=knowledge.parseTemporalPeriod("июнь 2024",temporalAnchor);
-assert.equal(explicitMonthNamed.start,new Date(2024,5,1).getTime());
+assert.equal(explicitMonth.start,new Date(2024,5,1).getTime(),
+  "a genitive Russian month form with a year should resolve to the month interval");
+assert.equal(explicitMonth.end,new Date(2024,6,1).getTime());
+const explicitDay=knowledge.parseTemporalPeriod("20.10.2024",temporalAnchor);
+assert.equal(explicitDay.start,new Date(2024,9,20).getTime(),
+  "a dotted calendar date must be parsed before punctuation normalization");
+assert.equal(explicitDay.end,new Date(2024,9,21).getTime());
+const explicitIsoDay=knowledge.parseTemporalPeriod("2024-10-20",temporalAnchor);
+assert.equal(explicitIsoDay.start,new Date(2024,9,20).getTime(),
+  "an ISO calendar date must preserve its separators during parsing");
+const explicitDayFact=knowledge.extractClaims("Я жил в Казани 20.10.2024",temporalAnchor)[0];
+assert.ok(explicitDayFact&&explicitDayFact.validFrom===explicitDay.start&&explicitDayFact.validTo===explicitDay.end);
+assert.match(knowledge.answerQuestion("Где я жил 20.10.2024?",[explicitDayFact]),/Казани/u,
+  "the historical query parser must retain punctuation inside explicit dates");
 
 
 

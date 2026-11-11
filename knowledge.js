@@ -17,11 +17,12 @@
     return new Date(year, monthIndex, day, 0, 0, 0, 0).getTime();
   }
   function parseTemporalPeriod(value, referenceTime = Date.now()) {
-    const text = normalise(value);
+    const rawText=String(value||"").trim();
+    const text = normalise(rawText);
     const anchor = new Date(parseClaimTime(referenceTime) || Date.now());
     const year = anchor.getFullYear(), month = anchor.getMonth(), day = anchor.getDate();
     const period = (start, end, precision, label) => ({start,end,precision,label,expression:String(value || "").trim()});
-    let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/u);
+    let match = rawText.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/u);
     if (match) {
       const y=Number(match[1]),m=Number(match[2])-1,d=Number(match[3]);
       const start=localDateStart(y,m,d), check=new Date(start);
@@ -29,7 +30,7 @@
         return period(start,localDateStart(y,m,d+1),"day",d+"."+String(m+1).padStart(2,"0")+"."+y);
       return null;
     }
-    match = text.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/u);
+    match = rawText.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/u);
     if (match) {
       const d=Number(match[1]),m=Number(match[2])-1,y=Number(match[3]);
       const start=localDateStart(y,m,d),check=new Date(start);
@@ -199,7 +200,7 @@
     return window.valid&&moment!==null&&(window.from===null||window.from<=moment)&&(window.to===null||moment<window.to);
   }
   function temporalPeriodFromQuery(query, referenceTime = Date.now()) {
-    const words=String(query||"").toLowerCase().replace(/[?!,.;:()]/gu," ").split(/\s+/u).filter(Boolean);
+    const words=String(query||"").toLowerCase().replace(/[?!,;:()]/gu," ").split(/\s+/u).filter(Boolean);
     let best=null,bestStart=-1,bestLength=0;
     for(let i=0;i<words.length;i++) {
       for(let size=1;size<=Math.min(5,words.length-i);size++) {
@@ -289,7 +290,7 @@
   function capabilitiesAnswer() {
     return "В этой версии я умею сохранять до " + SYSTEM_PROFILE.memoryLimit +
       " записей длиной до " + SYSTEM_PROFILE.recordCharacterLimit +
-      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Я распознаю некоторые явные и относительные временные выражения (например, «в прошлом году», «с прошлого лета», конкретную дату), связываю их с отдельными фактами и могу отвечать на вопросы о датированных периодах. Если граница времени не названа, я отмечаю её как неизвестную, а не придумываю дату. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
+      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Я распознаю некоторые явные и относительные временные выражения (например, «в прошлом году», «с прошлого лета», конкретную дату), связываю их с отдельными фактами, составляю хронологию утверждений и могу отвечать на вопросы о датированных периодах. Если граница времени не названа, я отмечаю её как неизвестную, а не придумываю дату. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
       "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
   }
   const SEMANTIC_GROUPS = [
