@@ -114,7 +114,7 @@ function parse(raw, originalQuestion=""){
  const evidencePlan=normaliseEvidencePlan(rawEvidencePlan);
  const requiredSteps=Math.max(requiredEvidenceSteps(canonical),requiredEvidenceSteps(originalQuestion));
  const evidencePlanInvalid=rawEvidencePlan.length>4||rawEvidencePlan.length>evidencePlan.length||
-  evidencePlan.length<requiredSteps;
+  requiredSteps>1&&evidencePlan.length<requiredSteps;
  return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan,evidencePlanInvalid,confidence};
 }
 window.NGSemanticQuery=Object.freeze({version:3,local,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
