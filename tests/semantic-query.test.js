@@ -10,7 +10,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-query.js"]) {
 }
 const engine = window.NGSemanticQuery;
 const knowledge = window.NGKnowledge;
-assert.ok(engine && engine.version === 2);
+assert.ok(engine && engine.version === 3);
 
 const oldTopic = {
   activeThread: { id:"T-old", title:"Изучение устройства нейросетей", contextSummary:"Обсуждение контекста диалога." },
@@ -69,6 +69,8 @@ const request = engine.buildRequest("А у него сколько?", octopusTop
 assert.equal(request.schema, "NEUROGENESIS_LLM_REQUEST_V2");
 assert.equal(request.metadata.semanticSchema, "NG_SEMANTIC_FRAME_V1");
 assert.match(request.messages[0].content, /субъект — осьминог, атрибут — сердца/u);
+assert.match(request.messages[0].content, /evidencePlan/u);
+assert.match(request.messages[0].content, /subjectFrom/u);
 assert.equal(request.messages.length, 2);
 assert.match(request.messages[0].content, /НЕ отвечай на вопрос/u);
 assert.match(request.messages[1].content, /А у него сколько/u);
@@ -81,13 +83,22 @@ const parsed = engine.parse(JSON.stringify({
   canonicalQuestion:"Сколько сердец у осьминога?",
   searchQueries:["сколько сердец у осьминога","число сердечных органов головоногого"],
   expectedAnswerType:"quantity",
-  confidence:0.97
+  confidence:0.97,
+  evidencePlan:[
+    {id:"country",question:"В какой стране находится Таллин?",subject:"Таллин",attribute:"страна"},
+    {id:"president",question:"Кто президент этой страны?",attribute:"президент",subjectFrom:{stepId:"country",field:"object"},dependsOn:["country"]},
+    {id:"invalid",attribute:"город",subjectFrom:{stepId:"future",field:"object"}}
+  ]
 }));
 assert.equal(parsed.source, "model");
 assert.equal(parsed.semanticFrame.schema, "NG_SEMANTIC_FRAME_V1");
 assert.equal(parsed.semanticFrame.answerType, "quantity");
 assert.equal(parsed.contextRelation, "follow_up");
 assert.equal(parsed.expectedAnswerType, "quantity");
+assert.equal(parsed.version, 3);
+assert.equal(parsed.evidencePlan.length, 2);
+assert.deepEqual(parsed.evidencePlan[1].subjectFrom, {stepId:"country",field:"object"});
+assert.deepEqual(Array.from(parsed.evidencePlan[1].dependsOn), ["country"]);
 assert.equal(parsed.searchQueries.length, 3);
 assert.equal(parsed.searchQueries[0], parsed.canonicalQuestion,
   "the canonical form must be prepended when the model omitted it from search variants");
