@@ -155,6 +155,212 @@
     return { subject: "", attribute: "", relation: "" };
   }
 
+
+  const PROPOSITION_KINDS = Object.freeze([
+    "assertion", "hypothesis", "opinion", "question",
+    "request", "conditional", "reported", "fragment"
+  ]);
+
+  function temporalSignal(text) {
+    const patterns = [
+      [/(?:позавчера|вчера|на прошлой неделе|в прошлом году|в прошлом месяце|раньше|ранее|до этого|в прошлом|был[аои]?|произош[её]л ранее)/iu, "past"],
+      [/(?:завтра|послезавтра|на следующей неделе|в следующем году|в будущем|позже)/iu, "future"],
+      [/(?:сегодня|сейчас|теперь|в настоящее время|в этом году|в этом месяце|на данный момент)/iu, "present"],
+      [/(?:с\s+\d{4}\s+года|начиная с\s+\d{4})/iu, "since"]
+    ];
+    for (const [pattern, relation] of patterns) {
+      const match = text.match(pattern);
+      if (match) return { expression: clean(match[0], 100), relation };
+    }
+    return { expression: null, relation: "unspecified" };
+  }
+
+  function extractProposition(value, intent = "conversation", slots = {}) {
+    const original = clean(value, 800);
+    const text = original.replace(/[?!.…]+$/u, "").trim();
+    const temporal = temporalSignal(original);
+    const base = {
+      kind: "fragment", subject: "", predicate: "", object: "",
+      relation: "", polarity: "positive", modality: "unknown",
+      temporal, attribution: { speaker: "user", source: "user_utterance", reportedBy: "" },
+      confidence: 0.28
+    };
+    if (!text) return base;
+
+    const questionIntent = [
+      "factual_question", "explanation_request", "comparison_request",
+      "causal_question", "instruction_request", "memory_query"
+    ].includes(intent);
+    const requestPrefix = /^(?:пожалуйста\s+)?(?:подскажи|назови|скажи|укажи|определи|уточни|объясни|расскажи|опиши|покажи|найди|вспомни|сделай|создай|сравни|рассчитай|перечисли)(?=$|\s|[,.:!?])/iu;
+    if (requestPrefix.test(text)) {
+      return { ...base, kind: "request", modality: "directive", confidence: 0.72 };
+    }
+    if (/[?？]/u.test(original) || questionIntent) {
+      return {
+        ...base, kind: "question",
+        subject: clean(slots.subject, 180),
+        object: clean(slots.attribute, 180),
+        modality: "interrogative", confidence: 0.78
+      };
+    }
+
+    const quoted = text.match(/^[«“"](.+)[»”"]$/u);
+    if (quoted) {
+      return {
+        ...base, kind: "reported", object: clean(quoted[1], 360),
+        modality: "quoted", attribution: { speaker: "unknown", source: "quoted_text", reportedBy: "" },
+        confidence: 0.58
+      };
+    }
+
+    let match = text.match(/^(?:по словам\s+(.+?),?\s+)?(.+?)\s+(сказал|сказала|сказали|сообщил|сообщила|сообщили|утверждает|утверждают|говорит|говорят|пишет|заявил|заявила),?\s+что\s+(.+)$/iu);
+    if (match) {
+      return {
+        ...base, kind: "reported", subject: clean(match[2], 180),
+        predicate: clean(match[3], 80), object: clean(match[4], 240),
+        modality: "reported",
+        attribution: { speaker: "unknown", source: "reported_speech", reportedBy: clean(match[2], 180) },
+        confidence: 0.76
+      };
+    }
+    match = text.match(/^(?:в отч[её]те|в исследовании|в статье|по данным источника|сообщается|говорится|указывается),?\s+(?:что\s+)?(.+)$/iu);
+    if (match) {
+      return {
+        ...base, kind: "reported", object: clean(match[1], 320),
+        modality: "reported",
+        attribution: { speaker: "unknown", source: "source_attributed", reportedBy: "external_source" },
+        confidence: 0.64
+      };
+    }
+
+    let opinionText = text;
+    const opinion = text.match(/^(?:я думаю|я считаю|мне кажется|по-моему|по моему мнению|на мой взгляд),?\s*(?:что\s+)?(.+)$/iu);
+    if (opinion) opinionText = opinion[1];
+
+    const conditional = /(?:^|\s)если\s+/iu.test(opinionText);
+    const possiblePrefix = /^(?:возможно|вероятно|предположительно|может быть),?\s*/iu;
+    const explicitPossible = possiblePrefix.test(opinionText);
+    const statement = opinionText.replace(possiblePrefix, "");
+    const temporalWithoutPrefix = temporal.expression
+      ? statement.replace(temporal.expression, "").replace(/^\s*[,—–-]\s*/u, "").trim()
+      : statement;
+
+    const causal = temporalWithoutPrefix.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(приводит|приводят|приводить|вызывает|вызывают|влияет|влияют|повышает|повышают|снижает|снижают|уменьшает|уменьшают|увеличивает|увеличивают)\s+(к|на|от|в|из-за)\s+(.+)$/iu);
+    if (causal) {
+      const modality = causal[2] ? "possible" : explicitPossible ? "possible" : "asserted";
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : (modality === "possible" ? "hypothesis" : "assertion"),
+        subject: clean(causal[1], 180),
+        predicate: clean(causal[4] + " " + causal[5], 100),
+        object: clean(causal[6], 220), relation: "causal",
+        polarity: causal[3] ? "negative" : "positive",
+        modality: conditional ? "conditional" : opinion ? "opinion" : modality,
+        confidence: 0.82,
+        attribution: opinion
+          ? { speaker: "user", source: "user_opinion", reportedBy: "user" }
+          : base.attribution
+      };
+    }
+
+    match = temporalWithoutPrefix.match(/^у\s+(.+?)\s+(?:(есть|имеется|имеются)\s+)?(.+)$/iu);
+    if (match) {
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
+        subject: clean(match[1], 180), predicate: "имеет", object: clean(match[3], 220),
+        relation: "has", modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
+        confidence: 0.72,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    match = temporalWithoutPrefix.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|создаёт|создает|создают|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
+    if (match) {
+      const modal = clean(match[2], 40);
+      const predicate = clean(match[4], 80);
+      const modality = modal === "может" || modal === "могут" ? "possible"
+        : modal ? "necessary" : explicitPossible ? "possible" : "asserted";
+      return {
+        ...base,
+        kind: conditional ? "conditional" : opinion ? "opinion" : modality === "possible" ? "hypothesis" : "assertion",
+        subject: clean(match[1], 180), predicate, object: clean(match[5], 220),
+        relation: /^(?:имеет|имеют|содержит|содержат|включает|включают)$/iu.test(predicate) ? "has" : "predicate",
+        polarity: match[3] ? "negative" : "positive",
+        modality: conditional ? "conditional" : opinion ? "opinion" : modality,
+        confidence: 0.74,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    match = temporalWithoutPrefix.match(/^(.+?)\s+(?:это|—|–|:)\s+(.+)$/u);
+    if (match) {
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
+        subject: clean(match[1], 180), predicate: "является", object: clean(match[2], 220),
+        relation: "is_a", modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
+        confidence: 0.62,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    return {
+      ...base,
+      kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "fragment",
+      modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "unknown",
+      attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+    };
+  }
+
+  function validateProposition(raw, fallback = {}) {
+    const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const base = fallback && typeof fallback === "object" ? fallback : {};
+    const part = (value, max = 220) => typeof value === "string" ? clean(value, max) : "";
+    const kind = PROPOSITION_KINDS.includes(source.kind) ? source.kind
+      : PROPOSITION_KINDS.includes(base.kind) ? base.kind : "fragment";
+    const polarity = ["positive", "negative", "mixed", "unknown"].includes(source.polarity)
+      ? source.polarity : ["positive", "negative", "mixed", "unknown"].includes(base.polarity)
+        ? base.polarity : "unknown";
+    const modality = ["asserted", "possible", "necessary", "conditional", "opinion",
+      "reported", "quoted", "interrogative", "directive", "unknown"].includes(source.modality)
+      ? source.modality : ["asserted", "possible", "necessary", "conditional", "opinion",
+        "reported", "quoted", "interrogative", "directive", "unknown"].includes(base.modality)
+        ? base.modality : "unknown";
+    const temporal = source.temporal && typeof source.temporal === "object" ? source.temporal : base.temporal || {};
+    const attribution = source.attribution && typeof source.attribution === "object"
+      ? source.attribution : base.attribution || {};
+    const confidenceValue = Number(source.confidence ?? base.confidence);
+    const assertionStatus = kind === "assertion" ? "asserted"
+      : kind === "hypothesis" ? "hypothetical"
+      : kind === "opinion" ? "opinion"
+      : kind === "reported" ? "reported"
+      : kind === "question" ? "question"
+      : kind === "request" ? "request"
+      : kind === "conditional" ? "conditional" : "incomplete";
+    return {
+      schema: "NG_PROPOSITION_FRAME_V1",
+      kind,
+      subject: part(source.subject || base.subject, 180) || null,
+      predicate: part(source.predicate || base.predicate, 100) || null,
+      object: part(source.object || base.object, 220) || null,
+      relation: part(source.relation || base.relation, 64) || null,
+      polarity,
+      modality,
+      temporal: {
+        expression: part(temporal.expression, 100) || null,
+        relation: ["past", "present", "future", "since", "unspecified"].includes(temporal.relation)
+          ? temporal.relation : "unspecified"
+      },
+      attribution: {
+        speaker: ["user", "assistant", "unknown"].includes(attribution.speaker) ? attribution.speaker : "unknown",
+        source: ["user_utterance", "user_opinion", "assistant_output", "reported_speech",
+          "source_attributed", "quoted_text", "unknown"].includes(attribution.source)
+          ? attribution.source : "unknown",
+        reportedBy: part(attribution.reportedBy, 120) || null
+      },
+      assertionStatus,
+      confidence: Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0.25
+    };
+  }
+
   function validateFrame(raw, fallback = {}, knowledge = null) {
     const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const base = fallback && typeof fallback === "object" ? fallback : {};
@@ -216,6 +422,7 @@
         certainty: rawAttribute ? "model_candidate" : "heuristic_candidate"
       } : null,
       relation: clean(source.relation || base.relation, 64) || null,
+      proposition: validateProposition(source.proposition, base.proposition),
       entities,
       concepts,
       constraints: {
@@ -261,6 +468,7 @@
       relation: slots.relation,
       discourseRelation: relation,
       resolvedFrom,
+      proposition: extractProposition(text, intent, slots),
       confidence: 0.56
     }, knowledge);
     frame.provenance = "heuristic";
@@ -291,7 +499,7 @@
   }
 
   window.NGSemanticCore = Object.freeze({
-    version: 2,
+    version: 3,
     schema: SCHEMA,
     answerTypes: ANSWER_TYPES,
     intents: INTENTS,
@@ -300,6 +508,8 @@
     answerType,
     intentType,
     surfaceSlots,
+    extractProposition,
+    validateProposition,
     analyse,
     validateFrame,
     toSearchQueries

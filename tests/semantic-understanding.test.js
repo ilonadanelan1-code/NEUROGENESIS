@@ -11,7 +11,7 @@ for (const file of ["knowledge.js", "semantic-core.js"]) {
 }
 const core = window.NGSemanticCore;
 const knowledge = window.NGKnowledge;
-assert.ok(core && core.version === 2, "semantic core v2 must be loaded");
+assert.ok(core && core.version === 3, "semantic core v2 must be loaded");
 
 const equivalentQuantityQuestions = [
   { query: "Сколько сердец у осьминога?", subject: /осьминог/iu, attribute: /сердец/iu },
@@ -107,6 +107,98 @@ assert.equal(untrusted.confidence, 1);
 assert.equal(untrusted.entities.length, 8);
 assert.equal(untrusted.entities[0].text, "осьминог",
   "the primary subject must remain in the bounded entity list");
+
+
+const propositions = [
+  {
+    text: "Сеть не активируется.",
+    kind: "assertion", subject: /сеть/iu, predicate: /активируется/iu,
+    object: null, polarity: "negative", modality: "asserted"
+  },
+  {
+    text: "Недостаток сна может приводить к усталости.",
+    kind: "hypothesis", subject: /недостаток сна/iu, predicate: /приводить к/iu,
+    object: /усталости/iu, polarity: "positive", modality: "possible"
+  },
+  {
+    text: "У осьминога три сердца.",
+    kind: "assertion", subject: /осьминога/iu, predicate: /имеет/iu,
+    object: /три сердца/iu, relation: "has"
+  },
+  {
+    text: "Вчера сеть работала.",
+    kind: "assertion", subject: /сеть/iu, predicate: /работала/iu,
+    temporal: "past"
+  },
+  {
+    text: "Возможно, система активируется.",
+    kind: "hypothesis", modality: "possible"
+  },
+  {
+    text: "Я думаю, что сеть работает.",
+    kind: "opinion", modality: "opinion"
+  },
+  {
+    text: "Почему сеть не активируется?",
+    kind: "question", assertionStatus: "question"
+  },
+  {
+    text: "Объясни, почему сеть не активируется.",
+    kind: "request", assertionStatus: "request"
+  },
+  {
+    text: "Если система получит данные, она активируется.",
+    kind: "conditional", assertionStatus: "conditional"
+  },
+  {
+    text: "Он сказал, что сеть не активируется.",
+    kind: "reported", assertionStatus: "reported",
+    source: "reported_speech"
+  },
+  {
+    text: "«Сеть не активируется».",
+    kind: "reported", source: "quoted_text"
+  }
+];
+for (const item of propositions) {
+  const frame = core.analyse(item.text, { contextRelation: "new_topic" }, knowledge);
+  const proposition = frame.proposition;
+  assert.equal(proposition.schema, "NG_PROPOSITION_FRAME_V1", item.text);
+  assert.equal(proposition.kind, item.kind, item.text);
+  if (item.subject) assert.match(proposition.subject || "", item.subject, item.text);
+  if (item.predicate) assert.match(proposition.predicate || "", item.predicate, item.text);
+  if (item.object) assert.match(proposition.object || "", item.object, item.text);
+  if (item.object === null) assert.equal(proposition.object, null, item.text);
+  if (item.polarity) assert.equal(proposition.polarity, item.polarity, item.text);
+  if (item.modality) assert.equal(proposition.modality, item.modality, item.text);
+  if (item.relation) assert.equal(proposition.relation, item.relation, item.text);
+  if (item.temporal) assert.equal(proposition.temporal.relation, item.temporal, item.text);
+  if (item.assertionStatus) assert.equal(proposition.assertionStatus, item.assertionStatus, item.text);
+  if (item.source) assert.equal(proposition.attribution.source, item.source, item.text);
+}
+const noFactFromQuestion = core.analyse("Сколько сердец у осьминога?", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(noFactFromQuestion.assertionStatus, "question");
+assert.equal(noFactFromQuestion.predicate, null,
+  "a question must not be represented as an asserted predicate");
+const noFactFromReportedSpeech = core.analyse("В отчёте говорится, что усталость приводит к снижению концентрации.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(noFactFromReportedSpeech.kind, "reported");
+assert.equal(noFactFromReportedSpeech.assertionStatus, "reported",
+  "a source-attributed statement must not be flattened into a user assertion");
+
+const validatedProposition = core.validateProposition({
+  kind: "question", subject: "осьминог", predicate: "создать",
+  polarity: "negative", modality: "interrogative", confidence: 3,
+  attribution: { speaker: "assistant", source: "assistant_output" }
+});
+assert.equal(validatedProposition.assertionStatus, "question",
+  "validation must derive assertion status from the proposition kind");
+assert.equal(validatedProposition.confidence, 1);
+assert.equal(validatedProposition.attribution.source, "assistant_output");
+
 
 console.log("NEUROGENESIS semantic understanding benchmark: " +
   equivalentQuantityQuestions.length + " paraphrases, " +
