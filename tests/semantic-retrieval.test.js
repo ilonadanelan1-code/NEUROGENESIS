@@ -8,7 +8,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-retrieval.js"]
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const knowledge = window.NGKnowledge, core = window.NGSemanticCore, retrieval = window.NGSemanticRetrieval;
-assert.ok(retrieval && retrieval.version === 2);
+assert.ok(retrieval && retrieval.version === 3);
 assert.deepEqual(Array.from(knowledge.tokens("сердец")), ["сердц"],
   "irregular Russian genitive plural should normalize to the same stem as «сердца»");
 assert.deepEqual(Array.from(knowledge.tokens("сердца")), ["сердц"],
@@ -166,6 +166,218 @@ const chainRequest = retrieval.buildRequest("В какой стране нахо
 assert.equal(chainRequest.metadata.requiredSteps, 2);
 assert.equal(chainRequest.metadata.coveredSteps, 2);
 assert.match(chainRequest.messages[0].content, /связывай соседние шаги только через явно совпадающие сущности/u);
+
+const validChainAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Таллин находится в Эстонии. Президент Эстонии — Алар Карис.",
+  conclusions: [
+    { stepId: "country", text: "Таллин находится в Эстонии.", polarity: "positive",
+      modality: "asserted", claimIds: ["C-TALLINN-COUNTRY"] },
+    { stepId: "president", text: "Президент Эстонии — Алар Карис.", polarity: "positive",
+      modality: "asserted", claimIds: ["C-ESTONIA-PRESIDENT"] }
+  ],
+  usedSources: ["M-TALLINN-COUNTRY", "M-ESTONIA-PRESIDENT"],
+  usedClaims: ["C-TALLINN-COUNTRY", "C-ESTONIA-PRESIDENT"],
+  confidence: 0.93, insufficientEvidence: false
+}), chainRecall.evidence, chainRecall);
+assert.ok(validChainAnswer, "a complete multi-hop answer must cite one claim per step and preserve the parent path");
+assert.deepEqual(Array.from(validChainAnswer.usedClaims), ["C-TALLINN-COUNTRY", "C-ESTONIA-PRESIDENT"]);
+assert.equal(retrieval.parseAnswer(JSON.stringify({
+  answer: "Президент Эстонии — Алар Карис.", usedSources: ["M-ESTONIA-PRESIDENT"],
+  usedClaims: ["C-ESTONIA-PRESIDENT"], confidence: 0.93, insufficientEvidence: false
+}), chainRecall.evidence, chainRecall), null,
+"a multi-hop response without step-level conclusions must not bypass the claim verifier");
+
+for (const question of [
+  "В какой стране находится Таллин и кто президент этого государства?",
+  "Назови государство, где расположен Таллин, и президента этого государства."
+]) {
+  const variantFrame = core.analyse(question, { contextRelation: "new_topic" }, knowledge);
+  const variantRecall = retrieval.rankClaims(variantFrame, chainMemories, knowledge, evidencePlan);
+  assert.equal(variantRecall.complete, true, "held-out chain paraphrases must preserve both relations");
+  assert.ok(variantRecall.evidence.some(item => item.id === "M-ESTONIA-PRESIDENT"));
+  assert.ok(!variantRecall.evidence.some(item => item.id === "M-LATVIA-PRESIDENT"));
+}
+
+const planetaryMemories = [
+  { id: "M-MARS-MOONS", text: "У Марса два спутника.", claims: [{
+    id: "C-MARS-MOONS", kind: "fact", subject: "Марс", predicate: "имеет спутники",
+    object: "Фобос и Деймос", evidence: "У Марса два спутника.", verification: "user_supplied"
+  }] },
+  { id: "M-EARTH-MOONS", text: "У Земли один спутник.", claims: [{
+    id: "C-EARTH-MOONS", kind: "fact", subject: "Земля", predicate: "имеет спутник",
+    object: "Луна", evidence: "У Земли один спутник.", verification: "user_supplied"
+  }] }
+];
+const marsFrame = core.analyse("Сколько спутников у Марса?", { contextRelation: "new_topic" }, knowledge);
+const marsRecall = retrieval.rankClaims(marsFrame, planetaryMemories, knowledge, [
+  { id: "moons", subject: "Марс", attribute: "спутники" }
+]);
+assert.equal(marsRecall.complete, true);
+assert.deepEqual(Array.from(marsRecall.evidence.map(item => item.id)), ["M-MARS-MOONS"],
+  "the same property on a different entity must not leak into the requested answer");
+
+const relationLeak = retrieval.rankClaims(
+  core.analyse("Кто президент Эстонии?", { contextRelation: "new_topic" }, knowledge),
+  [{ id: "M-BORDER-RESIDENCE", text: "Эстония граничит с резиденцией президента.", claims: [{
+    id: "C-BORDER-RESIDENCE", kind: "fact", subject: "Эстония",
+    predicate: "граничит с", object: "резиденция президента",
+    evidence: "Эстония граничит с резиденцией президента."
+  }] }],
+  knowledge, [{ id: "president", subject: "Эстония", attribute: "президент" }]
+);
+assert.equal(relationLeak.requirements[0].matched, false,
+  "an attribute word inside object/evidence cannot substitute for a different explicit predicate");
+
+const branchMemories = [
+  { id: "M-RIVER-COUNTRY-A", text: "Река Альфа находится в Стране Альфа.", claims: [{
+    id: "C-RIVER-COUNTRY-A", kind: "fact", subject: "Река Альфа",
+    predicate: "находится в стране", object: "Страна Альфа", evidence: "Река Альфа находится в Стране Альфа."
+  }] },
+  { id: "M-RIVER-COUNTRY-B", text: "Река Альфа находится в Стране Бета.", claims: [{
+    id: "C-RIVER-COUNTRY-B", kind: "fact", subject: "Река Альфа",
+    predicate: "находится в стране", object: "Страна Бета", evidence: "Река Альфа находится в Стране Бета."
+  }] },
+  { id: "M-CAPITAL-A", text: "Столица Страны Альфа — Город Альфа.", claims: [{
+    id: "C-CAPITAL-A", kind: "fact", subject: "Страна Альфа", predicate: "столица",
+    object: "Город Альфа", evidence: "Столица Страны Альфа — Город Альфа."
+  }] },
+  { id: "M-CAPITAL-B", text: "Столица Страны Бета — Город Бета.", claims: [{
+    id: "C-CAPITAL-B", kind: "fact", subject: "Страна Бета", predicate: "столица",
+    object: "Город Бета", evidence: "Столица Страны Бета — Город Бета."
+  }] }
+];
+const branchPlan = [
+  { id: "country", subject: "Река Альфа", attribute: "страна" },
+  { id: "capital", attribute: "столица", subjectFrom: { stepId: "country", field: "object" }, dependsOn: ["country"] }
+];
+const branchRecall = retrieval.rankClaims(
+  core.analyse("В какой стране река Альфа и какова столица этой страны?", { contextRelation: "new_topic" }, knowledge),
+  branchMemories, knowledge, branchPlan
+);
+assert.equal(branchRecall.requirements[0].ambiguous, true,
+  "multiple distinct parent objects must be surfaced as a branch ambiguity");
+assert.equal(branchRecall.requirements[0].matched, false);
+assert.equal(branchRecall.requirements[1].blockedBy, "country");
+assert.equal(branchRecall.requirements[1].matched, false);
+assert.ok(!branchRecall.evidence.some(item => item.id === "M-CAPITAL-A" || item.id === "M-CAPITAL-B"),
+  "dependent claims must not be retrieved from an unresolved parent branch");
+assert.equal(branchRecall.complete, false);
+
+const duplicateParentMemories = [
+  { id: "M-RIVER-COUNTRY-COPY-1", text: "Река Альфа находится в Стране Альфа.", claims: [{
+    id: "C-RIVER-COUNTRY-COPY-1", kind: "fact", subject: "Река Альфа",
+    predicate: "находится в стране", object: "Страна Альфа", evidence: "Река Альфа находится в Стране Альфа."
+  }] },
+  { id: "M-RIVER-COUNTRY-COPY-2", text: "Река Альфа находится в Стране Альфа.", claims: [{
+    id: "C-RIVER-COUNTRY-COPY-2", kind: "fact", subject: "Река Альфа",
+    predicate: "находится в стране", object: "Страна Альфа", evidence: "Река Альфа находится в Стране Альфа."
+  }] },
+  branchMemories[2]
+];
+const duplicateRecall = retrieval.rankClaims(
+  core.analyse("В какой стране река Альфа и какова столица этой страны?", { contextRelation: "new_topic" }, knowledge),
+  duplicateParentMemories, knowledge, branchPlan
+);
+assert.equal(duplicateRecall.complete, true,
+  "repeated copies of one fact must collapse to one object rather than look like a branch");
+assert.equal(duplicateRecall.requirements[0].ambiguous, false);
+assert.ok(duplicateRecall.evidence.some(item => item.id === "M-RIVER-COUNTRY-COPY-1"));
+assert.ok(duplicateRecall.evidence.some(item => item.id === "M-RIVER-COUNTRY-COPY-2"));
+
+const directConflictRecall = retrieval.rankClaims(
+  core.analyse("Впадает ли Река Альфа в Море Бета?", { contextRelation: "new_topic" }, knowledge),
+  [
+    { id: "M-RIVER-YES", text: "Река Альфа впадает в Море Бета.", claims: [{
+      id: "C-RIVER-YES", kind: "fact", subject: "Река Альфа", predicate: "впадает в",
+      object: "Море Бета", polarity: true, evidence: "Река Альфа впадает в Море Бета."
+    }] },
+    { id: "M-RIVER-NO", text: "Река Альфа не впадает в Море Бета.", claims: [{
+      id: "C-RIVER-NO", kind: "fact", subject: "Река Альфа", predicate: "впадает в",
+      object: "Море Бета", polarity: false, evidence: "Река Альфа не впадает в Море Бета."
+    }] }
+  ],
+  knowledge, [{ id: "outflow", subject: "Река Альфа", attribute: "впадает в" }]
+);
+assert.equal(directConflictRecall.requirements[0].conflicted, true,
+  "opposite polarities for the same subject-relation-object must block an unqualified answer");
+assert.equal(directConflictRecall.complete, false);
+assert.ok(directConflictRecall.conflicts.some(item => item.type === "direct"));
+
+const negativeRecall = retrieval.rankClaims(
+  core.analyse("Содержит ли прототип опасный модуль?", { contextRelation: "new_topic" }, knowledge),
+  [{ id: "M-PROTOTYPE-NEGATIVE", text: "Прототип не содержит опасный модуль.", claims: [{
+    id: "C-PROTOTYPE-NEGATIVE", kind: "fact", subject: "Прототип", predicate: "содержит",
+    object: "опасный модуль", polarity: false, evidence: "Прототип не содержит опасный модуль."
+  }] }],
+  knowledge, [{ id: "module", subject: "Прототип", attribute: "опасный модуль" }]
+);
+assert.equal(negativeRecall.requirements[0].matched, false,
+  "a negative claim must never close a positive factual requirement");
+assert.equal(negativeRecall.requirements[0].negativeMatchCount, 1);
+assert.equal(negativeRecall.evidence[0].claims[0].evidenceRole, "negative");
+const negativeAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Прототип не содержит опасный модуль.",
+  conclusions: [{ stepId: "module", text: "Прототип не содержит опасный модуль.",
+    polarity: "negative", modality: "asserted", claimIds: ["C-PROTOTYPE-NEGATIVE"] }],
+  usedSources: ["M-PROTOTYPE-NEGATIVE"], usedClaims: ["C-PROTOTYPE-NEGATIVE"],
+  confidence: 0.9, insufficientEvidence: false
+}), negativeRecall.evidence, negativeRecall);
+assert.ok(negativeAnswer, "a negative statement may be returned only as an explicitly negative conclusion");
+assert.equal(retrieval.parseAnswer(JSON.stringify({
+  answer: "Прототип содержит опасный модуль.",
+  usedSources: ["M-PROTOTYPE-NEGATIVE"], usedClaims: ["C-PROTOTYPE-NEGATIVE"],
+  confidence: 0.9, insufficientEvidence: false
+}), negativeRecall.evidence, negativeRecall), null,
+"legacy synthesis must not turn a negative claim into an affirmative fact");
+
+const hypothesisRecall = retrieval.rankClaims(
+  core.analyse("Улучшает ли сон память?", { contextRelation: "new_topic" }, knowledge),
+  [{ id: "M-SLEEP-HYPOTHESIS", text: "Возможно, сон улучшает память.", claims: [{
+    id: "C-SLEEP-HYPOTHESIS", kind: "hypothesis", subject: "Сон", predicate: "улучшает",
+    object: "память", polarity: true, modality: "possible", verification: "hypothesis",
+    evidence: "Возможно, сон улучшает память."
+  }] }],
+  knowledge, [{ id: "sleep-memory", subject: "Сон", attribute: "улучшает" }]
+);
+assert.equal(hypothesisRecall.requirements[0].matched, false,
+  "a hypothesis must not close a factual requirement");
+assert.equal(hypothesisRecall.requirements[0].hypothesisMatchCount, 1);
+assert.equal(hypothesisRecall.evidence[0].claims[0].evidenceRole, "hypothesis");
+const hypothesisAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Есть гипотеза, что сон может улучшать память.",
+  conclusions: [{ stepId: "sleep-memory", text: "Есть гипотеза, что сон может улучшать память.",
+    polarity: "positive", modality: "possible", claimIds: ["C-SLEEP-HYPOTHESIS"] }],
+  usedSources: ["M-SLEEP-HYPOTHESIS"], usedClaims: ["C-SLEEP-HYPOTHESIS"],
+  confidence: 0.72, insufficientEvidence: false
+}), hypothesisRecall.evidence, hypothesisRecall);
+assert.ok(hypothesisAnswer, "a hypothesis may be surfaced only with an explicit uncertainty marker");
+assert.equal(retrieval.parseAnswer(JSON.stringify({
+  answer: "Сон улучшает память.", usedSources: ["M-SLEEP-HYPOTHESIS"],
+  usedClaims: ["C-SLEEP-HYPOTHESIS"], confidence: 0.95, insufficientEvidence: false
+}), hypothesisRecall.evidence, hypothesisRecall), null,
+"a hypothesis without an explicit possible modality must be rejected");
+
+const archivedClaim = knowledge.sanitizeClaims([{
+  id: "C-ARCHIVED", kind: "fact", subject: "Прототип", predicate: "содержит",
+  object: "старый модуль", evidence: "Прототип содержит старый модуль.", status: "archived"
+}])[0];
+assert.equal(archivedClaim.status, "archived",
+  "claim sanitation must preserve an explicit inactive lifecycle state");
+const archivedRecall = retrieval.rankClaims(
+  core.analyse("Содержит ли прототип старый модуль?", { contextRelation: "new_topic" }, knowledge),
+  [{ id: "M-ARCHIVED", text: archivedClaim.evidence, claims: [archivedClaim] }],
+  knowledge, [{ id: "old-module", subject: "Прототип", attribute: "старый модуль" }]
+);
+assert.equal(archivedRecall.requirements[0].matched, false,
+  "archived claims must not be used as current evidence");
+
+assert.equal(retrieval.normaliseEvidencePlan([
+  { id: "root", subject: "Река Альфа", attribute: "страна" },
+  { id: "child", subject: "Страна Альфа", attribute: "столица",
+    subjectFrom: { stepId: "root", field: "object" }, dependsOn: ["root"] }
+], chainFrame).length, 1,
+"dependent steps must not provide a guessed subject alongside subjectFrom");
+
 const incomplete = retrieval.rankClaims(chainFrame, [chainMemories[0]], knowledge, evidencePlan);
 assert.equal(incomplete.complete, false,
   "a dependent step without its source fact must remain unresolved");
