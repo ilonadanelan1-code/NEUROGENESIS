@@ -58,7 +58,7 @@
       const y=Number(words[1]),start=localDateStart(y,monthIndex,1);
       return period(start,localDateStart(y,monthIndex+1,1),"month",monthNames[monthIndex][0]+" "+y);
     }
-    match=text.match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/iu);
+    match=text.match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})(?:\s+год(?:а|у)?)?$/iu);
     if(match) {
       const d=Number(match[1]),monthAt=monthNames.findIndex(forms=>forms.includes(normalise(match[2]))),y=Number(match[3]);
       if(monthAt<0)return null;

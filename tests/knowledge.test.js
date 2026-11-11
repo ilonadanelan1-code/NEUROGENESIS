@@ -141,10 +141,16 @@ assert.equal(explicitDay.end,new Date(2024,9,21).getTime());
 const explicitIsoDay=knowledge.parseTemporalPeriod("2024-10-20",temporalAnchor);
 assert.equal(explicitIsoDay.start,new Date(2024,9,20).getTime(),
   "an ISO calendar date must preserve its separators during parsing");
+const explicitDayWords=knowledge.parseTemporalPeriod("20 октября 2024 года",temporalAnchor);
+assert.equal(explicitDayWords.start,new Date(2024,9,20).getTime(),
+  "a Russian date written as day, month and year words should be recognized");
 const explicitDayFact=knowledge.extractClaims("Я жил в Казани 20.10.2024",temporalAnchor)[0];
 assert.ok(explicitDayFact&&explicitDayFact.validFrom===explicitDay.start&&explicitDayFact.validTo===explicitDay.end);
 assert.match(knowledge.answerQuestion("Где я жил 20.10.2024?",[explicitDayFact]),/Казани/u,
   "the historical query parser must retain punctuation inside explicit dates");
+const explicitWordsFact=knowledge.extractClaims("Я жил в Казани 20 октября 2024 года",temporalAnchor)[0];
+assert.ok(explicitWordsFact&&explicitWordsFact.validFrom===explicitDay.start&&explicitWordsFact.validTo===explicitDay.end,
+  "a trailing natural-language date with «года» must stay attached to its claim");
 
 
 
