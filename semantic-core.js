@@ -183,10 +183,10 @@
     };
     if (!text) return neutral;
 
-    const notAll = text.match(/\bне\s+(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b/u);
+    const notAll = text.match(/(?:^|\s)не\s+(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)(?=\s|$)/u);
     if (notAll) {
       const tail = text.slice(notAll.index + notAll[0].length);
-      if (/\bне\b/u.test(tail)) {
+      if (/(?:^|\s)не(?:\s|$)/u.test(tail)) {
         return { scope: "ambiguous", quantifier: "all", effect: "ambiguous",
           polarity: "unknown", confidence: 0.62 };
       }
@@ -194,33 +194,33 @@
         polarity: "mixed", confidence: 0.76 };
     }
 
-    const none = text.match(/\bни\s+(?:один|одна|одно|одни|одного|одной|одному|одну)\b/u);
-    if (none && /\bне\b/u.test(text.slice(none.index + none[0].length))) {
+    const none = text.match(/(?:^|\s)ни\s+(?:один|одна|одно|одни|одного|одной|одному|одну)(?=\s|$)/u);
+    if (none && /(?:^|\s)не(?:\s|$)/u.test(text.slice(none.index + none[0].length))) {
       return { scope: "quantifier", quantifier: "none", effect: "none_negative",
         polarity: "negative", confidence: 0.78 };
     }
 
-    const notAlways = text.match(/\bне\s+всегда\b/u);
+    const notAlways = text.match(/(?:^|\s)не\s+всегда(?=\s|$)/u);
     if (notAlways) {
       const tail = text.slice(notAlways.index + notAlways[0].length);
-      if (/\bне\b/u.test(tail)) {
+      if (/(?:^|\s)не(?:\s|$)/u.test(tail)) {
         return { scope: "ambiguous", quantifier: "always", effect: "ambiguous",
           polarity: "unknown", confidence: 0.60 };
       }
       return { scope: "temporal", quantifier: "always", effect: "not_always",
         polarity: "mixed", confidence: 0.76 };
     }
-    if (/\bвсегда\s+не\b/u.test(text)) {
+    if (/(?:^|\s)всегда\s+не(?:\s|$)/u.test(text)) {
       return { scope: "temporal", quantifier: "always", effect: "always_negative",
         polarity: "negative", confidence: 0.76 };
     }
 
-    const all = text.match(/\b(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b/u);
-    if (all && /\bне\b/u.test(text.slice(all.index + all[0].length))) {
+    const all = text.match(/(?:^|\s)(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)(?=\s|$)/u);
+    if (all && /(?:^|\s)не(?:\s|$)/u.test(text.slice(all.index + all[0].length))) {
       return { scope: "quantifier", quantifier: "all", effect: "all_negative",
         polarity: "negative", confidence: 0.72 };
     }
-    if (/\bне\b/u.test(text)) {
+    if (/(?:^|\s)не(?:\s|$)/u.test(text)) {
       return { scope: "predicate", quantifier: "unspecified", effect: "negative",
         polarity: "negative", confidence: 0.74 };
     }
@@ -307,9 +307,9 @@
       return { ...base, kind: "fragment", polarity: "unknown", modality: "unknown", confidence: 0.32 };
     }
     const propositionText = temporalWithoutPrefix
-      .replace(/^не\s+(?=(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)\b)/iu, "")
-      .replace(/\bне\s+всегда\s+/u, "")
-      .replace(/\bвсегда\s+не\s+/u, "");
+      .replace(/^не\s+(?=(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)(?:\s|$))/iu, "")
+      .replace(/(^|\s)не\s+всегда\s+/u, "$1")
+      .replace(/(^|\s)всегда\s+не\s+/u, "$1");
 
     const causal = propositionText.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(приводит|приводят|приводить|вызывает|вызывают|влияет|влияют|повышает|повышают|снижает|снижают|уменьшает|уменьшают|увеличивает|увеличивают)\s+(к|на|от|в|из-за)\s+(.+)$/iu);
     if (causal) {
