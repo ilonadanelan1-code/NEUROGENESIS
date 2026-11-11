@@ -271,6 +271,7 @@ jobs:
           node tests/dialog-context.test.js
           node --check semantic-core.js
           node tests/semantic-query.test.js
+          node tests/semantic-understanding.test.js
           node tests/dialogue-llm-integration.test.js
           node tests/dialog-manager.test.js
           node tests/llm-config-setup.test.js
