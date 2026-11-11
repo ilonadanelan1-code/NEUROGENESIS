@@ -626,6 +626,7 @@
     const temporal=extractTemporalHint(text,referenceTime);
     const claim=extractSingleClaimCore(temporal.text);
     if(!claim)return null;
+    claim.evidence=cleanPart(text,1200);
     claim.createdAt=parseClaimTime(referenceTime)||Date.now();
     claim.validFrom=temporal.validFrom??null;
     claim.validTo=temporal.validTo??null;
