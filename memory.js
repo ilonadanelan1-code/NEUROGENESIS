@@ -3557,10 +3557,11 @@
         : "\n\nРЕЖИМ ПОИСКА: локальные языковые правила и смысловые ассоциации; произвольные переформулировки могут распознаваться не полностью.")+
       (graphNote?"\n\n"+graphNote:"")+
       (currentModelDecisions().length?formatModelDecisionNote():"");
-    function deliverRankedAnswer(generatedAnswer="",usedSources=[]) {
+    function deliverRankedAnswer(generatedAnswer="",usedSources=[],usedClaims=[]) {
       const sourceNote=usedSources.length
         ? "\n\nИСТОЧНИКИ ЛОКАЛЬНОЙ ПАМЯТИ: "+usedSources.map(id=>String(id)).join(", ")+
-          "\nСинтез использовал только перечисленные локальные записи; внешние факты не добавлялись."
+          (usedClaims.length ? "\nИСПОЛЬЗОВАННЫЕ УТВЕРЖДЕНИЯ: "+usedClaims.map(id=>String(id)).join(", ") : "")+
+          "\nСинтез использовал только перечисленные локальные записи и утверждения; внешние факты не добавлялись."
         : "";
       say("assistant",generatedAnswer ? generatedAnswer+sourceNote : fallbackAnswer);
       const brain = window.NGBrain;
@@ -3588,8 +3589,8 @@
           setFeedback("СМЫСЛОВОЙ СИНТЕЗ · СОБИРАЮ ОТВЕТ ИЗ ЛОКАЛЬНЫХ ДОКАЗАТЕЛЬСТВ…");
           return LLM_GATEWAY.generate(request).then(rawAnswer=>{
             const parsed=SEMANTIC_RETRIEVAL.parseAnswer(rawAnswer,evidence);
-            if (!parsed || parsed.insufficientEvidence || !parsed.usedSources.length) return deliverRankedAnswer();
-            return deliverRankedAnswer(parsed.answer,parsed.usedSources);
+            if (!parsed || !parsed.usedSources.length) return deliverRankedAnswer();
+            return deliverRankedAnswer(parsed.answer,parsed.usedSources,parsed.usedClaims);
           }).catch(error=>{
             console.warn("NEUROGENESIS grounded answer synthesis failed; using retrieved memory excerpts:",error);
             return deliverRankedAnswer();
