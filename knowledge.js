@@ -572,10 +572,12 @@
       .sort((a,b)=>(Number(a.createdAt)||0)-(Number(b.createdAt)||0));
     if (!unique.length) return "Пока в моей памяти нет конкретных сведений о тебе. Расскажи о себе через «Запомнить», и я смогу использовать эти записи в следующих вопросах.";
     const visible = unique.slice(-12);
-    const sourceStatus = claim => claimHistoryLabel(claim,
-      claim.verification==="subjective" ? "твоя субъективная оценка" :
-      claim.verification==="self_reported" ? "самоописание из твоего сообщения" :
-      claim.verification==="hypothesis" ? "твоя гипотеза" : "сообщение пользователя · не проверено");
+    const sourceStatus = claim => claim.status === "superseded" || claim.supersededBy
+      ? "историческое самоописание · позже уточнено"
+      : claimHistoryLabel(claim,
+        claim.verification==="subjective" ? "твоя субъективная оценка" :
+        claim.verification==="self_reported" ? "самоописание из твоего сообщения" :
+        claim.verification==="hypothesis" ? "твоя гипотеза" : "сообщение пользователя · не проверено");
     const label = claim => {
       if (claim.kind==="relationship" && claim.object==="user") return claim.subject+" — "+(claim.polarity?"твой ":"не твой ")+claim.predicate;
       if (claim.kind==="opinion") return "Твоя оценка: "+claimLabel(claim);
