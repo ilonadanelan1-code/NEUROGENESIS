@@ -4527,6 +4527,8 @@
     askLLM: query => askWithLLM(String(query || "")),
     prepareLLMRequest: query => prepareLLMRequestCore(String(query || "")),
     claims: () => memories.flatMap(item => item.claims || []),
+    temporalEvents: (options={}) => KNOWLEDGE&&typeof KNOWLEDGE.buildTemporalEvents==="function"
+      ?KNOWLEDGE.buildTemporalEvents(memories.flatMap(item=>item.claims||[]),options):[],
     modelDecisions: () => currentModelDecisions(),
     modelEvidence: () => modelEvidence.slice(),
     modelEvolution: () => modelEvolutionAnswer(),

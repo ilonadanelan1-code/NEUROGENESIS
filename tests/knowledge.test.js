@@ -172,6 +172,52 @@ assert.ok(explicitWordsFact&&explicitWordsFact.validFrom===explicitDay.start&&ex
 
 
 
+
+const eventSochi=knowledge.extractClaims("С 2023 года я живу в Сочи",new Date(2023,3,1).getTime())[0];
+const eventParis=knowledge.extractClaims("С 2025 года я живу в Париже",new Date(2025,5,1).getTime())[0];
+const eventWork=knowledge.extractClaims("С 2023 года я работаю в компании Альфа",new Date(2023,3,2).getTime())[0];
+assert.ok(eventSochi&&eventParis&&eventWork);
+const eventHistory=[eventSochi,eventParis,eventWork];
+knowledge.reconcileMutableHistory(eventHistory);
+assert.equal(eventSochi.validTo,new Date(2025,0,1).getTime(),
+  "a later state claim should close the earlier state interval at the explicit boundary");
+const reconstructedEvents=knowledge.buildTemporalEvents(eventHistory);
+const moveEvent=reconstructedEvents.find(item=>item.type==="transition"&&item.family==="location");
+assert.ok(moveEvent,"adjacent location intervals should reconstruct a transition event");
+assert.equal(moveEvent.at,new Date(2025,0,1).getTime());
+assert.deepEqual(Array.from(moveEvent.from),["Сочи"]);
+assert.equal(moveEvent.to,"Париже");
+assert.match(moveEvent.label,/Сочи → Париже/u);
+assert.match(knowledge.answerQuestion("Когда изменилось место проживания?",eventHistory),/01\.01\.2025/u,
+  "a transition query should return the boundary between two adjacent states");
+
+const simultaneousAnswer=knowledge.answerQuestion("Что одновременно было истинно 15 июня 2024 года?",eventHistory);
+assert.match(simultaneousAnswer,/Сочи/u);
+assert.match(simultaneousAnswer,/Альфа/u);
+assert.doesNotMatch(simultaneousAnswer,/Париже/u,
+  "a later state must not be treated as true before its effective start");
+
+const knownSnapshot=knowledge.answerQuestion("Что ты знал на 15 июня 2024 года?",eventHistory);
+assert.match(knownSnapshot,/Сочи/u);
+assert.match(knownSnapshot,/Альфа/u);
+assert.doesNotMatch(knownSnapshot,/Париже/u,
+  "the as-known snapshot must exclude claims created after the requested date");
+assert.match(knownSnapshot,/Снимок памяти/u);
+
+const eventYearAnswer=knowledge.answerQuestion("Что происходило в 2024 году?",eventHistory);
+assert.match(eventYearAnswer,/Сочи/u);
+assert.match(eventYearAnswer,/Альфа/u);
+assert.doesNotMatch(eventYearAnswer,/переход/u,
+  "a transition at the start of 2025 must not leak into the 2024 timeline");
+
+const eventFollowingYear=knowledge.answerQuestion("Что происходило в 2025 году?",eventHistory);
+assert.match(eventFollowingYear,/Изменение места проживания/u,
+  "the transition should appear in the timeline period in which it occurred");
+
+const knowledgeCutoffEvents=knowledge.buildTemporalEvents(eventHistory,{knownAt:new Date(2024,11,31).getTime()});
+assert.equal(knowledgeCutoffEvents.some(item=>item.type==="transition"),false,
+  "events discovered after the knowledge cutoff must not appear in an as-known event reconstruction");
+
 const relationship = knowledge.extractClaims("Игорь Головнев твой самый лучший друг")[0];
 assert.ok(relationship, "should extract a relationship");
 assert.equal(relationship.kind, "relationship");
@@ -565,7 +611,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,24);
+assert.equal(knowledge.version,25);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);

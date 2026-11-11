@@ -272,6 +272,184 @@
       ", но в нём нет даты или периода. Поэтому не могу надёжно определить, относилось ли оно к «"+period+"».";
     return "В памяти нет датированного утверждения о месте проживания за период «"+period+"».";
   }
+  function formatTimelineDate(value) {
+    const time=parseClaimTime(value);
+    return time===null?"дата не указана":new Date(time).toLocaleDateString("ru-RU");
+  }
+  function buildTemporalEvents(input, options={}) {
+    const claims=Array.isArray(input)?input.filter(Boolean):[];
+    const knownAt=options&&options.knownAt!==undefined?parseClaimTime(options.knownAt):null;
+    const available=claims.filter(claim=>{
+      if(!claim||typeof claim!=="object")return false;
+      const recorded=parseClaimTime(claim.createdAt);
+      return knownAt===null||recorded===null||recorded<=knownAt;
+    });
+    const dated=available.filter(claim=>{
+      const window=claimTimeWindow(claim);
+      return window.valid&&(window.from!==null||window.to!==null);
+    });
+    const events=[];
+    const familyNames={location:"места проживания",work:"работы",study:"обучения"};
+    for(const newer of dated) {
+      if(newer.kind!=="fact"||newer.subject!=="user"||newer.validFrom==null)continue;
+      const family=factFamily(newer.predicate);
+      if(!["location","work","study"].includes(family))continue;
+      const priorRows=dated.filter(prior=>prior!==newer&&prior.kind==="fact"&&prior.subject==="user"&&
+        factFamily(prior.predicate)===family&&!sameEntity(prior.object,newer.object)&&
+        prior.validTo!=null&&parseClaimTime(prior.validTo)===parseClaimTime(newer.validFrom)&&
+        (parseClaimTime(prior.createdAt)??0)<=(parseClaimTime(newer.createdAt)??Number.MAX_SAFE_INTEGER));
+      if(!priorRows.length)continue;
+      const priorValues=[...new Map(priorRows.map(item=>[canonicalEntity(item.object),item])).values()];
+      const at=parseClaimTime(newer.validFrom);
+      events.push({
+        id:makeId("event-transition",family+"|"+at+"|"+priorValues.map(item=>item.id).join("|")+"|"+newer.id),
+        type:"transition",at,start:at,end:at,precision:newer.temporalPrecision||"unknown",
+        subject:"user",family,from:priorValues.map(item=>item.object),to:newer.object,
+        label:priorValues.length===1
+          ?"Изменение "+familyNames[family]+": "+priorValues[0].object+" → "+newer.object
+          :"Неоднозначное изменение "+familyNames[family]+": "+priorValues.map(item=>item.object).join(" / ")+" → "+newer.object,
+        claimIds:[...priorValues.map(item=>item.id),newer.id].filter(Boolean),
+        evidence:[...priorValues.map(item=>item.evidence),newer.evidence].filter(Boolean),
+        ambiguous:priorValues.length>1
+      });
+    }
+    const grouped=new Map();
+    for(const claim of dated) {
+      const window=claimTimeWindow(claim);
+      const start=window.from,end=window.to;
+      const eventRef=claim.observationCase&&claim.observationCase.eventRef
+        ?normalise(claim.observationCase.eventRef):"";
+      const evidence=normalise(claim.evidence||"");
+      const groupKey=(eventRef?"event-ref:"+eventRef:"source:"+evidence)+"|"+String(start)+"|"+String(end);
+      const old=grouped.get(groupKey);
+      if(old) {
+        if(claim.id)old.claimIds.push(claim.id);
+        old.labels.push(claimLabel(claim));
+        if(claim.evidence&&!old.evidence.includes(claim.evidence))old.evidence.push(claim.evidence);
+      } else {
+        grouped.set(groupKey,{
+          id:makeId("event-record",groupKey),
+          type:claim.kind==="observation"?"observation":"state_period",
+          at:start!==null?start:end,start,end,
+          precision:claim.temporalPrecision||"unknown",
+          subject:claim.subject,predicate:claim.predicate,object:claim.object,
+          family:claim.kind==="fact"&&claim.subject==="user"?factFamily(claim.predicate):claim.kind,
+          label:claimLabel(claim),labels:[claimLabel(claim)],
+          claimIds:claim.id?[claim.id]:[],evidence:claim.evidence?[claim.evidence]:[],
+          temporalExpression:claim.temporalExpression||"",
+          status:claim.status||"current",eventRef:eventRef||""
+        });
+      }
+    }
+    for(const item of grouped.values()) {
+      if(item.labels.length>1)item.label=item.labels.join("; ");
+      events.push(item);
+    }
+    return events.sort((a,b)=>(a.at??a.start??a.end??0)-(b.at??b.start??b.end??0)||
+      String(a.type).localeCompare(String(b.type)));
+  }
+  function temporalStatusAt(claim, allClaims, cutoff) {
+    const status=String(claim&&claim.status||"current").toLowerCase();
+    const replacement=claim&&claim.supersededBy
+      ?allClaims.find(item=>item&&item.id===claim.supersededBy):null;
+    const replacementAt=replacement?parseClaimTime(replacement.createdAt):null;
+    if(replacementAt!==null&&replacementAt>cutoff)return "на тот момент ещё не уточнено";
+    if(status==="superseded"||replacementAt!==null)return "позднее уточнено";
+    return status==="current"?"актуальная запись":status==="historical"?"историческое самоописание":status;
+  }
+  function eventOverlapsPeriod(event, period) {
+    const start=event.start===null||event.start===undefined?-Infinity:event.start;
+    const end=event.end===null||event.end===undefined?Infinity:event.end;
+    if(event.type==="transition")return event.at>=period.start&&event.at<period.end;
+    return start<period.end&&end>period.start;
+  }
+  function temporalHistoryAnswer(query, claims) {
+    const q=normalise(query);
+    if(!q)return null;
+    const period=temporalPeriodFromQuery(query);
+    const asksKnown=/(?:что ты знал|что тебе было известно|что было известно|что было в памяти|какие сведения уже были известны)/u.test(q);
+    const asksChange=/(?:когда изменил|когда изменилось|когда сменил|когда сменилось|когда переехал|когда перешел|когда перешла|когда перешли|в какой момент измен|в какой момент смен)/u.test(q);
+    const asksSimultaneous=/(?:одновременно|было истинно|было верно|было актуально)/u.test(q);
+    const asksTimeline=/(?:хронолог|какие события|что происходило|что менялось|какие изменения|покажи историю событий|событийная история)/u.test(q);
+    const allClaims=Array.isArray(claims)?claims.filter(Boolean):[];
+    const events=buildTemporalEvents(allClaims);
+    if(asksKnown) {
+      if(!period)return null;
+      const cutoff=period.end-1;
+      const known=allClaims.filter(claim=>{
+        const recorded=parseClaimTime(claim.createdAt);
+        return recorded!==null&&recorded<=cutoff;
+      }).sort((a,b)=>(parseClaimTime(a.createdAt)||0)-(parseClaimTime(b.createdAt)||0));
+      if(!known.length)return "К концу периода «"+period.label+"» в моей сохранённой памяти ещё не было утверждений с известным временем записи.";
+      const lines=known.slice(-12).map(claim=>{
+        const status=temporalStatusAt(claim,allClaims,cutoff);
+        const window=claimTimeWindow(claim);
+        const future=window.from!==null&&window.from>cutoff?" · относится к будущему периоду с "+formatTimelineDate(window.from):"";
+        return "• "+claimLabel(claim)+" · "+status+future+
+          "\n  Записано: "+formatTimelineDate(claim.createdAt)+
+          (claim.evidence?"\n  Источник: «"+String(claim.evidence).slice(0,180)+"»":"");
+      });
+      const later=allClaims.filter(claim=>{
+        const recorded=parseClaimTime(claim.createdAt);
+        return recorded!==null&&recorded>cutoff&&claim.supersededBy;
+      }).length;
+      return "Снимок памяти на конец периода «"+period.label+"» (до "+formatTimelineDate(cutoff)+"):\n\n"+
+        lines.join("\n\n")+
+        (known.length>12?"\n\nПоказаны последние 12 из "+known.length+" известных тогда записей.":"")+
+        (later?"\n\nЕсть "+later+" более поздних записей; они не использовались для восстановления снимка.":"")+
+        "\n\nЭто реконструкция по сохранённому времени записей и их источникам. Она не означает, что система тогда уже делала все нынешние выводы.";
+    }
+    if(asksChange) {
+      const changes=events.filter(event=>event.type==="transition");
+      if(!changes.length)return "В памяти нет пары датированных утверждений с совпадающей границей, по которой можно было бы надёжно восстановить момент изменения.";
+      return "Найденные переходы в сохранённой истории:\n\n"+
+        changes.map(event=>"• "+event.label+" · "+formatTimelineDate(event.at)+
+          (event.ambiguous?" · исходное состояние неоднозначно":" · граница следует из временных интервалов")+
+          "\n  Источники: "+event.evidence.map(value=>"«"+String(value).slice(0,160)+"»").join("; ")).join("\n\n")+
+        "\n\nЕсли даты были указаны только как год, месяц или сезон, точнее календарной границы этих периодов я не утверждаю.";
+    }
+    if(asksSimultaneous) {
+      if(!period)return null;
+      const simultaneous=allClaims.filter(claim=>{
+        const window=claimTimeWindow(claim);
+        if(!window.valid||(window.from===null&&window.to===null))return false;
+        const status=String(claim.status||"current").toLowerCase();
+        if(status==="retracted"||status==="inactive")return false;
+        return (window.to===null||window.to>period.start)&&(window.from===null||window.from<period.end);
+      });
+      if(!simultaneous.length)return "В памяти нет датированных утверждений, пересекающихся с периодом «"+period.label+"».";
+      const lines=simultaneous.slice(0,12).map(claim=>{
+        const window=claimTimeWindow(claim);
+        const partial=(window.from!==null&&window.from>period.start)||(window.to!==null&&window.to<period.end);
+        return "• "+claimLabel(claim)+(partial?" · запись покрывает только часть периода":" · запись пересекается с периодом")+
+          "\n  Интервал: "+(window.from===null?"начало не указано":formatTimelineDate(window.from))+" — "+
+          (window.to===null?"окончание не указано":formatTimelineDate(window.to-1))+
+          "\n  Источник: «"+String(claim.evidence||"").slice(0,180)+"»";
+      });
+      return "Датированные утверждения, которые пересекаются с периодом «"+period.label+"»:\n\n"+
+        lines.join("\n\n")+
+        "\n\nСовпадение интервалов показывает только временное сосуществование записей. Оно само по себе не доказывает причинную связь или то, что все события происходили одновременно внутри этого периода.";
+    }
+    if(asksTimeline) {
+      const relevant=period?events.filter(event=>eventOverlapsPeriod(event,period)):events;
+      if(!relevant.length)return period
+        ?"В памяти пока нет датированных событий или состояний за период «"+period.label+"»."
+        :"В памяти пока нет событий с распознаваемыми временными границами.";
+      const lines=relevant.slice(0,16).map(event=>{
+        const when=event.type==="transition"?formatTimelineDate(event.at):
+          (event.start!==null&&event.start!==undefined?formatTimelineDate(event.start):"до "+formatTimelineDate(event.end))+
+          (event.end!==null&&event.end!==undefined?" — "+formatTimelineDate(event.end-1):" — окончание не указано");
+        return "• "+when+" · "+event.label+
+          (event.type==="transition"?" · переход":"")+
+          "\n  Источник: "+event.evidence.map(value=>"«"+String(value).slice(0,160)+"»").join("; ");
+      });
+      return "Временная последовательность"+(period?" за период «"+period.label+"»":"")+":\n\n"+
+        lines.join("\n\n")+
+        (relevant.length>16?"\n\nПоказаны первые 16 из "+relevant.length+" записей.":"")+
+        "\n\nЭто реконструкция интервалов из сохранённых сообщений, а не независимая проверка произошедших событий.";
+    }
+    return null;
+  }
   function claimTimeWindow(claim) {
     const hasFrom = !!(claim && claim.validFrom !== undefined && claim.validFrom !== null && claim.validFrom !== "");
     const hasTo = !!(claim && claim.validTo !== undefined && claim.validTo !== null && claim.validTo !== "");
@@ -313,7 +491,7 @@
   function capabilitiesAnswer() {
     return "В этой версии я умею сохранять до " + SYSTEM_PROFILE.memoryLimit +
       " записей длиной до " + SYSTEM_PROFILE.recordCharacterLimit +
-      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Я распознаю некоторые явные и относительные временные выражения (например, «в прошлом году», «с прошлого лета», конкретную дату), связываю их с отдельными фактами, составляю хронологию утверждений и могу отвечать на вопросы о датированных периодах. Если граница времени не названа, я отмечаю её как неизвестную, а не придумываю дату. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
+      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Я распознаю некоторые явные и относительные временные выражения, связываю их с отдельными фактами и строю временную последовательность. Я отдельно учитываю, когда событие происходило и когда запись попала в память, поэтому могу реконструировать состояние на дату, показать одновременные интервалы и перечислить переходы между состояниями. Если граница времени не названа, я отмечаю её как неизвестную, а не придумываю дату. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
       "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
   }
   const SEMANTIC_GROUPS = [
@@ -1205,6 +1383,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const historyAnswer=temporalHistoryAnswer(query,claims);
+    if(historyAnswer)return historyAnswer;
     const temporalAnswer=temporalLocationAnswer(query,claims);
     if(temporalAnswer)return temporalAnswer;
     const hypothesisPriority=prioritizeHypotheses(query,claims);
@@ -1474,5 +1654,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&isCurrentClaim(x)).length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:24,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,isReportedCausalStatement,parseClaimTime,parseTemporalPeriod,isClaimValidAt,isCurrentClaim,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:25,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,isReportedCausalStatement,parseClaimTime,parseTemporalPeriod,isClaimValidAt,isCurrentClaim,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,buildTemporalEvents,summary};
 })();
