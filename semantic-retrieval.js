@@ -401,7 +401,7 @@
       }
     };
   }
-  function parseAnswer(raw, evidence, recall = null) {
+  function parseAnswer(raw, evidence, recall = null, knowledge = null) {
     const text = String(raw || "").trim(), start = text.indexOf("{"), end = text.lastIndexOf("}");
     if (start < 0 || end <= start) return null;
     let value;
@@ -421,6 +421,7 @@
     }
     const plan = recall && Array.isArray(recall.plan) ? recall.plan : [];
     const requirements = recall && Array.isArray(recall.requirements) ? recall.requirements : [];
+    const activeKnowledge = knowledge || window.NGKnowledge || null;
     const hasQualifiedEvidence = rows.some(row => (Array.isArray(row.claims) ? row.claims : [])
       .some(claim => ["negative", "hypothesis"].includes(claim && claim.evidenceRole)));
     const requiresStructured = !!(recall && plan.length) || plan.length > 1 || hasQualifiedEvidence ||
@@ -478,18 +479,17 @@
               if (parentClaim && parentClaim.id && pathIds.has(parentClaim.id) &&
                   Array.isArray(parentClaim.stepIds) && parentClaim.stepIds.includes(parentId)) parentClaims.push(parentClaim);
             }
-            const parentObjects = distinctEntities(parentClaims.map(parentClaim => parentClaim.object), window.NGKnowledge);
+            const parentObjects = distinctEntities(parentClaims.map(parentClaim => parentClaim.object), activeKnowledge);
             if (parentObjects.length !== 1) return null;
             expectedSubject = parentObjects[0];
-            if (!sameEntity(expectedSubject, claim.subject, window.NGKnowledge)) return null;
+            if (!sameEntity(expectedSubject, claim.subject, activeKnowledge)) return null;
           }
-          const activeKnowledge = window.NGKnowledge || null;
           if (claim.subjectVerified !== true || !claim.resolvedSubject ||
               !sameEntity(claim.subject, claim.resolvedSubject, activeKnowledge) ||
               !sameEntity(expectedSubject, claim.subject, activeKnowledge)) return null;
           const verifiedRelation = scoreClaimForStep(expectedSubject, step.attribute, claim, activeKnowledge, false);
           if (verifiedRelation.score < 0.42 || verifiedRelation.relationScore < 0.34 ||
-              Number(claim.relationScore) < 0.34) return null;
+              !Number.isFinite(Number(claim.relationScore)) || Number(claim.relationScore) < 0.34) return null;
           if (!claimTextSupports(conclusionText, claim, activeKnowledge)) return null;
         }
         if (modality === "possible" && !/(?:возмож|предполож|гипотез|вероят|может|may be|might be|possible)/iu.test(conclusionText)) return null;
@@ -548,10 +548,13 @@
     if (GENERIC_PREDICATE.test(clean(predicate, 100))) return true;
     const wanted = evidenceTokenGroups(predicate, knowledge).flat();
     const available = evidenceTokenGroups(text, knowledge).flat();
-    return wanted.some(token => available.some(candidate =>
-      candidate === token || (candidate.length >= 4 && token.length >= 4 &&
-        (candidate.startsWith(token) || token.startsWith(candidate)))
-    ));
+    return wanted.some(token => available.some(candidate => {
+      if (candidate === token) return true;
+      if (candidate.length < 7 || token.length < 7) return false;
+      let common = 0;
+      while (common < candidate.length && common < token.length && candidate[common] === token[common]) common++;
+      return common >= 6 && common / Math.min(candidate.length, token.length) >= 0.75;
+    }));
   }
   function claimTextSupports(text, claim, knowledge) {
     return !!(claim && claim.subject && claim.predicate && claim.object &&
