@@ -85,8 +85,9 @@ const legacyMemories = [
     text: "При недостатке сна наблюдалась усталость",
     tags: ["недостаток", "сна", "усталость"],
     traceIds: [],
-    createdAt: 1794158200000,
-    updatedAt: 1794158200000,
+    // This source observation must postdate Q1's answeredAt=1794158300000.
+    createdAt: 1794158400000,
+    updatedAt: 1794158400000,
     strength: 0.65,
     repetitions: 1,
     recalls: 0
@@ -108,7 +109,7 @@ database.set("neurogenesis.cognitive-cycles.v1", JSON.stringify([{
   id:"C700",sequence:700,at:1794158800000,mode:"ask",intent:"general_question",status:"complete",
   phases:[{name:"perception",status:"complete",summary:"Локальный сохранённый цикл"}],
   uncertainty:{level:"low",supportIndex:78,reasons:["локальный источник"],evidenceCount:1,conflictCount:0,independentSources:1},
-  metrics:{inputTokens:4,parsedClaims:1,attentionMatches:1,memoryBefore:6,memoryAfter:6},
+  metrics:{inputTokens:4,parsedClaims:1,attentionMatches:1,memoryBefore:7,memoryAfter:7},
   memoryIds:[],claimIds:[]
 }]));
 
