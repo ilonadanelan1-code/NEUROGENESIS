@@ -13,6 +13,14 @@
   ]);
   const ATTRIBUTE_HEAD = /(?:серд|камер|ног|лап|глаз|пальц|зуб|крыл|плавник|сосуд|нейрон|синапс|связ|человек|особ|клет|час|день|сутк|минут|раз|штук|вид|сторон|метр|килограмм|литр|процент)/iu;
   const PRONOUN_SUBJECT = /^(?:него|неё|нее|них|этого|этой|этих|он|она|они|это|там|тогда|его|ее|её)$/iu;
+  const COREFERENCE_SCHEMA = "NG_COREFERENCE_REFERENCE_V1";
+  const FEMININE_HEADS = new Set(["система", "сеть", "память", "модель", "нейросеть",
+    "связь", "активность", "энергия", "информация", "причина", "лаборатория", "комната"]);
+  const MASCULINE_HEADS = new Set(["нейрон", "сигнал", "узел", "пакет", "токен",
+    "процесс", "результат", "мозг", "импульс", "объект", "сервер"]);
+  const NEUTER_HEADS = new Set(["ядро", "состояние", "сообщение", "действие",
+    "событие", "обучение", "питание", "значение", "соединение"]);
+
 
   const clean = (value, max = 240) =>
     String(value == null ? "" : value).replace(/\s+/gu, " ").trim().slice(0, max);
@@ -341,7 +349,7 @@
       };
     }
 
-    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
+    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|усиливается|усиливаются|ослабевает|ослабевают|обрабатывается|обрабатываются|изменяется|изменяются|сохраняется|сохраняются|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
     if (match) {
       const modal = clean(match[2], 40);
       const predicate = clean(match[4], 80);
@@ -377,6 +385,126 @@
       modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "unknown",
       attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
     };
+  }
+
+
+  function grammaticalGender(value) {
+    const text = clean(value, 180).toLowerCase().replace(/^[«"']|[»"']$/gu, "");
+    const words = text.split(/\s+/u).filter(Boolean);
+    const head = (words.find(word => !/^(?:все|вся|всё|каждый|каждая|каждое|один|одна|одно|два|две|три|четыре|пять|много|несколько|этот|эта|это|эти|такой|такая|такое|такие|мой|моя|мое|мои)$/iu.test(word)) || "").replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+    if (!head) return "unknown";
+    if (/^(?:один|одна|одно|два|две|три|четыре|пять|много|несколько|[0-9]+)$/iu.test(words[0])) return "plural";
+    if (FEMININE_HEADS.has(head)) return "feminine";
+    if (MASCULINE_HEADS.has(head)) return "masculine";
+    if (NEUTER_HEADS.has(head)) return "neuter";
+    if (/(?:ы|и)$/u.test(head)) return "plural";
+    if (/[ая]$/u.test(head)) return "feminine";
+    if (/[оеё]$/u.test(head)) return "neuter";
+    if (/[бвгджзйклмнпрстфхцшщ]$/u.test(head)) return "masculine";
+    return "unknown";
+  }
+
+  function validatePropositionReferences(raw, fallback = undefined) {
+    const rows = Array.isArray(fallback) ? fallback : Array.isArray(raw) ? raw : [];
+    const output = [];
+    for (const row of rows.slice(0, 3)) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const mention = clean(row.mention, 40);
+      const targetType = ["entity", "proposition", "location", "time"].includes(row.targetType) ? row.targetType : "entity";
+      let status = ["resolved", "ambiguous", "unresolved"].includes(row.status) ? row.status : "unresolved";
+      const antecedentId = /^p[1-6]$/u.test(clean(row.antecedentId, 8)) ? clean(row.antecedentId, 8) : null;
+      const antecedentText = clean(row.antecedentText, 180) || null;
+      if (status === "resolved" && (!antecedentId || !antecedentText)) status = "unresolved";
+      const candidates = (Array.isArray(row.candidates) ? row.candidates : []).slice(0, 3).map(candidate => ({
+        id: /^p[1-6]$/u.test(clean(candidate && candidate.id, 8)) ? clean(candidate.id, 8) : null,
+        text: clean(candidate && candidate.text, 120),
+        role: ["subject", "object", "event", "location", "time"].includes(candidate && candidate.role) ? candidate.role : "object"
+      })).filter(candidate => candidate.text);
+      const confidence = Number(row.confidence);
+      if (!mention) continue;
+      output.push({
+        schema: COREFERENCE_SCHEMA, mention, targetType, status,
+        antecedentId: status === "resolved" ? antecedentId : null,
+        antecedentText: status === "resolved" ? antecedentText : null,
+        candidates,
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.2
+      });
+    }
+    return output;
+  }
+
+  function resolvePropositionReferences(items) {
+    return items.map((item, index) => {
+      const proposition = { ...item.proposition };
+      const references = [];
+      const mention = clean(proposition.subject, 80);
+      const pronoun = mention.match(/^(он|она|оно|они)$/iu);
+      if (pronoun) {
+        const gender = ({ "он": "masculine", "она": "feminine", "оно": "neuter", "они": "plural" })[normalise(pronoun[1])];
+        const candidates = [];
+        for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 4); priorIndex--) {
+          const previous = items[priorIndex], prior = previous.proposition || {};
+          for (const role of ["subject", "object"]) {
+            const text = clean(prior[role], 180);
+            if (!text || /^(?:он|она|оно|они|это|там|тогда)$/iu.test(text) || grammaticalGender(text) !== gender) continue;
+            if (candidates.some(row => normalise(row.text) === normalise(text))) continue;
+            candidates.push({ id: previous.id, text, role, score: (index - priorIndex) * 2 + (role === "subject" ? 0 : 1) });
+          }
+        }
+        candidates.sort((a, b) => a.score - b.score);
+        const best = candidates[0] || null, second = candidates[1] || null;
+        const decisive = !!best && (!second || second.score - best.score >= 2);
+        references.push({
+          schema: COREFERENCE_SCHEMA, mention: pronoun[1], targetType: "entity",
+          status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
+          antecedentId: decisive ? best.id : null, antecedentText: decisive ? best.text : null,
+          candidates: candidates.slice(0, 3).map(row => ({ id: row.id, text: row.text, role: row.role })),
+          confidence: decisive ? 0.84 : candidates.length ? 0.46 : 0.12
+        });
+        if (decisive) proposition.subject = best.text;
+      }
+      const text = clean(item.text, 300);
+      if (/(?:^|\s)это(?=\s|$)/iu.test(text) && index > 0) {
+        const previous = items[index - 1];
+        references.push({
+          schema: COREFERENCE_SCHEMA, mention: "это", targetType: "proposition",
+          status: "resolved", antecedentId: previous.id, antecedentText: previous.text,
+          candidates: [{ id: previous.id, text: previous.text, role: "event" }], confidence: 0.78
+        });
+      }
+      if (/(?:^|\s)там(?=\s|$)/iu.test(text)) {
+        let place = null;
+        for (let j = index - 1; j >= 0 && !place; j--) {
+          const object = clean(items[j].proposition && items[j].proposition.object, 180);
+          if (object && /^(?:в|на|из|к|около|возле|рядом\s+с|под|над|между)\s+/iu.test(object))
+            place = { id: items[j].id, text: object };
+        }
+        references.push({
+          schema: COREFERENCE_SCHEMA, mention: "там", targetType: "location",
+          status: place ? "resolved" : "unresolved",
+          antecedentId: place && place.id, antecedentText: place && place.text,
+          candidates: place ? [{ id: place.id, text: place.text, role: "location" }] : [],
+          confidence: place ? 0.76 : 0.12
+        });
+      }
+      if (/(?:^|\s)тогда(?=\s|$)/iu.test(text)) {
+        let time = null;
+        for (let j = index - 1; j >= 0 && !time; j--) {
+          const expression = clean(items[j].proposition && items[j].proposition.temporal &&
+            items[j].proposition.temporal.expression, 100) || temporalSignal(items[j].text).expression;
+          if (expression) time = { id: items[j].id, text: expression };
+        }
+        references.push({
+          schema: COREFERENCE_SCHEMA, mention: "тогда", targetType: "time",
+          status: time ? "resolved" : "unresolved",
+          antecedentId: time && time.id, antecedentText: time && time.text,
+          candidates: time ? [{ id: time.id, text: time.text, role: "time" }] : [],
+          confidence: time ? 0.76 : 0.12
+        });
+      }
+      proposition.references = validatePropositionReferences(references);
+      return { ...item, proposition };
+    });
   }
 
   function validateProposition(raw, fallback = {}) {
@@ -463,6 +591,8 @@
         reportedBy: part(attribution.reportedBy, 120) || null
       },
       assertionStatus,
+      references: validatePropositionReferences(source.references,
+        Array.isArray(base.references) ? base.references : undefined),
       confidence: Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0.25
     };
   }
@@ -567,8 +697,10 @@
       return { schema: PROPOSITION_CHAIN_SCHEMA, version: 1, items: [] };
     }
     const items = segments.map((segment, index) => {
-      const type = intentType(segment.text, answerType(segment.text));
-      const proposition = extractProposition(segment.text, type, surfaceSlots(segment.text));
+      const prefix = segment.text.match(/^(?:а\s+)?(?:там|тогда)\s+(.+)$/iu);
+      const parseText = prefix ? prefix[1] : segment.text;
+      const type = intentType(parseText, answerType(parseText));
+      const proposition = extractProposition(parseText, type, surfaceSlots(parseText));
       return {
         id: "p" + (index + 1),
         text: segment.text,
@@ -579,7 +711,10 @@
         }
       };
     });
-    return validatePropositionChain({ schema: PROPOSITION_CHAIN_SCHEMA, version: 1, items });
+    return validatePropositionChain({
+      schema: PROPOSITION_CHAIN_SCHEMA, version: 1,
+      items: resolvePropositionReferences(items)
+    });
   }
 
   function validateFrame(raw, fallback = {}, knowledge = null) {

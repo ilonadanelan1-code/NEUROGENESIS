@@ -302,6 +302,65 @@ const unforcedAndFrame = core.analyse("Мне нравится сеть и па�
 assert.equal(unforcedAndFrame.propositionChain.items.length, 0,
   "a coordinating 'и' inside one phrase must not trigger clause splitting");
 
+
+const pronounResolved = core.analyse("Система получает сигнал. Она активируется.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(pronounResolved.items[1].proposition.subject, "Система",
+  "a feminine pronoun must resolve to the only compatible prior entity");
+assert.equal(pronounResolved.items[1].proposition.references[0].mention, "Она");
+assert.equal(pronounResolved.items[1].proposition.references[0].targetType, "entity");
+assert.equal(pronounResolved.items[1].proposition.references[0].status, "resolved");
+assert.equal(pronounResolved.items[1].proposition.references[0].antecedentId, "p1");
+
+const objectPronounResolved = core.analyse("Система получает сигнал. Он усиливается.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(objectPronounResolved.items[1].proposition.subject, "сигнал",
+  "a masculine pronoun must be able to refer to a prior object, not only the subject");
+
+const ambiguousPronoun = core.analyse("Модель использует нейросеть. Она активируется.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(ambiguousPronoun.items[1].proposition.subject, "Она",
+  "the original pronoun must remain when two compatible antecedents compete");
+assert.equal(ambiguousPronoun.items[1].proposition.references[0].status, "ambiguous");
+assert.equal(ambiguousPronoun.items[1].proposition.references[0].candidates.length, 2);
+
+const ungroundedPronoun = core.analyse("Она активируется. Сеть работает.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(ungroundedPronoun.items[0].proposition.references.length, 1);
+assert.equal(ungroundedPronoun.items[0].proposition.references[0].status, "unresolved");
+
+const demonstrativeReference = core.analyse("Система активируется. Это запускает процесс.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(demonstrativeReference.items[1].proposition.references[0].targetType, "proposition");
+assert.equal(demonstrativeReference.items[1].proposition.references[0].antecedentId, "p1");
+
+const locationReference = core.analyse("Система работает в лаборатории. Там система активируется.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(locationReference.items[1].proposition.references[0].targetType, "location");
+assert.equal(locationReference.items[1].proposition.references[0].status, "resolved");
+assert.match(locationReference.items[1].proposition.references[0].antecedentText, /лаборатории/iu);
+
+const temporalReference = core.analyse("Вчера система работала. Тогда система активировалась.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(temporalReference.items[1].proposition.references[0].targetType, "time");
+assert.equal(temporalReference.items[1].proposition.references[0].status, "resolved");
+assert.equal(temporalReference.items[1].proposition.references[0].antecedentText, "Вчера");
+
+const referenceValidation = core.validateProposition({
+  references: [{ mention: "Она", targetType: "entity", status: "resolved",
+    antecedentId: "p9", antecedentText: "Подмена", confidence: 9 }]
+});
+assert.equal(referenceValidation.references[0].status, "unresolved",
+  "references to proposition IDs outside the bounded chain must not be accepted");
+assert.equal(referenceValidation.references[0].antecedentId, null);
+
 const forgedChain = core.validateFrame({
   propositionChain: {
     schema: "NG_PROPOSITION_CHAIN_V1", version: 1,
