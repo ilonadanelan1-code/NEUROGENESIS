@@ -7,10 +7,12 @@ const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fall
 function subwordFeatures(raw){
  const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"),chars=Array.from("<"+token+">"),features=new Set();
  const hash=value=>{let result=2166136261;for(let i=0;i<value.length;i++){result^=value.charCodeAt(i);result=Math.imul(result,16777619);}return(result>>>0)%SUBWORD_BUCKETS;};
- for(let size=2;size<=4;size++)for(let start=0;start+size<=chars.length;start++){
-  features.add(hash(chars.slice(start,start+size).join("")));if(features.size>=MAX_SUBWORD_FEATURES)return[...features];
+ for(let size=2;size<=4;size++){
+  const candidates=[];for(let start=0;start+size<=chars.length;start++)candidates.push(hash(chars.slice(start,start+size).join("")));
+  const sampleCount=Math.min(8,candidates.length);
+  for(let index=0;index<sampleCount;index++)features.add(candidates[sampleCount===1?0:Math.round(index*(candidates.length-1)/(sampleCount-1))]);
  }
- if(!features.size&&token)features.add(hash(token));return[...features];
+ if(!features.size&&token)features.add(hash(token));return[...features].slice(0,MAX_SUBWORD_FEATURES);
 }
 function makeRandom(seed){let state=(Math.floor(finite(seed,173))||173)>>>0;return()=>{state+=0x6D2B79F5;let v=state;v=Math.imul(v^v>>>15,v|1);v^=v+Math.imul(v^v>>>7,v|61);return((v^v>>>14)>>>0)/4294967296;};}
 function matrix(rows,cols,random,scale){return Array.from({length:rows},()=>Array.from({length:cols},()=>((random()*2)-1)*scale));}
