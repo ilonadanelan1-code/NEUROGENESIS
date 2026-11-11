@@ -17,7 +17,7 @@
   const stateLabel=byId("contextual-model-state"),metrics=byId("contextual-model-metrics");
   const output=byId("contextual-attention-output");
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
-  let model=Model.create({dimension:12,windowSize:2,seed:9173});
+  let model=Model.create({dimension:12,windowSize:2,heads:3,seed:9173});
   function save(){
     try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),corpus:corpusInput.value}));}
     catch(_){}
@@ -26,15 +26,23 @@
     const status=model.status();
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
     metrics.textContent=message||(status.trained
-      ?"Словарь: "+status.vocabularySize+" · шаги обучения: "+status.trainingSteps+
-       " · ошибка предсказания: "+Number(status.lastLoss).toFixed(3)
-      :"Пока нет обученных весов. Добавь предложения и запусти обучение.");
+      ?"Головы: "+status.heads+" · размер головы: "+status.headDimension+
+       " · FFN: "+status.feedForwardDimension+" · словарь: "+status.vocabularySize+
+       " · шаги: "+status.trainingSteps+" · ошибка: "+Number(status.lastLoss).toFixed(3)
+      :"Архитектура: "+status.heads+" головы · остаточные связи · LayerNorm · FFN. Добавь предложения и запусти обучение.");
   }
-  try{
-    const saved=JSON.parse(root.localStorage?.getItem(STORAGE_KEY)||"null");
-    if(saved&&saved.state){model.loadState(saved.state);if(typeof saved.corpus==="string")corpusInput.value=saved.corpus;}
-    else corpusInput.value=STARTER_CORPUS;
-  }catch(_){corpusInput.value=STARTER_CORPUS;}
+  let saved=null;
+  try{saved=JSON.parse(root.localStorage?.getItem(STORAGE_KEY)||"null");}catch(_){}
+  if(saved&&typeof saved.corpus==="string")corpusInput.value=saved.corpus;
+  else corpusInput.value=STARTER_CORPUS;
+  if(saved&&saved.state){
+    try{model.loadState(saved.state);}
+    catch(_){
+      // A previous single-head checkpoint is intentionally not misread as a multi-head model.
+      stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
+      metrics.textContent="Архитектура обновлена до трёх голов. Твои обучающие предложения сохранены — запусти обучение заново.";
+    }
+  }
   root.NGContextualAttention=model;
   renderStatus();
   trainButton.addEventListener("click",()=>{
@@ -43,7 +51,7 @@
     trainButton.disabled=true;trainButton.textContent="ОБУЧЕНИЕ…";
     try{
       const report=model.train(rows,{epochs:55,learningRate:0.035});save();
-      renderStatus("Готово: "+report.examples+" примеров · "+report.epochs+" эпох · ошибка "+
+      renderStatus("Готово: "+report.examples+" примеров · "+report.epochs+" эпох · "+report.heads+" головы · ошибка "
         report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3));
       stateLabel.textContent="ОБУЧЕНА";
     }catch(error){renderStatus("Обучение не выполнено: "+error.message);}
@@ -59,7 +67,12 @@
         .map(item=>item.token+" "+Math.round(item.weight*100)+"%").join(" · ");
       const guesses=row.predictions.slice(0,3)
         .map(item=>item.token+" "+Math.round(item.probability*100)+"%").join(" · ");
-      lines.push(row.token+" ← "+(links||"нет контекста"));
+      lines.push(row.token+" ← среднее внимание: "+(links||"нет контекста"));
+      for(const head of row.heads){
+        const detail=head.attention.slice().sort((a,b)=>b.weight-a.weight)
+          .map(item=>item.token+" "+Math.round(item.weight*100)+"%").join(" · ");
+        lines.push("  голова "+head.head+": "+detail);
+      }
       lines.push("  предсказание по контексту: "+guesses);
     }
     output.textContent=lines.join("\n")||"Для этой фразы пока недостаточно известных слов.";

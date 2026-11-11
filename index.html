@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.75">
+  <link rel="stylesheet" href="./styles.css?v=0.58.76">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.75</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.76</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -218,7 +218,7 @@
           <details class="llm-settings" id="contextual-model-panel">
             <summary><span>ОБУЧАЕМОЕ КОНТЕКСТНОЕ ПОНИМАНИЕ</span><span id="contextual-model-state" data-state="offline">ЕЩЁ НЕ ОБУЧЕНА</span></summary>
             <div class="llm-settings-body">
-              <p class="llm-security-note">Небольшой локальный attention-блок с обучаемыми Q/K/V, позиционными векторами и предсказанием скрытого слова по соседнему контексту. Примеры и веса сохраняются в этом браузере. Это исследовательский модуль, а не готовая большая языковая модель.</p>
+              <p class="llm-security-note">Локальный обучаемый блок: три независимые головы внимания, остаточные связи, LayerNorm и feed-forward сеть. Модель предсказывает скрытое слово по контексту. Веса и примеры сохраняются в браузере. Это небольшой исследовательский трансформерный блок, а не готовая большая языковая модель.</p>
               <label class="field-label" for="contextual-training-corpus">ПРИМЕРЫ ДЛЯ ОБУЧЕНИЯ · ОДНО ПРЕДЛОЖЕНИЕ НА СТРОКУ</label>
               <textarea class="text-input contextual-corpus" id="contextual-training-corpus" maxlength="12000" rows="7" spellcheck="false"></textarea>
               <div class="llm-settings-actions">
@@ -256,33 +256,33 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./activation.js?v=0.58.75" defer></script>
-  <script src="./neuro-wasm-adapter.js?v=0.58.75" defer></script>
-  <script src="./experience-quality.js?v=0.58.75" defer></script>
-  <script src="./experience-benchmark.js?v=0.58.75" defer></script>
-  <script src="./contrastive-benchmark.js?v=0.58.75" defer></script>
-  <script src="./neuron-layout.js?v=0.58.75" defer></script>
-  <script src="./neuron-focus.js?v=0.58.75" defer></script>
-  <script src="./canvas-quality.js?v=0.58.75" defer></script>
-  <script src="./app.js?v=0.58.75" defer></script>
-  <script src="./disposable-experiment-session.js?v=0.58.75" defer></script>
-  <script src="./disposable-experiment-ui.js?v=0.58.75" defer></script>
-  <script src="./knowledge.js?v=0.58.75" defer></script>
-  <script src="./semantic-core.js?v=0.58.75" defer></script>
-  <script src="./contextual-attention.js?v=0.58.75" defer></script>
-  <script src="./goals.js?v=0.58.75" defer></script>
-  <script src="./observation-engine.js?v=0.58.75" defer></script>
-  <script src="./knowledge-graph.js?v=0.58.75" defer></script>
-  <script src="./reasoning-audit.js?v=0.58.75" defer></script>
-  <script src="./discriminating-observations.js?v=0.58.75" defer></script>
-  <script src="./hypothesis-lifecycle.js?v=0.58.75" defer></script>
-  <script src="./dialog-context.js?v=0.58.75" defer></script>
-  <script src="./dialog-manager.js?v=0.58.75" defer></script>
-  <script src="./semantic-query.js?v=0.58.75" defer></script>
-  <script src="./contextual-attention-ui.js?v=0.58.75" defer></script>
-  <script src="./semantic-retrieval.js?v=0.58.75" defer></script>
-  <script src="./llm-bridge.js?v=0.58.75" defer></script>
-  <script src="./memory.js?v=0.58.75" defer></script>
-  <script src="./first-experiment.js?v=0.58.75" defer></script>
+  <script src="./activation.js?v=0.58.76" defer></script>
+  <script src="./neuro-wasm-adapter.js?v=0.58.76" defer></script>
+  <script src="./experience-quality.js?v=0.58.76" defer></script>
+  <script src="./experience-benchmark.js?v=0.58.76" defer></script>
+  <script src="./contrastive-benchmark.js?v=0.58.76" defer></script>
+  <script src="./neuron-layout.js?v=0.58.76" defer></script>
+  <script src="./neuron-focus.js?v=0.58.76" defer></script>
+  <script src="./canvas-quality.js?v=0.58.76" defer></script>
+  <script src="./app.js?v=0.58.76" defer></script>
+  <script src="./disposable-experiment-session.js?v=0.58.76" defer></script>
+  <script src="./disposable-experiment-ui.js?v=0.58.76" defer></script>
+  <script src="./knowledge.js?v=0.58.76" defer></script>
+  <script src="./semantic-core.js?v=0.58.76" defer></script>
+  <script src="./contextual-attention.js?v=0.58.76" defer></script>
+  <script src="./goals.js?v=0.58.76" defer></script>
+  <script src="./observation-engine.js?v=0.58.76" defer></script>
+  <script src="./knowledge-graph.js?v=0.58.76" defer></script>
+  <script src="./reasoning-audit.js?v=0.58.76" defer></script>
+  <script src="./discriminating-observations.js?v=0.58.76" defer></script>
+  <script src="./hypothesis-lifecycle.js?v=0.58.76" defer></script>
+  <script src="./dialog-context.js?v=0.58.76" defer></script>
+  <script src="./dialog-manager.js?v=0.58.76" defer></script>
+  <script src="./semantic-query.js?v=0.58.76" defer></script>
+  <script src="./contextual-attention-ui.js?v=0.58.76" defer></script>
+  <script src="./semantic-retrieval.js?v=0.58.76" defer></script>
+  <script src="./llm-bridge.js?v=0.58.76" defer></script>
+  <script src="./memory.js?v=0.58.76" defer></script>
+  <script src="./first-experiment.js?v=0.58.76" defer></script>
 </body>
 </html>
