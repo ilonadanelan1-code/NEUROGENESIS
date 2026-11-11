@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const window = {};
 const sandbox = { window, Date, Math, Map, Set, JSON };
-for (const file of ["knowledge.js", "semantic-core.js", "contextual-attention.js", "semantic-query.js"]) {
+for (const file of ["knowledge.js", "semantic-core.js", "contextual-attention.js", "phrase-composition.js", "semantic-query.js"]) {
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const engine = window.NGSemanticQuery;
