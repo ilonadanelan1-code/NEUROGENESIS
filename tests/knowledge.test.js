@@ -91,6 +91,53 @@ assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/не у�
 assert.match(knowledge.answerQuestion("Что ты умеешь?", []),/хронологию/u,"the system should describe the new event timeline capability and its explicit-date boundary");
 assert.match(knowledge.answerQuestion("Что ты знаешь обо мне?", []),/нет конкретных сведений о тебе/u,"an empty user profile should be explained without inventing facts");
 
+const temporalAnchor = new Date(2026,10,11,12,0,0,0).getTime();
+const lastYearFact = knowledge.extractClaims("В прошлом году я жил в Сочи", temporalAnchor)[0];
+assert.ok(lastYearFact, "a past-tense self-report with a relative year should be extracted");
+assert.equal(lastYearFact.predicate,"живу в");
+assert.equal(lastYearFact.object,"Сочи");
+assert.equal(lastYearFact.validFrom,new Date(2025,0,1).getTime());
+assert.equal(lastYearFact.validTo,new Date(2026,0,1).getTime());
+assert.equal(lastYearFact.temporalPrecision,"year");
+assert.equal(knowledge.answerQuestion("Где я жил в прошлом году?",[lastYearFact]).includes("Сочи"),true,
+  "a historical-period question should retrieve a claim that is no longer current");
+
+const lastSummerFact=knowledge.extractClaims("С прошлого лета я живу в Париже",temporalAnchor)[0];
+assert.ok(lastSummerFact,"a since-season phrase without an explicit subject pronoun should be extracted");
+assert.equal(lastSummerFact.validFrom,new Date(2026,5,1).getTime());
+assert.equal(lastSummerFact.temporalPrecision,"season");
+assert.equal(lastSummerFact.temporalRelation,"since");
+
+const reconstructed=knowledge.extractClaims(
+  "Раньше я жил в Сочи, а с прошлого лета я живу в Париже",temporalAnchor);
+assert.equal(reconstructed.length,2,"a compound transition should produce two separate location claims");
+const sochiHistory=reconstructed.find(claim=>claim.object==="Сочи");
+const parisCurrent=reconstructed.find(claim=>claim.object==="Париже");
+assert.ok(sochiHistory&&parisCurrent);
+assert.equal(sochiHistory.validTo,parisCurrent.validFrom,
+  "the previous location may be bounded by the explicitly dated start of the new location");
+assert.equal(sochiHistory.status,"current",
+  "a bounded historical interval remains queryable as-of a past date, although not current today");
+assert.match(knowledge.answerQuestion("Где я жил в прошлом году?",reconstructed),
+  /начало периода не указано/u,
+  "the answer should disclose an unknown lower boundary rather than inventing a start date");
+
+const undatedPast=knowledge.extractClaims("Раньше я жил в Сочи",temporalAnchor)[0];
+assert.equal(undatedPast.status,"historical");
+assert.equal(undatedPast.validFrom,null);
+assert.equal(undatedPast.validTo,null);
+assert.match(knowledge.answerQuestion("Где я жил в прошлом году?",[undatedPast]),
+  /нет даты или периода/u,
+  "undated history must not be assigned to an arbitrary calendar year");
+
+const explicitMonth=knowledge.parseTemporalPeriod("июня 2024",temporalAnchor);
+assert.equal(explicitMonth,null,
+  "an incomplete month phrase without a recognized month-first form should not be guessed");
+const explicitMonthNamed=knowledge.parseTemporalPeriod("июнь 2024",temporalAnchor);
+assert.equal(explicitMonthNamed.start,new Date(2024,5,1).getTime());
+
+
+
 const relationship = knowledge.extractClaims("Игорь Головнев твой самый лучший друг")[0];
 assert.ok(relationship, "should extract a relationship");
 assert.equal(relationship.kind, "relationship");
@@ -484,7 +531,7 @@ assert.match(knowledge.answerQuestion("Какую гипотезу провер�
   v18SleepCause,fatigueCause,v15DehydrationCause,v15Rule,v15CounterObservation
 ]),/ПРИОРИТЕТ 1/u);
 assert.equal(knowledge.prioritizeHypotheses("Какую гипотезу проверять первой?",[]).hypotheses.length,0);
-assert.equal(knowledge.version,23);
+assert.equal(knowledge.version,24);
 
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);

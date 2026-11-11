@@ -13,6 +13,241 @@
     }
     return null;
   }
+  function localDateStart(year, monthIndex, day = 1) {
+    return new Date(year, monthIndex, day, 0, 0, 0, 0).getTime();
+  }
+  function parseTemporalPeriod(value, referenceTime = Date.now()) {
+    const text = normalise(value);
+    const anchor = new Date(parseClaimTime(referenceTime) || Date.now());
+    const year = anchor.getFullYear(), month = anchor.getMonth(), day = anchor.getDate();
+    const period = (start, end, precision, label) => ({start,end,precision,label,expression:String(value || "").trim()});
+    let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/u);
+    if (match) {
+      const y=Number(match[1]),m=Number(match[2])-1,d=Number(match[3]);
+      const start=localDateStart(y,m,d), check=new Date(start);
+      if (check.getFullYear()===y && check.getMonth()===m && check.getDate()===d)
+        return period(start,localDateStart(y,m,d+1),"day",d+"."+String(m+1).padStart(2,"0")+"."+y);
+      return null;
+    }
+    match = text.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/u);
+    if (match) {
+      const d=Number(match[1]),m=Number(match[2])-1,y=Number(match[3]);
+      const start=localDateStart(y,m,d),check=new Date(start);
+      if (check.getFullYear()===y && check.getMonth()===m && check.getDate()===d)
+        return period(start,localDateStart(y,m,d+1),"day",String(d).padStart(2,"0")+"."+String(m+1).padStart(2,"0")+"."+y);
+      return null;
+    }
+    const monthNames = [
+      ["январь","января","январе","январем","январю"],
+      ["февраль","февраля","феврале","февралем","февралю"],
+      ["март","марта","марте","мартом","марту"],
+      ["апрель","апреля","апреле","апрелем","апрелю"],
+      ["май","мая","мае","маем","маю"],
+      ["июнь","июня","июне","июнем","июню"],
+      ["июль","июля","июле","июлем","июлю"],
+      ["август","августа","августе","августом","августу"],
+      ["сентябрь","сентября","сентябре","сентябрем","сентябрю"],
+      ["октябрь","октября","октябре","октябрем","октябрю"],
+      ["ноябрь","ноября","ноябре","ноябрем","ноябрю"],
+      ["декабрь","декабря","декабре","декабрем","декабрю"]
+    ];
+    const words=text.split(/\s+/u);
+    const monthIndex=monthNames.findIndex(forms=>forms.includes(words[0]));
+    if(monthIndex>=0 && words.length>=2 && /^\d{4}$/u.test(words[1])) {
+      const y=Number(words[1]),start=localDateStart(y,monthIndex,1);
+      return period(start,localDateStart(y,monthIndex+1,1),"month",monthNames[monthIndex][0]+" "+y);
+    }
+    match=text.match(/^(летом|лето|лета|весной|весна|весне|осенью|осень|осени|зимой|зима|зиме)\s+(\d{4})$/u);
+    if(match) {
+      const season=match[1],y=Number(match[2]);
+      const startMonth=/^лет/u.test(season)?5:/^вес/u.test(season)?2:/^ос/u.test(season)?8:11;
+      const endMonth=startMonth===11?2:startMonth+3;
+      const endYear=startMonth===11?y+1:y;
+      return period(localDateStart(y,startMonth),localDateStart(endYear,endMonth),"season",
+        (startMonth===5?"лето":startMonth===2?"весна":startMonth===8?"осень":"зима")+" "+y);
+    }
+    match=text.match(/^(\d{4})(?:\s+год(?:у|а)?)?$/u);
+    if(match) {
+      const y=Number(match[1]);
+      return period(localDateStart(y,0,1),localDateStart(y+1,0,1),"year",String(y)+" год");
+    }
+    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+год\w*$/u);
+    if(match) {
+      const offset=/^позапрошл/u.test(match[1])?-2:/^прошл/u.test(match[1])?-1:/^следующ/u.test(match[1])?1:0;
+      const y=year+offset;
+      return period(localDateStart(y,0,1),localDateStart(y+1,0,1),"year",String(y)+" год");
+    }
+    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+месяц\w*$/u);
+    if(match) {
+      const offset=/^позапрошл/u.test(match[1])?-2:/^прошл/u.test(match[1])?-1:/^следующ/u.test(match[1])?1:0;
+      const first=new Date(year,month+offset,1);
+      return period(localDateStart(first.getFullYear(),first.getMonth(),1),
+        localDateStart(first.getFullYear(),first.getMonth()+1,1),"month",
+        first.toLocaleDateString("ru-RU",{month:"long",year:"numeric"}));
+    }
+    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+недел\w*$/u);
+    if(match) {
+      const mondayOffset=(anchor.getDay()+6)%7;
+      const thisMonday=localDateStart(year,month,day-mondayOffset);
+      const offset=/^позапрошл/u.test(match[1])?-2:/^прошл/u.test(match[1])?-1:/^следующ/u.test(match[1])?1:0;
+      const start=thisMonday+offset*7*86400000;
+      return period(start,start+7*86400000,"week",new Date(start).toLocaleDateString("ru-RU")+" — "+new Date(start+6*86400000).toLocaleDateString("ru-RU"));
+    }
+    match=text.match(/^(позапрошл\w*|прошл\w*|эт\w*|следующ\w*)\s+(лет\w*|весн\w*|осен\w*|зим\w*)$/u);
+    if(match) {
+      const qualifier=match[1], seasonWord=match[2];
+      const seasonMonth=/^лет/u.test(seasonWord)?5:/^вес/u.test(seasonWord)?2:/^ос/u.test(seasonWord)?8:11;
+      const seasonName=seasonMonth===5?"лето":seasonMonth===2?"весна":seasonMonth===8?"осень":"зима";
+      const candidates=[];
+      for(let y=year-3;y<=year+2;y++){
+        const start=localDateStart(y,seasonMonth,1);
+        const end=localDateStart(seasonMonth===11?y+1:y,seasonMonth===11?2:seasonMonth+3,1);
+        candidates.push({start,end,y});
+      }
+      let chosen=null;
+      if(/^эт/u.test(qualifier)) {
+        chosen=candidates.find(item=>item.start<=parseClaimTime(referenceTime)&&parseClaimTime(referenceTime)<item.end) ||
+          candidates.filter(item=>item.y===year).sort((a,b)=>Math.abs(a.start-parseClaimTime(referenceTime))-Math.abs(b.start-parseClaimTime(referenceTime)))[0];
+      } else if(/^следующ/u.test(qualifier)) {
+        chosen=candidates.filter(item=>item.start>parseClaimTime(referenceTime)).sort((a,b)=>a.start-b.start)[0];
+      } else {
+        const completed=candidates.filter(item=>item.end<=parseClaimTime(referenceTime)).sort((a,b)=>b.start-a.start);
+        chosen=completed[/^позапрошл/u.test(qualifier)?1:0];
+      }
+      return chosen?period(chosen.start,chosen.end,"season",seasonName+" "+chosen.y):null;
+    }
+    match=text.match(/^(сегодня|вчера|позавчера)$/u);
+    if(match) {
+      const offset=match[1]==="вчера"?-1:match[1]==="позавчера"?-2:0;
+      const start=localDateStart(year,month,day+offset);
+      return period(start,start+86400000,"day",new Date(start).toLocaleDateString("ru-RU"));
+    }
+    match=text.match(/^(\d+)\s+(день|дня|дней|недел\w*|месяц\w*|год|года|лет)\s+назад$/u);
+    if(match) {
+      const count=Math.max(1,Math.min(1000,Number(match[1])));
+      let start;
+      if(/^д/u.test(match[2])) start=localDateStart(year,month,day-count);
+      else if(/^недел/u.test(match[2])) start=localDateStart(year,month,day-count*7);
+      else if(/^месяц/u.test(match[2])) start=localDateStart(year,month-count,day);
+      else start=localDateStart(year-count,month,day);
+      const date=new Date(start);
+      return period(start,localDateStart(date.getFullYear(),date.getMonth(),date.getDate()+1),"relative_day",date.toLocaleDateString("ru-RU"));
+    }
+    return null;
+  }
+  function extractTemporalHint(input, referenceTime = Date.now()) {
+    const raw=String(input||"").trim();
+    let match=raw.match(/^(раньше|ранее|прежде)\s+(.+)$/iu);
+    if(match) return {text:match[2].trim(),status:"historical",expression:match[1].toLowerCase(),precision:"unknown",relation:"unspecified"};
+    const prefixMarkers=[
+      {pattern:/^(?:начиная\s+с|с)\s+/iu,relation:"since"},
+      {pattern:/^(?:во\s+время|в\s+течение)\s+/iu,relation:"during"},
+      {pattern:/^(?:до)\s+/iu,relation:"until"},
+      {pattern:/^(?:после)\s+/iu,relation:"after"},
+      {pattern:/^(?:по)\s+/iu,relation:"through"},
+      {pattern:/^(?:в|за)\s+/iu,relation:"during"}
+    ];
+    for(const marker of prefixMarkers) {
+      const found=raw.match(marker.pattern);
+      if(!found) continue;
+      const rest=raw.slice(found[0].length),parts=rest.split(/\s+/u);
+      for(let size=Math.min(5,parts.length);size>=1;size--) {
+        const expression=parts.slice(0,size).join(" ");
+        const parsed=parseTemporalPeriod(expression,referenceTime);
+        if(!parsed) continue;
+        const tail=parts.slice(size).join(" ").trim();
+        if(!tail) continue;
+        const metadata={expression:expression,precision:parsed.precision,relation:marker.relation,
+          validFrom:null,validTo:null,status:"current"};
+        if(marker.relation==="since") metadata.validFrom=parsed.start;
+        else if(marker.relation==="during"){metadata.validFrom=parsed.start;metadata.validTo=parsed.end;}
+        else if(marker.relation==="until") metadata.validTo=parsed.start;
+        else if(marker.relation==="through") metadata.validTo=parsed.end;
+        else if(marker.relation==="after") metadata.validFrom=parsed.end;
+        return {text:tail, ...metadata};
+      }
+    }
+    const suffixPattern=/\s+(начиная\s+с|с|до|по|после|во\s+время|в\s+течение|в|за)\s+(.+)$/giu;
+    const suffixes=[...raw.matchAll(suffixPattern)].reverse();
+    for(const found of suffixes) {
+      const parsed=parseTemporalPeriod(found[2],referenceTime);
+      if(!parsed) continue;
+      const marker=normalise(found[1]);
+      const relation=marker==="с"||marker==="начиная с"?"since":
+        marker==="до"?"until":marker==="по"?"through":marker==="после"?"after":"during";
+      const metadata={expression:found[2].trim(),precision:parsed.precision,relation,
+        validFrom:null,validTo:null,status:"current"};
+      if(relation==="since")metadata.validFrom=parsed.start;
+      else if(relation==="during"){metadata.validFrom=parsed.start;metadata.validTo=parsed.end;}
+      else if(relation==="until")metadata.validTo=parsed.start;
+      else if(relation==="through")metadata.validTo=parsed.end;
+      else if(relation==="after")metadata.validFrom=parsed.end;
+      return {text:raw.slice(0,found.index).trim(),...metadata};
+    }
+    const firstParts=raw.split(/\s+/u);
+    for(let size=Math.min(3,firstParts.length-1);size>=1;size--) {
+      const expression=firstParts.slice(0,size).join(" ");
+      const parsed=parseTemporalPeriod(expression,referenceTime);
+      if(parsed) return {text:firstParts.slice(size).join(" ").trim(),expression,precision:parsed.precision,
+        relation:"during",validFrom:parsed.start,validTo:parsed.end,status:"current"};
+    }
+    return {text:raw,status:null,expression:"",precision:"",relation:"",validFrom:null,validTo:null};
+  }
+  function isClaimValidAt(claim, at = Date.now()) {
+    if(!claim||String(claim.status||"current").toLowerCase()!=="current"||claim.supersededBy)return false;
+    const window=claimTimeWindow(claim),moment=parseClaimTime(at);
+    return window.valid&&moment!==null&&(window.from===null||window.from<=moment)&&(window.to===null||moment<window.to);
+  }
+  function temporalPeriodFromQuery(query, referenceTime = Date.now()) {
+    const words=String(query||"").toLowerCase().replace(/[?!,.;:()]/gu," ").split(/\s+/u).filter(Boolean);
+    let best=null,bestStart=-1,bestLength=0;
+    for(let i=0;i<words.length;i++) {
+      for(let size=1;size<=Math.min(5,words.length-i);size++) {
+        const parsed=parseTemporalPeriod(words.slice(i,i+size).join(" "),referenceTime);
+        if(parsed&&(i>bestStart||(i===bestStart&&size>bestLength))) {
+          best=parsed;bestStart=i;bestLength=size;
+        }
+      }
+    }
+    return best;
+  }
+  function temporalLocationAnswer(query, claims, referenceTime = Date.now()) {
+    const q=normalise(query);
+    if(!q.includes("где")||!/(?:жив|жил|жила|жили|нахож|находил)/u.test(q))return null;
+    const requested=temporalPeriodFromQuery(query,referenceTime);
+    if(!requested)return null;
+    const locations=(Array.isArray(claims)?claims:[]).filter(claim=>
+      claim&&claim.kind==="fact"&&claim.subject==="user"&&factFamily(claim.predicate)==="location"&&
+      String(claim.status||"current").toLowerCase()==="current"&&!claim.supersededBy
+    );
+    const intersects=locations.filter(claim=>{
+      const window=claimTimeWindow(claim);
+      if(!window.valid||(window.from===null&&window.to===null))return false;
+      return (window.to===null||window.to>requested.start)&&(window.from===null||window.from<requested.end);
+    });
+    const unique=[...new Map(intersects.map(claim=>[canonicalEntity(claim.object),claim])).values()];
+    const period=requested.label;
+    if(unique.length===1) {
+      const claim=unique[0],window=claimTimeWindow(claim);
+      const start=window.from===null?"начало периода не указано":"с "+new Date(window.from).toLocaleDateString("ru-RU");
+      const end=window.to===null?"дата окончания не указана":"по "+new Date(window.to-1).toLocaleDateString("ru-RU");
+      const boundsKnown=window.from!==null&&window.to!==null;
+      const covers=window.from!==null&&window.from<=requested.start&&
+        (window.to===null||window.to>=requested.end);
+      const wording=covers&&boundsKnown
+        ?"По сохранённой временной записи, в период «"+period+"» ты жил в "+claim.object+"."
+        :"В памяти есть временная запись о "+claim.object+", пересекающаяся с периодом «"+period+"». "+start+", "+end+". Поэтому я не могу утверждать, что она покрывает весь указанный период.";
+      return wording+" Источник: «"+claim.evidence+"». Это твоё сообщение, а не независимая проверка.";
+    }
+    if(unique.length>1) {
+      return "В период «"+period+"» в памяти попадают несколько мест проживания: "+
+        unique.map(claim=>claim.object).join(", ")+". Их временные интервалы пересекаются или недостаточно точно ограничены; я не буду выбирать одно наугад.";
+    }
+    const undated=locations.filter(claim=>claim.status==="historical"&&claim.validFrom==null&&claim.validTo==null);
+    if(undated.length) return "Я нашёл прежнее самоописание: "+undated.map(claim=>claim.object).join(", ")+
+      ", но в нём нет даты или периода. Поэтому не могу надёжно определить, относилось ли оно к «"+period+"».";
+    return "В памяти нет датированного утверждения о месте проживания за период «"+period+"».";
+  }
   function claimTimeWindow(claim) {
     const hasFrom = !!(claim && claim.validFrom !== undefined && claim.validFrom !== null && claim.validFrom !== "");
     const hasTo = !!(claim && claim.validTo !== undefined && claim.validTo !== null && claim.validTo !== "");
@@ -54,7 +289,7 @@
   function capabilitiesAnswer() {
     return "В этой версии я умею сохранять до " + SYSTEM_PROFILE.memoryLimit +
       " записей длиной до " + SYSTEM_PROFILE.recordCharacterLimit +
-      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Для карточек наблюдений я могу составить хронологию, если дата или время события явно записаны в распознаваемом формате. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
+      " символов, искать воспоминания, выделять простые факты, отношения, предпочтения, мнения и гипотезы, собирать профили объектов, связывать энграммы и распространять по ним ограниченную активацию. Из нескольких сохранённых причинных связей я могу предложить новые непроверенные гипотезы и показать цепочки-основания. Я распознаю некоторые явные и относительные временные выражения (например, «в прошлом году», «с прошлого лета», конкретную дату), связываю их с отдельными фактами и могу отвечать на вопросы о датированных периодах. Если граница времени не названа, я отмечаю её как неизвестную, а не придумываю дату. Можно просматривать, исправлять, удалять, экспортировать и импортировать память.\n\n" +
       "Но подключённой большой языковой модели у меня пока нет: я не умею свободно рассуждать или понимать любые формулировки. Ответы строятся на явных правилах и сохранённых сведениях. Нейронная сеть и её активность — вычислительная визуальная симуляция, а память хранится в этом браузере.";
   }
   const SEMANTIC_GROUPS = [
@@ -331,10 +566,17 @@
     return makeClaim("definition",subject,"определяется как",object,text,"unverified",0.87);
   }
   function extractSelfReport(text) {
-    let match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?я\s+(живу в|нахожусь в|работаю в|учусь в|работаю|учусь|занимаюсь)\s+(.+)$/iu);
+    let match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?(?:я\s+)?(живу в|жил в|жила в|жили в|нахожусь в|находился в|находилась в|работаю в|работал в|работала в|учусь в|учился в|училась в|работаю|работал|работала|учусь|учился|училась|занимаюсь)\s+(.+)$/iu);
     if (match) {
-      const claim = makeClaim("fact","user",match[2].toLowerCase(),cleanPart(match[3],180),text,"self_reported",0.93);
-      if (claim) { claim.revision = !!match[1]; claim.status = "current"; }
+      const verb=match[2].toLowerCase();
+      const predicates={"жил в":"живу в","жила в":"живу в","жили в":"живу в",
+        "находился в":"нахожусь в","находилась в":"нахожусь в",
+        "работал в":"работаю в","работала в":"работаю в",
+        "учился в":"учусь в","училась в":"учусь в",
+        "работал":"работаю","работала":"работаю","учился":"учусь","училась":"учусь"};
+      const predicate=predicates[verb]||verb;
+      const claim = makeClaim("fact","user",predicate,cleanPart(match[3],180),text,"self_reported",0.93);
+      if (claim) { claim.revision = !!match[1]; claim.status = /^(?:жил|жила|жили|находился|находилась|работал|работала|учился|училась)/u.test(verb) ? "historical" : "current"; }
       return claim;
     }
     match = text.match(/^(?:(теперь|сейчас|отныне)\s+)?у меня есть\s+(.+)$/iu);
@@ -350,33 +592,67 @@
     if (!match) return null;
     return makeClaim("hypothesis","user","предполагает",cleanPart(match[1],180),text,"hypothesis",0.78);
   }
-  function extractSingleClaim(text) {
+  function extractSingleClaimCore(text) {
     return extractAssistantIdentity(text) || extractAssistantCreator(text) ||
       extractRelationship(text) || extractConditionalRule(text) || extractObservation(text) ||
       extractCausal(text) || extractPreference(text) || extractSelfReport(text) ||
       extractHypothesis(text) || extractOpinion(text) || extractDefinition(text);
   }
-  function extractClaims(input) {
+  function extractSingleClaim(text, referenceTime = Date.now()) {
+    const temporal=extractTemporalHint(text,referenceTime);
+    const claim=extractSingleClaimCore(temporal.text);
+    if(!claim)return null;
+    claim.createdAt=parseClaimTime(referenceTime)||Date.now();
+    if(temporal.status)claim.status=temporal.status;
+    if(temporal.validFrom!==null&&temporal.validFrom!==undefined)claim.validFrom=temporal.validFrom;
+    if(temporal.validTo!==null&&temporal.validTo!==undefined)claim.validTo=temporal.validTo;
+    if(temporal.expression) {
+      claim.temporalExpression=cleanPart(temporal.expression,100);
+      claim.temporalPrecision=temporal.precision||"unknown";
+      claim.temporalRelation=temporal.relation||"unspecified";
+      if(temporal.relation!=="unspecified")claim.status="current";
+    }
+    return claim;
+  }
+  function linkTemporalClaimIntervals(claims) {
+    const rows=Array.isArray(claims)?claims:[];
+    for(const newer of rows) {
+      if(!newer||newer.kind!=="fact"||newer.subject!=="user"||newer.temporalRelation!=="since"||newer.validFrom==null)continue;
+      for(const prior of rows) {
+        if(!prior||prior===newer||prior.kind!=="fact"||prior.subject!=="user"||
+          factFamily(prior.predicate)!==factFamily(newer.predicate)||sameEntity(prior.object,newer.object)||
+          prior.createdAt>newer.createdAt||prior.validTo!=null||
+          !["historical","current"].includes(String(prior.status||"current")))continue;
+        if(prior.validFrom!=null&&prior.validFrom>=newer.validFrom)continue;
+        prior.validTo=newer.validFrom;
+        prior.status="current";
+        prior.temporalRelation=prior.temporalRelation||"inferred-until";
+        prior.temporalPrecision=prior.temporalPrecision||"unknown";
+      }
+    }
+    return rows;
+  }
+  function extractClaims(input, referenceTime = Date.now()) {
     const text = cleanPart(input,1200);
     if (!text) return [];
     // Research answers and source-attributed reports are context, not fresh assertions.
     if (/^ответ на вопрос\s+#?\s*q\d+\s*:/iu.test(text)) return [];
     if (isReportedCausalStatement(text)) return [];
-    const direct = extractSingleClaim(text);
+    const direct = extractSingleClaim(text, referenceTime);
     if(direct&&direct.kind==="observation"&&direct.observationCase&&["context","timing","criterion"].some(key=>direct.observationCase[key].status!=="not_stated"))return [direct];
     const clauses = text.split(/\s*[,;]\s*/u)
       .map(part => part.replace(/^(?:и|а|но|однако)\s+/iu,"").trim())
       .filter(Boolean).slice(0,8);
     if (clauses.length > 1) {
-      const extracted = clauses.map(extractSingleClaim).filter(Boolean);
+      const extracted = clauses.map(part=>extractSingleClaim(part,referenceTime)).filter(Boolean);
       if (extracted.length) {
         if (direct && direct.kind === "hypothesis" && !extracted.some(claim => claim.kind === "hypothesis")) {
           extracted.unshift(direct);
         }
-        return extracted.slice(0,12);
+        return linkTemporalClaimIntervals(extracted.slice(0,12));
       }
     }
-    return direct ? [direct] : [];
+    return direct ? linkTemporalClaimIntervals([direct]) : [];
   }
   function sanitizeClaims(input, evidenceFallback = "") {
     if (!Array.isArray(input)) return [];
@@ -405,6 +681,9 @@
         traceId:typeof raw.traceId==="string"?raw.traceId.slice(0,80):null,
         createdAt:Number.isFinite(Number(raw.createdAt))&&Number(raw.createdAt)>0?Number(raw.createdAt):Date.now(),
         revision:raw.revision===true,status,supersededBy,validFrom,validTo,
+        temporalExpression:typeof raw.temporalExpression==="string"?cleanPart(raw.temporalExpression,100):"",
+        temporalPrecision:["day","month","year","season","week","relative_day","unknown"].includes(raw.temporalPrecision)?raw.temporalPrecision:"",
+        temporalRelation:["since","during","until","after","through","inferred-until","unspecified"].includes(raw.temporalRelation)?raw.temporalRelation:"",
         modality:raw.modality==="possible"?"possible":"asserted",
         sourceMemoryId:kind==="observation"&&typeof raw.sourceMemoryId==="string"?raw.sourceMemoryId.slice(0,100):"",
         observationCase:kind==="observation"?sanitizeObservationDetails(raw.observationCase,"direct_observation"):null
@@ -901,6 +1180,8 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
+    const temporalAnswer=temporalLocationAnswer(query,claims);
+    if(temporalAnswer)return temporalAnswer;
     const hypothesisPriority=prioritizeHypotheses(query,claims);
     if(hypothesisPriority)return hypothesisPriority.answer;
     const derivedHypotheses=deriveHypotheses(query,claims);
@@ -1116,7 +1397,22 @@
     const rows = claims.map((claim,index)=>({claim,index,slot:slotFor(claim)}))
       .filter(row=>row.slot)
       .sort((a,b)=>(Number(a.claim.createdAt)||0)-(Number(b.claim.createdAt)||0)||a.index-b.index);
-    const before = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null].join("|")).join(";");
+    const before = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null,row.claim.validTo||null].join("|")).join(";");
+    for(const row of rows) {
+      const newer=row.claim;
+      if(newer.temporalRelation!=="since"||newer.validFrom==null)continue;
+      for(const priorRow of rows) {
+        const prior=priorRow.claim;
+        if(prior===newer||priorRow.slot!==row.slot||sameEntity(prior.object,newer.object)||
+          prior.createdAt>newer.createdAt||prior.validTo!=null||
+          !["historical","current"].includes(String(prior.status||"current")))continue;
+        if(prior.validFrom!=null&&prior.validFrom>=newer.validFrom)continue;
+        prior.validTo=newer.validFrom;
+        prior.status="current";
+        prior.temporalRelation=prior.temporalRelation||"inferred-until";
+        prior.temporalPrecision=prior.temporalPrecision||"unknown";
+      }
+    }
     for (const row of rows) {
       if (!INACTIVE_STATUSES.has(row.claim.status)) {
         if (row.claim.supersededBy) row.claim.status = "superseded";
@@ -1140,7 +1436,7 @@
         activeBySlot.set(row.slot,[...active,claim]);
       }
     }
-    const after = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null].join("|")).join(";");
+    const after = rows.map(row=>[row.claim.id,row.claim.status,row.claim.supersededBy||null,row.claim.validTo||null].join("|")).join(";");
     return before !== after;
   }
   function reconcileKnowledgeHistory(input) {
@@ -1153,5 +1449,5 @@
     const conflicts=findConflicts(list);
     return {total:list.length,relationships:list.filter(x=>x.kind==="relationship").length,causal:list.filter(x=>x.kind==="causal").length,rules:list.filter(x=>x.kind==="rule").length,observations:list.filter(x=>x.kind==="observation").length,identities:list.filter(x=>x.kind==="identity").length,activeIdentities:list.filter(x=>x.kind==="identity"&&isCurrentClaim(x)).length,opinions:list.filter(x=>x.kind==="opinion").length,preferences:list.filter(x=>x.kind==="preference").length,facts:list.filter(x=>x.kind==="fact").length,definitions:list.filter(x=>x.kind==="definition").length,hypotheses:list.filter(x=>x.kind==="hypothesis").length,conflicts:conflicts.length};
   }
-  window.NGKnowledge={version:23,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,isReportedCausalStatement,parseClaimTime,isCurrentClaim,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
+  window.NGKnowledge={version:24,systemProfile:()=>({...SYSTEM_PROFILE}),normalise,tokens,semanticMatch,canonicalEntity,sameEntity,isValidCausalSubject,isReportedCausalStatement,parseClaimTime,parseTemporalPeriod,isClaimValidAt,isCurrentClaim,extractClaims,sanitizeClaims,mergeClaims,parseObservationDetails,sanitizeObservationDetails,reconcileIdentityHistory,reconcileMutableHistory,reconcileKnowledgeHistory,claimLabel,claimSearchText,answerQuestion,entityProfile,userProfile,causalEvidence,evaluateConditionalHypothesis,designDiscriminatingTest,deriveHypotheses,prioritizeHypotheses,findCausalPaths,findConflicts,summary};
 })();
