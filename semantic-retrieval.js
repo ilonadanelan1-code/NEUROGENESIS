@@ -10,6 +10,13 @@
     const target = new Set(b);
     return a.filter(token => target.has(token)).length / a.length;
   }
+  function claimIsCurrent(claim, knowledge) {
+    if (knowledge && typeof knowledge.isCurrentClaim === "function") return knowledge.isCurrentClaim(claim);
+    const status = String(claim && claim.status || "current").toLowerCase();
+    return !!claim && status === "current" && !claim.supersededBy &&
+      !(claim.validTo && Date.parse(claim.validTo) <= Date.now()) &&
+      !(claim.validFrom && Date.parse(claim.validFrom) > Date.now());
+  }
   function scoreRecord(frame, record, knowledge) {
     const value = frame && typeof frame === "object" ? frame : {};
     const item = record && typeof record === "object" ? record : {};
@@ -18,7 +25,7 @@
     const text = clean(item.text, 1200);
     if (!subject && !attribute) return { score: 0, subjectScore: 0, attributeScore: 0, matchedClaimIds: [] };
     const rawClaims = Array.isArray(item.claims) ? item.claims.slice(0, 12) : [];
-    const claims = rawClaims.filter(claim => claim && (!claim.status || claim.status === "current") && !claim.supersededBy);
+    const claims = rawClaims.filter(claim => claimIsCurrent(claim, knowledge));
     const candidates = rawClaims.length
       ? claims.map(claim => {
           const subjectText = [claim && claim.subject, claim && claim.holder].filter(Boolean).join(" ");
@@ -54,18 +61,23 @@
     }
     return best;
   }
-  function buildEvidence(ranked, limit = 8) {
+  function buildEvidence(ranked, limit = 8, knowledge = null) {
     const rows = Array.isArray(ranked) ? ranked : [];
     const max = Math.max(1, Math.min(8, Math.floor(Number(limit) || 8)));
     return rows.slice(0, max).filter(row => row && row.item && row.item.id).map(row => {
       const item = row.item;
-      const claims = (Array.isArray(item.claims) ? item.claims : []).slice(0, 8).map(claim => ({
+      const claims = (Array.isArray(item.claims) ? item.claims : [])
+        .filter(claim => claimIsCurrent(claim, knowledge)).slice(0, 8).map(claim => ({
         id: clean(claim && claim.id, 100), kind: clean(claim && claim.kind, 40),
         subject: clean(claim && claim.subject, 180), predicate: clean(claim && claim.predicate, 100),
         object: clean(claim && claim.object, 180),
         polarity: claim && claim.polarity === false ? "negative" : "positive",
         modality: claim && claim.modality === "possible" ? "possible" : "asserted",
         verification: clean(claim && claim.verification, 40) || "unspecified",
+        status: clean(claim && claim.status, 32) || "current",
+        supersededBy: clean(claim && claim.supersededBy, 100),
+        validFrom: claim && claim.validFrom != null && Number.isFinite(Number(claim.validFrom)) ? Number(claim.validFrom) : null,
+        validTo: claim && claim.validTo != null && Number.isFinite(Number(claim.validTo)) ? Number(claim.validTo) : null,
         evidence: clean(claim && claim.evidence, 700)
       }));
       return {
@@ -82,9 +94,8 @@
     return String(left).normalize("NFKC").toLowerCase().replace(/ё/gu, "е").replace(/[^a-zа-я0-9]+/giu, " ").trim()
       === String(right).normalize("NFKC").toLowerCase().replace(/ё/gu, "е").replace(/[^a-zа-я0-9]+/giu, " ").trim();
   }
-  function claimRole(claim) {
-    const status = clean(claim && claim.status, 32).toLowerCase();
-    if ((status && status !== "current") || (claim && claim.supersededBy)) return "stale";
+  function claimRole(claim, knowledge) {
+    if (!claimIsCurrent(claim, knowledge)) return "stale";
     if (claim && (claim.kind === "hypothesis" || claim.verification === "hypothesis" || claim.modality === "possible")) return "hypothesis";
     if (claim && claim.polarity === false) return "negative";
     return "asserted";
@@ -191,7 +202,7 @@
         : [];
       claims.forEach((claim, index) => {
         if (!claim) return;
-        const role = claimRole(claim);
+        const role = claimRole(claim, knowledge);
         if (role === "stale") return;
         const unstructured = !hasClaims;
         sourceClaims.push({ item, claim, index, role: unstructured ? "unstructured" : role,
@@ -460,7 +471,7 @@
           const claim = entry.claim, role = claim.evidenceRole ||
             (claim.kind === "hypothesis" || claim.verification === "hypothesis" || claim.modality === "possible"
               ? "hypothesis" : claim.polarity === "negative" ? "negative" : "asserted");
-          if (claim.status && claim.status !== "current") return null;
+          if (!claimIsCurrent(claim, activeKnowledge)) return null;
           if (modality === "possible") {
             if (role !== "hypothesis" || (claim.polarity === "negative") !== (polarity === "negative")) return null;
           } else if (polarity === "negative") {
@@ -570,5 +581,5 @@
       fieldCovered(text, claim.object, knowledge) &&
       predicateCovered(text, claim.predicate, knowledge));
   }
-  window.NGSemanticRetrieval = Object.freeze({ version: 4, scoreRecord, buildEvidence, normaliseEvidencePlan, rankClaims, buildRequest, parseAnswer });
+  window.NGSemanticRetrieval = Object.freeze({ version: 5, scoreRecord, buildEvidence, normaliseEvidencePlan, rankClaims, buildRequest, parseAnswer });
 })();

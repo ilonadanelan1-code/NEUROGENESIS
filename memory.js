@@ -1012,7 +1012,7 @@
     return key(subject)+"|"+key(object);
   }
   function inquiryCandidates() {
-    const claims=memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&claim.status!=="superseded");
+    const claims=memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim));
     const edges=new Map();
     for(const entry of reasoningArchive) {
       const meta=cleanReasoning(entry.reasoning);if(!meta)continue;
@@ -1606,7 +1606,7 @@
     const decisions=currentModelDecisions(),additions=[];
     if(!decisions.length)return additions;
     for(const claim of claims||[]) {
-      const kind=claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"
+      const kind=claim&&claim.kind==="causal"&&claim.polarity!==false&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim)
         ?"supporting_claim":reviewKindForClaim(claim);
       if(!kind||isRepeatedEvidenceClaim(claim,previousClaims))continue;
       for(const decision of decisions) {
@@ -1767,7 +1767,7 @@
     const isBlocked=edge=>allClaims.some(claim=>claim&&
       ((claim.kind==="causal"&&claim.polarity===false)||(claim.kind==="observation"&&claim.polarity===false))&&
       edgeMatchesClaim(edge,claim));
-    const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
+    const edges=allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim)&&
       !isExcluded(claim)&&!isBlocked(claim)&&!isSuspended(claim));
     const paths=[];
     const startKey=KNOWLEDGE.canonicalEntity(start),targetKey=KNOWLEDGE.canonicalEntity(target);
@@ -2093,7 +2093,7 @@
     const parallelRows=[];
     const alreadyListedRoots=new Set(uniqueReports.map(row=>KNOWLEDGE.canonicalEntity(row.conclusion.subject)));
     const suspendedDecisions=decisions.filter(item=>item.strategy==="suspend");
-    const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&claim.status!=="superseded"&&
+    const candidateRoots=[...new Map(allClaims.filter(claim=>claim&&claim.kind==="causal"&&claim.polarity!==false&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim)&&
       !suspendedDecisions.some(item=>KNOWLEDGE.sameEntity(item.edgeSubject,claim.subject)&&KNOWLEDGE.sameEntity(item.edgeObject,claim.object)))
       .map(claim=>[KNOWLEDGE.canonicalEntity(claim.subject),claim.subject])).values()]
       .filter(root=>!alreadyListedRoots.has(KNOWLEDGE.canonicalEntity(root)));
@@ -3530,7 +3530,7 @@
     const claimMemoryScores=new Map((claimRecall&&claimRecall.memoryScores||[]).map(row=>[row.id,row.score]));
     const ranked = memories.filter(item => {
       const claims=Array.isArray(item&&item.claims)?item.claims:[];
-      return !claims.length||claims.some(claim=>claim&&(!claim.status||claim.status==="current")&&!claim.supersededBy);
+      return !claims.length||claims.some(claim=>claim&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim));
     }).map(item => {
       const base=scoreMemory(query,item,semanticSearchQueries),graphHit=graphByMemory.get(item.id);
       const frameHit=SEMANTIC_RETRIEVAL&&semanticFrame
@@ -3555,8 +3555,8 @@
     persist();
     function visibleMemoryText(item) {
       const claims=Array.isArray(item&&item.claims)?item.claims:[];
-      const current=claims.filter(claim=>claim&&(!claim.status||claim.status==="current")&&!claim.supersededBy);
-      const inactive=claims.some(claim=>claim&&((claim.status&&claim.status!=="current")||claim.supersededBy));
+      const current=claims.filter(claim=>claim&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim));
+      const inactive=claims.some(claim=>claim&&KNOWLEDGE&&!KNOWLEDGE.isCurrentClaim(claim));
       if(inactive&&current.length) return current.map(claim=>claim.evidence||[claim.subject,claim.predicate,claim.object].filter(Boolean).join(" — ")).filter(Boolean).join("; ");
       return item.text;
     }
@@ -3622,7 +3622,7 @@
       try {
         const evidence=claimRecall
           ?(Array.isArray(claimRecall.evidence)?claimRecall.evidence:[])
-          :SEMANTIC_RETRIEVAL.buildEvidence(ranked.map(hit=>({item:hit.item,score:hit.score})),8);
+          :SEMANTIC_RETRIEVAL.buildEvidence(ranked.map(hit=>({item:hit.item,score:hit.score})),8,KNOWLEDGE);
         if (evidence.length) {
           const request=SEMANTIC_RETRIEVAL.buildRequest(raw,query,semanticFrame,evidence,claimRecall);
           llmRequestInFlight=true;

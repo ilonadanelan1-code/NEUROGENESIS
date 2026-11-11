@@ -8,7 +8,7 @@ for (const file of ["knowledge.js", "semantic-core.js", "semantic-retrieval.js"]
   vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
 const knowledge = window.NGKnowledge, core = window.NGSemanticCore, retrieval = window.NGSemanticRetrieval;
-assert.ok(retrieval && retrieval.version === 4);
+assert.ok(retrieval && retrieval.version === 5);
 assert.deepEqual(Array.from(knowledge.tokens("сердец")), ["сердц"],
   "irregular Russian genitive plural should normalize to the same stem as «сердца»");
 assert.deepEqual(Array.from(knowledge.tokens("сердца")), ["сердц"],
@@ -431,6 +431,24 @@ assert.equal(retrieval.scoreRecord(
   core.analyse("Содержит ли прототип старый модуль?", { contextRelation: "new_topic" }, knowledge),
   { id: "M-ARCHIVED", text: archivedClaim.evidence, claims: [archivedClaim] }, knowledge
 ).score, 0, "broad semantic scoring must not reintroduce archived claims after claim retrieval rejects them");
+
+const expiredClaim = knowledge.sanitizeClaims([{
+  id: "C-EXPIRED", kind: "fact", subject: "Здание", predicate: "имеет",
+  object: "2 этажа", evidence: "В здании 2 этажа.",
+  validFrom: Date.now() - 86400000, validTo: Date.now() - 1000
+}])[0];
+const expiredMemory = { id: "M-EXPIRED", text: expiredClaim.evidence, claims: [expiredClaim] };
+const expiredFrame = core.analyse("Сколько этажей у здания?", { contextRelation: "new_topic" }, knowledge);
+assert.equal(retrieval.scoreRecord(expiredFrame, expiredMemory, knowledge).score, 0,
+  "expired claims must not regain retrieval score through broad semantic matching");
+const expiredRecall = retrieval.rankClaims(expiredFrame, [expiredMemory], knowledge, [
+  { id: "floors", subject: "Здание", attribute: "этажи" }
+]);
+assert.equal(expiredRecall.requirements[0].matched, false,
+  "an expired claim must not close a current factual requirement");
+assert.deepEqual(Array.from(retrieval.buildEvidence([{ item: expiredMemory, score: 0.9 }], 8, knowledge)[0].claims), [],
+  "the grounded synthesis evidence package must not include expired claims");
+
 
 assert.equal(retrieval.normaliseEvidencePlan([
   { id: "root", subject: "Река Альфа", attribute: "страна" },

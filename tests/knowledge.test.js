@@ -489,3 +489,61 @@ assert.equal(knowledge.version,22);
 const legacy = knowledge.sanitizeClaims(undefined);
 assert.equal(legacy.length, 0);
 console.log("NEUROGENESIS knowledge tests: Russian morphology, assistant identity, creator, entity profiles and conflict checks passed.");
+
+
+// Temporal claim validity is independent from recording time and lifecycle status.
+const temporalNow = Date.now();
+const timeBoundedClaim = knowledge.sanitizeClaims([{
+  ...location, id:"C-TEMPORAL-LOCATION", validFrom:temporalNow-60000, validTo:temporalNow+60000
+}])[0];
+assert.equal(timeBoundedClaim.validFrom, temporalNow-60000);
+assert.equal(timeBoundedClaim.validTo, temporalNow+60000);
+assert.equal(knowledge.isCurrentClaim(timeBoundedClaim, temporalNow), true);
+assert.equal(knowledge.isCurrentClaim({...timeBoundedClaim, validFrom:temporalNow+10000}, temporalNow), false,
+  "future-effective claims must not be treated as current");
+assert.equal(knowledge.isCurrentClaim({...timeBoundedClaim, validTo:temporalNow}, temporalNow), false,
+  "validTo is an exclusive boundary and an expired claim must not be current");
+assert.equal(knowledge.sanitizeClaims([{...location, validFrom:"not-a-date"}]).length, 0,
+  "malformed temporal metadata must not silently become an unbounded current fact");
+assert.equal(knowledge.sanitizeClaims([{...location, validFrom:temporalNow, validTo:temporalNow}]).length, 0,
+  "an empty or reversed validity interval must be rejected");
+
+const archivedLocation = knowledge.sanitizeClaims([{
+  ...location, id:"C-ARCHIVED-LOCATION", status:"archived"
+}])[0];
+assert.equal(knowledge.isCurrentClaim(archivedLocation), false);
+assert.equal(knowledge.answerQuestion("Где я живу?", [archivedLocation]), null,
+  "an archived location must not leak into a current-location answer");
+assert.match(knowledge.answerQuestion("Что ты знаешь обо мне?", [archivedLocation]), /архивная запись/u,
+  "profile summaries may preserve inactive history only with an explicit status label");
+
+const archivedCause = knowledge.sanitizeClaims([{
+  ...v18SleepCause, id:"C-ARCHIVED-SLEEP-CAUSE", status:"archived"
+}])[0];
+assert.equal(knowledge.causalEvidence("К чему может привести Недостаток сна?", [archivedCause]), null,
+  "archived causal edges must not be used to answer current causal questions");
+
+const orphanedSuperseded = {...location, id:"C-ORPHANED-SUPERSEDED", status:"superseded", supersededBy:"C-MISSING-REPLACEMENT"};
+knowledge.reconcileMutableHistory([orphanedSuperseded]);
+assert.equal(orphanedSuperseded.status, "superseded",
+  "history reconciliation must not reactivate a superseded claim when its replacement is absent");
+assert.equal(knowledge.isCurrentClaim(orphanedSuperseded), false);
+
+const nonOverlappingHistory = [
+  {...userFriend, id:"C-RELATION-OLD", validFrom:temporalNow-30000, validTo:temporalNow-10000},
+  {...negative, id:"C-RELATION-NEW", validFrom:temporalNow-10000, validTo:temporalNow+30000}
+];
+assert.equal(knowledge.findConflicts(nonOverlappingHistory, temporalNow-20000).length, 0,
+  "claims from successive non-overlapping validity periods must not be reported as a simultaneous conflict");
+assert.equal(knowledge.findConflicts([
+  {...userFriend, validFrom:temporalNow-10000, validTo:temporalNow+10000},
+  {...negative, validFrom:temporalNow-10000, validTo:temporalNow+10000}
+], temporalNow).length, 1,
+  "opposing claims with overlapping validity periods must still be reported as a conflict");
+
+const sameFactDifferentPeriods = knowledge.mergeClaims([], [
+  {...location, id:"C-SOCHI-PERIOD-1", validFrom:temporalNow-100000, validTo:temporalNow-50000},
+  {...location, id:"C-SOCHI-PERIOD-2", validFrom:temporalNow-40000, validTo:temporalNow}
+]);
+assert.equal(sameFactDifferentPeriods.length, 2,
+  "identical facts with different validity intervals must not be collapsed into one memory claim");
