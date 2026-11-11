@@ -13,6 +13,12 @@ const GROUPS=[
 const CORE=window.NGSemanticCore||null;
 const clean=(v,n=MAX_QUERY)=>String(v==null?"":v).replace(/\s+/gu," ").trim().slice(0,n);
 const normalise=v=>CORE?CORE.normalise(v,window.NGKnowledge):clean(v,1600).normalize("NFKC").toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/giu," ").trim().replace(/\s+/g," ");
+function requiresEvidencePlan(question){
+ const clauses=clean(question,MAX_QUERY).normalize("NFKC").toLowerCase().replace(/ё/gu,"е")
+  .split(/\s+(?:а также|и|затем|после этого|при этом|and|then)\s+/u).filter(Boolean);
+ const marker=/(?:^|[^\p{L}])(?:кто|что|где|куда|откуда|когда|сколько|какой|какая|какое|какие|каков\p{L}*|как|чем|чего|кому|чья|чье|чьи|who|what|where|when|which|how)(?=$|[^\p{L}])/iu;
+ return clauses.filter(clause=>marker.test(clause)).length>=2;
+}
 function tokens(v,k){const rows=k&&typeof k.tokens==="function"?k.tokens(v):CORE?CORE.tokens(v,k):normalise(v).split(" ").filter(x=>x.length>=3);return [...new Set((Array.isArray(rows)?rows:[]).filter(x=>typeof x==="string"&&x.length>1))].slice(0,48);}
 function synonymExpansion(v,k){const base=tokens(v,k),out=new Set(base);for(const group of GROUPS){const words=group.flatMap(x=>tokens(x,k));if(base.some(x=>words.includes(x)))for(const item of group)for(const word of tokens(item,k))out.add(word);}return [...out].slice(0,64);}
 function tokenOverlap(a,b,k){const x=new Set(synonymExpansion(a,k)),y=new Set(synonymExpansion(b,k));if(!x.size||!y.size)return 0;let n=0;for(const t of x)if(y.has(t))n++;return n/Math.min(x.size,y.size);}
@@ -106,7 +112,8 @@ function parse(raw){
  const normalizedFrame=semanticFrame?CORE.validateFrame({...semanticFrame,...(value.semanticFrame||{}),discourse:{...(value.semanticFrame&&value.semanticFrame.discourse||{}),relation}},fallback||{},window.NGKnowledge):null;
  const rawEvidencePlan=Array.isArray(value.evidencePlan)?value.evidencePlan:[];
  const evidencePlan=normaliseEvidencePlan(rawEvidencePlan);
- const evidencePlanInvalid=rawEvidencePlan.length>4||rawEvidencePlan.length>evidencePlan.length;
+ const evidencePlanInvalid=rawEvidencePlan.length>4||rawEvidencePlan.length>evidencePlan.length||
+  (requiresEvidencePlan(canonical)&&evidencePlan.length<2);
  return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan,evidencePlanInvalid,confidence};
 }
 window.NGSemanticQuery=Object.freeze({version:3,local,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});

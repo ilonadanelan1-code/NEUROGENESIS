@@ -134,6 +134,37 @@ for (const item of heldOutCases) {
 }
 
 
+const oneDigitMemory = {
+  id: "M-BUILDING-COUNT", text: "Здание имеет 2 этажа.", claims: [{
+    id: "C-BUILDING-COUNT", kind: "fact", subject: "здание", predicate: "имеет",
+    object: "2 этажа", evidence: "Здание имеет 2 этажа.", verification: "user_supplied"
+  }]
+};
+const oneDigitFrame = core.analyse("Сколько этажей у здания?", { contextRelation: "new_topic" }, knowledge);
+const oneDigitRecall = retrieval.rankClaims(oneDigitFrame, [oneDigitMemory], knowledge, [{
+  id: "floors", subject: oneDigitFrame.subject.text, attribute: oneDigitFrame.attribute.text
+}]);
+assert.equal(oneDigitRecall.complete, true,
+  "the one-digit source claim must close its quantity requirement");
+const spelledDigitAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Здание имеет два этажа.",
+  conclusions: [{ stepId: "floors", text: "Здание имеет два этажа.",
+    polarity: "positive", modality: "asserted", claimIds: ["C-BUILDING-COUNT"] }],
+  usedSources: ["M-BUILDING-COUNT"], usedClaims: ["C-BUILDING-COUNT"],
+  confidence: 0.91, insufficientEvidence: false
+}), oneDigitRecall.evidence, oneDigitRecall);
+assert.ok(spelledDigitAnswer,
+  "a one-digit numeral and its equivalent Russian number word must be treated as the same value");
+const swappedDigitAnswer = retrieval.parseAnswer(JSON.stringify({
+  answer: "Здание имеет три этажа.",
+  conclusions: [{ stepId: "floors", text: "Здание имеет три этажа.",
+    polarity: "positive", modality: "asserted", claimIds: ["C-BUILDING-COUNT"] }],
+  usedSources: ["M-BUILDING-COUNT"], usedClaims: ["C-BUILDING-COUNT"],
+  confidence: 0.99, insufficientEvidence: false
+}), oneDigitRecall.evidence, oneDigitRecall);
+assert.equal(swappedDigitAnswer, null,
+  "a one-digit value mismatch must be rejected even when subject and relation match");
+
 const chainMemories = [
   { id: "M-TALLINN-COUNTRY", text: "Таллин находится в Эстонии.", claims: [{
     id: "C-TALLINN-COUNTRY", kind: "fact", subject: "Таллин",

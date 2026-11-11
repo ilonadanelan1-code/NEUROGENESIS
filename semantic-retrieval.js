@@ -544,7 +544,7 @@
       /^\d+$/u.test(token) || Object.prototype.hasOwnProperty.call(NUMBER_TOKEN_ALIASES, token)
     );
     return [...new Set([...(Array.isArray(rows) ? rows : []), ...numericAndNumberWords].filter(token =>
-      typeof token === "string" && token.length > 1 && !EVIDENCE_STOP_TOKENS.has(token)
+      typeof token === "string" && (token.length > 1 || /^\d+$/u.test(token)) && !EVIDENCE_STOP_TOKENS.has(token)
     ))].map(token => [token, ...(NUMBER_TOKEN_ALIASES[token] || [])]);
   }
   function fieldCovered(text, value, knowledge) {

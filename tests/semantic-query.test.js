@@ -117,6 +117,32 @@ const malformedDependency = engine.parse(JSON.stringify({
 assert.ok(malformedDependency && malformedDependency.evidencePlanInvalid,
   "an entirely invalid dependency plan must not silently become a single-step query");
 
+
+const parseQuestionPlan = (canonicalQuestion, evidencePlan) => engine.parse(JSON.stringify({
+  contextRelation: "new_topic", canonicalQuestion, searchQueries: [canonicalQuestion],
+  confidence: 0.9, evidencePlan
+}));
+const simpleWithoutPlan = parseQuestionPlan("Сколько сердец у осьминога?", []);
+assert.equal(simpleWithoutPlan.evidencePlanInvalid, false,
+  "a genuinely single-question query may keep the simple empty evidence plan");
+const compoundQuestion = "В какой стране находится Таллин и кто президент этой страны?";
+const compoundWithoutPlan = parseQuestionPlan(compoundQuestion, []);
+assert.ok(compoundWithoutPlan && compoundWithoutPlan.evidencePlanInvalid,
+  "a compound question must not silently fall back to one semantic step when the model omits its plan");
+const compoundOneStep = parseQuestionPlan(compoundQuestion, [
+  { id: "country", subject: "Таллин", attribute: "страна" }
+]);
+assert.ok(compoundOneStep && compoundOneStep.evidencePlanInvalid,
+  "one step cannot silently represent two explicit interrogative clauses");
+const compoundComplete = parseQuestionPlan(compoundQuestion, [
+  { id: "country", subject: "Таллин", attribute: "страна" },
+  { id: "president", attribute: "президент",
+    subjectFrom: { stepId: "country", field: "object" }, dependsOn: ["country"] }
+]);
+assert.equal(compoundComplete.evidencePlanInvalid, false,
+  "a valid two-step plan must remain eligible for grounded retrieval");
+assert.equal(compoundComplete.evidencePlan.length, 2);
+
 const meaningFrame = window.NGSemanticCore.analyse("Сколько сердечных насосов у головоногого?", {contextRelation:"new_topic"}, knowledge);
 assert.equal(meaningFrame.answerType, "quantity");
 assert.match(meaningFrame.subject.text, /головоногого/u);
