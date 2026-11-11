@@ -4157,11 +4157,11 @@
         if (memories.length >= MAX_MEMORIES) { skipped++; continue; }
         candidate.id = makeId();
         candidate.tags = [...new Set(tokens(candidate.text))].slice(0, 6);
-        candidate.claims = KNOWLEDGE ? (candidate.claims.length ? candidate.claims : KNOWLEDGE.extractClaims(candidate.text)) : [];
+        candidate.createdAt = safeTime(candidate.createdAt, Date.now());
+        candidate.claims = KNOWLEDGE ? (candidate.claims.length ? candidate.claims : KNOWLEDGE.extractClaims(candidate.text, candidate.createdAt)) : [];
         candidate.claims=candidate.claims.map(claim=>claim.kind==="observation"?{...claim,sourceMemoryId:candidate.id}:claim);
         candidate.traceIds = candidate.tags.map(ensureTrace);
         ensureClaimTraces(candidate.claims);
-        candidate.createdAt = safeTime(candidate.createdAt, Date.now());
         candidate.updatedAt = Date.now();
         const related = memories.filter(old => old.tags.some(tag => candidate.tags.includes(tag))).slice(-4);
         memories.push(candidate);
