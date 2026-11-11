@@ -3,7 +3,7 @@ const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("nod
 const window={},sandbox={window,Math,Map,Set,JSON,Object,Array,String,Number,RegExp};
 vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),sandbox,{filename:"contextual-attention.js"});
 const api=window.NGContextualModel;
-assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V3");
+assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V4");
 const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
  "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
  "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
@@ -56,12 +56,21 @@ assert.notDeepEqual(trainedState.norm1Gamma,initialState.norm1Gamma,
  "layer normalization scale must be trainable");
 assert.notDeepEqual(trainedState.relativePositionBias,initialState.relativePositionBias,
  "per-head relative positional biases must receive gradient updates");
+assert.notDeepEqual(trainedState.subwordEmbeddings,initialState.subwordEmbeddings,
+ "character n-gram embeddings must receive gradient updates");
 for(const head of attention.heads){
  assert.equal(head.relativePositionBias.length,4);
  assert.ok(head.relativePositionBias.every(Number.isFinite));
 }
 const analysis=model.analyse("нейрон получает сигнал");
 assert.equal(analysis.tokens.length,3);assert.ok(analysis.positions.length>0);
+const oovAnalysis=model.analyse("нейрон поглощает сигнал");
+assert.deepEqual(oovAnalysis.unknownTokens,["поглощает"]);assert.equal(oovAnalysis.oovCount,1);
+const oovScore=model.score("нейрон поглощает сигнал",1);
+assert.equal(oovScore.targetKnown,false);assert.equal(oovScore.targetProbability,null);
+assert.ok(oovScore.subwordFeatures>0&&oovScore.contextualVector.every(Number.isFinite));
+assert.ok(oovScore.attention.some(row=>row.token==="нейрон")&&oovScore.attention.some(row=>row.token==="сигнал"),
+ "unknown words must receive a subword context representation");
 const firstRunState=model.exportState();
 const repeatReport=model.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
 assert.deepEqual(model.exportState(),firstRunState,"an isolated training run must restart from the same initial weights and random token initialization");
@@ -76,9 +85,11 @@ assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"tra
 assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"),
  "the complete multi-head architecture must persist");
 assert.throws(()=>restored.loadState({schema:api.schema,version:3,dimension:999,windowSize:2,heads:3,vocabulary:[]}),/dimensions, heads or vocabulary/u);
-assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V2",version:2}),/Unsupported contextual model state/u);
+assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V3",version:3}),/Unsupported contextual model state/u);
 const malformedState=restored.exportState();malformedState.relativePositionBias[0].pop();
 assert.throws(()=>restored.loadState(malformedState),/weights are malformed/u);
+const malformedSubwords=restored.exportState();malformedSubwords.subwordEmbeddings.pop();
+assert.throws(()=>restored.loadState(malformedSubwords),/weights are malformed/u);
 assert.throws(()=>api.create({dimension:10,heads:3}),/divisible/u);
 const longModel=api.create({dimension:12,windowSize:4,heads:3,seed:321});
 const longText="нейрон получает сигнал через скрытый контекст и затем активирует сеть";

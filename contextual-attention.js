@@ -1,9 +1,17 @@
 (() => {
 "use strict";
-const SCHEMA="NG_CONTEXTUAL_ATTENTION_V3",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8;
+const SCHEMA="NG_CONTEXTUAL_ATTENTION_V4",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24;
 const clean=(value,limit=4000)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 function tokenize(value){return clean(value,6000).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,MAX_TOKENS)||[];}
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
+function subwordFeatures(raw){
+ const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"),chars=Array.from("<"+token+">"),features=new Set();
+ const hash=value=>{let result=2166136261;for(let i=0;i<value.length;i++){result^=value.charCodeAt(i);result=Math.imul(result,16777619);}return(result>>>0)%SUBWORD_BUCKETS;};
+ for(let size=2;size<=4;size++)for(let start=0;start+size<=chars.length;start++){
+  features.add(hash(chars.slice(start,start+size).join("")));if(features.size>=MAX_SUBWORD_FEATURES)return[...features];
+ }
+ if(!features.size&&token)features.add(hash(token));return[...features];
+}
 function makeRandom(seed){let state=(Math.floor(finite(seed,173))||173)>>>0;return()=>{state+=0x6D2B79F5;let v=state;v=Math.imul(v^v>>>15,v|1);v^=v+Math.imul(v^v>>>7,v|61);return((v^v>>>14)>>>0)/4294967296;};}
 function matrix(rows,cols,random,scale){return Array.from({length:rows},()=>Array.from({length:cols},()=>((random()*2)-1)*scale));}
 const zeros=n=>Array.from({length:n},()=>0);
@@ -52,7 +60,7 @@ function create(options={}){
  const random=makeRandom(options.seed),tokenSeed=finite(options.seed,173)+104729;
  let tokenRandom=makeRandom(tokenSeed);
  const scale=Math.sqrt(2/(dimension+headDimension));
- const vocabulary=[],indices=new Map(),embeddings=[],positions=matrix(windowSize*2,dimension,random,.04);
+ const vocabulary=[],indices=new Map(),embeddings=[],subwordEmbeddings=matrix(SUBWORD_BUCKETS,dimension,random,.04),positions=matrix(windowSize*2,dimension,random,.04);
  const relativePositionBias=Array.from({length:heads},()=>zeros(windowSize*2));
  const attentionHeads=Array.from({length:heads},()=>({
   query:matrix(headDimension,dimension,random,scale),
@@ -82,23 +90,26 @@ function create(options={}){
   const context=[];
   for(let offset=-windowSize;offset<=windowSize;offset++){
    if(offset===0)continue;const position=targetIndex+offset;
-   if(position<0||position>=sequence.length)continue;const tokenIndex=sequence[position];
-   if(tokenIndex==null||tokenIndex<0)continue;
+   if(position<0||position>=sequence.length)continue;const feature=sequence[position];
+   if(!feature||feature.tokenIndex<0&&!feature.subwordBuckets.length)continue;
    const slot=offset<0?offset+windowSize:offset+windowSize-1;
-   context.push({tokenIndex,slot,offset});
+   context.push({tokenIndex:feature.tokenIndex,subwordBuckets:feature.subwordBuckets,slot,offset});
   }return context;
  }
  function collectExamples(rows,expand){
   const examples=[];
   for(const row of rows.slice(0,160)){
-   const sequence=expand?tokenize(row).map(addToken):tokenize(row).map(token=>indices.has(token)?indices.get(token):-1);
-   for(let i=0;i<sequence.length;i++){const context=contextFor(sequence,i);if(sequence[i]>=0&&context.length)examples.push({context,target:sequence[i]});}
+   const sequence=tokenize(row).map(token=>({tokenIndex:expand?addToken(token):(indices.has(token)?indices.get(token):-1),subwordBuckets:subwordFeatures(token)}));
+   for(let i=0;i<sequence.length;i++){const context=contextFor(sequence,i);if(sequence[i].tokenIndex>=0&&context.length)examples.push({context,target:sequence[i].tokenIndex});}
   }return examples;
  }
  function forward(context){
   const rows=context.map(item=>{
-   const vector=zeros(dimension),embedding=embeddings[item.tokenIndex],position=positions[item.slot];
-   for(let i=0;i<dimension;i++)vector[i]=embedding[i]+position[i];
+   const vector=zeros(dimension),embedding=item.tokenIndex>=0?embeddings[item.tokenIndex]:null,position=positions[item.slot];
+   for(let i=0;i<dimension;i++){
+    let subword=0;for(const bucket of item.subwordBuckets||[])subword+=subwordEmbeddings[bucket][i];
+    vector[i]=(embedding?embedding[i]:0)+(item.subwordBuckets&&item.subwordBuckets.length?subword/item.subwordBuckets.length:0)+position[i];
+   }
    return{...item,vector};
   });
   const mean=zeros(dimension);
@@ -178,14 +189,15 @@ function create(options={}){
    }
    headGradients.push({dQueryWeights,dKeyWeights,dValueWeights,dInputRows,dRelativePositionBias:dScores.slice()});
   }
-  const embeddingGradients=new Map(),positionGradients=new Map();
+  const embeddingGradients=new Map(),subwordGradients=new Map(),positionGradients=new Map();
   for(let row=0;row<pass.rows.length;row++){
    const item=pass.rows[row],gradient=dMean.map(value=>value/pass.rows.length);
    for(const headGradient of headGradients)for(let i=0;i<dimension;i++)gradient[i]+=headGradient.dInputRows[row][i];
-   if(!embeddingGradients.has(item.tokenIndex))embeddingGradients.set(item.tokenIndex,zeros(dimension));
+   if(item.tokenIndex>=0&&!embeddingGradients.has(item.tokenIndex))embeddingGradients.set(item.tokenIndex,zeros(dimension));
+   const buckets=item.subwordBuckets||[];for(const bucket of buckets)if(!subwordGradients.has(bucket))subwordGradients.set(bucket,zeros(dimension));
    if(!positionGradients.has(item.slot))positionGradients.set(item.slot,zeros(dimension));
-   const eg=embeddingGradients.get(item.tokenIndex),pg=positionGradients.get(item.slot);
-   for(let i=0;i<dimension;i++){eg[i]+=gradient[i];pg[i]+=gradient[i];}
+   const eg=item.tokenIndex>=0?embeddingGradients.get(item.tokenIndex):null,pg=positionGradients.get(item.slot);
+   for(let i=0;i<dimension;i++){if(eg)eg[i]+=gradient[i];pg[i]+=gradient[i];for(const bucket of buckets)subwordGradients.get(bucket)[i]+=gradient[i]/buckets.length;}
   }
   const update=(weights,gradients)=>{for(let row=0;row<weights.length;row++)for(let col=0;col<weights[row].length;col++)weights[row][col]-=learningRate*clipped(gradients[row][col]);};
   const updateVector=(weights,gradients)=>{for(let i=0;i<weights.length;i++)weights[i]-=learningRate*clipped(gradients[i]);};
@@ -201,6 +213,7 @@ function create(options={}){
    updateVector(relativePositionBias[h],headGradients[h].dRelativePositionBias);
   }
   for(const[token,gradient]of embeddingGradients)updateVector(embeddings[token],gradient);
+  for(const[bucket,gradient]of subwordGradients)updateVector(subwordEmbeddings[bucket],gradient);
   for(const[slot,gradient]of positionGradients)updateVector(positions[slot],gradient);
   return loss;
  }
@@ -277,29 +290,29 @@ function create(options={}){
   return count;
  }
  function score(text,targetIndex){
-  const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
-  if(!tokens.length||!indices.has(tokens[safeIndex]))return null;
-  const sequence=tokens.map(token=>indices.has(token)?indices.get(token):-1);
-  const context=contextFor(sequence,safeIndex).filter(row=>row.tokenIndex>=0);
-  if(!context.length)return null;
+  const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));if(!tokens.length)return null;
+  const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
+  const context=contextFor(sequence,safeIndex);if(!context.length)return null;
   const pass=forward(context),headRows=pass.headPasses.map((head,index)=>({
    head:index+1,attention:pass.rows.map((row,position)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:head.weights[position]})),
    relativePositionBias:relativePositionBias[index].slice(),vector:head.vector.slice()
   }));
-  const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),
-   weight:pass.headPasses.reduce((sum,head)=>sum+head.weights[index],0)/heads}));
-  return{token:tokens[safeIndex],index:safeIndex,contextualVector:pass.norm2.output.slice(),attention:aggregate,heads:headRows,
-   predictions:topPredictions(pass.probabilities,vocabulary),targetProbability:pass.probabilities[sequence[safeIndex]]||0,
-   normalization:{first:pass.norm1.output.slice(),second:pass.norm2.output.slice()},
-   feedForward:{hidden:pass.ffHidden.slice(),output:pass.ffOutput.slice()}};
+  const aggregate=pass.rows.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:pass.headPasses.reduce((sum,head)=>sum+head.weights[index],0)/heads}));
+  const targetIndexInVocabulary=sequence[safeIndex].tokenIndex;
+  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:sequence[safeIndex].subwordBuckets.length,
+   contextualVector:pass.norm2.output.slice(),attention:aggregate,heads:headRows,predictions:topPredictions(pass.probabilities,vocabulary),
+   targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
+   normalization:{first:pass.norm1.output.slice(),second:pass.norm2.output.slice()},feedForward:{hidden:pass.ffHidden.slice(),output:pass.ffOutput.slice()}};
  }
  function analyse(text){const tokens=tokenize(text),positions=[];for(let i=0;i<tokens.length;i++){const row=score(text,i);if(row)positions.push(row);}
-  return{schema:SCHEMA,version:3,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,positions};}
- function status(){return{schema:SCHEMA,version:3,vocabularySize:vocabulary.length,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
+  const unknownTokens=tokens.filter(token=>!indices.has(token));
+  return{schema:SCHEMA,version:4,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,
+   knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,positions};}
+ function status(){return{schema:SCHEMA,version:4,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice());
-  return{schema:SCHEMA,version:3,dimension,windowSize,heads,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),
+  return{schema:SCHEMA,version:4,dimension,windowSize,heads,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),
    positions:copy(positions),relativePositionBias:copy(relativePositionBias),attentionHeads:attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),
    attentionOutput:copy(attentionOutput),norm1Gamma:norm1Gamma.slice(),norm1Beta:norm1Beta.slice(),
    norm2Gamma:norm2Gamma.slice(),norm2Beta:norm2Beta.slice(),feedForward1:copy(feedForward1),
@@ -307,7 +320,7 @@ function create(options={}){
    outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};
  }
  function loadState(state){
-  if(!state||state.schema!==SCHEMA||state.version!==3)throw new TypeError("Unsupported contextual model state.");
+  if(!state||state.schema!==SCHEMA||state.version!==4)throw new TypeError("Unsupported contextual model state.");
   if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||
    !Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY)throw new TypeError("Contextual model dimensions, heads or vocabulary are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>
@@ -316,7 +329,7 @@ function create(options={}){
   const count=state.vocabulary.length;
   const validHeads=Array.isArray(state.attentionHeads)&&state.attentionHeads.length===heads&&state.attentionHeads.every(head=>
    head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension));
-  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||
+  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||
    !validMatrix(state.relativePositionBias,heads,windowSize*2)||!validHeads||
    !validMatrix(state.attentionOutput,dimension,dimension)||!validVector(state.norm1Gamma,dimension)||!validVector(state.norm1Beta,dimension)||
    !validVector(state.norm2Gamma,dimension)||!validVector(state.norm2Beta,dimension)||
@@ -328,7 +341,7 @@ function create(options={}){
   state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
    if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});
   const copy=rows=>rows.map(row=>row.map(Number)),copyVector=values=>values.map(Number);
-  embeddings.length=0;embeddings.push(...copy(state.embeddings));positions.splice(0,positions.length,...copy(state.positions));
+  embeddings.length=0;embeddings.push(...copy(state.embeddings));subwordEmbeddings.splice(0,subwordEmbeddings.length,...copy(state.subwordEmbeddings));positions.splice(0,positions.length,...copy(state.positions));
   relativePositionBias.splice(0,relativePositionBias.length,...copy(state.relativePositionBias));
   for(let h=0;h<heads;h++){attentionHeads[h].query=copy(state.attentionHeads[h].query);attentionHeads[h].key=copy(state.attentionHeads[h].key);attentionHeads[h].value=copy(state.attentionHeads[h].value);}
   attentionOutput=copy(state.attentionOutput);norm1Gamma=copyVector(state.norm1Gamma);norm1Beta=copyVector(state.norm1Beta);
@@ -345,9 +358,9 @@ function create(options={}){
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus});
+ return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
-root.NGContextualModel=Object.freeze({schema:SCHEMA,version:3,create,fromState,tokenize});
+root.NGContextualModel=Object.freeze({schema:SCHEMA,version:4,create,fromState,tokenize,subwordFeatures});
 })();
