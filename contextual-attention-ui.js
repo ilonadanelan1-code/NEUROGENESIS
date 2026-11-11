@@ -27,9 +27,10 @@
     const status=model.status();
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
     metrics.textContent=message||(status.trained
-      ?"Головы: "+status.heads+" · размер головы: "+status.headDimension+
-       " · окно: ±"+status.windowSize+" · FFN: "+status.feedForwardDimension+" · словарь: "+status.vocabularySize+
-       " · шаги: "+status.trainingSteps+" · ошибка: "+Number(status.lastLoss).toFixed(3)
+      ?"Головы: "+status.heads+" · окно: ±"+status.windowSize+" · словарь: "+status.vocabularySize+
+       " · шаги: "+status.trainingSteps+" · train loss: "+Number(status.lastLoss).toFixed(3)+
+       (status.lastTraining?" · val loss: "+Number(status.lastTraining.validationLoss).toFixed(3)+
+        " · test loss: "+(status.lastTraining.testLoss==null?"нет покрытия":Number(status.lastTraining.testLoss).toFixed(3)):"")
       :"Архитектура: "+status.heads+" головы · окно ±"+status.windowSize+" · обучаемые позиционные смещения · остаточные связи · LayerNorm · FFN. Добавь предложения и запусти обучение.");
   }
   let saved=null;
@@ -54,9 +55,15 @@
     if(!rows.length){renderStatus("Добавь хотя бы одно предложение для обучения.");return;}
     trainButton.disabled=true;trainButton.textContent="ОБУЧЕНИЕ…";
     try{
-      const report=model.train(rows,{epochs:55,learningRate:0.035});save();
-      renderStatus("Готово: "+report.examples+" примеров · "+report.epochs+" эпох · "+report.heads+" головы · ошибка "+
-        report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3));
+      const report=model.train(rows,{epochs:55,learningRate:0.035,splitSeed:902});save();
+      renderStatus("Готово · train "+report.trainExamples+" примеров · val "+report.validationExamples+
+        " · test "+report.testExamples+" · покрытие val/test "+Math.round(report.validationCoverage*100)+"%/"+
+        Math.round(report.testCoverage*100)+"% · val acc "+Math.round(report.validationAccuracy*100)+"%"+
+        " · test acc "+(report.testAccuracy==null?"нет покрытия":Math.round(report.testAccuracy*100)+"%")+
+        " · лучшая эпоха "+report.bestEpoch+"/"+report.epochs+
+        " · train loss "+report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3)+
+        " · val loss "+report.validationLoss.toFixed(3)+
+        " · test loss "+(report.testLoss==null?"недостаточно известных слов":report.testLoss.toFixed(3)));
       stateLabel.textContent="ОБУЧЕНА";
     }catch(error){renderStatus("Обучение не выполнено: "+error.message);}
     finally{trainButton.disabled=false;trainButton.textContent="Обучить контекстную модель";}

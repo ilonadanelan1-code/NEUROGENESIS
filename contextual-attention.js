@@ -27,6 +27,20 @@ function layerNormBackward(gradient,cache,gamma){
  return{inputGradient,gammaGradient:gradient.map((value,index)=>value*cache.normalized[index]),betaGradient:gradient.slice()};
 }
 function clipped(value){return Math.max(-5,Math.min(5,value||0));}
+function splitCorpus(texts,seed=902){
+ const unique=new Map(),rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,160);
+ for(const row of rows){const identity=tokenize(row).join(" ");if(identity&&!unique.has(identity))unique.set(identity,row);}
+ const entries=Array.from(unique.entries());
+ if(entries.length<3)throw new TypeError("At least three distinct sentences are required for train, validation and test splits.");
+ const safeSeed=Math.floor(finite(seed,902))>>>0;
+ const hash=value=>{let result=(2166136261^safeSeed)>>>0;for(let i=0;i<value.length;i++){result^=value.charCodeAt(i);result=Math.imul(result,16777619);}return result>>>0;};
+ entries.sort((a,b)=>hash(a[0])-hash(b[0])||(a[0]<b[0]?-1:a[0]>b[0]?1:0));
+ let trainCount=Math.max(1,Math.floor(entries.length*.7)),validationCount=Math.max(1,Math.floor(entries.length*.15));
+ if(trainCount+validationCount>=entries.length){trainCount=entries.length-2;validationCount=1;}
+ const rowsFrom=(start,end)=>entries.slice(start,end).map(entry=>entry[1]);
+ return{train:rowsFrom(0,trainCount),validation:rowsFrom(trainCount,trainCount+validationCount),
+  test:rowsFrom(trainCount+validationCount,entries.length),uniqueRows:entries.length,duplicateRows:rows.length-entries.length,seed:safeSeed};
+}
 function create(options={}){
  const dimension=Math.max(4,Math.min(48,Math.floor(finite(options.dimension,12))));
  const requestedHeads=Math.max(1,Math.min(6,Math.floor(finite(options.heads,3))));
@@ -35,7 +49,9 @@ function create(options={}){
  if(!heads)throw new RangeError("Model dimension must be divisible by the requested attention heads.");
  const headDimension=dimension/heads,feedForwardDimension=dimension*2;
  const windowSize=Math.max(1,Math.min(MAX_WINDOW_SIZE,Math.floor(finite(options.windowSize,4))));
- const random=makeRandom(options.seed),scale=Math.sqrt(2/(dimension+headDimension));
+ const random=makeRandom(options.seed),tokenSeed=finite(options.seed,173)+104729;
+ let tokenRandom=makeRandom(tokenSeed);
+ const scale=Math.sqrt(2/(dimension+headDimension));
  const vocabulary=[],indices=new Map(),embeddings=[],positions=matrix(windowSize*2,dimension,random,.04);
  const relativePositionBias=Array.from({length:heads},()=>zeros(windowSize*2));
  const attentionHeads=Array.from({length:heads},()=>({
@@ -58,8 +74,8 @@ function create(options={}){
   if(indices.has(token))return indices.get(token);
   if(vocabulary.length>=MAX_VOCABULARY)return-1;
   const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);
-  embeddings.push(Array.from({length:dimension},()=>((random()*2)-1)*.08));
-  outputWeights.push(Array.from({length:dimension},()=>((random()*2)-1)*.08));outputBias.push(0);
+  embeddings.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));
+  outputWeights.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));outputBias.push(0);
   return index;
  }
  function contextFor(sequence,targetIndex){
@@ -188,20 +204,68 @@ function create(options={}){
   for(const[slot,gradient]of positionGradients)updateVector(positions[slot],gradient);
   return loss;
  }
- function evaluateExamples(examples){if(!examples.length)return null;let total=0;for(const example of examples){const pass=forward(example.context);total-=Math.log(Math.max(1e-12,pass.probabilities[example.target]||0));}return total/examples.length;}
+ function evaluateExamples(examples){
+  if(!examples.length)return{loss:null,accuracy:null,examples:0};
+  let total=0,correct=0;
+  for(const example of examples){
+   const probabilities=forward(example.context).probabilities;
+   total-=Math.log(Math.max(1e-12,probabilities[example.target]||0));
+   let best=0;for(let i=1;i<probabilities.length;i++)if(probabilities[i]>probabilities[best])best=i;
+   if(best===example.target)correct++;
+  }
+  return{loss:total/examples.length,accuracy:correct/examples.length,examples:examples.length};
+ }
  function train(texts,trainOptions={}){
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,160);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
-  const examples=collectExamples(rows,true);
-  if(!examples.length||vocabulary.length<2)throw new Error("Training needs at least two known words in context.");
+  const split=splitCorpus(rows,trainOptions.splitSeed);
+  // Isolated evaluations must never inherit weights or token initialization from an earlier run.
+  loadState(initialCheckpoint);
+  tokenRandom=makeRandom(tokenSeed);
+  const trainExamples=collectExamples(split.train,true);
+  const validationExamples=collectExamples(split.validation,false);
+  const testExamples=collectExamples(split.test,false);
+  if(!trainExamples.length||vocabulary.length<2)throw new Error("Training needs at least two known words in the training split.");
+  if(!validationExamples.length)throw new Error("The validation split has no known target words in context. Add more varied training sentences.");
   const epochs=Math.max(1,Math.min(240,Math.floor(finite(trainOptions.epochs,40))));
   const learningRate=Math.max(.0001,Math.min(.2,finite(trainOptions.learningRate,.025)));
-  const initialLoss=evaluateExamples(examples);let finalLoss=initialLoss;
-  for(let epoch=0;epoch<epochs;epoch++){let total=0;for(const example of examples)total+=trainExample(example,learningRate);finalLoss=total/examples.length;}
-  trainingSteps+=examples.length*epochs;lastLoss=finalLoss;
-  lastTraining={examples:examples.length,epochs,learningRate,initialLoss,finalLoss,lossReduction:initialLoss-finalLoss,
-   vocabularySize:vocabulary.length,trainingSteps,heads,headDimension,feedForwardDimension};
+  const patience=Math.max(2,Math.min(60,Math.floor(finite(trainOptions.patience,Math.max(6,Math.min(30,epochs*.25))))));
+  const initialTrain=evaluateExamples(trainExamples),initialValidation=evaluateExamples(validationExamples);
+  let bestValidationLoss=initialValidation.loss,bestEpoch=0,bestState=exportState(),staleEpochs=0,epochsRun=0,earlyStopped=false;
+  for(let epoch=0;epoch<epochs;epoch++){
+   for(const example of trainExamples)trainExample(example,learningRate);
+   trainingSteps+=trainExamples.length;epochsRun=epoch+1;
+   const validation=evaluateExamples(validationExamples);
+   if(validation.loss<bestValidationLoss-1e-8){
+    bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;
+   }else{
+    staleEpochs++;
+    if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}
+   }
+  }
+  const attemptedSteps=trainingSteps;
+  loadState(bestState);
+  const selectedSteps=trainingSteps;
+  const finalTrain=evaluateExamples(trainExamples),finalValidation=evaluateExamples(validationExamples);
+  // Test is inspected only after restoring the validation-selected checkpoint.
+  const finalTest=evaluateExamples(testExamples);
+  lastLoss=finalTrain.loss;
+  const eligibleTargets=rowsForTargets(split.validation)+rowsForTargets(split.test);
+  const coveredTargets=validationExamples.length+testExamples.length;
+  lastTraining={examples:trainExamples.length,trainExamples:trainExamples.length,validationExamples:validationExamples.length,
+   testExamples:testExamples.length,trainRows:split.train.length,validationRows:split.validation.length,testRows:split.test.length,
+   uniqueRows:split.uniqueRows,duplicateRows:split.duplicateRows,splitSeed:split.seed,epochs:epochsRun,requestedEpochs:epochs,
+   bestEpoch,patience,earlyStopped,learningRate,initialLoss:initialTrain.loss,finalLoss:finalTrain.loss,
+   initialValidationLoss:initialValidation.loss,validationLoss:finalValidation.loss,validationAccuracy:finalValidation.accuracy,
+   testLoss:finalTest.loss,testAccuracy:finalTest.accuracy,validationCoverage:validationExamples.length/Math.max(1,rowsForTargets(split.validation)),
+   testCoverage:testExamples.length/Math.max(1,rowsForTargets(split.test)),heldOutCoverage:coveredTargets/Math.max(1,eligibleTargets),
+   evaluationIsolated:true,lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,
+   trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension};
   return{...lastTraining};
+ }
+ function rowsForTargets(rows){
+  let count=0;for(const row of rows){const tokens=tokenize(row);if(tokens.length>1)count+=tokens.length;}
+  return count;
  }
  function score(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
@@ -231,7 +295,7 @@ function create(options={}){
    attentionOutput:copy(attentionOutput),norm1Gamma:norm1Gamma.slice(),norm1Beta:norm1Beta.slice(),
    norm2Gamma:norm2Gamma.slice(),norm2Beta:norm2Beta.slice(),feedForward1:copy(feedForward1),
    feedForward1Bias:feedForward1Bias.slice(),feedForward2:copy(feedForward2),feedForward2Bias:feedForward2Bias.slice(),
-   outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss};
+   outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};
  }
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==3)throw new TypeError("Unsupported contextual model state.");
@@ -264,9 +328,13 @@ function create(options={}){
   feedForward2=copy(state.feedForward2);feedForward2Bias=copyVector(state.feedForward2Bias);
   outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
   trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
+  const report=state.lastTraining;
+  lastTraining=report&&Number.isFinite(Number(report.validationLoss))
+   ?{...report,validationLoss:Number(report.validationLoss),testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
   return status();
  }
- return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize});
+ const initialCheckpoint=exportState();
+ return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
