@@ -78,12 +78,13 @@ function normaliseEvidencePlan(input){
   const refId=ref?clean(ref.stepId,24):"";
   if(ref&&(!known.has(refId)||ref.field!=="object"))continue;
   const subject=clean(row.subject,180),attribute=clean(row.attribute,140);
-  if(!attribute||(!subject&&!ref))continue;
-  const dependsOn=[...new Set((Array.isArray(row.dependsOn)?row.dependsOn:[])
-   .filter(value=>typeof value==="string").map(value=>clean(value,24)).filter(value=>known.has(value)))];
-  if(refId&&!dependsOn.includes(refId))dependsOn.push(refId);
+  if(!attribute||(ref?!!subject:!subject))continue;
+  const declared=[...new Set((Array.isArray(row.dependsOn)?row.dependsOn:[])
+   .filter(value=>typeof value==="string").map(value=>clean(value,24)).filter(Boolean))];
+  if(ref){if(declared.some(value=>value!==refId))continue;}
+  else if(declared.length)continue;
   steps.push({id,question:clean(row.question,240),subject,attribute,
-   subjectFrom:refId?{stepId:refId,field:"object"}:null,dependsOn:dependsOn.slice(0,3)});
+   subjectFrom:refId?{stepId:refId,field:"object"}:null,dependsOn:refId?[refId]:[]});
   known.add(id);
  }
  return steps;
@@ -103,7 +104,10 @@ function parse(raw){
  const expected=CORE?CORE.answerType(canonical):"description";
  const number=Number(value.confidence),confidence=Number.isFinite(number)?Math.max(0,Math.min(1,number)):0;
  const normalizedFrame=semanticFrame?CORE.validateFrame({...semanticFrame,...(value.semanticFrame||{}),discourse:{...(value.semanticFrame&&value.semanticFrame.discourse||{}),relation}},fallback||{},window.NGKnowledge):null;
- return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan:normaliseEvidencePlan(value.evidencePlan),confidence};
+ const rawEvidencePlan=Array.isArray(value.evidencePlan)?value.evidencePlan:[];
+ const evidencePlan=normaliseEvidencePlan(rawEvidencePlan);
+ const evidencePlanInvalid=rawEvidencePlan.length>4||rawEvidencePlan.length>evidencePlan.length;
+ return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan,evidencePlanInvalid,confidence};
 }
 window.NGSemanticQuery=Object.freeze({version:3,local,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
 })();
