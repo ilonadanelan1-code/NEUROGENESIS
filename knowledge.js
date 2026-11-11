@@ -155,6 +155,7 @@
       {pattern:/^(?:до)\s+/iu,relation:"until"},
       {pattern:/^(?:после)\s+/iu,relation:"after"},
       {pattern:/^(?:по)\s+/iu,relation:"through"},
+      {pattern:/^(?:на)\s+/iu,relation:"during"},
       {pattern:/^(?:в|за)\s+/iu,relation:"during"}
     ];
     for(const marker of prefixMarkers) {
@@ -177,7 +178,7 @@
         return {text:tail, ...metadata};
       }
     }
-    const suffixPattern=/\s+(начиная\s+с|с|до|по|после|во\s+время|в\s+течение|в|за)\s+(.+)$/giu;
+    const suffixPattern=/\s+(начиная\s+с|с|до|по|после|во\s+время|в\s+течение|на|в|за)\s+(.+)$/giu;
     const suffixes=[...raw.matchAll(suffixPattern)].reverse();
     for(const found of suffixes) {
       const parsed=parseTemporalPeriod(found[2],referenceTime);
@@ -232,10 +233,10 @@
     if(!q.includes("где")||!/(?:жив|жил|жила|жили|нахож|находил)/u.test(q))return null;
     const requested=temporalPeriodFromQuery(query,referenceTime);
     if(!requested)return null;
-    const locations=(Array.isArray(claims)?claims:[]).filter(claim=>
-      claim&&claim.kind==="fact"&&claim.subject==="user"&&factFamily(claim.predicate)==="location"&&
-      String(claim.status||"current").toLowerCase()==="current"&&!claim.supersededBy
+    const allLocations=(Array.isArray(claims)?claims:[]).filter(claim=>
+      claim&&claim.kind==="fact"&&claim.subject==="user"&&factFamily(claim.predicate)==="location"&&!claim.supersededBy
     );
+    const locations=allLocations.filter(claim=>String(claim.status||"current").toLowerCase()==="current");
     const intersects=locations.filter(claim=>{
       const window=claimTimeWindow(claim);
       if(!window.valid||(window.from===null&&window.to===null))return false;
@@ -265,7 +266,8 @@
       return "В период «"+period+"» встречаются записи о нескольких местах проживания: "+
         details.join("; ")+". Запрошенный период может охватывать разные отрезки времени; без более точной даты я не буду выбирать одно место для всего периода.";
     }
-    const undated=locations.filter(claim=>claim.status==="historical"&&claim.validFrom==null&&claim.validTo==null);
+    const undated=allLocations.filter(claim=>["historical","superseded"].includes(String(claim.status||"").toLowerCase())&&
+      claim.validFrom==null&&claim.validTo==null);
     if(undated.length) return "Я нашёл прежнее самоописание: "+undated.map(claim=>claim.object).join(", ")+
       ", но в нём нет даты или периода. Поэтому не могу надёжно определить, относилось ли оно к «"+period+"».";
     return "В памяти нет датированного утверждения о месте проживания за период «"+period+"».";

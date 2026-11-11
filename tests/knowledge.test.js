@@ -102,6 +102,12 @@ assert.equal(lastYearFact.temporalPrecision,"year");
 assert.equal(knowledge.answerQuestion("Где я жил в прошлом году?",[lastYearFact]).includes("Сочи"),true,
   "a historical-period question should retrieve a claim that is no longer current");
 
+const lastWeekFact=knowledge.extractClaims("На прошлой неделе я жил в Казани",temporalAnchor)[0];
+assert.ok(lastWeekFact,"the common phrase «на прошлой неделе» should produce a bounded claim");
+assert.equal(lastWeekFact.validFrom,new Date(2026,10,2).getTime());
+assert.equal(lastWeekFact.validTo,new Date(2026,10,9).getTime());
+assert.match(knowledge.answerQuestion("Где я жил на прошлой неделе?",[lastWeekFact]),/Казани/u);
+
 const lastSummerFact=knowledge.extractClaims("С прошлого лета я живу в Париже",temporalAnchor)[0];
 assert.ok(lastSummerFact,"a since-season phrase without an explicit subject pronoun should be extracted");
 assert.equal(lastSummerFact.validFrom,new Date(2026,5,1).getTime());
