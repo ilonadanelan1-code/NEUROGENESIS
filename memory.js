@@ -324,6 +324,7 @@
     if (!raw || typeof raw.text !== "string") return null;
     const text = raw.text.trim().slice(0, MAX_TEXT);
     if (!text) return null;
+    const createdAt = safeTime(raw.createdAt, Date.now());
     const legacyTags = Array.isArray(raw.tags) ? raw.tags.filter(x => typeof x === "string").map(normalise).filter(Boolean) : [];
     const extractedTags = [...new Set(tokens(text))];
     const tags = [...new Set([...extractedTags, ...legacyTags])].slice(0, 6);
@@ -334,7 +335,7 @@
       }
       return index >= 0 && Array.isArray(raw.traceIds) && typeof raw.traceIds[index] === "string" ? raw.traceIds[index] : null;
     });
-    const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text) : [];
+    const extractedClaims = KNOWLEDGE ? KNOWLEDGE.extractClaims(text, createdAt) : [];
     const claims = KNOWLEDGE ? (extractedClaims.length
       ? mergeExtractedMemoryClaims(raw.claims, extractedClaims)
       : KNOWLEDGE.sanitizeClaims(raw.claims, text)) : [];
@@ -344,8 +345,8 @@
       id,
       text, tags: tags.length ? tags : tokens(text).slice(0, 6), traceIds,
       claims:linkedClaims,
-      createdAt: safeTime(raw.createdAt, Date.now()),
-      updatedAt: safeTime(raw.updatedAt, safeTime(raw.createdAt, Date.now())),
+      createdAt,
+      updatedAt: safeTime(raw.updatedAt, createdAt),
       strength: Number.isFinite(Number(raw.strength)) ? Math.max(0, Math.min(1, Number(raw.strength))) : 0.65,
       repetitions: Math.max(1, Math.min(100000, Math.floor(Number(raw.repetitions) || 1))),
       recalls: Math.max(0, Math.min(100000, Math.floor(Number(raw.recalls) || 0)))

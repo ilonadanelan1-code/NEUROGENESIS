@@ -70,6 +70,17 @@ const legacyMemories = [
     recalls: 0
   },
   {
+    id: "mtemporal",
+    text: "В прошлом году я жил в Сочи",
+    tags: [],
+    traceIds: [],
+    createdAt: new Date(2025, 5, 10, 12, 0, 0, 0).getTime(),
+    updatedAt: new Date(2025, 5, 10, 12, 0, 0, 0).getTime(),
+    strength: 0.65,
+    repetitions: 1,
+    recalls: 0
+  },
+  {
     id: "mobservation",
     text: "При недостатке сна наблюдалась усталость",
     tags: ["недостаток", "сна", "усталость"],
@@ -242,7 +253,7 @@ vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { file
 vm.runInNewContext(fs.readFileSync("llm-bridge.js", "utf8"), sandbox, { filename: "llm-bridge.js" });
 vm.runInNewContext(fs.readFileSync("memory.js", "utf8"), sandbox, { filename: "memory.js" });
 
-assert.equal(window.NGMemory.count(), 6);
+assert.equal(window.NGMemory.count(), 7);
 const dialogState = window.NGMemory.dialogContext();
 assert.ok(dialogState && dialogState.activeThread, "legacy dialogue should rebuild a working context");
 assert.match(dialogState.activeThread.title, /недостаток сна/iu);
@@ -291,10 +302,18 @@ assert.equal(window.NGMemory.refreshInquiries().added,0,
 assert.doesNotMatch(window.NGMemory.modelReviewReadiness(),/что усталость/u,
   "excluded archive paths must not become tracked causal edges for model review readiness");
 const migratedGraph = window.NGMemory.knowledgeGraph();
-assert.equal(migratedGraph.stats.memories,6,"legacy records should remain individually represented in the graph");
+assert.equal(migratedGraph.stats.memories,7,"legacy records should remain individually represented in the graph");
 assert.ok(migratedGraph.stats.claims >= 6,"legacy claims should be projected without rewriting the backup format");
 const claims = window.NGMemory.claims();
-assert.equal(claims.length, 6, "all legacy memories should be upgraded to structured claims");
+assert.equal(claims.length, 7, "all legacy memories should be upgraded to structured claims");
+const temporalLocation=claims.find(claim=>claim.evidence==="В прошлом году я жил в Сочи");
+assert.ok(temporalLocation,"the temporal self-report should migrate into a structured location claim");
+assert.equal(temporalLocation.validFrom,new Date(2024,0,1).getTime(),
+  "relative time during migration must be anchored to the original memory creation timestamp");
+assert.equal(temporalLocation.validTo,new Date(2025,0,1).getTime());
+assert.match(window.NGKnowledge.answerQuestion("Где я жил в 2024 году?",claims),/Сочи/u,
+  "historical recall must use the stored event period, not the date of application reload");
+
 const relation = claims.find(claim => claim.kind === "relationship");
 const opinion = claims.find(claim => claim.kind === "opinion");
 assert.ok(relation);
