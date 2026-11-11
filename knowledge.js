@@ -33,9 +33,14 @@
   function normalise(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/giu, " ").trim().replace(/\s+/g, " ");
   }
+  const IRREGULAR_STEMS = Object.freeze({
+    // Russian genitive plural of «сердце» does not follow the regular suffix table.
+    сердец: "сердц"
+  });
   function tokens(value) {
     return normalise(value).split(" ").filter(word => word.length >= 3 && !STOP.has(word))
       .map(word => {
+        if (IRREGULAR_STEMS[word]) return IRREGULAR_STEMS[word];
         // Preserve common surname endings in nominative; normalize genitive forms to the same base.
         if (word.length >= 7 && /(ева|ова)$/u.test(word)) return word.slice(0, -1);
         if (word.length >= 6 && /(ев|ов)$/u.test(word)) return word;
