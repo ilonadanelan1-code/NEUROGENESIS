@@ -14,8 +14,15 @@ const contextual=Attention.create({dimension:12,windowSize:3,heads:3,blocks:2,se
 const contextualReport=contextual.train(corpus,{epochs:18,learningRate:.025,splitSeed:902,patience:8});
 assert.ok(contextualReport.examples>0&&contextual.status().trained);
 const composer=Composer.create({dimension:12,seed:24081});
-const report=composer.train(corpus,contextual,core,knowledge,{epochs:28,learningRate:.045});
+const report=composer.train(corpus,contextual,core,knowledge,{
+ epochs:28,learningRate:.045,augmentWordOrder:true,
+ excludeSentences:["сигнал нейрон получает."]
+});
 assert.ok(report.sentences>=6,"the weak parser should align multiple starter-corpus propositions");
+assert.equal(report.sourceSentences,corpus.length);
+assert.ok(report.augmentedSentences>0,"verified SOV permutations must be generated");
+assert.ok(report.excludedAugmentations>0,"the explicitly held-out SOV sentence must not be generated");
+assert.equal(report.augmentation,"verified_sov_permutations_excluding_held_out");
 assert.ok(report.roleExamples>0&&report.relationExamples>0&&report.positiveRelations>0);
 assert.ok(report.roleTrainingAccuracy>=0&&report.roleTrainingAccuracy<=1);
 assert.ok(report.relationTrainingAccuracy>=0&&report.relationTrainingAccuracy<=1);
