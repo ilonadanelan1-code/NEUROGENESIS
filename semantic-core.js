@@ -731,14 +731,27 @@
         const semanticArguments = Array.isArray(prior.arguments) ? prior.arguments : [];
         const semanticKeys = new Set();
         for (const argument of semanticArguments) {
-          const text = clean(argument && argument.text, 180);
-          if (!text || pronounGenders(text, "subject") || pronounGenders(text, "object")) continue;
+          const rawText = clean(argument && argument.text, 180);
+          if (!rawText || pronounGenders(rawText, "subject") || pronounGenders(rawText, "object")) continue;
+          let text = rawText;
+          const candidateRole = clean(argument.role, 32) || "object";
+          const legacyObject = clean(prior.object, 180);
+          const legacyWords = legacyObject.split(/\s+/u);
+          const hasObliquePrefix = legacyWords.length > 1 &&
+            OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(legacyWords[0]));
+          // Some older extractors keep the preposition in object while the new
+          // argument frame stores only the noun phrase. Preserve the complete
+          // surface group as the antecedent so "в большой комнате" is not
+          // silently reduced to "большой комнате".
+          if (hasObliquePrefix && normalise(legacyObject).endsWith(" " + normalise(rawText))) {
+            text = legacyObject;
+          }
           const gender = grammaticalGender(text);
           if (!genders.includes(gender)) continue;
           const key = normalise(text);
           if (!key) continue;
           semanticKeys.add(key);
-          const candidateRole = clean(argument.role, 32) || "object";
+          semanticKeys.add(normalise(rawText));
           const rolePenalty = desiredRole && candidateRole !== desiredRole ? 2 : 0;
           const score = (index - priorIndex) * 10 + rolePenalty;
           const existing = candidatesByEntity.get(key);
