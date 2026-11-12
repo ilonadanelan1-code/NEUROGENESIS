@@ -68,7 +68,8 @@ const heldOut = [
     tokens:[
       {id:1,form:"Лидар",lemma:"лидар",head:2,deprel:"nsubj"},
       {id:2,form:"диагностирует",lemma:"диагностировать",head:0,deprel:"root"},
-      {id:3,form:"преграду",lemma:"преграда",head:2,deprel:"obj"}
+      {id:3,form:"преграду",lemma:"преграда",head:2,deprel:"obj"},
+      {id:4,form:".",lemma:"_",head:2,deprel:"punct"}
     ]
   },
   {
@@ -111,6 +112,9 @@ assert.ok(testSet.groups.filter(row=>row.relation==="root").every(row=>
   row.candidateHeadIds[row.targetCandidateIndex]===0));
 assert.ok(testSet.groups.filter(row=>row.relation!=="root").every(row=>
   row.candidateHeadIds[row.targetCandidateIndex]!==0));
+assert.equal(testSet.groups.some(row=>row.relation==="punct"),false,
+  "standalone punctuation must be excluded as a lexical dependent while the sentence stays aligned");
+assert.ok(testSet.stats.skippedReasons.nonlexical_token>=1);
 assert.ok(trainSet.groups.some(row=>row.relation==="root"));
 assert.ok(trainSet.groups.some(row=>row.relation==="nsubj"));
 assert.ok(trainSet.groups.some(row=>row.relation==="obj"));
