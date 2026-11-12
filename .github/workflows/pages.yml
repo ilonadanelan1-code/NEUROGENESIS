@@ -48,6 +48,7 @@ jobs:
           node --check semantic-query.js
           node --check contextual-attention.js
           node --check upos-supervision.js
+          node --check upos-supervision.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
@@ -282,6 +283,12 @@ jobs:
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
+      - name: Run supervised contextual UPOS pilot
+        run: |
+          node tests/upos-supervision-benchmark.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
       - name: Run regression tests
         run: |
           node tests/experience-quality.test.js
@@ -299,6 +306,7 @@ jobs:
           node --check semantic-core.js
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
+          node upos-supervision.test.js
           node upos-supervision.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
