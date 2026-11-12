@@ -725,11 +725,13 @@
     const firstKnown = foldedWords.find(word =>
       FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word) ||
       MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word) ||
-      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word));
+      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word) ||
+      PLURAL_INFLECTED_HEADS.has(word));
     const lastKnown = [...foldedWords].reverse().find(word =>
       FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word) ||
       MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word) ||
-      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word));
+      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word) ||
+      PLURAL_INFLECTED_HEADS.has(word));
     const head = firstKnown || lastKnown || foldedWords[0];
     if (AMBIGUOUS_SINGULAR_PLURAL_HEADS.has(head)) return "unknown";
     if (PLURAL_INFLECTED_HEADS.has(head)) return "plural";

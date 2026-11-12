@@ -47,6 +47,7 @@ const cases = [
   { group: "word_order", text: "Вибрацию сенсор обнаруживает.", roles: { s: ["сенсор"], p: ["обнаруживает"], o: ["Вибрацию"] }, expected: { kind: "assertion", s: "сенсор", p: "обнаруживает", o: "Вибрацию" } },
   { group: "word_order", text: "Новое сообщение сервер отправляет.", roles: { s: ["сервер"], p: ["отправляет"], o: ["Новое", "сообщение"] }, expected: { kind: "assertion", s: "сервер", p: "отправляет", o: "Новое сообщение" } },
   { group: "word_order", text: "Сигнал сенсор не получает.", roles: { s: ["сенсор"], p: ["получает"], o: ["Сигнал"] }, expected: { kind: "assertion", s: "сенсор", p: "получает", o: "Сигнал", polarity: "negative" } },
+  { group: "word_order", text: "Сигнал новые нейроны получают.", roles: { s: ["новые", "нейроны"], p: ["получают"], o: ["Сигнал"] }, expected: { kind: "assertion", s: "новые нейроны", p: "получают", o: "Сигнал" } },
 
   { group: "oov", text: "Кварцевый сенсор обнаруживает микровибрацию.", roles: { s: ["кварцевый", "сенсор"], p: ["обнаруживает"], o: ["микровибрацию"] }, expected: { kind: "assertion", s: "сенсор", p: "обнаруживает", o: "микровибрацию" } },
   { group: "oov", text: "Лидар обнаруживает препятствие.", roles: { s: ["лидар"], p: ["обнаруживает"], o: ["препятствие"] }, expected: { kind: "assertion", s: "лидар", p: "обнаруживает", o: "препятствие" } },
@@ -99,7 +100,7 @@ const leakage = cases.filter(row => trainingKeys.has(normalise(row.text))).map(r
 assert.equal(trainingKeys.size, trainRows.length, "training sentences must be unique");
 assert.equal(heldOutKeys.size, cases.length, "independent benchmark sentences must be unique");
 assert.deepEqual(leakage, [], "no independent benchmark sentence may appear in the training corpus");
-assert.equal(cases.length, 48, "the independent benchmark corpus size is fixed and documented");
+assert.equal(cases.length, 49, "the independent benchmark corpus size is fixed and documented");
 
 function semanticResult(testCase) {
   const frame = core.analyse(testCase.text, { contextRelation: "new_topic" }, knowledge);
@@ -419,5 +420,5 @@ const summary = {
 };
 
 assert.deepEqual(semanticFailures, [], "all independent semantic proposition cases must pass");
-console.log("NEUROGENESIS 0.58.85 independent language benchmark: " + JSON.stringify(summary));
+console.log("NEUROGENESIS 0.58.93 independent language benchmark: " + JSON.stringify(summary));
 console.log("No train/test sentence leakage; metrics retain exact numerators, denominators, coverage and three-seed variation.");
