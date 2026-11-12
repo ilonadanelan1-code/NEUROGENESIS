@@ -14,9 +14,9 @@ const fixtureTrain = [
   "",
   "# sent_id = train-2",
   "# text = Сеть хранит данные.",
-  "1\tСеть\tсеть\tNOUN\t_\t_\t2\tnsubj\t_\t_",
-  "2\tхранит\tхранить\tVERB\t_\t_\t0\troot\t_\t_",
-  "3\tданные\tданные\tNOUN\t_\t_\t2\tobj\t_\t_",
+  "1\tСеть\tсеть\tNOUN\t_\tCase=Nom|Number=Sing\t2\tnsubj\t_\t_",
+  "2\tхранит\tхранить\tVERB\t_\tMood=Ind|Number=Sing|Person=3|Tense=Pres|VerbForm=Fin\t0\troot\t_\t_",
+  "3\tданные\tданные\tNOUN\t_\tCase=Acc|Number=Plur\t2\tobj\t_\t_",
   ""
 ].join("\n");
 const fixtureTest = [
@@ -76,13 +76,13 @@ assert.deepEqual(
 const structuralRows = importer.parseConllu([
   "# sent_id = structural-1",
   "# text = Мы видим связь.",
-  "1-2\\tМы видим\\t_\\t_\\t_\\t_\\t_\\t_\\t_\\t_",
-  "1\\tМы\\tмы\\tPRON\\t_\\tCase=Nom\\t2\\tnsubj\\t_\\t_",
-  "1.1\\tмы\\tмы\\tX\\t_\\t_\\t_\\t_\\t_\\t_",
-  "2\\tвидим\\tвидеть\\tVERB\\t_\\tMood=Ind\\t0\\troot\\t_\\t_",
-  "3\\tсвязь\\tсвязь\\tNOUN\\t_\\tCase=Acc\\t2\\tobj\\t_\\t_",
+  "1-2\tМы видим\t_\t_\t_\t_\t_\t_\t_\t_",
+  "1\tМы\tмы\tPRON\t_\tCase=Nom\t2\tnsubj\t_\t_",
+  "1.1\tмы\tмы\tX\t_\t_\t_\t_\t_\t_",
+  "2\tвидим\tвидеть\tVERB\t_\tMood=Ind\t0\troot\t_\t_",
+  "3\tсвязь\tсвязь\tNOUN\t_\tCase=Acc\t2\tobj\t_\t_",
   ""
-].join("\\n"));
+].join("\n"));
 assert.equal(structuralRows[0].tokens.length, 3,
   "multiword ranges and empty nodes must not become duplicate lexical annotations");
 assert.deepEqual(structuralRows[0].tokens.map(row => row.id), [1, 2, 3]);
