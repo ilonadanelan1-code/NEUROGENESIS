@@ -120,6 +120,14 @@ if (!trainPath && !testPath) {
     });
     assert.ok(training.trainRows > 0 && training.vocabularySize > 1);
     assert.ok(model.status().trainingContextExamples > 0);
+    const retrievalIndexStartedAt = Date.now();
+    const retrievalIndex = model.retrievalIndexStatus();
+    const retrievalIndexBuildMs = Date.now() - retrievalIndexStartedAt;
+    assert.equal(retrievalIndex.built, true,
+      "the independent benchmark must build the indexed OOV retrieval structure");
+    assert.equal(retrievalIndex.exampleCount, model.status().trainingContextExamples);
+    assert.ok(retrievalIndex.indexedContextPositions > 0);
+
     const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
     assert.equal(trainingSplit.train.length, training.trainRows,
       "frequency diagnostics must use the exact model training partition");
@@ -231,6 +239,8 @@ if (!trainPath && !testPath) {
         vocabularyCapacity: 1024,
         vocabularySaturated: training.vocabularySize >= 1024,
         trainingContextExamples: model.status().trainingContextExamples,
+        contextRetrievalIndex: retrievalIndex,
+        contextRetrievalIndexBuildMs: retrievalIndexBuildMs,
         epochs: training.epochs
       },
       metrics: {
@@ -370,7 +380,7 @@ if (!trainPath && !testPath) {
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.108",
+    version: "0.58.111",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -452,6 +462,6 @@ if (!trainPath && !testPath) {
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
   };
-  console.log("NEUROGENESIS 0.58.108 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
+  console.log("NEUROGENESIS 0.58.111 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
 }

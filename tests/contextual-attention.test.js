@@ -232,4 +232,31 @@ assert.deepEqual(knownContextPrediction.predictions,maskedContextPrediction.pred
  "masked prediction must not depend on the hidden target surface form");
 assert.deepEqual(knownContextPrediction.generatedCandidates,maskedContextPrediction.generatedCandidates,
  "generated inflections must be produced from context and model vocabulary, not the hidden answer");
+const retrievalIndex=morphologyModel.retrievalIndexStatus();
+assert.equal(retrievalIndex.built,true,"OOV retrieval should build its inverted index lazily");
+assert.equal(retrievalIndex.exampleCount,morphologyModel.status().trainingContextExamples);
+assert.ok(retrievalIndex.indexedContextPositions>0);
+assert.ok(retrievalIndex.exactTerms>0&&retrievalIndex.stemTerms>0);
+assert.ok(retrievalIndex.exactPostings>=retrievalIndex.exampleCount);
+assert.ok(retrievalIndex.stemPostings>0);
+const retrievalParityCases=[
+ ["новые [MASK] получают сигнал",1,{}],
+ ["сигнал [MASK] получает",1,{allowOrderInversion:true}],
+ ["сигнал [MASK] получает",1,{allowOrderInversion:true,scoring:"inverse_frequency"}],
+ ["новые нейроны получают сигнал",1,{scoring:"inverse_frequency"}]
+];
+for(const [text,index,options] of retrievalParityCases){
+ const indexed=morphologyModel.predictMasked(text,index,options).retrievalCandidate;
+ const reference=morphologyModel.predictMasked(text,index,{...options,useLegacyScan:true}).retrievalCandidate;
+ assert.deepEqual(indexed,reference,
+  "indexed retrieval must exactly preserve the legacy candidate, score, support and tie handling: "+text);
+}
+const restoredIndexStatus=restoredRetrievalModel.retrievalIndexStatus();
+assert.equal(restoredIndexStatus.built,true,
+ "restored checkpoints must rebuild the derived retrieval index without persisting duplicate index data");
+assert.equal(restoredIndexStatus.exampleCount,restoredRetrievalModel.status().trainingContextExamples);
+const stemFast=stemRetrievalModel.predictMasked("системы получает сигнал",1).retrievalCandidate;
+const stemReference=stemRetrievalModel.predictMasked("системы получает сигнал",1,{useLegacyScan:true}).retrievalCandidate;
+assert.deepEqual(stemFast,stemReference,
+ "stem-based OOV retrieval must remain identical when using inverted postings");
 console.log("NEUROGENESIS contextual attention v6: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");
