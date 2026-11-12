@@ -299,7 +299,7 @@ const inflectionCoreference = core.analyse(
 ).propositionChain;
 assert.equal(inflectionCoreference.items[1].proposition.subject, "модуль",
   "a known dative noun form can be restored to its nominative head");
-const inflectionReference = inflectionCoreference.items[1].proposition.references.find(row => row.mention === "он");
+const inflectionReference = inflectionCoreference.items[1].proposition.references.find(row => row.mention === "Он");
 assert.equal(inflectionReference.antecedentText, "модулю");
 assert.equal(inflectionReference.candidates[0].canonicalText, "модуль");
 assert.equal(inflectionReference.candidates[0].gender, "masculine");
