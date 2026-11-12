@@ -38,10 +38,10 @@ const records = [
 const heldOut = [
   {
     sentenceId:"test-1",
-    text:"Лидар обнаруживает препятствие.",
+    text:"Лидар диагностирует препятствие.",
     tokens:[
       {form:"Лидар",lemma:"лидар",upos:"NOUN"},
-      {form:"обнаруживает",lemma:"обнаруживать",upos:"VERB"},
+      {form:"диагностирует",lemma:"диагностировать",upos:"VERB"},
       {form:"препятствие",lemma:"препятствие",upos:"NOUN"}
     ]
   },
