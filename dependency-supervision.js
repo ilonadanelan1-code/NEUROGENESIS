@@ -69,7 +69,15 @@
       let invalidForm = false;
       for (const token of record.tokens) {
         const pieces = contextualModel.tokenize(token && token.form);
-        if (!token || !pieces.length || pieces.length > 4) {
+        if (!token) {
+          invalidForm = true;
+          break;
+        }
+        if (!pieces.length) {
+          skip("nonlexical_token");
+          continue;
+        }
+        if (pieces.length > 4) {
           invalidForm = true;
           break;
         }
@@ -89,6 +97,7 @@
       let cursor = 0, invalidFeatures = false;
       for (const token of record.tokens) {
         const pieces = contextualModel.tokenize(token.form);
+        if (!pieces.length) continue;
         const pieceFeatures = [], pieceKnown = [];
         for (let offset = 0; offset < pieces.length; offset++) {
           const score = contextualModel.score(record.text, cursor + offset);
@@ -121,6 +130,7 @@
         }
         wordRows.push({
           id,
+          annotation:token,
           features:meanFeatures,
           lemma:normaliseLemma(token.lemma || token.form),
           form:pieces.join(" "),
@@ -144,9 +154,9 @@
       }
       alignedSentences++;
 
-      for (let dependentIndex = 0; dependentIndex < record.tokens.length; dependentIndex++) {
-        const annotation = record.tokens[dependentIndex];
+      for (let dependentIndex = 0; dependentIndex < wordRows.length; dependentIndex++) {
         const dependent = wordRows[dependentIndex];
+        const annotation = dependent.annotation;
         const relation = cleanRelation(annotation.deprel);
         const headId = Number(annotation.head);
         if (!relation || !Number.isInteger(headId) || headId < 0) {
