@@ -47,6 +47,7 @@ jobs:
           node --check dialog-manager.js
           node --check semantic-query.js
           node --check contextual-attention.js
+          node --check upos-supervision.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
@@ -298,6 +299,7 @@ jobs:
           node --check semantic-core.js
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
+          node upos-supervision.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
           node tests/proposition-chain-regression.test.js
