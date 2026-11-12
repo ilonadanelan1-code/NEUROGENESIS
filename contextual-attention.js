@@ -115,7 +115,7 @@ function create(options={}){
   feedForward2:matrix(dimension,feedForwardDimension,random,Math.sqrt(2/feedForwardDimension)),feedForward2Bias:zeros(dimension)
  });
  const blocks=Array.from({length:blockCount},makeBlock);
- let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null,trainingContextExamples=[];
+ let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null,trainingContextExamples=[],contextRetrievalIndex=null;
  function relativeSlot(delta){return Math.max(-windowSize,Math.min(windowSize,delta))+windowSize;}
  function zeroMatrix(rows,cols){return Array.from({length:rows},()=>zeros(cols));}
 
@@ -165,6 +165,7 @@ function create(options={}){
    .map(item=>({offset:item.offset,token:vocabulary[item.tokenIndex]}));
   if(new Set(lexicalContext.map(item=>item.token)).size<2)return;
   trainingContextExamples.push({target:vocabulary[targetIndex],context:lexicalContext.map(item=>({...item,stem:russianStem(item.token)}))});
+  contextRetrievalIndex=null;
  }
  function collectExamples(rows,expand){
   const examples=[];
@@ -179,9 +180,40 @@ function create(options={}){
    }
   }return examples;
  }
+ function buildTrainingContextIndex(){
+  if(contextRetrievalIndex)return contextRetrievalIndex;
+  const exact=new Map(),stems=new Map(),stemFrequency=new Map();
+  let exactPostings=0,stemPostings=0,indexedContextPositions=0;
+  const append=(map,key,posting)=>{
+   if(!key)return;
+   if(!map.has(key))map.set(key,[]);
+   map.get(key).push(posting);
+  };
+  for(let exampleIndex=0;exampleIndex<trainingContextExamples.length;exampleIndex++){
+   const example=trainingContextExamples[exampleIndex],seenStems=new Set();
+   for(let contextIndex=0;contextIndex<example.context.length;contextIndex++){
+    const row=example.context[contextIndex],token=row.token,stem=row.stem||russianStem(token);
+    const posting={exampleIndex,contextIndex};
+    append(exact,token,posting);if(token)exactPostings++;
+    if(stem){append(stems,stem,posting);stemPostings++;seenStems.add(stem);}
+    indexedContextPositions++;
+   }
+   for(const stem of seenStems)stemFrequency.set(stem,(stemFrequency.get(stem)||0)+1);
+  }
+  contextRetrievalIndex={exact,stems,stemFrequency,documentCount:trainingContextExamples.length,
+   exampleCount:trainingContextExamples.length,indexedContextPositions,exactPostings,stemPostings};
+  return contextRetrievalIndex;
+ }
+ function retrievalIndexStatus(){
+  if(!trainingContextExamples.length)return{built:false,exampleCount:0,indexedContextPositions:0,exactTerms:0,stemTerms:0,exactPostings:0,stemPostings:0};
+  const index=buildTrainingContextIndex();
+  return{built:true,exampleCount:index.exampleCount,indexedContextPositions:index.indexedContextPositions,
+   exactTerms:index.exact.size,stemTerms:index.stems.size,exactPostings:index.exactPostings,stemPostings:index.stemPostings};
+ }
  function retrieveContextCandidate(context,options={}){
   const allowOrderInversion=options.allowOrderInversion===true;
   const inverseFrequency=options.scoring==="inverse_frequency";
+  const useLegacyScan=options.useLegacyScan===true;
   if(!Array.isArray(context)||!trainingContextExamples.length)return null;
   const query=context.map(item=>{
    const surface=item.contextSourceToken||item.contextMorphologyToken||
@@ -190,21 +222,42 @@ function create(options={}){
    return{offset:item.offset,surface,token,stem:russianStem(surface)};
   }).filter(item=>item.surface);
   if(query.length<2)return null;
-  const stemFrequency=new Map();
-  if(inverseFrequency){
-   for(const example of trainingContextExamples){
-    const seen=new Set(example.context.map(row=>row.stem||russianStem(row.token)).filter(Boolean));
-    for(const stem of seen)stemFrequency.set(stem,(stemFrequency.get(stem)||0)+1);
+  const index=buildTrainingContextIndex();
+  const candidateByExample=new Map();
+  const addPosting=(queryIndex,posting)=>{
+   let perQuery=candidateByExample.get(posting.exampleIndex);
+   if(!perQuery){perQuery=new Map();candidateByExample.set(posting.exampleIndex,perQuery);}
+   let positions=perQuery.get(queryIndex);
+   if(!positions){positions=new Set();perQuery.set(queryIndex,positions);}
+   positions.add(posting.contextIndex);
+  };
+  if(!useLegacyScan){
+   for(let queryIndex=0;queryIndex<query.length;queryIndex++){
+    const item=query[queryIndex];
+    if(item.token){
+     for(const posting of index.exact.get(item.token)||[])addPosting(queryIndex,posting);
+    }
+    if(item.stem&&item.stem.length>=3){
+     for(const posting of index.stems.get(item.stem)||[])addPosting(queryIndex,posting);
+    }
    }
   }
-  const documentCount=trainingContextExamples.length,bestByTarget=new Map();
-  for(const example of trainingContextExamples){
+  const candidateIndexes=useLegacyScan
+   ?Array.from({length:trainingContextExamples.length},(_,index)=>index)
+   :Array.from(candidateByExample.keys()).sort((a,b)=>a-b);
+  const bestByTarget=new Map(),documentCount=index.documentCount,stemFrequency=index.stemFrequency;
+  for(const exampleIndex of candidateIndexes){
+   const example=trainingContextExamples[exampleIndex],perQuery=candidateByExample.get(exampleIndex);
    const used=new Set(),matches=[];
-   for(const item of query){
+   for(let queryIndex=0;queryIndex<query.length;queryIndex++){
+    const item=query[queryIndex];
     let best=null,bestWeight=-1;
-    for(let index=0;index<example.context.length;index++){
-     if(used.has(index))continue;
-     const row=example.context[index],rowStem=row.stem||russianStem(row.token);
+    const possibleIndexes=useLegacyScan
+     ?Array.from({length:example.context.length},(_,index)=>index)
+     :Array.from(perQuery&&perQuery.get(queryIndex)||[]).sort((a,b)=>a-b);
+    for(const contextIndex of possibleIndexes){
+     if(used.has(contextIndex))continue;
+     const row=example.context[contextIndex],rowStem=row.stem||russianStem(row.token);
      const exact=!!item.token&&item.token===row.token;
      const sameStem=!!item.stem&&item.stem.length>=3&&item.stem===rowStem;
      if(!exact&&!sameStem)continue;
@@ -214,14 +267,13 @@ function create(options={}){
      const weight=inverseFrequency
       ?rarity*(exact?1.25:0.8)*(aligned?1.25:(allowOrderInversion?0.75:0.55))
       :(exact?4:2)+(aligned?2:0);
-     if(weight>bestWeight){best={index,exact,aligned,surface:item.surface,matchedToken:row.token,weight};bestWeight=weight;}
+     if(weight>bestWeight){best={index:contextIndex,exact,aligned,surface:item.surface,matchedToken:row.token,weight};bestWeight=weight;}
     }
     if(best){used.add(best.index);matches.push(best);}
    }
    if(matches.length<2)continue;
    const exactMatches=matches.filter(row=>row.exact).length;
    const offsetMatches=matches.filter(row=>row.aligned).length;
-   // Stem-only retrieval remains position-constrained unless the opt-in inversion mode is enabled.
    if(offsetMatches<2&&!(allowOrderInversion&&offsetMatches>=1))continue;
    const shared=matches.map(row=>row.surface);
    const score=inverseFrequency
@@ -570,6 +622,7 @@ function create(options={}){
    target.feedForward2=copy(source.feedForward2);target.feedForward2Bias=copyVector(source.feedForward2Bias);
   }
   outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
+  contextRetrievalIndex=null;
   trainingContextExamples=storedContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({
    offset:item.offset,token:item.token,stem:item.stem||russianStem(item.token)}))}));
   trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
@@ -577,7 +630,7 @@ function create(options={}){
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
+ return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,retrievalIndexStatus,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
