@@ -250,7 +250,8 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       if (score && !score.targetKnown) {
         group.generatedOovTargets++;
         seedGeneratedOovTargets++;
-        const generated=contextual.predictMasked(testCase.text,index).generatedPrediction;
+        const maskedPrediction=contextual.predictMasked(testCase.text,index);
+        const generated=maskedPrediction&&maskedPrediction.generatedPrediction;
         if(generated){
           group.generatedCovered++;
           seedGeneratedCovered++;
@@ -259,7 +260,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             seedGeneratedCorrect++;
           }
         }
-        const candidateHit=!!(generated&&generated.generatedCandidates.some(row=>row.surface===tokens[index]));
+        const candidateHit=!!(maskedPrediction&&maskedPrediction.generatedCandidates.some(row=>row.surface===tokens[index]));
         if(candidateHit){
           group.generatedCandidateHits++;
           seedGeneratedCandidateHits++;
@@ -269,7 +270,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             group:testCase.group,target:tokens[index],
             top1:generated?generated.surface:null,
             base:generated?generated.baseToken:null,
-            candidateForms:generated?generated.generatedCandidates.map(row=>row.surface):[],
+            candidateForms:maskedPrediction?maskedPrediction.generatedCandidates.map(row=>row.surface):[],
             candidateHit
           });
         }
