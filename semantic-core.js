@@ -730,12 +730,41 @@
         const previous = items[priorIndex], prior = previous.proposition || {};
         const semanticArguments = Array.isArray(prior.arguments) ? prior.arguments : [];
         const semanticKeys = new Set();
+        const legacyObject = clean(prior.object, 180);
+        const nestedObject = legacyObject.match(/^(.+?)\s+(?:в|во|на|под|над|за|перед|при)\s+(.+)$/iu);
+        const nestedObjectHead = nestedObject && semanticArguments.find(argument =>
+          ["patient", "theme"].includes(argument && argument.role) &&
+          normalise(argument.text) === normalise(nestedObject[1]));
+        const nestedObjectLocation = nestedObject && semanticArguments.find(argument =>
+          argument && argument.role === "location" &&
+          normalise(argument.text) === normalise(nestedObject[2]));
+        const collapseNestedObject = !!(nestedObjectHead && nestedObjectLocation &&
+          genders.includes(grammaticalGender(nestedObject[1])) &&
+          genders.includes(grammaticalGender(nestedObject[2])) &&
+          genders.includes(grammaticalGender(legacyObject)));
+        if (collapseNestedObject) {
+          // The old proposition slot treats "систему в большой комнате" as
+          // one noun phrase. When both its head and locative modifier agree
+          // with the pronoun, keep that complete phrase as one antecedent
+          // instead of presenting two pieces of the same noun phrase as rivals.
+          const key = normalise(legacyObject);
+          const score = (index - priorIndex) * 10;
+          candidatesByEntity.set(key, {
+            id: previous.id, text: legacyObject, role: "object",
+            grammaticalCase: null, score, semantic: true
+          });
+          semanticKeys.add(key);
+          semanticKeys.add(normalise(nestedObject[1]));
+          semanticKeys.add(normalise(nestedObject[2]));
+        }
         for (const argument of semanticArguments) {
           const rawText = clean(argument && argument.text, 180);
           if (!rawText || pronounGenders(rawText, "subject") || pronounGenders(rawText, "object")) continue;
-          let text = rawText;
           const candidateRole = clean(argument.role, 32) || "object";
-          const legacyObject = clean(prior.object, 180);
+          if (collapseNestedObject &&
+              (normalise(rawText) === normalise(nestedObject[1]) ||
+               normalise(rawText) === normalise(nestedObject[2]))) continue;
+          let text = rawText;
           const legacyWords = legacyObject.split(/\s+/u);
           const hasObliquePrefix = legacyWords.length > 1 &&
             OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(legacyWords[0]));
@@ -743,7 +772,8 @@
           // argument frame stores only the noun phrase. Preserve the complete
           // surface group as the antecedent so "в большой комнате" is not
           // silently reduced to "большой комнате".
-          if (hasObliquePrefix && normalise(legacyObject).endsWith(" " + normalise(rawText))) {
+          if (!collapseNestedObject && hasObliquePrefix &&
+              normalise(legacyObject).endsWith(" " + normalise(rawText))) {
             text = legacyObject;
           }
           const gender = grammaticalGender(text);
