@@ -313,10 +313,11 @@ assert.equal(adjectiveInflection.items[1].proposition.subject, "новый мо�
   "a bounded adjective+noun phrase can be restored with matching nominative agreement");
 
 const dativePronounCase = core.analyse(
-  "Система передаёт сигнал модулю. Модель обращается к нему.",
+  "Модель передаёт сигнал модулям. Затем система передаёт к ним.",
   { contextRelation: "new_topic" }, knowledge
-).propositionChain.items[1].proposition.references.find(row => row.mention === "нему");
+).propositionChain.items[1].proposition.references.find(row => row.mention === "ним");
 assert.equal(dativePronounCase.status, "resolved");
+assert.equal(dativePronounCase.antecedentText, "модулям");
 assert.deepEqual(Array.from(dativePronounCase.mentionCases), ["dative"]);
 
 const multiComplementCases = [
