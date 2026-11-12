@@ -36,7 +36,7 @@ const seeds = [
   {model:2718,split:9044}
 ];
 const variants = {
-  unweighted: {classWeighting:"none",selectionMetric:"loss"},
+  unweighted: {classWeighting:"none",selectionMetric:"macro_f1"},
   sqrtInverse: {classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
 };
 const normalizedRecordMap = new Map(prepared.trainingRecords.map(row=>[row.normalized,row]));
