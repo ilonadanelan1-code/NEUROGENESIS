@@ -83,7 +83,7 @@ function summarize(rows,head,majorityRelation) {
   };
 }
 function addTotals(target,source) {
-  for(const key of ["targets","headCorrect","oracleRelationCorrect","lasCorrect"]) {
+  for(const key of ["targets","headCorrect","oracleRelationCorrect","relationCovered","lasCorrect"]) {
     target[key]+=source[key]||0;
   }
   target.baselineHeadCorrect+=source.baseline.headCorrect||0;
@@ -92,7 +92,7 @@ function addTotals(target,source) {
 }
 function emptyTotals() {
   return {
-    targets:0,headCorrect:0,oracleRelationCorrect:0,lasCorrect:0,
+    targets:0,headCorrect:0,oracleRelationCorrect:0,relationCovered:0,lasCorrect:0,
     baselineHeadCorrect:0,baselineRelationCorrect:0,baselineLASCorrect:0,
     relationMacroF1BySeed:[]
   };
@@ -136,7 +136,7 @@ for(const seed of seeds) {
   for(const [variant,configuration] of Object.entries(variants)) {
     const head=Dependency.create({seed:seed.model});
     const trainingReport=head.train(training.groups,validation.groups,{
-      epochs:18,learningRate:.012,patience:5,seed:seed.model,...configuration
+      epochs:12,learningRate:.012,patience:4,seed:seed.model,minimumClassExamples:12,...configuration
     });
     assert.ok(trainingReport.classes.length>=2);
     assert.ok(trainingReport.validationExamples>0);
@@ -193,7 +193,9 @@ const aggregateReport=Object.fromEntries(Object.entries(aggregate).map(([variant
       correctHeads:row.headCorrect,
       headAccuracy:ratio(row.headCorrect,row.targets),
       oracleRelationCorrect:row.oracleRelationCorrect,
-      oracleRelationAccuracy:ratio(row.oracleRelationCorrect,row.targets),
+      oracleRelationAccuracy:ratio(row.oracleRelationCorrect,row.relationCovered),
+      relationCovered:row.relationCovered,
+      relationCoverage:ratio(row.relationCovered,row.targets),
       correctLAS:row.lasCorrect,
       LAS:ratio(row.lasCorrect,row.targets),
       nearestLeftBaselineHeadAccuracy:ratio(row.baselineHeadCorrect,row.targets),
@@ -222,6 +224,8 @@ const summary={
     relationPrediction:"multiclass DEPREL classifier conditioned on the selected head; oracle-head relation accuracy also reported",
     checkpointSelection:"validation LAS",
     classWeightsDerivedOnlyFromSupervisedTrainRows:true,
+    minimumClassExamples:12,
+    rareRelationsBelowThreshold:"not fitted by the relation head; explicitly counted in relation coverage and remain errors for LAS",
     independentTestUse:"evaluation only",
     lemmaSlice:"dependent-word lemma overlap with the supervised training split",
     treeConstraint:"none; attachment scores are local per-token head predictions, not globally decoded dependency trees"
