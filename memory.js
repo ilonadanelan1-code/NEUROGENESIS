@@ -3394,8 +3394,8 @@
     const submittedQuery = query;
     const semanticRelation = semanticPlan && semanticPlan.contextRelation || "";
     const trustedSemanticDecision = !!(semanticPlan &&
-      ["model", "local", "local_fallback"].includes(semanticPlan.source) &&
-      Number(semanticPlan.confidence) >= (semanticPlan.source === "model" ? 0.58 : 0.5) &&
+      semanticPlan.source === "model" &&
+      Number(semanticPlan.confidence) >= 0.58 &&
       ["new_topic", "follow_up", "same_topic"].includes(semanticRelation));
     const dialogueResolution = DIALOG_CONTEXT && semanticRelation !== "new_topic"
       ? DIALOG_CONTEXT.resolve(dialogContext, submittedQuery)
