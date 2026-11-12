@@ -9,7 +9,8 @@
   }
   function cleanValue(value) {
     const text = String(value || "").trim();
-    return /^[A-Za-z0-9:_-]+(?:,[A-Za-z0-9:_-]+)*$/u.test(text) ? text : "";
+    if (!/^[A-Za-z0-9:_-]+(?:,[A-Za-z0-9:_-]+)*$/u.test(text)) return "";
+    return [...new Set(text.split(","))].sort().join(",");
   }
   function normaliseLemma(value) {
     return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
