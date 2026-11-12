@@ -210,6 +210,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedTotal = 0;
   let seedMorphologyCorrect = 0, seedMorphologyCovered = 0, seedMorphologyBackoffs = 0, seedMorphologyAmbiguous = 0;
   let seedGeneratedCorrect = 0, seedGeneratedCovered = 0, seedGeneratedOovTargets = 0, seedGeneratedCandidateHits = 0;
+  let seedContextMorphologyBackoffs = 0;
   const seedGeneratedExamples = [];
   for (const testCase of cases) {
     const tokens = knowledge.tokens(testCase.text);
@@ -217,12 +218,16 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       correct: 0, covered: 0, total: 0,
       morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0,
       generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0,
-      generatedCandidateHits: 0, generatedExamples: []
+      generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs: 0
     });
     for (let index = 0; index < tokens.length; index++) {
       const score = contextual.score(testCase.text, index);
       group.total++;
       seedTotal++;
+      if(score){
+        group.contextMorphologyBackoffs+=score.contextMorphologyBackoffs.length;
+        seedContextMorphologyBackoffs+=score.contextMorphologyBackoffs.length;
+      }
       if (score && score.targetKnown) {
         group.covered++;
         seedCovered++;
@@ -374,7 +379,10 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
           coverage:seedGeneratedOovTargets?seedGeneratedCovered/seedGeneratedOovTargets:null,
           candidateHits:seedGeneratedCandidateHits,
           candidateRecallAt8:seedGeneratedOovTargets?seedGeneratedCandidateHits/seedGeneratedOovTargets:null,
-          examples:seedGeneratedExamples}
+          candidateHits:seedGeneratedCandidateHits,
+          candidateRecallAt8:seedGeneratedOovTargets?seedGeneratedCandidateHits/seedGeneratedOovTargets:null,
+          examples:seedGeneratedExamples,
+          contextMorphologyBackoffUses:seedContextMorphologyBackoffs}
       }
     },
     phraseTrainingOnly: {
@@ -432,8 +440,9 @@ const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
   generatedCovered: sum.generatedCovered + group.generatedCovered,
   generatedOovTargets: sum.generatedOovTargets + group.generatedOovTargets,
   generatedCandidateHits: sum.generatedCandidateHits + group.generatedCandidateHits,
-  generatedExamples: sum.generatedExamples.concat(group.generatedExamples).slice(0,24)
-}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0, generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0, generatedCandidateHits: 0, generatedExamples: [] });
+  generatedExamples: sum.generatedExamples.concat(group.generatedExamples).slice(0,24),
+  contextMorphologyBackoffs:sum.contextMorphologyBackoffs+group.contextMorphologyBackoffs
+}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0, generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0, generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs:0 });
 const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
   roleCorrect: sum.roleCorrect + group.roleCorrect,
   roleTotal: sum.roleTotal + group.roleTotal,
@@ -590,6 +599,7 @@ const summary = {
         candidateHits:maskTotal.generatedCandidateHits,
         candidateRecallAt8:ratio(maskTotal.generatedCandidateHits,maskTotal.generatedOovTargets),
         examples:maskTotal.generatedExamples,
+        contextMorphologyBackoffUses:maskTotal.contextMorphologyBackoffs,
         baselineComparison:"new metric; no frozen contextual-form-generation baseline exists"
       },
       baselineComparison: "new metric; no frozen 0.58.93 morphology score exists"

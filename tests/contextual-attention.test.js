@@ -149,6 +149,14 @@ const morphologyScore=morphologyModel.score("нейроны получают с�
 assert.equal(morphologyScore.targetKnown,false);
 assert.equal(morphologyScore.morphologyBackoff,true);
 assert.equal(morphologyScore.morphologyToken,"нейрон");
+const contextMorphologyScore=morphologyModel.score("нейрон получают сигнал",0);
+assert.ok(contextMorphologyScore.contextMorphologyBackoffs.some(row=>
+ row.token==="получают"&&row.vocabularyToken==="получает"),
+ "an OOV context verb must reuse a unique trained base-form embedding");
+const maskedWithMorphContext=morphologyModel.predictMasked("нейроны получают сигнал",1);
+assert.ok(maskedWithMorphContext.contextMorphologyBackoffs.some(row=>
+ row.token==="получают"&&row.vocabularyToken==="получает"),
+ "masked prediction must use morphology-aware context features");
 const morphologyAnalysis=morphologyModel.analyse("нейроны получают сигнал");
 assert.ok(morphologyAnalysis.morphologyBackoffCount>=1);
 assert.ok(morphologyAnalysis.morphologyCoveredTokenCount>=1);

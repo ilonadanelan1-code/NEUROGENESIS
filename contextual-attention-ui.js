@@ -88,7 +88,8 @@
     if(!model.status().trained){output.textContent="Сначала обучи модель на нескольких примерах.";return;}
     const analysis=model.analyse(text),lines=[];
     lines.push("ТОЧНЫЙ СЛОВАРЬ: "+analysis.knownTokenCount+"/"+analysis.tokens.length+
-      " · морфологическое покрытие: "+analysis.morphologyCoveredTokenCount+"/"+analysis.tokens.length);
+      " · морфологическое покрытие: "+analysis.morphologyCoveredTokenCount+"/"+analysis.tokens.length+
+      " · распознано основ в контексте: "+analysis.contextMorphologyBackoffCount);
     if(analysis.morphologyBackoffTokens.length){
       lines.push("РЕЗЕРВ ПО ОСНОВЕ (это не точная генерация окончания): "+
         analysis.morphologyBackoffTokens.map(row=>row.token+" → "+row.vocabularyToken).join(" · "));

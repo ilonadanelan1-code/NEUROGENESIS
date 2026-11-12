@@ -138,20 +138,31 @@ function create(options={}){
   }
   return stemIndexCache.get(stem)||[];
  }
+ function featureForToken(token,expand=false){
+  const tokenIndex=expand?addToken(token):(indices.has(token)?indices.get(token):-1);
+  const candidates=tokenIndex<0?morphologyCandidates(token):[];
+  const contextTokenIndex=tokenIndex>=0?tokenIndex:(candidates.length===1?candidates[0]:-1);
+  return{token,tokenIndex,contextTokenIndex,contextMorphologyBackoff:tokenIndex<0&&contextTokenIndex>=0,
+   contextMorphologyToken:tokenIndex<0&&contextTokenIndex>=0?vocabulary[contextTokenIndex]:null,
+   subwordBuckets:subwordFeatures(token)};
+ }
  function contextFor(sequence,targetIndex){
   const context=[];
   for(let offset=-windowSize;offset<=windowSize;offset++){
    if(offset===0)continue;const position=targetIndex+offset;
    if(position<0||position>=sequence.length)continue;const feature=sequence[position];
-   if(!feature||feature.tokenIndex<0&&!feature.subwordBuckets.length)continue;
+   const tokenIndex=feature?(feature.tokenIndex>=0?feature.tokenIndex:feature.contextTokenIndex??-1):-1;
+   if(!feature||tokenIndex<0&&!feature.subwordBuckets.length)continue;
    const slot=offset<0?offset+windowSize:offset+windowSize-1;
-   context.push({tokenIndex:feature.tokenIndex,subwordBuckets:feature.subwordBuckets,slot,offset});
+   context.push({tokenIndex,subwordBuckets:feature.subwordBuckets,slot,offset,
+    contextMorphologyBackoff:!!feature.contextMorphologyBackoff,
+    contextSourceToken:feature.token||"",contextMorphologyToken:feature.contextMorphologyToken||null});
   }return context;
  }
  function collectExamples(rows,expand){
   const examples=[];
   for(const row of rows.slice(0,160)){
-   const sequence=tokenize(row).map(token=>({tokenIndex:expand?addToken(token):(indices.has(token)?indices.get(token):-1),subwordBuckets:subwordFeatures(token)}));
+   const sequence=tokenize(row).map(token=>featureForToken(token,expand));
    for(let i=0;i<sequence.length;i++){const context=contextFor(sequence,i);if(sequence[i].tokenIndex>=0&&context.length)examples.push({context,target:sequence[i].tokenIndex});}
   }return examples;
  }
@@ -343,8 +354,10 @@ function create(options={}){
  function predictMasked(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
   if(!tokens.length)return null;
-  const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
-  const context=contextFor(sequence,safeIndex);if(!context.length)return{maskedTokenIndex:safeIndex,available:false,predictions:[],morphologyHint:null,generatedCandidates:[],generatedPrediction:null};
+  const sequence=tokens.map(token=>featureForToken(token,false));
+  const context=contextFor(sequence,safeIndex),contextMorphologyBackoffs=context.filter(row=>row.contextMorphologyBackoff)
+   .map(row=>({token:row.contextSourceToken,vocabularyToken:row.contextMorphologyToken,offset:row.offset}));
+  if(!context.length)return{maskedTokenIndex:safeIndex,available:false,predictions:[],morphologyHint:null,generatedCandidates:[],generatedPrediction:null,contextMorphologyBackoffs};
   const pass=forward(context),predictions=pass.probabilities.map((probability,index)=>({token:vocabulary[index],probability})).sort((a,b)=>b.probability-a.probability);
   const morphologyHint=inferMaskedNumber(tokens,safeIndex),generatedCandidates=[];
   if(morphologyHint&&morphologyHint.number==="plural"){
@@ -354,12 +367,14 @@ function create(options={}){
     if(generatedCandidates.length>=8)break;
    }
   }
-  return{maskedTokenIndex:safeIndex,available:true,predictions:predictions.slice(0,8),morphologyHint,generatedCandidates,generatedPrediction:generatedCandidates[0]||null};
+  return{maskedTokenIndex:safeIndex,available:true,predictions:predictions.slice(0,8),morphologyHint,generatedCandidates,generatedPrediction:generatedCandidates[0]||null,contextMorphologyBackoffs};
  }
  function score(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));if(!tokens.length)return null;
-  const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
+  const sequence=tokens.map(token=>featureForToken(token,false));
   const context=contextFor(sequence,safeIndex);if(!context.length)return null;
+  const contextMorphologyBackoffs=context.filter(row=>row.contextMorphologyBackoff)
+   .map(row=>({token:row.contextSourceToken,vocabularyToken:row.contextMorphologyToken,offset:row.offset}));
   const pass=forward(context),last=pass.layerPasses[blockCount-1];
   const headRows=last.headPasses.map((head,index)=>{
    const accumulated=zeros(context.length),vector=zeros(headDimension);
@@ -380,7 +395,7 @@ function create(options={}){
    targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
    morphologyKnown,morphologyBackoff,morphologyAmbiguous,morphologyToken:morphologyTargetIndex>=0?vocabulary[morphologyTargetIndex]:null,
    morphologyStem:targetStem,morphologyProbability:morphologyTargetIndex>=0?pass.probabilities[morphologyTargetIndex]:null,
-   morphologyCorrect,morphologyCandidateCount:stemMatches.length,normalization:{first:meanVector(row=>row.norm1.output),second:pass.pooled.slice()},
+   morphologyCorrect,morphologyCandidateCount:stemMatches.length,contextMorphologyBackoffs,normalization:{first:meanVector(row=>row.norm1.output),second:pass.pooled.slice()},
    feedForward:{hidden,output:meanVector(row=>row.ffOutput)},transformerBlocks:blockCount};
  }
  function analyse(text){const tokens=tokenize(text),positions=[];for(let i=0;i<tokens.length;i++){const row=score(text,i);if(row)positions.push(row);}
@@ -388,9 +403,11 @@ function create(options={}){
   const morphologyBackoffTokens=positions.filter(row=>row.morphologyBackoff).map(row=>({token:row.token,vocabularyToken:row.morphologyToken,stem:row.morphologyStem}));
   const morphologyAmbiguousTokens=positions.filter(row=>row.morphologyAmbiguous).map(row=>row.token);
   const morphologyCoveredTokenCount=positions.filter(row=>row.morphologyKnown).length;
+  const contextMorphologyBackoffCount=positions.reduce((sum,row)=>sum+row.contextMorphologyBackoffs.length,0);
   return{schema:SCHEMA,version:5,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,transformerBlocks:blockCount,windowSize,maxWindowSize:MAX_WINDOW_SIZE,
    knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,morphologyCoveredTokenCount,
-   morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,positions};}
+   morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,
+   contextMorphologyBackoffCount,positions};}
  function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
