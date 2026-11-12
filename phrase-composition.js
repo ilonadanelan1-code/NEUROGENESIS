@@ -115,10 +115,19 @@ function create(options={}){
   const augmentation=trainOptions.augmentWordOrder===false
    ?{rows:[],excludedCount:0,unverifiedCount:0}
    :deriveVerifiedSovAugmentations(sourceRows,core,knowledge,excluded);
-  const rows=sourceRows.concat(augmentation.rows).slice(0,MAX_SENTENCES);
-  const prepared=rows.map(text=>({text,data:build(text,contextual,core,knowledge)})).filter(row=>row.data.labels.some(label=>label>0));
-  const roleExamples=prepared.flatMap(row=>row.data.features.map((features,index)=>({features,label:row.data.labels[index]})));
-  const relationExamples=prepared.flatMap(row=>row.data.relationExamples);
+  const rawAugmentationWeight=Number(trainOptions.augmentationWeight);
+  const augmentationWeight=Number.isFinite(rawAugmentationWeight)
+   ?Math.max(0,Math.min(1,rawAugmentationWeight)):0.3;
+  const rows=sourceRows.map(text=>({text,synthetic:false}))
+   .concat(augmentation.rows.map(text=>({text,synthetic:true}))).slice(0,MAX_SENTENCES);
+  const prepared=rows.map(row=>({text:row.text,synthetic:row.synthetic,
+   data:build(row.text,contextual,core,knowledge)})).filter(row=>row.data.labels.some(label=>label>0));
+  const roleExamples=prepared.flatMap(row=>row.data.features.map((features,index)=>({
+   features,label:row.data.labels[index],synthetic:row.synthetic
+  })));
+  const relationExamples=prepared.flatMap(row=>row.data.relationExamples.map(example=>({
+   ...example,synthetic:row.synthetic
+  })));
   if(!prepared.length||!roleExamples.some(row=>row.label>0))throw new Error("The semantic parser could not identify subject, predicate or object spans in this corpus.");
   if(!relationExamples.some(row=>row.label>0))throw new Error("The corpus does not contain enough aligned phrase relations.");
   const epochs=Math.max(1,Math.min(120,Math.floor(Number(trainOptions.epochs)||35)));
@@ -130,18 +139,18 @@ function create(options={}){
   for(let epoch=0;epoch<epochs;epoch++){
    roleLoss=0;relationLoss=0;
    for(const example of roleExamples){
-    const weight=example.label===0?.45:1.4,updated=update(roleWeights,roleBias,example.features,example.label,learningRate,weight);
+    const weight=(example.label===0?.45:1.4)*(example.synthetic?augmentationWeight:1),updated=update(roleWeights,roleBias,example.features,example.label,learningRate,weight);
     roleLoss+=updated.loss*weight;
    }
    for(const example of relationExamples){
-    const weight=example.label===0?.35:2.0,updated=update(relationWeights,relationBias,example.features,example.label,learningRate,weight);
+    const weight=(example.label===0?.35:2.0)*(example.synthetic?augmentationWeight:1),updated=update(relationWeights,relationBias,example.features,example.label,learningRate,weight);
     relationLoss+=updated.loss*weight;
    }
    trainingSteps+=roleExamples.length+relationExamples.length;
   }
   const roleCorrect=roleExamples.filter(row=>argmax(probabilities(roleWeights,roleBias,row.features))===row.label).length;
   const relationCorrect=relationExamples.filter(row=>argmax(probabilities(relationWeights,relationBias,row.features))===row.label).length;
-  lastTraining={sentences:prepared.length,sourceSentences:sourceRows.length,augmentedSentences:augmentation.rows.length,
+  lastTraining={sentences:prepared.length,sourceSentences:sourceRows.length,augmentedSentences:augmentation.rows.length,augmentationWeight,
    excludedAugmentations:augmentation.excludedCount,unverifiedAugmentations:augmentation.unverifiedCount,
    roleExamples:roleExamples.length,relationExamples:relationExamples.length,positiveRelations:relationExamples.filter(row=>row.label>0).length,
    roleCounts,relationCounts,epochs,learningRate,roleTrainingAccuracy:roleCorrect/roleExamples.length,relationTrainingAccuracy:relationCorrect/relationExamples.length,
