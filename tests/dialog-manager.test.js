@@ -105,7 +105,10 @@ assert.equal(manager.shouldAskClarification(unclear, {
 }), false, "a sufficiently confident model plan may still resolve ordinary follow-ups");
 assert.equal(manager.shouldAskClarification(unclear, {
   source: "local", contextRelation: "follow_up", confidence: 0.54
-}), false, "existing local follow-up policy remains unchanged outside explicit topic returns");
+}), true, "an uncalibrated local heuristic must not override an unresolved follow-up");
+assert.equal(manager.shouldAskClarification(unclear, {
+  source: "local_fallback", contextRelation: "follow_up", confidence: 0.54
+}), true, "the local fallback must not override a required clarification either");
 
 const statement = manager.plan("Музыка помогает мне сосредоточиться", active);
 assert.equal(statement.action, "consider_new_information");
