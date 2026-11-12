@@ -208,10 +208,12 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedCorrect = 0;
   let seedCovered = 0;
   let seedTotal = 0;
+  let seedMorphologyCorrect = 0, seedMorphologyCovered = 0, seedMorphologyBackoffs = 0, seedMorphologyAmbiguous = 0;
   for (const testCase of cases) {
     const tokens = knowledge.tokens(testCase.text);
     const group = maskGroups[testCase.group] || (maskGroups[testCase.group] = {
-      correct: 0, covered: 0, total: 0
+      correct: 0, covered: 0, total: 0,
+      morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0
     });
     for (let index = 0; index < tokens.length; index++) {
       const score = contextual.score(testCase.text, index);
@@ -224,6 +226,22 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
           group.correct++;
           seedCorrect++;
         }
+      }
+      if (score && score.morphologyKnown) {
+        group.morphologyCovered++;
+        seedMorphologyCovered++;
+        if (score.morphologyCorrect) {
+          group.morphologyCorrect++;
+          seedMorphologyCorrect++;
+        }
+      }
+      if (score && score.morphologyBackoff) {
+        group.morphologyBackoffs++;
+        seedMorphologyBackoffs++;
+      }
+      if (score && score.morphologyAmbiguous) {
+        group.morphologyAmbiguous++;
+        seedMorphologyAmbiguous++;
       }
     }
   }
@@ -308,7 +326,18 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       covered: seedCovered,
       total: seedTotal,
       accuracy: seedCovered ? seedCorrect / seedCovered : null,
-      coverage: seedTotal ? seedCovered / seedTotal : null
+      coverage: seedTotal ? seedCovered / seedTotal : null,
+      morphology: {
+        correct: seedMorphologyCorrect,
+        covered: seedMorphologyCovered,
+        total: seedTotal,
+        accuracy: seedMorphologyCovered ? seedMorphologyCorrect / seedMorphologyCovered : null,
+        coverage: seedTotal ? seedMorphologyCovered / seedTotal : null,
+        uniqueOovBackoffs: seedMorphologyBackoffs,
+        ambiguousOovForms: seedMorphologyAmbiguous,
+        strictOovTargets: seedTotal - seedCovered,
+        oovBackoffCoverage: seedTotal > seedCovered ? seedMorphologyBackoffs / (seedTotal - seedCovered) : null
+      }
     },
     phraseTrainingOnly: {
       sourceSentences: composerTraining.sourceSentences,
@@ -337,7 +366,12 @@ const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, gro
   ...group,
   accuracy: ratio(group.correct, group.covered),
   coverage: ratio(group.covered, group.total),
-  allTargetAccuracy: ratio(group.correct, group.total)
+  allTargetAccuracy: ratio(group.correct, group.total),
+  morphologyAccuracy: ratio(group.morphologyCorrect, group.morphologyCovered),
+  morphologyCoverage: ratio(group.morphologyCovered, group.total),
+  uniqueOovBackoffs: group.morphologyBackoffs,
+  ambiguousOovForms: group.morphologyAmbiguous,
+  oovBackoffCoverage: ratio(group.morphologyBackoffs, group.total - group.covered)
 }]));
 const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name, group]) => [name, {
   ...group,
@@ -348,8 +382,12 @@ const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name,
 const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
   correct: sum.correct + group.correct,
   covered: sum.covered + group.covered,
-  total: sum.total + group.total
-}), { correct: 0, covered: 0, total: 0 });
+  total: sum.total + group.total,
+  morphologyCorrect: sum.morphologyCorrect + group.morphologyCorrect,
+  morphologyCovered: sum.morphologyCovered + group.morphologyCovered,
+  morphologyBackoffs: sum.morphologyBackoffs + group.morphologyBackoffs,
+  morphologyAmbiguous: sum.morphologyAmbiguous + group.morphologyAmbiguous
+}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0 });
 const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
   roleCorrect: sum.roleCorrect + group.roleCorrect,
   roleTotal: sum.roleTotal + group.roleTotal,
@@ -383,6 +421,12 @@ assert.equal(baselineShort.roleTotal, 18, "the six-sentence 0.58.82 phrase basel
 assert.equal(baselineShort.tp + baselineShort.fn, 18, "the six-sentence 0.58.82 phrase baseline has 18 expected edges");
 assert.equal(maskTotal.total, seedReports.length * cases.reduce((sum, row) => sum + knowledge.tokens(row.text).length, 0), "all independent token positions must remain in the coverage denominator");
 assert.ok(maskTotal.covered <= maskTotal.total);
+assert.equal(maskTotal.morphologyCovered, maskTotal.covered + maskTotal.morphologyBackoffs,
+  "morphology coverage must add only unique OOV backoffs to exact vocabulary coverage");
+assert.ok(maskTotal.morphologyCovered >= maskTotal.covered);
+assert.ok(maskTotal.morphologyBackoffs <= maskTotal.total - maskTotal.covered);
+assert.ok(maskTotal.morphologyCorrect <= maskTotal.morphologyCovered);
+assert.ok(maskTotal.morphologyBackoffs > 0, "the independent corpus must exercise a unique Russian inflection fallback");
 assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
 assert.equal(semanticTotal.cases, cases.length);
 
@@ -478,7 +522,19 @@ const summary = {
     ...maskTotal,
     accuracy: ratio(maskTotal.correct, maskTotal.covered),
     coverage: ratio(maskTotal.covered, maskTotal.total),
-    allTargetAccuracy: ratio(maskTotal.correct, maskTotal.total)
+    allTargetAccuracy: ratio(maskTotal.correct, maskTotal.total),
+    morphology: {
+      correct: maskTotal.morphologyCorrect,
+      covered: maskTotal.morphologyCovered,
+      total: maskTotal.total,
+      accuracy: ratio(maskTotal.morphologyCorrect, maskTotal.morphologyCovered),
+      coverage: ratio(maskTotal.morphologyCovered, maskTotal.total),
+      uniqueOovBackoffs: maskTotal.morphologyBackoffs,
+      ambiguousOovForms: maskTotal.morphologyAmbiguous,
+      strictOovTargets: maskTotal.total - maskTotal.covered,
+      oovBackoffCoverage: ratio(maskTotal.morphologyBackoffs, maskTotal.total - maskTotal.covered),
+      baselineComparison: "new metric; no frozen 0.58.93 morphology score exists"
+    }
   },
   semanticCoreRules: {
     ...semanticTotal,

@@ -87,12 +87,22 @@
     if(!text){output.textContent="Введи фразу для анализа.";return;}
     if(!model.status().trained){output.textContent="Сначала обучи модель на нескольких примерах.";return;}
     const analysis=model.analyse(text),lines=[];
+    lines.push("ТОЧНЫЙ СЛОВАРЬ: "+analysis.knownTokenCount+"/"+analysis.tokens.length+
+      " · морфологическое покрытие: "+analysis.morphologyCoveredTokenCount+"/"+analysis.tokens.length);
+    if(analysis.morphologyBackoffTokens.length){
+      lines.push("РЕЗЕРВ ПО ОСНОВЕ (это не точная генерация окончания): "+
+        analysis.morphologyBackoffTokens.map(row=>row.token+" → "+row.vocabularyToken).join(" · "));
+    }
+    if(analysis.morphologyAmbiguousTokens.length){
+      lines.push("Неоднозначные основы, не засчитанные в покрытие: "+analysis.morphologyAmbiguousTokens.join(" · "));
+    }
     for(const row of analysis.positions){
       const links=row.attention.slice().sort((a,b)=>b.weight-a.weight)
         .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");
       const guesses=row.predictions.slice(0,3)
         .map(item=>item.token+" "+Math.round(item.probability*100)+"%").join(" · ");
-      lines.push(row.token+(row.targetKnown?"":" [OOV · субслова]")+" ← среднее внимание: "+(links||"нет контекста"));
+      const morphologyNote=row.morphologyBackoff?" [OOV · основа → "+row.morphologyToken+"]":row.morphologyAmbiguous?" [OOV · неоднозначная основа]":row.targetKnown?"":" [OOV · субслова]";
+      lines.push(row.token+morphologyNote+" ← среднее внимание: "+(links||"нет контекста"));
       for(const head of row.heads){
         const detail=head.attention.slice().sort((a,b)=>b.weight-a.weight)
           .map(item=>item.token+" ("+(item.offset>0?"+":"")+item.offset+") "+Math.round(item.weight*100)+"%").join(" · ");

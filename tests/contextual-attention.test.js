@@ -4,6 +4,11 @@ const window={},sandbox={window,Math,Map,Set,JSON,Object,Array,String,Number,Reg
 vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),sandbox,{filename:"contextual-attention.js"});
 const api=window.NGContextualModel;
 assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V5");
+assert.equal(api.russianStem("нейроны"),api.russianStem("нейрон"));
+assert.equal(api.russianStem("сигнала"),api.russianStem("сигнал"));
+assert.equal(api.russianStem("систему"),api.russianStem("система"));
+assert.equal(api.russianStem("обнаруживают"),api.russianStem("обнаруживает"));
+assert.equal(api.russianStem("активируют"),api.russianStem("активирует"));
 const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
  "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
  "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
@@ -124,4 +129,13 @@ const compactRestored=api.fromState(compactModel.exportState());
 assert.equal(compactRestored.status().lastTraining.validationLoss,null,"null validation loss must survive checkpoint reload");
 assert.equal(compactRestored.status().lastTraining.testLoss,null,"null test loss must survive checkpoint reload");
 assert.equal(compactRestored.status().lastTraining.evaluationAvailable,false);
-console.log("NEUROGENESIS contextual attention v5: stacked transformer blocks, cross-layer gradients, subword OOV handling and checkpoint persistence passed.");
+const morphologyModel=api.create({dimension:12,windowSize:2,heads:3,seed:121});
+morphologyModel.train(["нейрон получает сигнал","нейрон обрабатывает данные","сеть получает данные"],{epochs:3,learningRate:.02,splitSeed:902});
+const morphologyScore=morphologyModel.score("нейроны получают сигнал",0);
+assert.equal(morphologyScore.targetKnown,false);
+assert.equal(morphologyScore.morphologyBackoff,true);
+assert.equal(morphologyScore.morphologyToken,"нейрон");
+const morphologyAnalysis=morphologyModel.analyse("нейроны получают сигнал");
+assert.ok(morphologyAnalysis.morphologyBackoffCount>=1);
+assert.ok(morphologyAnalysis.morphologyCoveredTokenCount>=1);
+console.log("NEUROGENESIS contextual attention v5: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");

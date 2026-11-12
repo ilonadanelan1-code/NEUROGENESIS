@@ -3,6 +3,15 @@
 const SCHEMA="NG_CONTEXTUAL_ATTENTION_V5",MAX_VOCABULARY=512,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24,MAX_TRANSFORMER_BLOCKS=4;
 const clean=(value,limit=4000)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 function tokenize(value){return clean(value,6000).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,MAX_TOKENS)||[];}
+const RUSSIAN_VERB_ENDINGS=["ировались","ировалось","ировали","ировать","ируются","ируется","ируете","ируешь","ируют","ирует","ываете","ывают","ываешь","ывает","ывают","ивает","ивают","аете","ают","яете","яют","уете","уют","ает","яет","ует","вает","вают","ишь","ешь","ите","ете","или","ыли","ет","ит","ят","ат","ут","ют"].sort((a,b)=>b.length-a.length);
+const RUSSIAN_NOUN_ENDINGS=["иями","ями","ами","иях","ах","ях","иям","ием","ией","ого","его","ому","ыми","ими","ую","юю","ая","яя","ое","ее","ые","ие","ых","их","ым","им","ом","ем","ою","ею","ию","ью","ия","ья","ие","ье","ии","ев","ов","ей","ой","ям","ам","а","я","ы","и","е","у","ю","о","ь"].sort((a,b)=>b.length-a.length);
+function russianStem(raw){
+ const word=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+ if(!/^[а-я]+$/u.test(word))return word;
+ for(const suffix of RUSSIAN_VERB_ENDINGS)if(word.length-suffix.length>=3&&word.endsWith(suffix))return word.slice(0,-suffix.length);
+ for(const suffix of RUSSIAN_NOUN_ENDINGS)if(word.length-suffix.length>=3&&word.endsWith(suffix))return word.slice(0,-suffix.length);
+ return word;
+}
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
 function subwordFeatures(raw){
  const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"),chars=Array.from("<"+token+">"),features=new Set();
@@ -73,7 +82,7 @@ function create(options={}){
   feedForward2:matrix(dimension,feedForwardDimension,random,Math.sqrt(2/feedForwardDimension)),feedForward2Bias:zeros(dimension)
  });
  const blocks=Array.from({length:blockCount},makeBlock);
- let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null;
+ let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null;
  function relativeSlot(delta){return Math.max(-windowSize,Math.min(windowSize,delta))+windowSize;}
  function zeroMatrix(rows,cols){return Array.from({length:rows},()=>zeros(cols));}
 
@@ -82,10 +91,19 @@ function create(options={}){
   if(!token||!/[\p{L}\p{N}]/u.test(token))return-1;
   if(indices.has(token))return indices.get(token);
   if(vocabulary.length>=MAX_VOCABULARY)return-1;
-  const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);
+  const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);stemIndexCache=null;
   embeddings.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));
   outputWeights.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));outputBias.push(0);
   return index;
+ }
+ function morphologyCandidates(raw){
+  const stem=russianStem(raw);if(stem.length<3)return[];
+  if(!stemIndexCache){
+   const next=new Map();
+   vocabulary.forEach((token,index)=>{const key=russianStem(token);if(key.length<3)return;if(!next.has(key))next.set(key,[]);next.get(key).push(index);});
+   stemIndexCache=next;
+  }
+  return stemIndexCache.get(stem)||[];
  }
  function contextFor(sequence,targetIndex){
   const context=[];
@@ -300,18 +318,30 @@ function create(options={}){
    return{head:index+1,attention:accumulated.map((weight,row)=>({token:tokens[safeIndex+context[row].offset],offset:context[row].offset,distance:Math.abs(context[row].offset),weight})),relativePositionBias:blocks[blockCount-1].relativePositionBias[index].slice(),vector};
   });
   const aggregate=context.map((row,index)=>({token:tokens[safeIndex+row.offset],offset:row.offset,distance:Math.abs(row.offset),weight:headRows.reduce((sum,head)=>sum+head.attention[index].weight,0)/heads}));
-  const target=sequence[safeIndex],targetIndexInVocabulary=target.tokenIndex,tokenVector=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary].slice():zeros(dimension);
+  const target=sequence[safeIndex],targetIndexInVocabulary=target.tokenIndex,targetStem=russianStem(tokens[safeIndex]),stemMatches=morphologyCandidates(tokens[safeIndex]);
+  const morphologyTargetIndex=targetIndexInVocabulary>=0?targetIndexInVocabulary:(stemMatches.length===1?stemMatches[0]:-1);
+  const morphologyKnown=morphologyTargetIndex>=0,morphologyBackoff=targetIndexInVocabulary<0&&morphologyKnown,morphologyAmbiguous=targetIndexInVocabulary<0&&stemMatches.length>1;
+  const tokenVector=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary].slice():zeros(dimension);
   for(const bucket of target.subwordBuckets)for(let i=0;i<dimension;i++)tokenVector[i]+=subwordEmbeddings[bucket][i]/target.subwordBuckets.length;
   const rows=last.rowPasses,meanVector=selector=>Array.from({length:dimension},(_,i)=>rows.reduce((sum,row)=>sum+selector(row)[i],0)/rows.length);
   const hidden=Array.from({length:feedForwardDimension},(_,i)=>rows.reduce((sum,row)=>sum+row.ffHidden[i],0)/rows.length);
-  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:target.subwordBuckets.length,tokenVector,contextualVector:pass.pooled.slice(),attention:aggregate,heads:headRows,predictions:topPredictions(pass.probabilities,vocabulary),
-   targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,normalization:{first:meanVector(row=>row.norm1.output),second:pass.pooled.slice()},
+  const predictions=topPredictions(pass.probabilities,vocabulary),morphologyPrediction=predictions[0];
+  const morphologyCorrect=morphologyKnown&&!!morphologyPrediction&&russianStem(morphologyPrediction.token)===targetStem;
+  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:target.subwordBuckets.length,tokenVector,contextualVector:pass.pooled.slice(),attention:aggregate,heads:headRows,predictions,
+   targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
+   morphologyKnown,morphologyBackoff,morphologyAmbiguous,morphologyToken:morphologyTargetIndex>=0?vocabulary[morphologyTargetIndex]:null,
+   morphologyStem:targetStem,morphologyProbability:morphologyTargetIndex>=0?pass.probabilities[morphologyTargetIndex]:null,
+   morphologyCorrect,morphologyCandidateCount:stemMatches.length,normalization:{first:meanVector(row=>row.norm1.output),second:pass.pooled.slice()},
    feedForward:{hidden,output:meanVector(row=>row.ffOutput)},transformerBlocks:blockCount};
  }
  function analyse(text){const tokens=tokenize(text),positions=[];for(let i=0;i<tokens.length;i++){const row=score(text,i);if(row)positions.push(row);}
   const unknownTokens=tokens.filter(token=>!indices.has(token));
+  const morphologyBackoffTokens=positions.filter(row=>row.morphologyBackoff).map(row=>({token:row.token,vocabularyToken:row.morphologyToken,stem:row.morphologyStem}));
+  const morphologyAmbiguousTokens=positions.filter(row=>row.morphologyAmbiguous).map(row=>row.token);
+  const morphologyCoveredTokenCount=positions.filter(row=>row.morphologyKnown).length;
   return{schema:SCHEMA,version:5,tokens,vocabularySize:vocabulary.length,trained:trainingSteps>0,heads,headDimension,feedForwardDimension,transformerBlocks:blockCount,windowSize,maxWindowSize:MAX_WINDOW_SIZE,
-   knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,positions};}
+   knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,morphologyCoveredTokenCount,
+   morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,positions};}
  function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
@@ -335,7 +365,7 @@ function create(options={}){
   if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||!state.blocks.every(validBlock)||!validMatrix(state.outputWeights,count,dimension)||!validVector(state.outputBias,count))
    throw new TypeError("Contextual model weights are malformed.");
   vocabulary.length=0;indices.clear();
-  state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});
+  state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});stemIndexCache=null;
   const copy=rows=>rows.map(row=>row.map(Number)),copyVector=values=>values.map(Number);
   embeddings.length=0;embeddings.push(...copy(state.embeddings));subwordEmbeddings.splice(0,subwordEmbeddings.length,...copy(state.subwordEmbeddings));positions.splice(0,positions.length,...copy(state.positions));
   for(let layer=0;layer<blockCount;layer++){
@@ -350,9 +380,9 @@ function create(options={}){
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures});
+ return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
-root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures});
+root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem});
 })();
