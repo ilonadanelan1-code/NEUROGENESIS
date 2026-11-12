@@ -1284,6 +1284,24 @@
     if (!markers.length) {
       let remaining = words.slice();
       const complements = [];
+      const first = normalise(remaining[0] || "");
+      const second = normalise(remaining[1] || "");
+      const firstIsDative = DATIVE_FEMININE_FORMS.has(first) || DATIVE_MASCULINE_FORMS.has(first) ||
+        DATIVE_NEUTER_FORMS.has(first) || ["системам", "модулям", "нейронам", "данным"].includes(first);
+      const adjectiveBeforeDative = remaining.length > 2 &&
+        /(?:ому|ему|ой|ей|ым|им)$/iu.test(first) &&
+        (DATIVE_FEMININE_FORMS.has(second) || DATIVE_MASCULINE_FORMS.has(second) ||
+          DATIVE_NEUTER_FORMS.has(second) || ["системам", "модулям", "нейронам", "данным"].includes(second));
+      const leadingDativeWords = adjectiveBeforeDative ? 2 : firstIsDative ? 1 : 0;
+      if (leadingDativeWords && remaining.length > leadingDativeWords) {
+        const phrase = remaining.slice(0, leadingDativeWords).join(" ");
+        complements.push({
+          role: TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object",
+          text: phrase, marker: null, grammaticalCase: "dative",
+          confidence: 0.78, rule: "dative_first_complement"
+        });
+        remaining = remaining.slice(leadingDativeWords);
+      }
       while (remaining.length > 1 || PASSIVE_PREDICATES.has(normalise(predicate))) {
         const tail = extractInflectedComplementTail(remaining, predicate);
         if (!tail) break;
