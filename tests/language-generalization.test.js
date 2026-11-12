@@ -197,7 +197,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   const composer = Composer.create({ dimension: 12, seed: seed.phrase });
   const composerTraining = composer.train(trainRows, contextual, core, knowledge, {
     epochs: 45, learningRate: 0.045,
-    augmentWordOrder: true, excludeSentences: cases.map(row => row.text)
+    augmentWordOrder: true, augmentationWeight: 0.3, excludeSentences: cases.map(row => row.text)
   });
   assert.equal(composerTraining.sourceSentences, trainRows.length);
   assert.ok(composerTraining.augmentedSentences > 0, "verified word-order permutations must expand phrase training");
@@ -314,6 +314,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       sourceSentences: composerTraining.sourceSentences,
       augmentedSentences: composerTraining.augmentedSentences,
       excludedAugmentations: composerTraining.excludedAugmentations,
+      augmentationWeight: composerTraining.augmentationWeight,
       unverifiedAugmentations: composerTraining.unverifiedAugmentations,
       augmentation: composerTraining.augmentation,
       roleAccuracy: composerTraining.roleTrainingAccuracy,
@@ -440,7 +441,7 @@ const summary = {
   trainingSentences: trainRows.length,
   augmentation: {
     enabled: true,
-    perSeed: seedReports.map(row => row.phraseTrainingOnly.augmentation)
+    perSeed: seedReports.map(row => ({...row.phraseTrainingOnly}))
   },
   baselineVersion: "0.58.93",
   comparisonTo05893,
