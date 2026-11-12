@@ -36,6 +36,10 @@ const seeds = [
   {model:31415,split:2718},
   {model:2718,split:9044}
 ];
+const variants = {
+  unweighted:{classWeighting:"none",selectionMetric:"loss"},
+  sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
+};
 const selectedAttributes = [
   "Case","Number","Gender","Tense","Person","VerbForm","Aspect",
   "Degree","Animacy","Mood","Voice","PronType","NumType"
@@ -92,13 +96,28 @@ function add(target,source) {
   for(const key of ["targets","covered","correct","unsupported","majorityBaselineCorrect"])
     target[key] += source[key] || 0;
 }
-function rate(row,key="accuracy") {
-  return row && Number.isFinite(row[key]) ? row[key] : null;
+function aggregateVariant(aggregate,variant,attribute,metrics,seed) {
+  const row = aggregate[variant][attribute] || (aggregate[variant][attribute]={
+    all:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
+    knownLemma:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
+    unseenLemma:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
+    macroF1BySeed:[]
+  });
+  add(row.all,metrics.all);
+  add(row.knownLemma,metrics.knownLemma);
+  add(row.unseenLemma,metrics.unseenLemma);
+  row.macroF1BySeed.push({
+    seed,
+    all:metrics.all.macroF1,
+    allMajorityBaseline:metrics.all.majorityBaselineMacroF1,
+    unseenLemma:metrics.unseenLemma.macroF1,
+    unseenLemmaMajorityBaseline:metrics.unseenLemma.majorityBaselineMacroF1
+  });
 }
 
 const recordMap = new Map(prepared.trainingRecords.map(row=>[row.normalized,row]));
 const seedReports = [];
-const aggregate = Object.create(null);
+const aggregate = Object.fromEntries(Object.keys(variants).map(variant=>[variant,Object.create(null)]));
 
 for(const seed of seeds) {
   const contextual = Attention.create({
@@ -148,48 +167,50 @@ for(const seed of seeds) {
     assert.ok(trainRows.length>0&&validationRows.length>0&&testRows.length>0,
       "each reported attribute must have train, validation and independent test examples");
 
-    const head = Feats.create({seed:seed.model});
-    const training = head.train(trainRows,validationRows,{
-      epochs:55,learningRate:.03,patience:9,seed:seed.model
-    });
-    assert.ok(training.classes.length>=2);
-    assert.ok(training.validationExamples>0);
-
     const trainLemmas = new Set(trainRows.map(row=>row.lemma).filter(Boolean));
-    const all = summarize(testRows,head,training.majorityLabel);
-    const known = summarize(testRows.filter(row=>trainLemmas.has(row.lemma)),
-      head,training.majorityLabel);
-    const unseen = summarize(testRows.filter(row=>!trainLemmas.has(row.lemma)),
-      head,training.majorityLabel);
+    const variantReports = Object.create(null);
+    for(const [variant,configuration] of Object.entries(variants)) {
+      const head = Feats.create({seed:seed.model});
+      const training = head.train(trainRows,validationRows,{
+        epochs:55,learningRate:.03,patience:9,seed:seed.model,...configuration
+      });
+      assert.ok(training.classes.length>=2);
+      assert.ok(training.validationExamples>0);
+      assert.equal(training.classWeighting,configuration.classWeighting);
+      assert.equal(training.selectionMetric,
+        configuration.selectionMetric==="loss"?"validation_loss":"validation_macro_f1");
 
-    assert.equal(all.targets,testRows.length);
-    assert.equal(all.covered+all.unsupported,all.targets);
-    assert.equal(known.targets+unseen.targets,all.targets);
-    if(all.covered) assert.ok(Number.isFinite(all.accuracy));
-    if(unseen.covered) assert.ok(Number.isFinite(unseen.accuracy));
+      const all = summarize(testRows,head,training.majorityLabel);
+      const known = summarize(testRows,head,training.majorityLabel,trainLemmas);
+      const unseenRows = testRows.filter(row=>!trainLemmas.has(row.lemma));
+      const unseen = summarize(unseenRows,head,training.majorityLabel);
+      assert.equal(all.targets,testRows.length);
+      assert.equal(all.covered+all.unsupported,all.targets);
+      assert.equal(known.targets+unseen.targets,all.targets);
+      if(all.covered) assert.ok(Number.isFinite(all.accuracy));
+      if(unseen.covered) assert.ok(Number.isFinite(unseen.accuracy));
 
-    const row = aggregate[attribute] || (aggregate[attribute]={
-      all:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
-      knownLemma:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
-      unseenLemma:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
-      macroF1BySeed:[]
-    });
-    add(row.all,all);
-    add(row.knownLemma,known);
-    add(row.unseenLemma,unseen);
-    row.macroF1BySeed.push({
-      seed:seed.model,
-      all:all.macroF1,
-      allMajorityBaseline:all.majorityBaselineMacroF1,
-      unseenLemma:unseen.macroF1,
-      unseenLemmaMajorityBaseline:unseen.majorityBaselineMacroF1
-    });
+      const metrics={all,knownLemma:known,unseenLemma:unseen};
+      aggregateVariant(aggregate,variant,attribute,metrics,seed.model);
+      variantReports[variant]={training,metrics};
+    }
+
+    const weighted = variantReports.sqrtInverse.metrics;
+    const unweighted = variantReports.unweighted.metrics;
     attributeReports[attribute] = {
-      training,
       trainTargets:item.trainTargets,
       supportedLabels:item.supportedLabels,
       trainLabelCounts:item.trainLabelCounts,
-      metrics:{all,knownLemma:known,unseenLemma:unseen}
+      identicalTrainValidationAndTestRows:true,
+      comparison:{
+        allAccuracyDelta:ratio(weighted.all.correct,weighted.all.covered)-
+          ratio(unweighted.all.correct,unweighted.all.covered),
+        unseenLemmaAccuracyDelta:ratio(weighted.unseenLemma.correct,weighted.unseenLemma.covered)-
+          ratio(unweighted.unseenLemma.correct,unweighted.unseenLemma.covered),
+        allMacroF1Delta:weighted.all.macroF1-unweighted.all.macroF1,
+        unseenLemmaMacroF1Delta:weighted.unseenLemma.macroF1-unweighted.unseenLemma.macroF1
+      },
+      variants:variantReports
     };
   }
   seedReports.push({
@@ -212,33 +233,36 @@ for(const seed of seeds) {
   });
 }
 
-const aggregateReport = Object.fromEntries(Object.entries(aggregate).map(([attribute,row])=>{
-  const metrics = {};
-  for(const key of ["all","knownLemma","unseenLemma"]) {
-    const value=row[key];
-    metrics[key]={
-      ...value,
-      accuracy:ratio(value.correct,value.covered),
-      coverage:ratio(value.covered,value.targets),
-      majorityBaselineAccuracy:ratio(value.majorityBaselineCorrect,value.covered)
+const aggregateReport = Object.fromEntries(Object.entries(aggregate).map(([variant,attributes])=>{
+  const perAttribute = Object.fromEntries(Object.entries(attributes).map(([attribute,row])=>{
+    const metrics = {};
+    for(const key of ["all","knownLemma","unseenLemma"]) {
+      const value=row[key];
+      metrics[key]={
+        ...value,
+        accuracy:ratio(value.correct,value.covered),
+        coverage:ratio(value.covered,value.targets),
+        majorityBaselineAccuracy:ratio(value.majorityBaselineCorrect,value.covered)
+      };
+    }
+    const macro=(key)=>{
+      const values=row.macroF1BySeed.map(item=>item[key]).filter(Number.isFinite);
+      return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;
     };
-  }
-  const macro=(key)=>{
-    const values=row.macroF1BySeed.map(item=>item[key]).filter(Number.isFinite);
-    return values.length?values.reduce((sum,value)=>sum+value,0)/values.length:null;
-  };
-  return [attribute,{
-    ...metrics,
-    meanMacroF1AcrossSeeds:macro("all"),
-    meanMajorityBaselineMacroF1AcrossSeeds:macro("allMajorityBaseline"),
-    meanUnseenLemmaMacroF1AcrossSeeds:macro("unseenLemma"),
-    meanUnseenLemmaMajorityBaselineMacroF1AcrossSeeds:macro("unseenLemmaMajorityBaseline"),
-    macroF1BySeed:row.macroF1BySeed
-  }];
+    return [attribute,{
+      ...metrics,
+      meanMacroF1AcrossSeeds:macro("all"),
+      meanMajorityBaselineMacroF1AcrossSeeds:macro("allMajorityBaseline"),
+      meanUnseenLemmaMacroF1AcrossSeeds:macro("unseenLemma"),
+      meanUnseenLemmaMajorityBaselineMacroF1AcrossSeeds:macro("unseenLemmaMajorityBaseline"),
+      macroF1BySeed:row.macroF1BySeed
+    }];
+  }));
+  return [variant,perAttribute];
 }));
 
 const summary = {
-  benchmark:"NEUROGENESIS contextual UD FEATS attribute-value pilot",
+  benchmark:"NEUROGENESIS paired contextual UD FEATS attribute-value pilot",
   version:"0.58.118",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
@@ -247,11 +271,14 @@ const summary = {
   },
   protocol:{
     seeds,
+    variants,
     selectedAttributes,
     maximumAttributes,
     minimumClassExamples,
-    weighting:"sqrt_inverse derived only from supervised train examples",
-    checkpointSelection:"validation macro-F1",
+    sameContextualEncoderAndRowsForBothVariants:true,
+    unweightedCheckpointSelection:"validation loss",
+    sqrtInverseCheckpointSelection:"validation macro-F1",
+    weightsDerivedOnlyFromSupervisedTrainExamples:true,
     independentTestUse:"evaluation only",
     lemmaSlice:"per-attribute train-lemma overlap"
   },
@@ -267,5 +294,8 @@ const summary = {
   seeds:seedReports
 };
 assert.equal(summary.isolation.normalizedSentenceLeakage,0);
-assert.ok(Object.keys(aggregateReport).length>=4);
-console.log("NEUROGENESIS 0.58.118 contextual FEATS pilot: "+JSON.stringify(summary));
+assert.ok(Object.keys(aggregateReport.sqrtInverse).length>=4);
+assert.deepEqual(Object.keys(aggregateReport.sqrtInverse).sort(),
+  Object.keys(aggregateReport.unweighted).sort(),
+  "both FEATS variants must report the same attributes");
+console.log("NEUROGENESIS 0.58.118 paired contextual FEATS pilot: "+JSON.stringify(summary));
