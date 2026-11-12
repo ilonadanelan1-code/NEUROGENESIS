@@ -85,6 +85,19 @@ assert.deepEqual(Array.from(head.status().labels).sort(),["NOUN","VERB"]);
 assert.equal(headTraining.trainExamples,trainSet.examples.length);
 assert.equal(headTraining.validationExamples,validationSet.examples.length);
 
+const balancedHead = Supervision.create({seed:813});
+const balancedTraining = balancedHead.train(
+  trainSet.examples.concat(trainSet.examples.slice(0, 8)),
+  validationSet.examples,
+  {epochs:40,learningRate:.035,patience:8,seed:813,
+   classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
+);
+assert.equal(balancedTraining.classWeighting,"sqrt_inverse");
+assert.equal(balancedTraining.selectionMetric,"macro_f1");
+assert.ok(Object.values(balancedTraining.classWeights).every(value =>
+  Number.isFinite(value) && value > 0));
+assert.ok(Number.isFinite(balancedTraining.bestSelectionScore));
+
 const evaluation = head.evaluate(testSet.examples);
 assert.equal(evaluation.targets,6);
 assert.equal(evaluation.covered,6);
