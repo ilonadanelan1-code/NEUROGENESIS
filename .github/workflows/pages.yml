@@ -48,7 +48,6 @@ jobs:
           node --check semantic-query.js
           node --check contextual-attention.js
           node --check upos-supervision.js
-          node --check upos-supervision.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
