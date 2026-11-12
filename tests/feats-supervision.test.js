@@ -140,12 +140,25 @@ assert.ok(labels.includes("Nom")&&labels.includes("Acc"));
 assert.ok(validationCase.length>0);
 const head = Feats.create({seed:812});
 const result = head.train(trainCase,validationCase,{
-  epochs:40,learningRate:.035,patience:8,seed:812
+  epochs:40,learningRate:.035,patience:8,seed:812,
+  classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"
 });
 assert.ok(result.trainingSteps>0);
 assert.equal(result.selectionMetric,"validation_macro_f1");
 assert.equal(result.classWeighting,"sqrt_inverse");
 assert.ok(Number.isFinite(result.validationMacroF1));
+
+const unweightedHead = Feats.create({seed:812});
+const unweightedResult = unweightedHead.train(trainCase,validationCase,{
+  epochs:40,learningRate:.035,patience:8,seed:812,
+  classWeighting:"none",selectionMetric:"loss"
+});
+assert.equal(unweightedResult.classWeighting,"none");
+assert.equal(unweightedResult.selectionMetric,"validation_loss");
+assert.ok(Object.values(unweightedResult.classWeights).every(value=>value===1));
+assert.ok(Number.isFinite(unweightedResult.validationLoss));
+assert.deepEqual(Array.from(unweightedHead.status().labels),Array.from(head.status().labels));
+
 const testCase = testing.byAttribute.Case;
 const report = head.evaluate(testCase.filter(row=>head.status().labels.includes(row.label)));
 assert.ok(report.targets>0);
