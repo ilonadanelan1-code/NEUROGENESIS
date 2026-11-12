@@ -59,6 +59,22 @@ assert.equal(longChain.items[2].proposition.subject, "модуль",
   "a resolved antecedent must remain available through a longer bounded chain");
 assert.equal(reference(longChain.items[2], "subject").status, "resolved");
 
+const prepositionalHead = parseChain("Модуль находится в большой комнате. Она работает.");
+assert.equal(prepositionalHead.items[1].proposition.subject, "в большой комнате",
+  "a preposition and adjective must not be mistaken for the grammatical head");
+assert.equal(reference(prepositionalHead.items[1], "subject").status, "resolved");
+assert.equal(reference(prepositionalHead.items[1], "subject").antecedentText, "в большой комнате");
+
+const feminineSoftSign = parseChain("Модуль открывает дверь. Она работает.");
+assert.equal(feminineSoftSign.items[1].proposition.subject, "дверь",
+  "known feminine soft-sign nouns must support gender agreement");
+assert.equal(reference(feminineSoftSign.items[1], "subject").status, "resolved");
+
+const masculineSoftSign = parseChain("Система использует словарь. Он работает.");
+assert.equal(masculineSoftSign.items[1].proposition.subject, "словарь",
+  "known masculine soft-sign nouns must remain masculine");
+assert.equal(reference(masculineSoftSign.items[1], "subject").status, "resolved");
+
 const causal = parseChain("Сеть не активируется, потому что питание не работает.");
 assert.equal(causal.items.length, 2);
 assert.equal(causal.items[1].relationToPrevious.type, "cause_of_previous");

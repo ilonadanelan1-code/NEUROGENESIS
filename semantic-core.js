@@ -15,11 +15,36 @@
   const PRONOUN_SUBJECT = /^(?:него|неё|нее|них|этого|этой|этих|он|она|они|это|там|тогда|его|ее|её)$/iu;
   const COREFERENCE_SCHEMA = "NG_COREFERENCE_REFERENCE_V1";
   const FEMININE_HEADS = new Set(["система", "сеть", "память", "модель", "нейросеть",
-    "связь", "активность", "энергия", "информация", "причина", "лаборатория", "комната"]);
+    "связь", "активность", "энергия", "информация", "причина", "лаборатория", "комната",
+    "дверь", "кость", "тень", "роль", "цель", "часть", "вещь", "жизнь", "площадь",
+    "мощность", "скорость", "сущность", "новость", "ночь", "помощь"]);
   const MASCULINE_HEADS = new Set(["нейрон", "сигнал", "узел", "пакет", "токен",
-    "процесс", "результат", "мозг", "импульс", "объект", "сервер", "модуль", "словарь", "путь"]);
+    "процесс", "результат", "мозг", "импульс", "объект", "сервер", "модуль", "словарь", "путь",
+    "день", "камень", "огонь", "конь", "корень", "гость", "рубль", "уголь", "ноль"]);
   const NEUTER_HEADS = new Set(["ядро", "состояние", "сообщение", "действие",
     "событие", "обучение", "питание", "значение", "соединение"]);
+  const FEMININE_INFLECTED_HEADS = new Set([
+    "комнате", "комнату", "комнатой", "системе", "систему", "системой",
+    "лабораторию", "лабораторией", "нейросетью", "сетью", "моделью",
+    "памятью", "связью", "причине", "причину", "причиной", "энергией",
+    "информацией", "станцией", "станцию", "программе", "программу",
+    "программой", "дверью", "цепью", "тенью", "ролью", "целью"
+  ]);
+  const MASCULINE_INFLECTED_HEADS = new Set([
+    "сигнала", "сигналу", "сигналом", "модулю", "модулем", "словарю",
+    "словарем", "процессу", "процессом", "нейрону", "нейроном",
+    "объекту", "объектом", "результату", "результатом", "серверу", "сервером"
+  ]);
+  const NEUTER_INFLECTED_HEADS = new Set([
+    "ядра", "ядру", "ядром", "состоянию", "состоянием", "сообщению",
+    "сообщением", "действию", "действием", "значению", "значением",
+    "соединению", "соединением"
+  ]);
+  const GRAMMATICAL_FUNCTION_WORDS = new Set([
+    "в", "во", "на", "из", "изо", "к", "ко", "у", "от", "до", "для", "без",
+    "под", "над", "между", "около", "возле", "рядом", "с", "со", "по", "при",
+    "о", "об", "обо", "за", "через", "про", "перед", "после", "среди", "внутри"
+  ]);
 
 
   const clean = (value, max = 240) =>
@@ -390,19 +415,34 @@
 
   function grammaticalGender(value) {
     const text = clean(value, 180).toLowerCase().replace(/^[«"']|[»"']$/gu, "");
-    const words = text.split(/\s+/u).filter(Boolean);
+    const words = text.split(/\s+/u).map(word =>
+      word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "")).filter(Boolean);
     const ignored = /^(?:все|вся|всё|каждый|каждая|каждое|один|одна|одно|два|две|три|четыре|пять|много|несколько|этот|эта|это|эти|такой|такая|такое|такие|мой|моя|мое|мои)$/iu;
-    const head = (words.find(word => !ignored.test(word)) || "").replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
-    if (!head) return "unknown";
-    const folded = head.replace(/ё/gu, "е");
-    if (FEMININE_HEADS.has(folded)) return "feminine";
-    if (MASCULINE_HEADS.has(folded)) return "masculine";
-    if (NEUTER_HEADS.has(folded)) return "neuter";
-    if (/(?:ов|ев|ей|ам|ям|ах|ях|ы|и)$/u.test(folded)) return "plural";
-    if (/[аяую]$/u.test(folded)) return "feminine";
-    if (/[оеё]$/u.test(folded)) return "neuter";
-    if (/[ь]$/u.test(folded)) return "unknown";
-    if (/[бвгджзйклмнпрстфхцшщ]$/u.test(folded)) return "masculine";
+    const contentWords = words.filter(word =>
+      !ignored.test(word) && !GRAMMATICAL_FUNCTION_WORDS.has(word));
+    if (!contentWords.length) return "unknown";
+
+    const foldedWords = contentWords.map(word => word.replace(/ё/gu, "е"));
+    const knownGender = word => {
+      if (FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word)) return "feminine";
+      if (MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word)) return "masculine";
+      if (NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word)) return "neuter";
+      return null;
+    };
+    // Prefer a known noun/head over an adjective or an oblique modifier.
+    // The first known head preserves Russian noun + genitive-complement order;
+    // the last known head handles prepositional and adjective + noun phrases.
+    const firstKnown = foldedWords.find(knownGender);
+    const lastKnown = [...foldedWords].reverse().find(knownGender);
+    const head = firstKnown || lastKnown || foldedWords[0];
+    const lexicalGender = knownGender(head);
+    if (lexicalGender) return lexicalGender;
+    if (/(?:ии)$/u.test(head)) return "unknown";
+    if (/(?:ов|ев|ей|ам|ям|ах|ях|ы|и)$/u.test(head)) return "plural";
+    if (/[аяую]$/u.test(head)) return "feminine";
+    if (/[оеё]$/u.test(head)) return "neuter";
+    if (/[ь]$/u.test(head)) return "unknown";
+    if (/[бвгджзйклмнпрстфхцшщ]$/u.test(head)) return "masculine";
     return "unknown";
   }
 
