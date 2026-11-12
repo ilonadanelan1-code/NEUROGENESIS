@@ -16,7 +16,7 @@ assert.equal(Feats.schema,"NG_FEATS_CONTEXT_HEAD_V1");
 
 const sentences = [
   ["Система получает сигнал.", [
-    ["Система","система",{Case:"Nom",Number:"Sing",Gender:"Fem"}],
+    ["Система","система",{Case:"Nom",Number:"Sing",Gender:"Fem",PronType:"Int,Rel"}],
     ["получает","получать",{Number:"Sing",Person:"3",Tense:"Pres",Aspect:"Imp",VerbForm:"Fin"}],
     ["сигнал","сигнал",{Case:"Acc",Number:"Sing",Gender:"Masc"}]
   ]],
@@ -123,6 +123,8 @@ assert.equal(testing.stats.alignedSentences,2);
 assert.ok(testing.byAttribute.Case.length>0);
 assert.ok(testing.byAttribute.Number.length>0);
 assert.ok(testing.byAttribute.Tense.length>0);
+assert.ok(training.byAttribute.PronType.some(row=>row.label==="Int,Rel"),
+  "comma-separated UD values must remain a single observed attribute value");
 assert.ok(testing.byAttribute.Case.every(row=>row.lemma));
 assert.ok(testing.byAttribute.Case.every(row=>row.targetKnown===false),
   "test examples must use subword representations for unseen lexical targets");
@@ -149,11 +151,14 @@ const prediction = head.predict(testCase[0].features);
 assert.ok(prediction&&labels.includes(prediction.label));
 assert.ok(prediction.confidence>=0&&prediction.confidence<=1);
 
+const unsafeFeatures = Object.create(null);
+unsafeFeatures.Case = "Nom";
+unsafeFeatures["__proto__"] = "polluted";
 const malicious = Feats.extractExamples([{
   sentenceId:"unsafe",
   text:"Система видит мир.",
   tokens:[
-    {form:"Система",lemma:"система",feats:{"__proto__":"polluted",Case:"Nom"}},
+    {form:"Система",lemma:"система",feats:unsafeFeatures},
     {form:"видит",lemma:"видеть",feats:{Number:"Sing"}},
     {form:"мир",lemma:"мир",feats:{Case:"Acc"}}
   ]
