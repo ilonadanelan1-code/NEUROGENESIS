@@ -717,7 +717,14 @@
       const mentionContext = hasPrepositionContext ? clean(words[0], 24) : null;
       const currentArgument = (Array.isArray(proposition.arguments) ? proposition.arguments : [])
         .find(argument => normalise(argument.text) === normalise(surfaceMention));
-      const desiredRole = currentArgument && currentArgument.role || null;
+      // Only valency-specific roles provide a safe tie-breaker. Generic agent,
+      // patient and cause labels are too broad to resolve competing antecedents.
+      const roleSensitive = new Set([
+        "recipient", "theme", "source", "instrument", "destination",
+        "beneficiary", "indirect_object"
+      ]);
+      const desiredRole = currentArgument && roleSensitive.has(currentArgument.role)
+        ? currentArgument.role : null;
       const candidatesByEntity = new Map();
       for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 6); priorIndex--) {
         const previous = items[priorIndex], prior = previous.proposition || {};
