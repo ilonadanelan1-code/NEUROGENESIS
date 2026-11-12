@@ -78,6 +78,26 @@ if (!trainPath && !testPath) {
     {model: 2718, split: 9044}
   ];
   const seedReports = [];
+  const createFrequencyBuckets = () => ({
+    "1": {targets: 0, correct: 0},
+    "2-4": {targets: 0, correct: 0},
+    "5-9": {targets: 0, correct: 0},
+    "10+": {targets: 0, correct: 0}
+  });
+  const mergeFrequencyBuckets = (target, source) => {
+    for (const key of Object.keys(target)) {
+      target[key].targets += source[key].targets;
+      target[key].correct += source[key].correct;
+    }
+  };
+  const summarizeFrequencyBuckets = buckets => Object.fromEntries(
+    Object.entries(buckets).map(([range, counts]) => [range, {
+      targets: counts.targets,
+      correct: counts.correct,
+      accuracy: ratio(counts.correct, counts.targets)
+    }])
+  );
+  const aggregateFrequencyBuckets = createFrequencyBuckets();
   const aggregate = {
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
     oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
@@ -98,8 +118,18 @@ if (!trainPath && !testPath) {
     });
     assert.ok(training.trainRows > 0 && training.vocabularySize > 1);
     assert.ok(model.status().trainingContextExamples > 0);
+    const trainingSplit = Attention.splitCorpus(prepared.trainingTexts, seed.split);
+    assert.equal(trainingSplit.train.length, training.trainRows,
+      "frequency diagnostics must use the exact model training partition");
+    const trainingTokenFrequency = new Map();
+    for (const row of trainingSplit.train) {
+      for (const token of Attention.tokenize(row)) {
+        trainingTokenFrequency.set(token, (trainingTokenFrequency.get(token) || 0) + 1);
+      }
+    }
 
     const metrics = {
+      frequencyBuckets: createFrequencyBuckets(),
       total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
       oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -114,7 +144,15 @@ if (!trainPath && !testPath) {
         metrics.contextBackoffs += score.contextMorphologyBackoffs.length;
         if (score.targetKnown) {
           metrics.known++;
-          if (score.predictions[0]?.token === tokens[index]) metrics.exact++;
+          const frequency = trainingTokenFrequency.get(tokens[index]) || 0;
+          assert.ok(frequency > 0, "known targets must occur in the training partition");
+          const frequencyBand = frequency === 1 ? "1" : frequency <= 4 ? "2-4" :
+            frequency <= 9 ? "5-9" : "10+";
+          metrics.frequencyBuckets[frequencyBand].targets++;
+          if (score.predictions[0]?.token === tokens[index]) {
+            metrics.exact++;
+            metrics.frequencyBuckets[frequencyBand].correct++;
+          }
         }
         if (score.morphologyKnown) {
           metrics.morphologyCovered++;
@@ -153,6 +191,7 @@ if (!trainPath && !testPath) {
       }
     }
     add(aggregate, metrics);
+    mergeFrequencyBuckets(aggregateFrequencyBuckets, metrics.frequencyBuckets);
     seedReports.push({
       modelSeed: seed.model,
       splitSeed: seed.split,
@@ -162,6 +201,8 @@ if (!trainPath && !testPath) {
         validationRows: training.validationRows,
         internalTestRows: training.testRows,
         vocabularySize: training.vocabularySize,
+        vocabularyCapacity: 1024,
+        vocabularySaturated: training.vocabularySize >= 1024,
         trainingContextExamples: model.status().trainingContextExamples,
         epochs: training.epochs
       },
@@ -169,6 +210,7 @@ if (!trainPath && !testPath) {
         targets: metrics.total,
         knownTargetCoverage: ratio(metrics.known, metrics.total),
         exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+        frequencyBuckets: summarizeFrequencyBuckets(metrics.frequencyBuckets),
         allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
         morphology: {
           correct: metrics.morphologyCorrect, covered: metrics.morphologyCovered,
@@ -202,7 +244,7 @@ if (!trainPath && !testPath) {
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.105",
+    version: "0.58.106",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -218,6 +260,7 @@ if (!trainPath && !testPath) {
         targets: aggregate.total,
         knownTargetCoverage: ratio(aggregate.known, aggregate.total),
         exactKnownTargetAccuracy: ratio(aggregate.exact, aggregate.known),
+        frequencyBuckets: summarizeFrequencyBuckets(aggregateFrequencyBuckets),
         allTargetExactAccuracy: ratio(aggregate.exact, aggregate.total),
         morphology: {
           correct: aggregate.morphologyCorrect, covered: aggregate.morphologyCovered,
@@ -254,6 +297,6 @@ if (!trainPath && !testPath) {
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
   };
-  console.log("NEUROGENESIS 0.58.105 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
+  console.log("NEUROGENESIS 0.58.106 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
 }
