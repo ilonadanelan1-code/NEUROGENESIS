@@ -101,6 +101,8 @@ if (!trainPath && !testPath) {
   const aggregate = {
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
     oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+    oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
+    oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
     strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
   };
@@ -128,10 +130,17 @@ if (!trainPath && !testPath) {
       }
     }
 
+    const pluralCandidateBaseCounts = new Map();
+    for (const base of model.exportState().vocabulary) {
+      const surface = Attention.russianNounPlural(base);
+      if (surface) pluralCandidateBaseCounts.set(surface, (pluralCandidateBaseCounts.get(surface) || 0) + 1);
+    }
     const metrics = {
       frequencyBuckets: createFrequencyBuckets(),
       total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
       oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+      oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
+      oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
       strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
     };
@@ -161,6 +170,19 @@ if (!trainPath && !testPath) {
         if (score.targetKnown) continue;
         metrics.oov++;
         const strictPrediction = model.predictMasked(sentence, index);
+        if (strictPrediction?.morphologyHint?.number === "plural") {
+          metrics.oovPluralHintTargets++;
+          const baseCount = pluralCandidateBaseCounts.get(tokens[index]) || 0;
+          if (baseCount > 0) {
+            metrics.oovPluralKnownBaseTargets++;
+            if (baseCount > 1) metrics.oovPluralAmbiguousBaseTargets++;
+            if (strictPrediction.generatedCandidates?.some(row => row.surface === tokens[index])) {
+              metrics.oovPluralKnownBaseHits++;
+            }
+          } else {
+            metrics.oovPluralNoKnownBaseTargets++;
+          }
+        }
         const inversionPrediction = model.predictMasked(sentence, index, {allowOrderInversion: true});
         const generated = strictPrediction?.generatedPrediction;
         if (generated) {
@@ -190,6 +212,11 @@ if (!trainPath && !testPath) {
         }
       }
     }
+    assert.equal(metrics.oovPluralHintTargets,
+      metrics.oovPluralKnownBaseTargets + metrics.oovPluralNoKnownBaseTargets,
+      "every plural-hint OOV target must be classified by current vocabulary support");
+    assert.ok(metrics.oovPluralKnownBaseHits <= metrics.oovPluralKnownBaseTargets,
+      "top-eight generated hits cannot exceed targets with a known base candidate");
     add(aggregate, metrics);
     mergeFrequencyBuckets(aggregateFrequencyBuckets, metrics.frequencyBuckets);
     seedReports.push({
@@ -237,7 +264,16 @@ if (!trainPath && !testPath) {
           correct: metrics.strictSurfaceCorrect, covered: metrics.strictSurfaceCovered,
           accuracy: ratio(metrics.strictSurfaceCorrect, metrics.strictSurfaceCovered)
         },
-        contextMorphologyBackoffUses: metrics.contextBackoffs
+        contextMorphologyBackoffUses: metrics.contextBackoffs,
+        oovMorphologyDiagnostics: {
+          pluralHintTargets: metrics.oovPluralHintTargets,
+          knownBaseCandidateTargets: metrics.oovPluralKnownBaseTargets,
+          knownBaseCandidateTop8Hits: metrics.oovPluralKnownBaseHits,
+          noKnownBaseCandidateTargets: metrics.oovPluralNoKnownBaseTargets,
+          ambiguousBaseCandidateTargets: metrics.oovPluralAmbiguousBaseTargets,
+          knownBaseCandidateCoverage: ratio(metrics.oovPluralKnownBaseTargets, metrics.oovPluralHintTargets),
+          top8RecallGivenKnownBase: ratio(metrics.oovPluralKnownBaseHits, metrics.oovPluralKnownBaseTargets)
+        }
       }
     });
   }
@@ -334,7 +370,7 @@ if (!trainPath && !testPath) {
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.107",
+    version: "0.58.108",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -377,7 +413,16 @@ if (!trainPath && !testPath) {
           correct: aggregate.strictSurfaceCorrect, covered: aggregate.strictSurfaceCovered,
           accuracy: ratio(aggregate.strictSurfaceCorrect, aggregate.strictSurfaceCovered)
         },
-        contextMorphologyBackoffUses: aggregate.contextBackoffs
+        contextMorphologyBackoffUses: aggregate.contextBackoffs,
+        oovMorphologyDiagnostics: {
+          pluralHintTargets: aggregate.oovPluralHintTargets,
+          knownBaseCandidateTargets: aggregate.oovPluralKnownBaseTargets,
+          knownBaseCandidateTop8Hits: aggregate.oovPluralKnownBaseHits,
+          noKnownBaseCandidateTargets: aggregate.oovPluralNoKnownBaseTargets,
+          ambiguousBaseCandidateTargets: aggregate.oovPluralAmbiguousBaseTargets,
+          knownBaseCandidateCoverage: ratio(aggregate.oovPluralKnownBaseTargets, aggregate.oovPluralHintTargets),
+          top8RecallGivenKnownBase: ratio(aggregate.oovPluralKnownBaseHits, aggregate.oovPluralKnownBaseTargets)
+        }
       }
     },
     seeds: seedReports,
@@ -407,6 +452,6 @@ if (!trainPath && !testPath) {
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
   };
-  console.log("NEUROGENESIS 0.58.107 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
+  console.log("NEUROGENESIS 0.58.108 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
 }
