@@ -8,6 +8,7 @@ The external UD_Russian-GSD r2.18 pilot shows a low baseline for the existing mo
 
 - Each UD attribute (for example Case, Number, Gender, Tense, Person, VerbForm, Aspect) gets a separate linear softmax head.
 - The input is the concatenation of the contextual model's token and context vectors.
+- Comma-separated multi-values are preserved as one canonical label (unique values sorted consistently).
 - Class weights use square-root inverse frequency, computed only from the supervised training partition and normalised to mean sample weight 1.
 - The checkpoint is selected by validation macro-F1.
 - The pilot is conditional: a head predicts a value for an annotated attribute. It does not yet decide whether that attribute applies to a token, and it is not a complete FEATS tagger.
