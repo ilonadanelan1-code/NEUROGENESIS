@@ -12,6 +12,39 @@ function russianStem(raw){
  for(const suffix of RUSSIAN_NOUN_ENDINGS)if(word.length-suffix.length>=3&&word.endsWith(suffix))return word.slice(0,-suffix.length);
  return word;
 }
+const RUSSIAN_PLURAL_VERB_ENDINGS=["аются","яются","ываются","иваются","ают","яют","уют","ют","ут","ат","ят"].sort((a,b)=>b.length-a.length);
+const RUSSIAN_SINGULAR_VERB_ENDINGS=["ается","яется","ывает","ивает","ает","яет","ует","ит","ет"].sort((a,b)=>b.length-a.length);
+const RUSSIAN_PLURAL_ADJECTIVE_ENDINGS=["ыми","ими","ых","их","ые","ие"].sort((a,b)=>b.length-a.length);
+function russianVerbNumber(raw){
+ const word=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+ if(!/^[а-я]+$/u.test(word))return null;
+ if(RUSSIAN_PLURAL_VERB_ENDINGS.some(suffix=>word.endsWith(suffix)))return "plural";
+ if(RUSSIAN_SINGULAR_VERB_ENDINGS.some(suffix=>word.endsWith(suffix)))return "singular";
+ return null;
+}
+function inferMaskedNumber(tokens,targetIndex){
+ const left=targetIndex>0?tokens[targetIndex-1]:"",right=targetIndex+1<tokens.length?tokens[targetIndex+1]:"";
+ if(left&&RUSSIAN_PLURAL_ADJECTIVE_ENDINGS.some(suffix=>left.endsWith(suffix)))return{number:"plural",source:"preceding_plural_adjective",confidence:"rule"};
+ const rightNumber=russianVerbNumber(right);
+ if(rightNumber)return{number:rightNumber,source:"following_finite_verb",confidence:"rule"};
+ return null;
+}
+function russianNounPlural(raw){
+ const word=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+ if(!/^[а-я]+$/u.test(word)||word.length<4)return null;
+ if(RUSSIAN_VERB_ENDINGS.some(suffix=>word.length-suffix.length>=3&&word.endsWith(suffix)))return null;
+ if(["ый","ий","ая","яя","ое","ее","ые","ие","ого","его","ому","ему","ыми","ими"].some(suffix=>word.endsWith(suffix)))return null;
+ let stem=word,suffix="";
+ if(word.endsWith("а")){stem=word.slice(0,-1);suffix=/[гкхжчшщ]$/u.test(stem)?"и":"ы";}
+ else if(word.endsWith("я")){stem=word.slice(0,-1);suffix="и";}
+ else if(word.endsWith("о")){stem=word.slice(0,-1);suffix="а";}
+ else if(word.endsWith("е")){stem=word.slice(0,-1);suffix="я";}
+ else if(word.endsWith("й")){stem=word.slice(0,-1);suffix="и";}
+ else if(word.endsWith("ь")){stem=word.slice(0,-1);suffix="и";}
+ else if(/[бвгджзйклмнпрстфхцчшщ]$/u.test(word)){suffix=/[гкхжчшщ]$/u.test(word)?"и":"ы";}
+ else return null;
+ return stem.length>=3?stem+suffix:null;
+}
 const finite=(value,fallback)=>Number.isFinite(Number(value))?Number(value):fallback;
 function subwordFeatures(raw){
  const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"),chars=Array.from("<"+token+">"),features=new Set();
@@ -307,6 +340,22 @@ function create(options={}){
   let count=0;for(const row of rows){const tokens=tokenize(row);if(tokens.length>1)count+=tokens.length;}
   return count;
  }
+ function predictMasked(text,targetIndex){
+  const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
+  if(!tokens.length)return null;
+  const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
+  const context=contextFor(sequence,safeIndex);if(!context.length)return{maskedTokenIndex:safeIndex,available:false,predictions:[],morphologyHint:null,generatedCandidates:[],generatedPrediction:null};
+  const pass=forward(context),predictions=pass.probabilities.map((probability,index)=>({token:vocabulary[index],probability})).sort((a,b)=>b.probability-a.probability);
+  const morphologyHint=inferMaskedNumber(tokens,safeIndex),generatedCandidates=[];
+  if(morphologyHint&&morphologyHint.number==="plural"){
+   for(const candidate of predictions){
+    const surface=russianNounPlural(candidate.token);
+    if(surface)generatedCandidates.push({surface,baseToken:candidate.token,probability:candidate.probability,features:{number:"plural"},method:"contextual_lemma_plus_plural_rule"});
+    if(generatedCandidates.length>=8)break;
+   }
+  }
+  return{maskedTokenIndex:safeIndex,available:true,predictions:predictions.slice(0,8),morphologyHint,generatedCandidates,generatedPrediction:generatedCandidates[0]||null};
+ }
  function score(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));if(!tokens.length)return null;
   const sequence=tokens.map(token=>({tokenIndex:indices.has(token)?indices.get(token):-1,subwordBuckets:subwordFeatures(token)}));
@@ -380,9 +429,9 @@ function create(options={}){
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem});
+ return Object.freeze({train,analyse,score,predictMasked,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
-root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem});
+root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 })();

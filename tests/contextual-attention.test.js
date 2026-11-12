@@ -9,6 +9,18 @@ assert.equal(api.russianStem("сигнала"),api.russianStem("сигнал"));
 assert.equal(api.russianStem("систему"),api.russianStem("система"));
 assert.equal(api.russianStem("обнаруживают"),api.russianStem("обнаруживает"));
 assert.equal(api.russianStem("активируют"),api.russianStem("активирует"));
+assert.equal(api.russianNounPlural("нейрон"),"нейроны");
+assert.equal(api.russianNounPlural("датчик"),"датчики");
+assert.equal(api.russianNounPlural("система"),"системы");
+assert.equal(api.russianNounPlural("море"),"моря");
+assert.equal(api.russianVerbNumber("получают"),"plural");
+assert.equal(api.russianVerbNumber("получает"),"singular");
+assert.deepEqual(api.inferMaskedNumber(["новые","нейроны","получают","сигнал"],1),{
+ number:"plural",source:"preceding_plural_adjective",confidence:"rule"
+});
+assert.deepEqual(api.inferMaskedNumber(["нейроны","получают","сигнал"],0),{
+ number:"plural",source:"following_finite_verb",confidence:"rule"
+});
 const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
  "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
  "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
@@ -138,4 +150,11 @@ assert.equal(morphologyScore.morphologyToken,"нейрон");
 const morphologyAnalysis=morphologyModel.analyse("нейроны получают сигнал");
 assert.ok(morphologyAnalysis.morphologyBackoffCount>=1);
 assert.ok(morphologyAnalysis.morphologyCoveredTokenCount>=1);
+const knownContextPrediction=morphologyModel.predictMasked("новые нейроны получают сигнал",1);
+const maskedContextPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
+assert.equal(knownContextPrediction.morphologyHint.number,"plural");
+assert.deepEqual(knownContextPrediction.predictions,maskedContextPrediction.predictions,
+ "masked prediction must not depend on the hidden target surface form");
+assert.deepEqual(knownContextPrediction.generatedCandidates,maskedContextPrediction.generatedCandidates,
+ "generated inflections must be produced from context and model vocabulary, not the hidden answer");
 console.log("NEUROGENESIS contextual attention v5: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");

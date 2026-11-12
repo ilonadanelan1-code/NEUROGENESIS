@@ -209,11 +209,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedCovered = 0;
   let seedTotal = 0;
   let seedMorphologyCorrect = 0, seedMorphologyCovered = 0, seedMorphologyBackoffs = 0, seedMorphologyAmbiguous = 0;
+  let seedGeneratedCorrect = 0, seedGeneratedCovered = 0, seedGeneratedOovTargets = 0;
   for (const testCase of cases) {
     const tokens = knowledge.tokens(testCase.text);
     const group = maskGroups[testCase.group] || (maskGroups[testCase.group] = {
       correct: 0, covered: 0, total: 0,
-      morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0
+      morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0,
+      generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0
     });
     for (let index = 0; index < tokens.length; index++) {
       const score = contextual.score(testCase.text, index);
@@ -242,6 +244,19 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       if (score && score.morphologyAmbiguous) {
         group.morphologyAmbiguous++;
         seedMorphologyAmbiguous++;
+      }
+      if (score && !score.targetKnown) {
+        group.generatedOovTargets++;
+        seedGeneratedOovTargets++;
+        const generated=contextual.predictMasked(testCase.text,index).generatedPrediction;
+        if(generated){
+          group.generatedCovered++;
+          seedGeneratedCovered++;
+          if(generated.surface===tokens[index]){
+            group.generatedCorrect++;
+            seedGeneratedCorrect++;
+          }
+        }
       }
     }
   }
@@ -336,7 +351,10 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
         uniqueOovBackoffs: seedMorphologyBackoffs,
         ambiguousOovForms: seedMorphologyAmbiguous,
         strictOovTargets: seedTotal - seedCovered,
-        oovBackoffCoverage: seedTotal > seedCovered ? seedMorphologyBackoffs / (seedTotal - seedCovered) : null
+        oovBackoffCoverage: seedTotal > seedCovered ? seedMorphologyBackoffs / (seedTotal - seedCovered) : null,
+        generatedOovPrediction: {correct:seedGeneratedCorrect,covered:seedGeneratedCovered,oovTargets:seedGeneratedOovTargets,
+          accuracy:seedGeneratedCovered?seedGeneratedCorrect/seedGeneratedCovered:null,
+          coverage:seedGeneratedOovTargets?seedGeneratedCovered/seedGeneratedOovTargets:null}
       }
     },
     phraseTrainingOnly: {
@@ -371,7 +389,9 @@ const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, gro
   morphologyCoverage: ratio(group.morphologyCovered, group.total),
   uniqueOovBackoffs: group.morphologyBackoffs,
   ambiguousOovForms: group.morphologyAmbiguous,
-  oovBackoffCoverage: ratio(group.morphologyBackoffs, group.total - group.covered)
+  oovBackoffCoverage: ratio(group.morphologyBackoffs, group.total - group.covered),
+  generatedOovPredictionAccuracy: ratio(group.generatedCorrect,group.generatedCovered),
+  generatedOovPredictionCoverage: ratio(group.generatedCovered,group.generatedOovTargets)
 }]));
 const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name, group]) => [name, {
   ...group,
@@ -386,8 +406,11 @@ const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
   morphologyCorrect: sum.morphologyCorrect + group.morphologyCorrect,
   morphologyCovered: sum.morphologyCovered + group.morphologyCovered,
   morphologyBackoffs: sum.morphologyBackoffs + group.morphologyBackoffs,
-  morphologyAmbiguous: sum.morphologyAmbiguous + group.morphologyAmbiguous
-}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0 });
+  morphologyAmbiguous: sum.morphologyAmbiguous + group.morphologyAmbiguous,
+  generatedCorrect: sum.generatedCorrect + group.generatedCorrect,
+  generatedCovered: sum.generatedCovered + group.generatedCovered,
+  generatedOovTargets: sum.generatedOovTargets + group.generatedOovTargets
+}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0, generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0 });
 const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
   roleCorrect: sum.roleCorrect + group.roleCorrect,
   roleTotal: sum.roleTotal + group.roleTotal,
@@ -427,6 +450,10 @@ assert.ok(maskTotal.morphologyCovered >= maskTotal.covered);
 assert.ok(maskTotal.morphologyBackoffs <= maskTotal.total - maskTotal.covered);
 assert.ok(maskTotal.morphologyCorrect <= maskTotal.morphologyCovered);
 assert.ok(maskTotal.morphologyBackoffs > 0, "the independent corpus must exercise a unique Russian inflection fallback");
+assert.equal(maskTotal.generatedOovTargets,maskTotal.total-maskTotal.covered,
+  "generated-form accuracy must include every exact-vocabulary OOV target in its denominator");
+assert.ok(maskTotal.generatedCovered<=maskTotal.generatedOovTargets);
+assert.ok(maskTotal.generatedCorrect<=maskTotal.generatedCovered);
 assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
 assert.equal(semanticTotal.cases, cases.length);
 
@@ -533,6 +560,12 @@ const summary = {
       ambiguousOovForms: maskTotal.morphologyAmbiguous,
       strictOovTargets: maskTotal.total - maskTotal.covered,
       oovBackoffCoverage: ratio(maskTotal.morphologyBackoffs, maskTotal.total - maskTotal.covered),
+      generatedOovPrediction: {
+        correct:maskTotal.generatedCorrect,covered:maskTotal.generatedCovered,oovTargets:maskTotal.generatedOovTargets,
+        accuracy:ratio(maskTotal.generatedCorrect,maskTotal.generatedCovered),
+        coverage:ratio(maskTotal.generatedCovered,maskTotal.generatedOovTargets),
+        baselineComparison:"new metric; no frozen contextual-form-generation baseline exists"
+      },
       baselineComparison: "new metric; no frozen 0.58.93 morphology score exists"
     }
   },
