@@ -108,6 +108,41 @@ assert.equal(reference(obliquePlural.items[1], "object").mention, "ними");
 assert.equal(reference(obliquePlural.items[1], "object").mentionContext, "с");
 assert.equal(reference(obliquePlural.items[1], "object").antecedentText, "нейроны");
 
+const nestedRelative = parseChain("Система в большой комнате, которая получает сигнал, активируется.");
+assert.equal(nestedRelative.items.length, 2);
+assert.equal(nestedRelative.items[0].proposition.subject, "Система в большой комнате");
+assert.equal(nestedRelative.items[0].proposition.predicate, "активируется");
+assert.equal(nestedRelative.items[1].proposition.subject, "Система в большой комнате");
+assert.equal(nestedRelative.items[1].proposition.predicate, "получает");
+assert.equal(nestedRelative.items[1].proposition.object, "сигнал");
+assert.equal(nestedRelative.items[1].relationToPrevious.type, "relative_modifier");
+assert.equal(reference(nestedRelative.items[1], "subject").mention, "которая");
+assert.equal(reference(nestedRelative.items[1], "subject").status, "resolved");
+assert.equal(reference(nestedRelative.items[1], "subject").antecedentText, "Система в большой комнате");
+
+const objectRelative = parseChain("Модель, которую использует модуль, активируется.");
+assert.equal(objectRelative.items.length, 2);
+assert.equal(objectRelative.items[0].proposition.subject, "Модель");
+assert.equal(objectRelative.items[0].proposition.predicate, "активируется");
+assert.equal(objectRelative.items[1].proposition.subject, "модуль");
+assert.equal(objectRelative.items[1].proposition.object, "которую",
+  "an inflected relative object must remain in its original case");
+assert.equal(reference(objectRelative.items[1], "object").status, "resolved");
+assert.equal(reference(objectRelative.items[1], "object").mention, "которую");
+assert.equal(reference(objectRelative.items[1], "object").antecedentText, "Модель");
+
+const nestedObject = parseChain("Модуль активирует систему в большой комнате. Она работает.");
+assert.equal(nestedObject.items[1].proposition.subject, "систему в большой комнате");
+assert.equal(reference(nestedObject.items[1], "subject").status, "resolved");
+assert.equal(reference(nestedObject.items[1], "subject").antecedentText, "систему в большой комнате");
+
+const ambiguousRelative = parseChain("Модель работает. Система, которая активируется, работает.");
+assert.equal(ambiguousRelative.items.length, 3);
+assert.equal(ambiguousRelative.items[2].proposition.subject, "которая",
+  "relative pronouns must remain unresolved when several compatible entities are present");
+assert.equal(reference(ambiguousRelative.items[2], "subject").status, "ambiguous");
+assert.equal(reference(ambiguousRelative.items[2], "subject").candidates.length, 2);
+
 const causal = parseChain("Сеть не активируется, потому что питание не работает.");
 assert.equal(causal.items.length, 2);
 assert.equal(causal.items[1].relationToPrevious.type, "cause_of_previous");

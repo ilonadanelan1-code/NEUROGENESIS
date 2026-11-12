@@ -567,7 +567,9 @@
     const text = clean(value, 100);
     const words = text.split(/\s+/u).filter(Boolean);
     const subject = {
-      "он": ["masculine"], "она": ["feminine"], "оно": ["neuter"], "они": ["plural"]
+      "он": ["masculine"], "она": ["feminine"], "оно": ["neuter"], "они": ["plural"],
+      "который": ["masculine"], "которая": ["feminine"],
+      "которое": ["neuter"], "которые": ["plural"]
     };
     const object = {
       "его": ["masculine", "neuter"], "него": ["masculine", "neuter"],
@@ -575,7 +577,11 @@
       "им": ["masculine", "neuter", "plural"],
       "их": ["plural"], "них": ["plural"], "ими": ["plural"], "ними": ["plural"],
       "ее": ["feminine"], "её": ["feminine"], "нее": ["feminine"], "неё": ["feminine"],
-      "ей": ["feminine"], "ней": ["feminine"], "ею": ["feminine"], "нею": ["feminine"]
+      "ей": ["feminine"], "ней": ["feminine"], "ею": ["feminine"], "нею": ["feminine"],
+      "которого": ["masculine", "neuter"], "которую": ["feminine"],
+      "которому": ["masculine", "neuter"], "которой": ["feminine"],
+      "которым": ["masculine", "neuter", "plural"], "которыми": ["plural"],
+      "которых": ["plural"], "которое": ["neuter"]
     };
     const key = normalise(words[words.length - 1] || "").replace(/\s+/gu, "");
     if (role === "subject") return words.length === 1 ? subject[key] || null : null;
@@ -670,7 +676,8 @@
       });
       // Keep an oblique phrase such as "с ним" in its original case: a nominative
       // antecedent cannot be substituted without declension.
-      if (decisive && !hasPrepositionContext) proposition[role] = candidates[0].text;
+      const preserveCaseSurface = hasPrepositionContext || (role === "object" && /^котор/iu.test(mention));
+      if (decisive && !preserveCaseSurface) proposition[role] = candidates[0].text;
     };
 
     return items.map((item, index) => {
@@ -839,7 +846,7 @@
   const PROPOSITION_CHAIN_SCHEMA = "NG_PROPOSITION_CHAIN_V1";
   const PROPOSITION_LINK_TYPES = Object.freeze([
     "root", "next_sentence", "condition_result", "condition_of_previous",
-    "cause_of_previous", "result_of_previous", "contrast", "sequence", "addition", "unknown"
+    "cause_of_previous", "result_of_previous", "contrast", "sequence", "addition", "relative_modifier", "unknown"
   ]);
 
   function splitDiscourseSegments(value) {
@@ -891,6 +898,29 @@
       const body = sentenceRaw.replace(/[.!?;]+$/u, "").trim();
       if (!body) continue;
       let match;
+
+      // Attach a bounded relative clause to its matrix clause. The main clause
+      // is emitted first so the relative pronoun can resolve to its antecedent.
+      match = body.match(/^(.+?),\s*(который|которая|которое|которые|которого|которую|которому|которой|которым|которыми|которых)\s+(.+?),\s*(.+)$/iu);
+      if (match) {
+        const antecedentPhrase = clean(match[1], 180);
+        const relativePronoun = clean(match[2], 24);
+        let relativeClause = clean(relativePronoun + " " + match[3], 260);
+        const relativeAccusative = relativeClause.match(/^которую\s+(активирует|использует|получает|открывает|обрабатывает|сохраняет|проверяет|изучает|выбирает|измеряет|обнаруживает|запускает|создает|создаёт|защищает|принимает|передает|передаёт)\s+(.+)$/iu);
+        if (relativeAccusative) {
+          relativeClause = clean(relativeAccusative[2] + " " + relativeAccusative[1] + " которую", 260);
+        }
+        const mainClause = clean(antecedentPhrase + " " + match[4], 300);
+        add(mainClause, segments.length ? "next_sentence" : "root", {
+          sourceText: sentenceRaw, marker: relativePronoun,
+          rule: "relative_clause_main_clause", confidence: 0.84
+        });
+        add(relativeClause, "relative_modifier", {
+          sourceText: relativePronoun + " " + match[3] + ",", marker: relativePronoun,
+          rule: "relative_clause_attachment", direction: "current_to_previous", confidence: 0.86
+        });
+        continue;
+      }
 
       match = body.match(/^если\s+(.+?),\s*(?:то\s+)?(.+)$/iu);
       if (match) {
