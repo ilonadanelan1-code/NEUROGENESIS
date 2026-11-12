@@ -75,6 +75,39 @@ assert.equal(masculineSoftSign.items[1].proposition.subject, "словарь",
   "known masculine soft-sign nouns must remain masculine");
 assert.equal(reference(masculineSoftSign.items[1], "subject").status, "resolved");
 
+const genitiveMasculine = parseChain("Система находится около модуля. Он активируется.");
+assert.equal(genitiveMasculine.items[1].proposition.subject, "около модуля",
+  "a masculine genitive form after a genitive preposition must remain masculine");
+assert.equal(reference(genitiveMasculine.items[1], "subject").status, "resolved");
+assert.equal(reference(genitiveMasculine.items[1], "subject").antecedentText, "около модуля");
+
+const locativeFeminine = parseChain("Модуль находится в сети. Она активируется.");
+assert.equal(locativeFeminine.items[1].proposition.subject, "в сети",
+  "a locative singular form must use its preposition as case evidence");
+assert.equal(reference(locativeFeminine.items[1], "subject").status, "resolved");
+assert.equal(reference(locativeFeminine.items[1], "subject").antecedentText, "в сети");
+
+const ambiguousCaseNumber = parseChain("Модуль использует сети. Она активируется.");
+assert.equal(ambiguousCaseNumber.items[1].proposition.subject, "Она",
+  "a bare form shared by singular genitive and plural nominative must not be guessed");
+assert.equal(reference(ambiguousCaseNumber.items[1], "subject").status, "unresolved");
+
+const obliqueSingular = parseChain("Система получает сигнал. Модуль работает с ним.");
+assert.equal(obliqueSingular.items[1].proposition.object, "с ним",
+  "a prepositional pronoun phrase must preserve its original case");
+assert.equal(reference(obliqueSingular.items[1], "object").status, "resolved");
+assert.equal(reference(obliqueSingular.items[1], "object").mention, "ним");
+assert.equal(reference(obliqueSingular.items[1], "object").mentionContext, "с");
+assert.equal(reference(obliqueSingular.items[1], "object").antecedentText, "сигнал");
+
+const obliquePlural = parseChain("Система получает нейроны. Модуль работает с ними.");
+assert.equal(obliquePlural.items[1].proposition.object, "с ними",
+  "a plural oblique phrase must be preserved instead of replaced with nominative");
+assert.equal(reference(obliquePlural.items[1], "object").status, "resolved");
+assert.equal(reference(obliquePlural.items[1], "object").mention, "ними");
+assert.equal(reference(obliquePlural.items[1], "object").mentionContext, "с");
+assert.equal(reference(obliquePlural.items[1], "object").antecedentText, "нейроны");
+
 const causal = parseChain("Сеть не активируется, потому что питание не работает.");
 assert.equal(causal.items.length, 2);
 assert.equal(causal.items[1].relationToPrevious.type, "cause_of_previous");

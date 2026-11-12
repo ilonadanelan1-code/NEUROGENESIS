@@ -40,6 +40,104 @@
     "сообщением", "действию", "действием", "значению", "значением",
     "соединению", "соединением"
   ]);
+  const PLURAL_INFLECTED_HEADS = new Set([
+    "нейроны", "нейронов", "нейронам", "нейронами", "нейронах",
+    "сигналы", "сигналов", "сигналам", "сигналами", "сигналах",
+    "узлы", "узлов", "узлам", "узлами", "узлах",
+    "пакеты", "пакетов", "пакетам", "пакетами", "пакетах",
+    "токены", "токенов", "токенам", "токенами", "токенах",
+    "процессы", "процессов", "процессам", "процессами", "процессах",
+    "результаты", "результатов", "результатам", "результатами", "результатах",
+    "мозги", "мозгов", "мозгам", "мозгами", "мозгах",
+    "импульсы", "импульсов", "импульсам", "импульсами", "импульсах",
+    "объекты", "объектов", "объектам", "объектами", "объектах",
+    "серверы", "серверов", "серверам", "серверами", "серверах",
+    "модули", "модулей", "модулям", "модулями", "модулях",
+    "словари", "словарей", "словарям", "словарями", "словарях",
+    "пути", "путей", "путям", "путями", "путях",
+    "ядра", "ядер", "ядрам", "ядрами", "ядрах",
+    "состояния", "состояний", "состояниям", "состояниями", "состояниях",
+    "сообщения", "сообщений", "сообщениям", "сообщениями", "сообщениях",
+    "действия", "действий", "действиям", "действиями", "действиях",
+    "события", "событий", "событиям", "событиями", "событиях",
+    "обучения", "обучений", "обучениям", "обучениями", "обучениях",
+    "питания", "питаний", "питаниям", "питаниями", "питаниях",
+    "значения", "значений", "значениям", "значениями", "значениях",
+    "соединения", "соединений", "соединениям", "соединениями", "соединениях",
+    "системам", "системами", "системах", "сетей", "сетям", "сетями", "сетях",
+    "моделей", "моделям", "моделями", "моделях", "нейросетям", "нейросетями", "нейросетях",
+    "памятям", "памятями", "памятях", "связям", "связями", "связях",
+    "комнатам", "комнатами", "комнатах", "дверям", "дверями", "дверях",
+    "программам", "программами", "программах", "станциям", "станциями", "станциях",
+    "причинам", "причинами", "причинах"
+  ]);
+  const AMBIGUOUS_SINGULAR_PLURAL_HEADS = new Set([
+    "системы", "сети", "модели", "нейросети", "памяти", "связи",
+    "комнаты", "двери", "программы", "станции", "причины", "пути",
+    "ядра", "состояния", "сообщения", "действия", "события",
+    "обучения", "питания", "значения", "соединения"
+  ]);
+  const GENITIVE_PREPOSITIONS = new Set([
+    "без", "для", "до", "из", "от", "у", "около", "возле", "после",
+    "среди", "внутри", "вне", "ради", "против", "вместо", "вокруг", "напротив"
+  ]);
+  const DATIVE_PREPOSITIONS = new Set(["к", "ко"]);
+  const INSTRUMENTAL_PREPOSITIONS = new Set(["с", "со", "над", "перед", "между", "под"]);
+  const PREPOSITIONAL_PREPOSITIONS = new Set(["в", "во", "на", "при", "о", "об", "обо"]);
+  const GENITIVE_FEMININE_FORMS = new Set([
+    "системы", "сети", "модели", "нейросети", "памяти", "связи",
+    "комнаты", "двери", "программы", "станции", "причины"
+  ]);
+  const GENITIVE_MASCULINE_FORMS = new Set([
+    "сигнала", "нейрона", "модуля", "словаря", "процесса", "объекта",
+    "результата", "сервера", "узла", "пакета", "токена", "импульса", "мозга", "пути"
+  ]);
+  const GENITIVE_NEUTER_FORMS = new Set([
+    "ядра", "состояния", "сообщения", "действия", "события",
+    "обучения", "питания", "значения", "соединения"
+  ]);
+  const DATIVE_FEMININE_FORMS = new Set([
+    "системе", "сети", "модели", "нейросети", "памяти", "связи",
+    "комнате", "двери", "программе", "станции", "причине"
+  ]);
+  const DATIVE_MASCULINE_FORMS = new Set([
+    "сигналу", "нейрону", "модулю", "словарю", "процессу", "объекту",
+    "результату", "серверу", "узлу", "пакету", "токену", "импульсу", "мозгу"
+  ]);
+  const DATIVE_NEUTER_FORMS = new Set([
+    "ядру", "состоянию", "сообщению", "действию", "событию",
+    "обучению", "питанию", "значению", "соединению"
+  ]);
+  const INSTRUMENTAL_FEMININE_FORMS = new Set([
+    "системой", "сетью", "моделью", "нейросетью", "памятью", "связью",
+    "комнатой", "дверью", "программой", "станцией", "причиной", "тенью", "ролью", "целью"
+  ]);
+  const INSTRUMENTAL_MASCULINE_FORMS = new Set([
+    "сигналом", "нейроном", "модулем", "словарем", "словарём", "процессом",
+    "объектом", "результатом", "сервером", "узлом", "пакетом", "токеном",
+    "импульсом", "мозгом", "путем", "путём"
+  ]);
+  const INSTRUMENTAL_NEUTER_FORMS = new Set([
+    "ядром", "состоянием", "сообщением", "действием", "событием",
+    "обучением", "питанием", "значением", "соединением"
+  ]);
+  const PREPOSITIONAL_FEMININE_FORMS = new Set([
+    "системе", "сети", "модели", "нейросети", "памяти", "связи",
+    "комнате", "двери", "программе", "станции", "причине"
+  ]);
+  const PREPOSITIONAL_MASCULINE_FORMS = new Set([
+    "сигнале", "нейроне", "модуле", "словаре", "процессе", "объекте",
+    "результате", "сервере", "узле", "пакете", "токене", "импульсе", "мозге", "пути"
+  ]);
+  const PREPOSITIONAL_NEUTER_FORMS = new Set([
+    "ядре", "состоянии", "сообщении", "действии", "событии",
+    "обучении", "питании", "значении", "соединении"
+  ]);
+  const OBLIQUE_PRONOUN_PREPOSITIONS = new Set([
+    "с", "со", "к", "ко", "у", "от", "до", "из", "изо", "в", "во",
+    "на", "о", "об", "обо", "для", "без", "под", "над", "между",
+    "около", "возле", "перед", "после", "при", "про", "за", "через"
+  ]);
   const GRAMMATICAL_FUNCTION_WORDS = new Set([
     "в", "во", "на", "из", "изо", "к", "ко", "у", "от", "до", "для", "без",
     "под", "над", "между", "около", "возле", "рядом", "с", "со", "по", "при",
@@ -416,29 +514,48 @@
   function grammaticalGender(value) {
     const text = clean(value, 180).toLowerCase().replace(/^[«"']|[»"']$/gu, "");
     const words = text.split(/\s+/u).map(word =>
-      word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "")).filter(Boolean);
+      word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "").replace(/ё/gu, "е")).filter(Boolean);
+    if (!words.length) return "unknown";
+
+    const first = words[0];
+    const caseWords = words.slice(1);
+    const caseSets = GENITIVE_PREPOSITIONS.has(first)
+      ? [GENITIVE_FEMININE_FORMS, GENITIVE_MASCULINE_FORMS, GENITIVE_NEUTER_FORMS]
+      : DATIVE_PREPOSITIONS.has(first)
+        ? [DATIVE_FEMININE_FORMS, DATIVE_MASCULINE_FORMS, DATIVE_NEUTER_FORMS]
+        : INSTRUMENTAL_PREPOSITIONS.has(first)
+          ? [INSTRUMENTAL_FEMININE_FORMS, INSTRUMENTAL_MASCULINE_FORMS, INSTRUMENTAL_NEUTER_FORMS]
+          : PREPOSITIONAL_PREPOSITIONS.has(first)
+            ? [PREPOSITIONAL_FEMININE_FORMS, PREPOSITIONAL_MASCULINE_FORMS, PREPOSITIONAL_NEUTER_FORMS]
+            : null;
+    if (caseSets) {
+      for (const word of caseWords) {
+        if (caseSets[0].has(word)) return "feminine";
+        if (caseSets[1].has(word)) return "masculine";
+        if (caseSets[2].has(word)) return "neuter";
+      }
+    }
+
     const ignored = /^(?:все|вся|всё|каждый|каждая|каждое|один|одна|одно|два|две|три|четыре|пять|много|несколько|этот|эта|это|эти|такой|такая|такое|такие|мой|моя|мое|мои)$/iu;
     const contentWords = words.filter(word =>
       !ignored.test(word) && !GRAMMATICAL_FUNCTION_WORDS.has(word));
     if (!contentWords.length) return "unknown";
-
-    const foldedWords = contentWords.map(word => word.replace(/ё/gu, "е"));
-    const knownGender = word => {
-      if (FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word)) return "feminine";
-      if (MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word)) return "masculine";
-      if (NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word)) return "neuter";
-      return null;
-    };
-    // Prefer a known noun/head over an adjective or an oblique modifier.
-    // The first known head preserves Russian noun + genitive-complement order;
-    // the last known head handles prepositional and adjective + noun phrases.
-    const firstKnown = foldedWords.find(knownGender);
-    const lastKnown = [...foldedWords].reverse().find(knownGender);
+    const foldedWords = contentWords;
+    const firstKnown = foldedWords.find(word =>
+      FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word) ||
+      MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word) ||
+      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word));
+    const lastKnown = [...foldedWords].reverse().find(word =>
+      FEMININE_HEADS.has(word) || FEMININE_INFLECTED_HEADS.has(word) ||
+      MASCULINE_HEADS.has(word) || MASCULINE_INFLECTED_HEADS.has(word) ||
+      NEUTER_HEADS.has(word) || NEUTER_INFLECTED_HEADS.has(word));
     const head = firstKnown || lastKnown || foldedWords[0];
-    const lexicalGender = knownGender(head);
-    if (lexicalGender) return lexicalGender;
+    if (AMBIGUOUS_SINGULAR_PLURAL_HEADS.has(head)) return "unknown";
+    if (PLURAL_INFLECTED_HEADS.has(head)) return "plural";
+    if (FEMININE_HEADS.has(head) || FEMININE_INFLECTED_HEADS.has(head)) return "feminine";
+    if (MASCULINE_HEADS.has(head) || MASCULINE_INFLECTED_HEADS.has(head)) return "masculine";
+    if (NEUTER_HEADS.has(head) || NEUTER_INFLECTED_HEADS.has(head)) return "neuter";
     if (/(?:ии)$/u.test(head)) return "unknown";
-    if (/(?:ов|ев|ей|ам|ям|ах|ях|ы|и)$/u.test(head)) return "plural";
     if (/[аяую]$/u.test(head)) return "feminine";
     if (/[оеё]$/u.test(head)) return "neuter";
     if (/[ь]$/u.test(head)) return "unknown";
@@ -447,17 +564,30 @@
   }
 
   function pronounGenders(value, role) {
-    const key = normalise(value).replace(/\s+/gu, "");
+    const text = clean(value, 100);
+    const words = text.split(/\s+/u).filter(Boolean);
     const subject = {
       "он": ["masculine"], "она": ["feminine"], "оно": ["neuter"], "они": ["plural"]
     };
     const object = {
       "его": ["masculine", "neuter"], "него": ["masculine", "neuter"],
-      "ему": ["masculine"], "им": ["plural"], "их": ["plural"],
-      "ее": ["feminine"], "ей": ["feminine"], "нее": ["feminine"],
-      "её": ["feminine"], "неё": ["feminine"], "них": ["plural"]
+      "ему": ["masculine", "neuter"], "нему": ["masculine", "neuter"],
+      "им": ["masculine", "neuter", "plural"],
+      "их": ["plural"], "них": ["plural"], "ими": ["plural"], "ними": ["plural"],
+      "ее": ["feminine"], "её": ["feminine"], "нее": ["feminine"], "неё": ["feminine"],
+      "ей": ["feminine"], "ней": ["feminine"], "ею": ["feminine"], "нею": ["feminine"]
     };
-    return role === "subject" ? subject[key] || null : object[key] || null;
+    const key = normalise(words[words.length - 1] || "").replace(/\s+/gu, "");
+    if (role === "subject") return words.length === 1 ? subject[key] || null : null;
+    if (words.length === 1) return object[key] || null;
+    if (words.length !== 2 || !OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]))) return null;
+    const preposition = normalise(words[0]);
+    if (key === "ним") {
+      if (["к", "ко", "по"].includes(preposition)) return ["plural"];
+      if (["с", "со", "над", "перед", "под"].includes(preposition)) return ["masculine", "neuter"];
+      return null;
+    }
+    return object[key] || null;
   }
 
   function validatePropositionReferences(raw, fallback = undefined) {
@@ -487,6 +617,7 @@
       if (!mention) continue;
       output.push({
         schema: COREFERENCE_SCHEMA, mention, mentionRole: ["subject", "object"].includes(row.mentionRole) ? row.mentionRole : null,
+        mentionContext: clean(row.mentionContext, 40) || null,
         targetType, status,
         antecedentId: status === "resolved" ? antecedentId : null,
         antecedentText: status === "resolved" ? antecedentText : null,
@@ -499,9 +630,14 @@
 
   function resolvePropositionReferences(items) {
     const addEntityReference = (proposition, index, role, references) => {
-      const mention = clean(proposition[role], 80);
-      const genders = pronounGenders(mention, role);
+      const surfaceMention = clean(proposition[role], 80);
+      const genders = pronounGenders(surfaceMention, role);
       if (!genders) return;
+      const words = surfaceMention.split(/\s+/u).filter(Boolean);
+      const hasPrepositionContext = role === "object" && words.length === 2 &&
+        OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]));
+      const mention = words[words.length - 1] || surfaceMention;
+      const mentionContext = hasPrepositionContext ? clean(words[0], 24) : null;
       const candidatesByEntity = new Map();
       for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 6); priorIndex--) {
         const previous = items[priorIndex], prior = previous.proposition || {};
@@ -524,15 +660,17 @@
       // even if one is slightly nearer or happens to occupy the subject role.
       const decisive = candidates.length === 1;
       references.push({
-        schema: COREFERENCE_SCHEMA, mention, mentionRole: role, targetType: "entity",
+        schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role, targetType: "entity",
         status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
         antecedentId: decisive ? candidates[0].id : null,
         antecedentText: decisive ? candidates[0].text : null,
         candidates: candidates.slice(0, 3).map(row => ({ id: row.id, text: row.text, role: row.role })),
-        provenance: { source: "semantic_core_rule", rule: "bounded_gender_role_compatibility", window: 6 },
+        provenance: { source: "semantic_core_rule", rule: "case_number_role_compatibility", window: 6 },
         confidence: decisive ? 0.84 : candidates.length ? 0.42 : 0.12
       });
-      if (decisive) proposition[role] = candidates[0].text;
+      // Keep an oblique phrase such as "с ним" in its original case: a nominative
+      // antecedent cannot be substituted without declension.
+      if (decisive && !hasPrepositionContext) proposition[role] = candidates[0].text;
     };
 
     return items.map((item, index) => {
