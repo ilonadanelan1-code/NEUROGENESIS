@@ -201,8 +201,9 @@ const aggregateReport=Object.fromEntries(Object.entries(aggregate).map(([variant
       nearestLeftBaselineHeadAccuracy:ratio(row.baselineHeadCorrect,row.targets),
       majorityRelationBaselineAccuracy:ratio(row.baselineRelationCorrect,row.targets),
       baselineLAS:ratio(row.baselineLASCorrect,row.targets),
-      meanRelationMacroF1AcrossSeeds:row.relationMacroF1BySeed.length
-        ?row.relationMacroF1BySeed.reduce((sum,value)=>sum+value,0)/row.relationMacroF1BySeed.length:null,
+      meanRelationMacroF1AcrossSeeds:row.relationMacroF1BySeed.filter(Number.isFinite).length
+        ?row.relationMacroF1BySeed.filter(Number.isFinite).reduce((sum,value)=>sum+value,0)/
+          row.relationMacroF1BySeed.filter(Number.isFinite).length:null,
       relationMacroF1BySeed:row.relationMacroF1BySeed
     }
   ]))
