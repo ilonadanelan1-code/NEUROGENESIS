@@ -130,7 +130,7 @@ assert.equal(compactRestored.status().lastTraining.validationLoss,null,"null val
 assert.equal(compactRestored.status().lastTraining.testLoss,null,"null test loss must survive checkpoint reload");
 assert.equal(compactRestored.status().lastTraining.evaluationAvailable,false);
 const morphologyModel=api.create({dimension:12,windowSize:2,heads:3,seed:121});
-morphologyModel.train(["нейрон получает сигнал","нейрон обрабатывает данные","сеть получает данные"],{epochs:3,learningRate:.02,splitSeed:902});
+morphologyModel.train(["нейрон получает сигнал","нейрон обрабатывает данные","нейрон активирует сеть"],{epochs:3,learningRate:.02,splitSeed:902});
 const morphologyScore=morphologyModel.score("нейроны получают сигнал",0);
 assert.equal(morphologyScore.targetKnown,false);
 assert.equal(morphologyScore.morphologyBackoff,true);
