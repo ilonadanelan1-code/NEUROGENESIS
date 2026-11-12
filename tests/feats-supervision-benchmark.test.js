@@ -40,6 +40,8 @@ const variants = {
   unweighted:{classWeighting:"none",selectionMetric:"macro_f1"},
   sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
 };
+assert.equal(new Set(Object.values(variants).map(row=>row.selectionMetric)).size,1,
+  "FEATS weighting variants must use the same validation checkpoint-selection metric");
 const selectedAttributes = [
   "Case","Number","Gender","Tense","Person","VerbForm","Aspect",
   "Degree","Animacy","Mood","Voice","PronType","NumType"
