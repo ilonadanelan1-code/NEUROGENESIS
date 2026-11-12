@@ -282,7 +282,7 @@ const nestedPhrase = core.analyse("Алгоритм выбирает безоп�
 const nestedTheme = nestedPhrase.arguments.find(row => row.role === "theme");
 assert.equal(nestedTheme.text, "безопасный маршрут обхода");
 assert.equal(nestedTheme.head.toLowerCase(), "маршрут");
-assert.deepEqual(nestedTheme.modifiers.map(value => value.toLowerCase()), ["безопасный", "обхода"]);
+assert.deepEqual(Array.from(nestedTheme.modifiers, value => value.toLowerCase()), ["безопасный", "обхода"]);
 
 const unparsedQuestionRoles = core.analyse("Сколько у осьминога сердец?", {
   contextRelation: "new_topic"
