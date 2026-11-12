@@ -35,7 +35,7 @@ function parseFeatures(value) {
     if (separator <= 0 || separator === part.length - 1) continue;
     const key = part.slice(0, separator);
     const featureValue = part.slice(separator + 1);
-    if (key && featureValue) result[key] = featureValue;
+    if (/^[A-Z][A-Za-z0-9]*$/u.test(key) && featureValue) result[key] = featureValue;
   }
   return result;
 }
