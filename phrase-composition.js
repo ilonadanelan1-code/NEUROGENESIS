@@ -149,40 +149,6 @@ function create(options={}){
    augmentation:"verified_sov_permutations_excluding_held_out",supervision:"weak_semantic_parser_labels",evaluation:"training_only_not_held_out"};
   return{...lastTraining};
  }
-
-  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,MAX_SENTENCES);
-  if(!rows.length)throw new TypeError("Add sentences for phrase-structure training.");
-  const prepared=rows.map(text=>({text,data:build(text,contextual,core,knowledge)})).filter(row=>row.data.labels.some(label=>label>0));
-  const roleExamples=prepared.flatMap(row=>row.data.features.map((features,index)=>({features,label:row.data.labels[index]})));
-  const relationExamples=prepared.flatMap(row=>row.data.relationExamples);
-  if(!prepared.length||!roleExamples.some(row=>row.label>0))throw new Error("The semantic parser could not identify subject, predicate or object spans in this corpus.");
-  if(!relationExamples.some(row=>row.label>0))throw new Error("The corpus does not contain enough aligned phrase relations.");
-  const epochs=Math.max(1,Math.min(120,Math.floor(Number(trainOptions.epochs)||35)));
-  const learningRate=Math.max(.001,Math.min(.2,Number(trainOptions.learningRate)||.055));
-  let roleLoss=0,relationLoss=0;
-  const roleCounts=zeros(ROLES.length),relationCounts=zeros(RELATIONS.length);
-  for(const row of roleExamples)roleCounts[row.label]++;
-  for(const row of relationExamples)relationCounts[row.label]++;
-  for(let epoch=0;epoch<epochs;epoch++){
-   roleLoss=0;relationLoss=0;
-   for(const example of roleExamples){
-    const weight=example.label===0?.45:1.4,updated=update(roleWeights,roleBias,example.features,example.label,learningRate,weight);
-    roleLoss+=updated.loss*weight;
-   }
-   for(const example of relationExamples){
-    const weight=example.label===0?.35:2.0,updated=update(relationWeights,relationBias,example.features,example.label,learningRate,weight);
-    relationLoss+=updated.loss*weight;
-   }
-   trainingSteps+=roleExamples.length+relationExamples.length;
-  }
-  const roleCorrect=roleExamples.filter(row=>argmax(probabilities(roleWeights,roleBias,row.features))===row.label).length;
-  const relationCorrect=relationExamples.filter(row=>argmax(probabilities(relationWeights,relationBias,row.features))===row.label).length;
-  lastTraining={sentences:prepared.length,roleExamples:roleExamples.length,relationExamples:relationExamples.length,positiveRelations:relationExamples.filter(row=>row.label>0).length,
-   roleCounts,relationCounts,epochs,learningRate,roleTrainingAccuracy:roleCorrect/roleExamples.length,relationTrainingAccuracy:relationCorrect/relationExamples.length,
-   roleTrainingLoss:roleLoss/roleExamples.length,relationTrainingLoss:relationLoss/relationExamples.length,
-   supervision:"weak_semantic_parser_labels",evaluation:"training_only_not_held_out"};
-  return{...lastTraining};
- }
  function argmax(values){let best=0;for(let i=1;i<values.length;i++)if(values[i]>values[best])best=i;return best;}
  function analyse(text,contextual,core,knowledge){
   const data=build(text,contextual,core,knowledge);
