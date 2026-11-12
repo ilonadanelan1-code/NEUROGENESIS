@@ -162,6 +162,12 @@ for(const seed of seeds) {
       variantReports.sqrtInverse.metrics[slice].headCorrect,
       "only relation-class weighting may change; paired attachment predictions must remain identical for "+slice);
   }
+  assert.equal(variantReports.unweighted.training.bestArcEpoch,
+    variantReports.sqrtInverse.training.bestArcEpoch,
+    "relation weighting must not change the attachment checkpoint epoch");
+  assert.equal(variantReports.unweighted.training.trainingSteps,
+    variantReports.sqrtInverse.training.trainingSteps,
+    "relation weighting must not change the number of paired attachment training updates");
   assert.deepEqual(
     Object.keys(variantReports.unweighted.metrics),
     Object.keys(variantReports.sqrtInverse.metrics),
