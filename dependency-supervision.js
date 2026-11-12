@@ -395,7 +395,7 @@
       const shuffleRandom = seededRandom(trainOptions.shuffleSeed == null ? seed ^ 0x9e3779b9 : trainOptions.shuffleSeed);
       const initialValidation=validation.length?evaluate(validation):null;
       let bestArcScore=initialValidation?initialValidation.headAccuracy:-Infinity;
-      let bestRelationScore=initialValidation?initialValidation.relationMacroF1:-Infinity;
+      let bestRelationScore=initialValidation?initialValidation.oracleHeadRelationMacroF1:-Infinity;
       let bestArcWeights = arcWeights.slice();
       let bestRelationWeights = relationWeights.map(row=>row.slice());
       let bestRelationBias = relationBias.slice();
