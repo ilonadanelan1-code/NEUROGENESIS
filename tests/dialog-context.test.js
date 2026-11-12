@@ -43,6 +43,26 @@ assert.equal(unresolved.threads.find(row => row.id === firstThread).lastUserText
 assert.equal(unresolved.messages[unresolved.messages.length - 1].relation, "new_topic");
 assert.equal(engine.resolve(unresolved, "А почему?").applied, false,
   "an unresolved return must not borrow context from the currently active unrelated topic");
+const unresolvedClarification = engine.track(unresolved, {
+  role: "assistant",
+  text: "Я пока не могу надёжно определить прежнюю тему. Напомни пару характерных слов или уточни, когда мы её обсуждали.",
+  relationHint: "topic_return_clarification",
+  time: 7
+});
+assert.equal(unresolvedClarification.lastDecision.awaitingClarification, true,
+  "the typed clarification reply must be persisted on the unresolved return");
+const clarifiedUnresolvedReturn = engine.track(unresolvedClarification, {
+  role: "user", text: "Недостаток сна и усталость", time: 8
+});
+assert.equal(clarifiedUnresolvedReturn.activeThreadId, firstThread,
+  "the clarification must be matched against saved topics, excluding the temporary return-request thread");
+assert.equal(clarifiedUnresolvedReturn.lastDecision.kind, "returned");
+assert.equal(clarifiedUnresolvedReturn.messages.at(-1).relation, "explicit_return");
+const unresolvedWithoutPrompt = engine.track(unresolved, {
+  role: "user", text: "Музыка и инструменты мне интересны", time: 9
+});
+assert.equal(unresolvedWithoutPrompt.lastDecision, null,
+  "an unresolved-return flag without an assistant clarification must not capture a later unrelated turn");
 assert.equal(engine.isLikelyAnswer("Примерно четыре часа", "Сколько часов ты спал?"), true,
   "a concise answer sharing the requested quantity must attach to the pending question");
 assert.equal(engine.isLikelyAnswer("Музыка прекрасна", "Сколько часов ты спал?"), false,

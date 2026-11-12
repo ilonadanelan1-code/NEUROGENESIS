@@ -80,6 +80,11 @@ const missing = manager.plan("Вернёмся к квантовым вычис�
 });
 assert.equal(missing.action, "clarify_topic");
 assert.equal(missing.needsClarification, true);
+const localNewTopicGuess = {
+  source: "local", contextRelation: "new_topic", confidence: 0.54
+};
+assert.equal(manager.shouldAskClarification(missing, localNewTopicGuess), true,
+  "a low-confidence local new-topic guess must not suppress clarification for an unresolved explicit return");
 const ambiguous = manager.plan("Вернёмся к памяти", {
   ...active,
   lastDecision: { kind: "ambiguous_return", candidates: ["T1", "T2"] },
@@ -87,6 +92,23 @@ const ambiguous = manager.plan("Вернёмся к памяти", {
 });
 assert.equal(ambiguous.action, "choose_topic");
 assert.match(ambiguous.clarification, /Память/u);
+assert.equal(manager.shouldAskClarification(ambiguous, {
+  source: "model", contextRelation: "same_topic", confidence: 0.99
+}), true, "an LLM guess must not choose between ambiguous saved topics");
+assert.equal(manager.shouldAskClarification(returned, localNewTopicGuess), false,
+  "a successfully resolved return does not need clarification");
+assert.equal(manager.shouldAskClarification(unclear, {
+  source: "model", contextRelation: "follow_up", confidence: 0.57
+}), true, "a low-confidence model plan must not suppress ordinary clarification");
+assert.equal(manager.shouldAskClarification(unclear, {
+  source: "model", contextRelation: "follow_up", confidence: 0.9
+}), false, "a sufficiently confident model plan may still resolve ordinary follow-ups");
+assert.equal(manager.shouldAskClarification(unclear, {
+  source: "local", contextRelation: "follow_up", confidence: 0.54
+}), true, "an uncalibrated local heuristic must not override an unresolved follow-up");
+assert.equal(manager.shouldAskClarification(unclear, {
+  source: "local_fallback", contextRelation: "follow_up", confidence: 0.54
+}), true, "the local fallback must not override a required clarification either");
 
 const statement = manager.plan("Музыка помогает мне сосредоточиться", active);
 assert.equal(statement.action, "consider_new_information");

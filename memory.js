@@ -3394,8 +3394,8 @@
     const submittedQuery = query;
     const semanticRelation = semanticPlan && semanticPlan.contextRelation || "";
     const trustedSemanticDecision = !!(semanticPlan &&
-      ["model", "local", "local_fallback"].includes(semanticPlan.source) &&
-      Number(semanticPlan.confidence) >= (semanticPlan.source === "model" ? 0.58 : 0.5) &&
+      semanticPlan.source === "model" &&
+      Number(semanticPlan.confidence) >= 0.58 &&
       ["new_topic", "follow_up", "same_topic"].includes(semanticRelation));
     const dialogueResolution = DIALOG_CONTEXT && semanticRelation !== "new_topic"
       ? DIALOG_CONTEXT.resolve(dialogContext, submittedQuery)
@@ -3404,13 +3404,19 @@
     const dialoguePlan = DIALOG_MANAGER
       ? DIALOG_MANAGER.plan(submittedQuery, { ...(dialogueReport || {}), resolution:dialogueResolution })
       : null;
+    const mustAskClarification = dialoguePlan && DIALOG_MANAGER &&
+      typeof DIALOG_MANAGER.shouldAskClarification === "function"
+      ? DIALOG_MANAGER.shouldAskClarification(dialoguePlan, semanticPlan)
+      : !!(dialoguePlan && dialoguePlan.needsClarification &&
+        (dialoguePlan.intent === "topic_return" || !trustedSemanticDecision));
     if (semanticRelation === "unclear" && semanticPlan && Number(semanticPlan.confidence) >= 0.62) {
       say("assistant", "Я вижу несколько возможных смыслов этого сообщения и не хочу выбирать тему наугад. Уточни, пожалуйста, к какому объекту или факту относится вопрос.");
       setFeedback("СМЫСЛОВОЙ РАЗБОР · НУЖНО УТОЧНЕНИЕ");
       return;
     }
-    if (dialoguePlan && dialoguePlan.needsClarification && !trustedSemanticDecision) {
-      say("assistant", dialoguePlan.clarification);
+    if (mustAskClarification) {
+      say("assistant", dialoguePlan.clarification, null,
+        dialoguePlan.intent === "topic_return" ? "topic_return_clarification" : undefined);
       setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
       return;
     }
