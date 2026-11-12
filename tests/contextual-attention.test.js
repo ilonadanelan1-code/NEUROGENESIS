@@ -161,6 +161,22 @@ assert.ok(maskedWithMorphContext.contextMorphologyBackoffs.some(row=>
 const morphologyAnalysis=morphologyModel.analyse("нейроны получают сигнал");
 assert.ok(morphologyAnalysis.morphologyBackoffCount>=1);
 assert.ok(morphologyAnalysis.morphologyCoveredTokenCount>=1);
+assert.ok(morphologyModel.status().trainingContextExamples>0,
+ "training must persist contextual occurrences from training rows only");
+const retrievalPrediction=morphologyModel.predictMasked("новые нейроны получают сигнал",1);
+assert.ok(retrievalPrediction.retrievalCandidate);
+assert.equal(retrievalPrediction.retrievalCandidate.token,"нейрон");
+assert.ok(retrievalPrediction.retrievalPrediction);
+assert.equal(retrievalPrediction.retrievalPrediction.surface,"нейроны");
+const hiddenRetrievalPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
+assert.deepEqual(hiddenRetrievalPrediction.retrievalCandidate,retrievalPrediction.retrievalCandidate,
+ "context retrieval must not inspect the hidden target form");
+assert.deepEqual(hiddenRetrievalPrediction.retrievalPrediction,retrievalPrediction.retrievalPrediction,
+ "retrieval-based inflection must be independent of the hidden target surface");
+const restoredRetrievalModel=api.fromState(morphologyModel.exportState());
+assert.equal(restoredRetrievalModel.status().trainingContextExamples,morphologyModel.status().trainingContextExamples);
+assert.deepEqual(restoredRetrievalModel.predictMasked("новые [MASK] получают сигнал",1).retrievalPrediction,
+ retrievalPrediction.retrievalPrediction,"training context index must survive state export/import");
 const knownContextPrediction=morphologyModel.predictMasked("новые нейроны получают сигнал",1);
 const maskedContextPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
 assert.equal(knownContextPrediction.morphologyHint.number,"plural");

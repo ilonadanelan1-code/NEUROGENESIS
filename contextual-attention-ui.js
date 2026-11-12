@@ -49,6 +49,10 @@
     }
   }
   if(phraseModel&&saved&&saved.compositionState){try{phraseModel.loadState(saved.compositionState);}catch(_){}}
+  if(model.status().trained&&model.status().trainingContextExamples===0&&typeof model.rebuildTrainingContextIndex==="function"){
+    const rebuilt=model.rebuildTrainingContextIndex(corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160));
+    if(rebuilt.rebuilt)save();
+  }
   root.NGContextualAttention=model;
   root.NGPhraseComposition=phraseModel;
   renderStatus();
@@ -104,6 +108,11 @@
         lines.push("КОНТЕКСТНАЯ ГЕНЕРАЦИЯ для «"+row.token+"»: "+
           generated.generatedPrediction.baseToken+" → "+generated.generatedPrediction.surface+
           " · подсказка: "+generated.morphologyHint.source+" · "+generated.generatedPrediction.method);
+      if(generated.retrievalPrediction){
+        lines.push("ПОИСК ПО ОБУЧАЮЩЕМУ КОНТЕКСТУ: "+
+          generated.retrievalPrediction.baseToken+" → "+generated.retrievalPrediction.surface+
+          " · совпадения: "+generated.retrievalPrediction.matchedContextTokens.join(", "));
+      }
       }
     }
     for(const row of analysis.positions){

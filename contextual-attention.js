@@ -115,7 +115,7 @@ function create(options={}){
   feedForward2:matrix(dimension,feedForwardDimension,random,Math.sqrt(2/feedForwardDimension)),feedForward2Bias:zeros(dimension)
  });
  const blocks=Array.from({length:blockCount},makeBlock);
- let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null;
+ let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null,trainingContextExamples=[];
  function relativeSlot(delta){return Math.max(-windowSize,Math.min(windowSize,delta))+windowSize;}
  function zeroMatrix(rows,cols){return Array.from({length:rows},()=>zeros(cols));}
 
@@ -159,12 +159,49 @@ function create(options={}){
     contextSourceToken:feature.token||"",contextMorphologyToken:feature.contextMorphologyToken||null});
   }return context;
  }
+ function recordTrainingContext(targetIndex,context){
+  if(trainingContextExamples.length>=12000||targetIndex<0)return;
+  const lexicalContext=context.filter(item=>item.tokenIndex>=0)
+   .map(item=>({offset:item.offset,token:vocabulary[item.tokenIndex]}));
+  if(new Set(lexicalContext.map(item=>item.token)).size<2)return;
+  trainingContextExamples.push({target:vocabulary[targetIndex],context:lexicalContext});
+ }
  function collectExamples(rows,expand){
   const examples=[];
   for(const row of rows.slice(0,160)){
    const sequence=tokenize(row).map(token=>featureForToken(token,expand));
-   for(let i=0;i<sequence.length;i++){const context=contextFor(sequence,i);if(sequence[i].tokenIndex>=0&&context.length)examples.push({context,target:sequence[i].tokenIndex});}
+   for(let i=0;i<sequence.length;i++){
+    const context=contextFor(sequence,i);
+    if(sequence[i].tokenIndex>=0&&context.length){
+     examples.push({context,target:sequence[i].tokenIndex});
+     if(expand)recordTrainingContext(sequence[i].tokenIndex,context);
+    }
+   }
   }return examples;
+ }
+ function retrieveContextCandidate(context){
+  if(!Array.isArray(context)||!trainingContextExamples.length)return null;
+  const query=context.filter(item=>item.tokenIndex>=0)
+   .map(item=>({offset:item.offset,token:vocabulary[item.tokenIndex]}));
+  const queryTokens=new Set(query.map(item=>item.token));
+  if(queryTokens.size<2)return null;
+  const bestByTarget=new Map();
+  for(const example of trainingContextExamples){
+   const exampleTokens=new Set(example.context.map(item=>item.token));
+   const shared=[...queryTokens].filter(token=>exampleTokens.has(token));
+   if(shared.length<2)continue;
+   const offsetMatches=shared.reduce((count,token)=>count+
+    (query.some(item=>item.token===token&&example.context.some(row=>row.token===token&&row.offset===item.offset))?1:0),0);
+   const score=shared.length*3+offsetMatches*2;
+   const prior=bestByTarget.get(example.target);
+   if(!prior||score>prior.score)bestByTarget.set(example.target,{token:example.target,score,sharedTokens:shared,offsetMatches,support:1});
+   else if(score===prior.score)prior.support++;
+  }
+  const ranked=[...bestByTarget.values()].sort((a,b)=>b.score-a.score||a.token.localeCompare(b.token));
+  if(!ranked.length)return null;
+  if(ranked.length>1&&ranked[0].score===ranked[1].score)return null;
+  return{token:ranked[0].token,score:ranked[0].score,sharedTokens:ranked[0].sharedTokens,
+   offsetMatches:ranked[0].offsetMatches,support:ranked[0].support,method:"unique_training_context_retrieval"};
  }
  function forwardBlock(inputRows,block){
   const count=inputRows.length,headPasses=[],concatenated=Array.from({length:count},()=>[]);
@@ -344,12 +381,35 @@ function create(options={}){
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
    lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
-   trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension};
+   trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
+   trainingContextExamples:trainingContextExamples.length};
   return{...lastTraining};
  }
  function rowsForTargets(rows){
   let count=0;for(const row of rows){const tokens=tokenize(row);if(tokens.length>1)count+=tokens.length;}
   return count;
+ }
+ function rebuildTrainingContextIndex(texts){
+  if(!lastTraining||!vocabulary.length)return{rebuilt:false,reason:"model_not_trained",examples:trainingContextExamples.length};
+  if(trainingContextExamples.length)return{rebuilt:false,reason:"index_already_present",examples:trainingContextExamples.length};
+  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,160);
+  if(!rows.length)return{rebuilt:false,reason:"empty_corpus",examples:0};
+  let split;
+  try{split=splitCorpus(rows,lastTraining.splitSeed);}catch(_){return{rebuilt:false,reason:"invalid_corpus",examples:0};}
+  if(split.uniqueRows!==lastTraining.uniqueRows)return{rebuilt:false,reason:"corpus_mismatch",examples:0};
+  const sourceRows=lastTraining.splitFallback?rows:split.train;
+  if(!lastTraining.splitFallback&&sourceRows.length!==lastTraining.trainRows)
+   return{rebuilt:false,reason:"training_partition_mismatch",examples:0};
+  trainingContextExamples=[];
+  for(const row of sourceRows){
+   const sequence=tokenize(row).map(token=>featureForToken(token,false));
+   for(let index=0;index<sequence.length;index++){
+    const target=sequence[index].tokenIndex,context=contextFor(sequence,index);
+    if(target>=0&&context.length)recordTrainingContext(target,context);
+   }
+  }
+  return{rebuilt:trainingContextExamples.length>0,reason:trainingContextExamples.length?"rebuilt":"no_retrievable_examples",
+   examples:trainingContextExamples.length,sourceRows:sourceRows.length,splitFallback:!!lastTraining.splitFallback};
  }
  function predictMasked(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
@@ -360,6 +420,11 @@ function create(options={}){
   if(!context.length)return{maskedTokenIndex:safeIndex,available:false,predictions:[],morphologyHint:null,generatedCandidates:[],generatedPrediction:null,contextMorphologyBackoffs};
   const pass=forward(context),predictions=pass.probabilities.map((probability,index)=>({token:vocabulary[index],probability})).sort((a,b)=>b.probability-a.probability);
   const morphologyHint=inferMaskedNumber(tokens,safeIndex),generatedCandidates=[];
+  const retrievalCandidate=retrieveContextCandidate(context);
+  const retrievalSurface=retrievalCandidate&&morphologyHint&&morphologyHint.number==="plural"?russianNounPlural(retrievalCandidate.token):null;
+  const retrievalPrediction=retrievalSurface?{surface:retrievalSurface,baseToken:retrievalCandidate.token,
+   features:{number:"plural"},method:"training_context_retrieval_plus_plural_rule",
+   retrievalScore:retrievalCandidate.score,matchedContextTokens:retrievalCandidate.sharedTokens}:null;
   if(morphologyHint&&morphologyHint.number==="plural"){
    for(const candidate of predictions){
     const surface=russianNounPlural(candidate.token);
@@ -367,7 +432,8 @@ function create(options={}){
     if(generatedCandidates.length>=8)break;
    }
   }
-  return{maskedTokenIndex:safeIndex,available:true,predictions:predictions.slice(0,8),morphologyHint,generatedCandidates,generatedPrediction:generatedCandidates[0]||null,contextMorphologyBackoffs};
+  return{maskedTokenIndex:safeIndex,available:true,predictions:predictions.slice(0,8),morphologyHint,generatedCandidates,generatedPrediction:generatedCandidates[0]||null,
+   retrievalCandidate,retrievalPrediction,contextMorphologyBackoffs};
  }
  function score(text,targetIndex){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));if(!tokens.length)return null;
@@ -409,14 +475,15 @@ function create(options={}){
    morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,
    contextMorphologyBackoffCount,positions};}
  function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
-  feedForwardDimension,trainingSteps,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
+  feedForwardDimension,trainingSteps,trainingContextExamples:trainingContextExamples.length,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice()),copyBlock=block=>({
    attentionHeads:block.attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),relativePositionBias:copy(block.relativePositionBias),attentionOutput:copy(block.attentionOutput),
    norm1Gamma:block.norm1Gamma.slice(),norm1Beta:block.norm1Beta.slice(),norm2Gamma:block.norm2Gamma.slice(),norm2Beta:block.norm2Beta.slice(),
    feedForward1:copy(block.feedForward1),feedForward1Bias:block.feedForward1Bias.slice(),feedForward2:copy(block.feedForward2),feedForward2Bias:block.feedForward2Bias.slice()
   });
-  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};
+  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
+   trainingContextExamples:trainingContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({...item}))}))};
  }
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
@@ -424,11 +491,15 @@ function create(options={}){
    throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
   const validVector=(values,length)=>Array.isArray(values)&&values.length===length&&values.every(value=>Number.isFinite(Number(value)));
-  const count=state.vocabulary.length,validBlock=block=>block&&Array.isArray(block.attentionHeads)&&block.attentionHeads.length===heads&&
+  const count=state.vocabulary.length,vocabularySet=new Set(state.vocabulary),storedContextExamples=state.trainingContextExamples??[],
+   validContextExamples=Array.isArray(storedContextExamples)&&storedContextExamples.length<=12000&&storedContextExamples.every(example=>
+    example&&typeof example.target==="string"&&vocabularySet.has(example.target)&&Array.isArray(example.context)&&example.context.length>=2&&example.context.length<=16&&
+    example.context.every(item=>item&&typeof item.token==="string"&&vocabularySet.has(item.token)&&Number.isInteger(item.offset)&&item.offset!==0&&Math.abs(item.offset)<=windowSize)),
+   validBlock=block=>block&&Array.isArray(block.attentionHeads)&&block.attentionHeads.length===heads&&
    block.attentionHeads.every(head=>head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension))&&
    validMatrix(block.relativePositionBias,heads,windowSize*2+1)&&validMatrix(block.attentionOutput,dimension,dimension)&&validVector(block.norm1Gamma,dimension)&&validVector(block.norm1Beta,dimension)&&validVector(block.norm2Gamma,dimension)&&validVector(block.norm2Beta,dimension)&&
    validMatrix(block.feedForward1,feedForwardDimension,dimension)&&validVector(block.feedForward1Bias,feedForwardDimension)&&validMatrix(block.feedForward2,dimension,feedForwardDimension)&&validVector(block.feedForward2Bias,dimension);
-  if(!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||!state.blocks.every(validBlock)||!validMatrix(state.outputWeights,count,dimension)||!validVector(state.outputBias,count))
+  if(!validContextExamples||!validMatrix(state.embeddings,count,dimension)||!validMatrix(state.subwordEmbeddings,SUBWORD_BUCKETS,dimension)||!validMatrix(state.positions,windowSize*2,dimension)||!state.blocks.every(validBlock)||!validMatrix(state.outputWeights,count,dimension)||!validVector(state.outputBias,count))
    throw new TypeError("Contextual model weights are malformed.");
   vocabulary.length=0;indices.clear();
   state.vocabulary.forEach((token,index)=>{const safe=clean(token,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");if(!safe||indices.has(safe))throw new TypeError("Duplicate or empty vocabulary token.");vocabulary.push(safe);indices.set(safe,index);});stemIndexCache=null;
@@ -441,12 +512,14 @@ function create(options={}){
    target.norm2Gamma=copyVector(source.norm2Gamma);target.norm2Beta=copyVector(source.norm2Beta);target.feedForward1=copy(source.feedForward1);target.feedForward1Bias=copyVector(source.feedForward1Bias);
    target.feedForward2=copy(source.feedForward2);target.feedForward2Bias=copyVector(source.feedForward2Bias);
   }
-  outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
+  outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
+  trainingContextExamples=storedContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({offset:item.offset,token:item.token}))}));
+  trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
   const report=state.lastTraining;lastTraining=report&&typeof report==="object"&&(report.validationLoss==null||Number.isFinite(Number(report.validationLoss)))?{...report,validationLoss:report.validationLoss==null?null:Number(report.validationLoss),testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,predictMasked,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
+ return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;

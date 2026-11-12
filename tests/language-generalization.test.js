@@ -211,6 +211,8 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedMorphologyCorrect = 0, seedMorphologyCovered = 0, seedMorphologyBackoffs = 0, seedMorphologyAmbiguous = 0;
   let seedGeneratedCorrect = 0, seedGeneratedCovered = 0, seedGeneratedOovTargets = 0, seedGeneratedCandidateHits = 0;
   let seedContextMorphologyBackoffs = 0;
+  let seedRetrievalCorrect=0,seedRetrievalCovered=0,seedRetrievalOovTargets=0;
+  const seedRetrievalExamples=[];
   const seedGeneratedExamples = [];
   for (const testCase of cases) {
     const tokens = knowledge.tokens(testCase.text);
@@ -218,7 +220,8 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       correct: 0, covered: 0, total: 0,
       morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0,
       generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0,
-      generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs: 0
+      generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs: 0,
+      retrievalCorrect:0,retrievalCovered:0,retrievalOovTargets:0,retrievalExamples:[]
     });
     for (let index = 0; index < tokens.length; index++) {
       const score = contextual.score(testCase.text, index);
@@ -278,6 +281,22 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             candidateForms:maskedPrediction?maskedPrediction.generatedCandidates.map(row=>row.surface):[],
             candidateHit
           });
+        }
+        group.retrievalOovTargets++;
+        seedRetrievalOovTargets++;
+        const retrieved=maskedPrediction&&maskedPrediction.retrievalPrediction;
+        if(retrieved){
+          group.retrievalCovered++;
+          seedRetrievalCovered++;
+          if(retrieved.surface===tokens[index]){
+            group.retrievalCorrect++;
+            seedRetrievalCorrect++;
+          }
+        }
+        if(seedRetrievalExamples.length<12){
+          seedRetrievalExamples.push({group:testCase.group,target:tokens[index],
+            surface:retrieved?retrieved.surface:null,base:retrieved?retrieved.baseToken:null,
+            matchedContext:retrieved?retrieved.matchedContextTokens:[]});
         }
       }
     }
@@ -379,10 +398,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
           coverage:seedGeneratedOovTargets?seedGeneratedCovered/seedGeneratedOovTargets:null,
           candidateHits:seedGeneratedCandidateHits,
           candidateRecallAt8:seedGeneratedOovTargets?seedGeneratedCandidateHits/seedGeneratedOovTargets:null,
-          candidateHits:seedGeneratedCandidateHits,
-          candidateRecallAt8:seedGeneratedOovTargets?seedGeneratedCandidateHits/seedGeneratedOovTargets:null,
           examples:seedGeneratedExamples,
-          contextMorphologyBackoffUses:seedContextMorphologyBackoffs}
+          contextMorphologyBackoffUses:seedContextMorphologyBackoffs,
+          trainingContextExamples:contextual.status().trainingContextExamples,
+          contextRetrieval:{correct:seedRetrievalCorrect,covered:seedRetrievalCovered,oovTargets:seedRetrievalOovTargets,
+            accuracy:seedRetrievalCovered?seedRetrievalCorrect/seedRetrievalCovered:null,
+            coverage:seedRetrievalOovTargets?seedRetrievalCovered/seedRetrievalOovTargets:null,
+            examples:seedRetrievalExamples}}
       }
     },
     phraseTrainingOnly: {
@@ -441,8 +463,12 @@ const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
   generatedOovTargets: sum.generatedOovTargets + group.generatedOovTargets,
   generatedCandidateHits: sum.generatedCandidateHits + group.generatedCandidateHits,
   generatedExamples: sum.generatedExamples.concat(group.generatedExamples).slice(0,24),
-  contextMorphologyBackoffs:sum.contextMorphologyBackoffs+group.contextMorphologyBackoffs
-}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0, generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0, generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs:0 });
+  contextMorphologyBackoffs:sum.contextMorphologyBackoffs+group.contextMorphologyBackoffs,
+  retrievalCorrect:sum.retrievalCorrect+group.retrievalCorrect,
+  retrievalCovered:sum.retrievalCovered+group.retrievalCovered,
+  retrievalOovTargets:sum.retrievalOovTargets+group.retrievalOovTargets,
+  retrievalExamples:sum.retrievalExamples.concat(group.retrievalExamples).slice(0,24)
+}), { correct: 0, covered: 0, total: 0, morphologyCorrect: 0, morphologyCovered: 0, morphologyBackoffs: 0, morphologyAmbiguous: 0, generatedCorrect: 0, generatedCovered: 0, generatedOovTargets: 0, generatedCandidateHits: 0, generatedExamples: [], contextMorphologyBackoffs:0, retrievalCorrect:0, retrievalCovered:0, retrievalOovTargets:0, retrievalExamples:[] });
 const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
   roleCorrect: sum.roleCorrect + group.roleCorrect,
   roleTotal: sum.roleTotal + group.roleTotal,
@@ -485,6 +511,10 @@ assert.ok(maskTotal.morphologyBackoffs > 0, "the independent corpus must exercis
 assert.equal(maskTotal.generatedOovTargets,maskTotal.total-maskTotal.covered,
   "generated-form accuracy must include every exact-vocabulary OOV target in its denominator");
 assert.ok(maskTotal.generatedCovered<=maskTotal.generatedOovTargets);
+assert.equal(maskTotal.retrievalOovTargets,maskTotal.generatedOovTargets,
+ "retrieval must be evaluated on every same exact-vocabulary OOV target");
+assert.ok(maskTotal.retrievalCovered<=maskTotal.retrievalOovTargets);
+assert.ok(maskTotal.retrievalCorrect<=maskTotal.retrievalCovered);
 assert.ok(maskTotal.generatedCorrect<=maskTotal.generatedCovered);
 assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
 assert.equal(semanticTotal.cases, cases.length);
@@ -600,6 +630,11 @@ const summary = {
         candidateRecallAt8:ratio(maskTotal.generatedCandidateHits,maskTotal.generatedOovTargets),
         examples:maskTotal.generatedExamples,
         contextMorphologyBackoffUses:maskTotal.contextMorphologyBackoffs,
+        contextRetrieval:{correct:maskTotal.retrievalCorrect,covered:maskTotal.retrievalCovered,oovTargets:maskTotal.retrievalOovTargets,
+          accuracy:ratio(maskTotal.retrievalCorrect,maskTotal.retrievalCovered),
+          coverage:ratio(maskTotal.retrievalCovered,maskTotal.retrievalOovTargets),
+          examples:maskTotal.retrievalExamples,
+          baselineComparison:"new metric; no frozen training-context retrieval baseline exists"},
         baselineComparison:"new metric; no frozen contextual-form-generation baseline exists"
       },
       baselineComparison: "new metric; no frozen 0.58.93 morphology score exists"
