@@ -418,5 +418,6 @@ const summary = {
   semanticFailures
 };
 
+assert.deepEqual(semanticFailures, [], "all independent semantic proposition cases must pass");
 console.log("NEUROGENESIS 0.58.85 independent language benchmark: " + JSON.stringify(summary));
 console.log("No train/test sentence leakage; metrics retain exact numerators, denominators, coverage and three-seed variation.");
