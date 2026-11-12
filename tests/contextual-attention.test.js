@@ -168,6 +168,9 @@ assert.ok(retrievalPrediction.retrievalCandidate);
 assert.equal(retrievalPrediction.retrievalCandidate.token,"нейрон");
 assert.ok(retrievalPrediction.retrievalPrediction);
 assert.equal(retrievalPrediction.retrievalPrediction.surface,"нейроны");
+const singleAlignedMatch= morphologyModel.predictMasked("сигнал [MASK] получает",1);
+assert.equal(singleAlignedMatch.retrievalCandidate,null,
+ "a retrieval candidate must be rejected when fewer than two context positions align");
 const hiddenRetrievalPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
 assert.deepEqual(hiddenRetrievalPrediction.retrievalCandidate,retrievalPrediction.retrievalCandidate,
  "context retrieval must not inspect the hidden target form");

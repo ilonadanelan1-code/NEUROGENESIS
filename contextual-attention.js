@@ -207,7 +207,7 @@ function create(options={}){
    const exactMatches=matches.filter(row=>row.exact).length;
    const offsetMatches=matches.filter(row=>row.aligned).length;
    // Fully stem-based matches are accepted only when both context positions align.
-   if(exactMatches===0&&offsetMatches<2)continue;
+   if(offsetMatches<2)continue;
    const shared=matches.map(row=>row.surface);
    const score=exactMatches*4+(matches.length-exactMatches)*2+offsetMatches*2;
    const prior=bestByTarget.get(example.target);
