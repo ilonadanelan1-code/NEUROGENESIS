@@ -59,10 +59,10 @@ if (!trainPath && !testPath) {
   const trainContent = fs.readFileSync(trainPath, "utf8");
   const testContent = fs.readFileSync(testPath, "utf8");
   const prepared = importer.prepareCorpus(trainContent, testContent, {
-    trainLimit: 160, testLimit: 240, seed: 20261112, minimumTokens: 4, maximumTokens: 40
+    trainLimit: 320, testLimit: 240, seed: 20261112, minimumTokens: 4, maximumTokens: 40
   });
   assert.equal(prepared.stats.normalizedSampleTrainTestOverlaps, 0);
-  assert.equal(prepared.trainingTexts.length, 160);
+  assert.equal(prepared.trainingTexts.length, 320);
   assert.equal(prepared.testTexts.length, 240);
 
   const window = {};
@@ -202,7 +202,7 @@ if (!trainPath && !testPath) {
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.104",
+    version: "0.58.105",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -254,6 +254,6 @@ if (!trainPath && !testPath) {
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
   };
-  console.log("NEUROGENESIS 0.58.104 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
+  console.log("NEUROGENESIS 0.58.105 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
 }
