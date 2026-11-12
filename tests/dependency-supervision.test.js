@@ -129,6 +129,8 @@ assert.equal(training.selectionMetric,"validation_uas_and_relation_macro_f1");
 assert.ok(Number.isFinite(training.validationLAS));
 assert.equal(training.trainExamples,trainSet.groups.length);
 assert.equal(training.validationExamples,validationSet.groups.length);
+assert.ok(Number.isFinite(training.validationHeadAccuracy));
+assert.ok(Number.isFinite(training.validationOracleHeadRelationMacroF1));
 const evaluation = head.evaluate(testSet.groups);
 assert.equal(evaluation.targets,6);
 assert.ok(Number.isFinite(evaluation.headAccuracy));
