@@ -276,15 +276,15 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Run external UD Russian-GSD language pilot
-        run: |
-          node tests/ud-russian-gsd-benchmark.test.js \
-            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
-
       - name: Run supervised contextual FEATS pilot
         run: |
           node tests/feats-supervision-benchmark.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
+      - name: Run external UD Russian-GSD language pilot
+        run: |
+          node tests/ud-russian-gsd-benchmark.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
