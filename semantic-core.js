@@ -118,7 +118,9 @@
   const INSTRUMENTAL_MASCULINE_FORMS = new Set([
     "сигналом", "нейроном", "модулем", "словарем", "словарём", "процессом",
     "объектом", "результатом", "сервером", "узлом", "пакетом", "токеном",
-    "импульсом", "мозгом", "путем", "путём", "ключом", "инструментом", "датчиком"
+    "импульсом", "мозгом", "путем", "путём", "ключом", "инструментом", "датчиком",
+    "контроллером", "алгоритмом", "исследователем", "оператором",
+    "пользователем", "инженером", "роботом", "администратором", "автором"
   ]);
   const INSTRUMENTAL_NEUTER_FORMS = new Set([
     "ядром", "состоянием", "сообщением", "действием", "событием",
@@ -759,17 +761,9 @@
         }
       }
       let candidates = [...candidatesByEntity.values()].sort((a, b) => a.score - b.score);
-      // When two pronouns occupy complementary argument slots, semantic role
-      // continuity can distinguish a recipient from a theme without guessing
-      // from proximity alone.
-      const roleMatches = desiredRole
-        ? candidates.filter(candidate => candidate.semantic && candidate.role === desiredRole)
-        : [];
-      const decisiveCandidate = candidates.length === 1 ? candidates[0]
-        : roleMatches.length === 1 ? roleMatches[0] : null;
-      // If the current subject already resolved to one participant, do not let a
-      // second non-reflexive object pronoun silently reuse that same entity when
-      // another compatible participant exists.
+      // A second non-reflexive object pronoun should not silently reuse the
+      // participant already resolved as the current subject when an alternative
+      // compatible participant is present.
       const priorSubjectReference = role === "object"
         ? references.find(reference => reference.mentionRole === "subject" &&
           reference.targetType === "entity" && reference.status === "resolved")
@@ -779,15 +773,13 @@
           normalise(candidate.text) !== normalise(priorSubjectReference.antecedentText));
         if (alternatives.length) candidates = alternatives;
       }
-      const finalRoleMatches = desiredRole
+      // Role continuity is an explicit signal, not a proximity tie-breaker:
+      // resolve only when exactly one candidate has the current argument role.
+      const roleMatches = desiredRole
         ? candidates.filter(candidate => candidate.semantic && candidate.role === desiredRole)
         : [];
       const resolvedCandidate = candidates.length === 1 ? candidates[0]
-        : finalRoleMatches.length === 1 ? finalRoleMatches[0]
-        : decisiveCandidate && candidates.some(candidate =>
-          candidate.semantic && candidate.role === decisiveCandidate.role &&
-          normalise(candidate.text) === normalise(decisiveCandidate.text))
-          ? decisiveCandidate : null;
+        : roleMatches.length === 1 ? roleMatches[0] : null;
       const decisive = !!resolvedCandidate;
       references.push({
         schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role, targetType: "entity",
@@ -911,7 +903,7 @@
   ]);
   const PASSIVE_AGENT_FORMS = new Set([
     "системой", "моделью", "нейросетью", "сетью", "программой",
-    "контроллером", "алгоритмом", "сервером", "модулем", "модулем",
+    "контроллером", "алгоритмом", "сервером", "модулем",
     "исследователем", "оператором", "пользователем", "инженером",
     "роботом", "администратором", "автором"
   ]);
