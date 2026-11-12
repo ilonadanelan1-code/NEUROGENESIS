@@ -19,7 +19,7 @@
     "дверь", "кость", "тень", "роль", "цель", "часть", "вещь", "жизнь", "площадь",
     "мощность", "скорость", "сущность", "новость", "ночь", "помощь"]);
   const MASCULINE_HEADS = new Set(["нейрон", "сигнал", "узел", "пакет", "токен",
-    "процесс", "результат", "мозг", "импульс", "объект", "сервер", "модуль", "словарь", "путь",
+    "процесс", "результат", "мозг", "импульс", "объект", "сервер", "модуль", "словарь", "путь", "исследователь",
     "день", "камень", "огонь", "конь", "корень", "гость", "рубль", "уголь", "ноль"]);
   const NEUTER_HEADS = new Set(["ядро", "состояние", "сообщение", "действие",
     "событие", "обучение", "питание", "значение", "соединение"]);
@@ -69,7 +69,8 @@
     "памятям", "памятями", "памятях", "связям", "связями", "связях",
     "комнатам", "комнатами", "комнатах", "дверям", "дверями", "дверях",
     "программам", "программами", "программах", "станциям", "станциями", "станциях",
-    "причинам", "причинами", "причинах"
+    "причинам", "причинами", "причинах",
+    "данные", "данных", "данным", "данными"
   ]);
   const AMBIGUOUS_SINGULAR_PLURAL_HEADS = new Set([
     "системы", "сети", "модели", "нейросети", "памяти", "связи",
@@ -443,6 +444,35 @@
       .replace(/(^|\s)не\s+всегда\s+/u, "$1")
       .replace(/(^|\s)всегда\s+не\s+/u, "$1");
 
+    const directCause = propositionText.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(вызывает|вызывают|провоцирует|провоцируют|порождает|порождают|обусловливает|обусловливают)\s+(.+)$/iu);
+    if (directCause) {
+      const modality = directCause[2] ? "possible" : explicitPossible ? "possible" : "asserted";
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : modality === "possible" ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(directCause[1]), predicate: clean(directCause[4], 100),
+        object: clean(directCause[5], 220), relation: "causal",
+        polarity: polarityScope.scope !== "none" ? polarityScope.polarity : directCause[3] ? "negative" : "positive",
+        polarityScope,
+        modality: conditional ? "conditional" : opinion ? "opinion" : modality,
+        confidence: 0.8,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    const inverseCause = propositionText.match(/^(.+?)\s+(происходит|возникает|появляется|случается)\s+из-за\s+(.+)$/iu);
+    if (inverseCause) {
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(inverseCause[1]),
+        predicate: clean(inverseCause[2] + " из-за", 100),
+        object: clean(inverseCause[3], 220), relation: "causal",
+        polarity: polarityScope.polarity, polarityScope,
+        modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
+        confidence: 0.78,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
     const causal = propositionText.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(приводит|приводят|приводить|вызывает|вызывают|влияет|влияют|повышает|повышают|снижает|снижают|уменьшает|уменьшают|увеличивает|увеличивают)\s+(к|на|от|в|из-за)\s+(.+)$/iu);
     if (causal) {
       const modality = causal[2] ? "possible" : explicitPossible ? "possible" : "asserted";
@@ -472,7 +502,21 @@
       };
     }
 
-    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|обнаруживает|обнаруживают|сохраняет|сохраняют|выбирает|выбирают|проверяет|проверяют|измеряет|измеряют|обрабатывает|обрабатывают|активирует|активируют|хранит|хранят|изучает|изучают|меняет|меняют|защищает|защищают|открывает|открывают|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|усиливается|усиливаются|ослабевает|ослабевают|обрабатывается|обрабатываются|изменяется|изменяются|сохраняется|сохраняются|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
+    const sovFinal = propositionText.match(/^([^\s]+)\s+([^\s]+)\s+(получает|сохраняет|проверяет)$/iu);
+    if (sovFinal && grammaticalGender(sovFinal[1]) !== "unknown" &&
+        grammaticalGender(sovFinal[2]) !== "unknown") {
+      return {
+        ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(sovFinal[2]), predicate: clean(sovFinal[3], 80),
+        object: clean(sovFinal[1], 220), relation: "predicate",
+        polarity: polarityScope.polarity, polarityScope,
+        modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
+        confidence: 0.7,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|обнаруживает|обнаруживают|фиксирует|фиксируют|регистрирует|регистрируют|делает|делают|обнаружить|получить|сохранить|активировать|запустить|измерить|сохраняет|сохраняют|выбирает|выбирают|проверяет|проверяют|измеряет|измеряют|обрабатывает|обрабатывают|активирует|активируют|хранит|хранят|изучает|изучают|меняет|меняют|защищает|защищают|открывает|открывают|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|усиливается|усиливаются|ослабевает|ослабевают|обрабатывается|обрабатываются|изменяется|изменяются|сохраняется|сохраняются|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
     if (match) {
       const modal = clean(match[2], 40);
       const predicate = clean(match[4], 80);

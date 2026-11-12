@@ -200,6 +200,60 @@ for (const [text, subject, predicate, object] of compositionalRoleCases) {
   assert.equal(proposition.object, object, "object role must follow phrase order: " + text);
 }
 
+
+const expandedRoleCases = [
+  ["Сигнал нейрон получает.", "нейрон", "получает", "Сигнал"],
+  ["Данные система сохраняет.", "система", "сохраняет", "Данные"],
+  ["Гипотезу исследователь проверяет.", "исследователь", "проверяет", "Гипотезу"]
+];
+for (const [text, subject, predicate, object] of expandedRoleCases) {
+  const proposition = core.analyse(text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.subject.toLowerCase(), subject.toLowerCase(), "bounded verb-final SOV subject: " + text);
+  assert.equal(proposition.predicate.toLowerCase(), predicate.toLowerCase(), "bounded verb-final predicate: " + text);
+  assert.equal(proposition.object.toLowerCase(), object.toLowerCase(), "bounded verb-final object: " + text);
+}
+const paraphraseCases = [
+  ["Сенсор фиксирует колебания.", "сенсор", "фиксирует", "колебания"],
+  ["Устройство регистрирует импульс.", "устройство", "регистрирует", "импульс"],
+  ["Алгоритм делает выбор маршрута.", "алгоритм", "делает", "выбор маршрута"]
+];
+for (const [text, subject, predicate, object] of paraphraseCases) {
+  const proposition = core.analyse(text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.subject.toLowerCase(), subject.toLowerCase(), "paraphrase subject: " + text);
+  assert.equal(proposition.predicate.toLowerCase(), predicate.toLowerCase(), "paraphrase predicate: " + text);
+  assert.equal(proposition.object.toLowerCase(), object.toLowerCase(), "paraphrase object: " + text);
+}
+const modalInfinitive = core.analyse("Система может обнаружить помеху.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(modalInfinitive.kind, "hypothesis");
+assert.equal(modalInfinitive.modality, "possible");
+assert.equal(modalInfinitive.subject, "Система");
+assert.equal(modalInfinitive.predicate, "обнаружить");
+assert.equal(modalInfinitive.object, "помеху");
+const directCausality = core.analyse("Перегрев вызывает сбой.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(directCausality.kind, "assertion");
+assert.equal(directCausality.subject, "Перегрев");
+assert.equal(directCausality.predicate, "вызывает");
+assert.equal(directCausality.object, "сбой");
+assert.equal(directCausality.relation, "causal");
+const inverseCausality = core.analyse("Сбой происходит из-за перегрева.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(inverseCausality.kind, "assertion");
+assert.equal(inverseCausality.subject, "Сбой");
+assert.equal(inverseCausality.relation, "causal");
+assert.equal(inverseCausality.object, "перегрева");
+const pluralCoreference = core.analyse("Модель получает данные. Затем она обрабатывает их.", {
+  contextRelation: "new_topic"
+}, knowledge).propositionChain;
+assert.equal(pluralCoreference.items[1].proposition.subject, "Модель");
+assert.ok(pluralCoreference.items[1].proposition.references.some(row =>
+  row.mention === "их" && row.status === "resolved" && row.antecedentText === "данные"),
+  "plural pronouns must resolve to explicit plural data entities");
+
 const polarityScopeCases = [
   {
     text: "Не все нейроны активируются.",
