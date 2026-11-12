@@ -354,7 +354,7 @@
       }
       const requestedMetric = trainOptions.selectionMetric;
       if (requestedMetric && requestedMetric !== "component_specific") {
-        throw new TypeError("Dependency checkpoint selection uses separate validation UAS and relation macro-F1 criteria.");
+        throw new TypeError("Dependency checkpoint selection uses validation UAS and oracle-head relation macro-F1 criteria.");
       }
 
       trainingSteps = 0;
