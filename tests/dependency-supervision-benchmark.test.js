@@ -94,7 +94,8 @@ function emptyTotals() {
   return {
     targets:0,headCorrect:0,oracleRelationCorrect:0,relationCovered:0,lasCorrect:0,
     baselineHeadCorrect:0,baselineRelationCorrect:0,baselineLASCorrect:0,
-    relationMacroF1BySeed:[]
+    oracleHeadRelationMacroF1BySeed:[],
+    predictedHeadRelationMacroF1BySeed:[]
   };
 }
 const aggregate = Object.fromEntries(Object.keys(variants).map(variant=>[
@@ -153,7 +154,8 @@ for(const seed of seeds) {
       assert.equal(metrics[key].headCorrect<=metrics[key].targets,true);
       assert.equal(metrics[key].lasCorrect<=metrics[key].headCorrect,true);
       addTotals(aggregate[variant][key],metrics[key]);
-      aggregate[variant][key].relationMacroF1BySeed.push(metrics[key].relationMacroF1);
+      aggregate[variant][key].oracleHeadRelationMacroF1BySeed.push(metrics[key].oracleHeadRelationMacroF1);
+      aggregate[variant][key].predictedHeadRelationMacroF1BySeed.push(metrics[key].predictedHeadRelationMacroF1);
     }
     variantReports[variant]={training:trainingReport,metrics};
   }
@@ -209,10 +211,14 @@ const aggregateReport=Object.fromEntries(Object.entries(aggregate).map(([variant
       nearestLeftBaselineHeadAccuracy:ratio(row.baselineHeadCorrect,row.targets),
       majorityRelationBaselineAccuracy:ratio(row.baselineRelationCorrect,row.targets),
       baselineLAS:ratio(row.baselineLASCorrect,row.targets),
-      meanRelationMacroF1AcrossSeeds:row.relationMacroF1BySeed.filter(Number.isFinite).length
-        ?row.relationMacroF1BySeed.filter(Number.isFinite).reduce((sum,value)=>sum+value,0)/
-          row.relationMacroF1BySeed.filter(Number.isFinite).length:null,
-      relationMacroF1BySeed:row.relationMacroF1BySeed
+      meanOracleHeadRelationMacroF1AcrossSeeds:row.oracleHeadRelationMacroF1BySeed.filter(Number.isFinite).length
+        ?row.oracleHeadRelationMacroF1BySeed.filter(Number.isFinite).reduce((sum,value)=>sum+value,0)/
+          row.oracleHeadRelationMacroF1BySeed.filter(Number.isFinite).length:null,
+      oracleHeadRelationMacroF1BySeed:row.oracleHeadRelationMacroF1BySeed,
+      meanPredictedHeadRelationMacroF1AcrossSeeds:row.predictedHeadRelationMacroF1BySeed.filter(Number.isFinite).length
+        ?row.predictedHeadRelationMacroF1BySeed.filter(Number.isFinite).reduce((sum,value)=>sum+value,0)/
+          row.predictedHeadRelationMacroF1BySeed.filter(Number.isFinite).length:null,
+      predictedHeadRelationMacroF1BySeed:row.predictedHeadRelationMacroF1BySeed
     }
   ]))
 ]));
@@ -230,10 +236,10 @@ const summary={
     variants,
     sameContextualEncoderAndSentenceSplits:true,
     headSelection:"softmax over ROOT and every other token in the sentence",
-    relationPrediction:"multiclass DEPREL classifier conditioned on the selected head; oracle-head relation accuracy also reported",
+    relationPrediction:"DEPREL classifier trained on gold dependent-head pairs; oracle-head and predicted-head relation metrics are reported separately",
     componentSpecificCheckpointSelection:{
       attachment:"validation UAS",
-      dependencyRelation:"validation relation macro-F1",
+      dependencyRelation:"validation oracle-head relation macro-F1",
       combinedLAS:"reported independently; not used to select either component"
     },
     classWeightsDerivedOnlyFromSupervisedTrainRows:true,
