@@ -1284,6 +1284,7 @@
     if (!markers.length) {
       let remaining = words.slice();
       const complements = [];
+      const leadingComplements = [];
       const first = normalise(remaining[0] || "");
       const second = normalise(remaining[1] || "");
       const firstIsDative = DATIVE_FEMININE_FORMS.has(first) || DATIVE_MASCULINE_FORMS.has(first) ||
@@ -1295,7 +1296,7 @@
       const leadingDativeWords = adjectiveBeforeDative ? 2 : firstIsDative ? 1 : 0;
       if (leadingDativeWords && remaining.length > leadingDativeWords) {
         const phrase = remaining.slice(0, leadingDativeWords).join(" ");
-        complements.push({
+        leadingComplements.push({
           role: TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object",
           text: phrase, marker: null, grammaticalCase: "dative",
           confidence: 0.78, rule: "dative_first_complement"
@@ -1309,7 +1310,7 @@
         remaining = tail.remaining;
         if (!remaining.length) break;
       }
-      return { theme: clean(remaining.join(" "), 180), complements };
+      return { theme: clean(remaining.join(" "), 180), complements: leadingComplements.concat(complements) };
     }
 
     let prefix = words.slice(0, markers[0].index);
