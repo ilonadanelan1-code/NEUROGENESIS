@@ -254,6 +254,42 @@ assert.ok(pluralCoreference.items[1].proposition.references.some(row =>
   row.mention === "их" && row.status === "resolved" && row.antecedentText === "данные"),
   "plural pronouns must resolve to explicit plural data entities");
 
+
+const semanticArgumentCases = [
+  { text: "Система передаёт сигнал модулю.", expected: [["agent", "Система", "nominative"], ["theme", "сигнал", "accusative"], ["recipient", "модулю", "dative"]] },
+  { text: "Модель отправляет данные системе.", expected: [["agent", "Модель", "nominative"], ["theme", "данные", "accusative"], ["recipient", "системе", "dative"]] },
+  { text: "Модель отправляет системе данные.", expected: [["agent", "Модель", "nominative"], ["theme", "данные", "accusative"], ["recipient", "системе", "dative"]] },
+  { text: "Система получает сигнал от датчика.", expected: [["recipient", "Система", "nominative"], ["theme", "сигнал", "accusative"], ["source", "датчика", "genitive"]] },
+  { text: "Модуль открывает дверь ключом.", expected: [["agent", "Модуль", "nominative"], ["patient", "дверь", "accusative"], ["instrument", "ключом", "instrumental"]] },
+  { text: "Алгоритм сохраняет результат в памяти.", expected: [["agent", "Алгоритм", "nominative"], ["theme", "результат", "accusative"], ["location", "памяти", "prepositional"]] },
+  { text: "Контроллер передаёт сигнал в новый модуль.", expected: [["agent", "Контроллер", "nominative"], ["theme", "сигнал", "accusative"], ["destination", "новый модуль", "accusative"]] }
+];
+for (const item of semanticArgumentCases) {
+  const proposition = core.analyse(item.text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.arguments.length, item.expected.length, "participant count: " + item.text);
+  for (let index = 0; index < item.expected.length; index++) {
+    const [role, text, grammaticalCase] = item.expected[index];
+    const actual = proposition.arguments[index];
+    assert.equal(actual.role, role, "semantic role: " + item.text + " #" + index);
+    assert.equal(actual.text.toLowerCase(), text.toLowerCase(), "participant phrase: " + item.text + " #" + index);
+    assert.equal(actual.grammaticalCase, grammaticalCase, "grammatical case: " + item.text + " #" + index);
+    assert.equal(actual.provenance.source, "semantic_core_rule");
+  }
+}
+const nestedPhrase = core.analyse("Алгоритм выбирает безопасный маршрут обхода.", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+const nestedTheme = nestedPhrase.arguments.find(row => row.role === "theme");
+assert.equal(nestedTheme.text, "безопасный маршрут обхода");
+assert.equal(nestedTheme.head.toLowerCase(), "маршрут");
+assert.deepEqual(nestedTheme.modifiers.map(value => value.toLowerCase()), ["безопасный", "обхода"]);
+
+const unparsedQuestionRoles = core.analyse("Сколько у осьминога сердец?", {
+  contextRelation: "new_topic"
+}, knowledge).proposition;
+assert.equal(unparsedQuestionRoles.arguments.length, 0,
+  "a question without a predicate must not receive invented semantic participants");
+
 const polarityScopeCases = [
   {
     text: "Не все нейроны активируются.",
