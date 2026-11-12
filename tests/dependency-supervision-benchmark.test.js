@@ -83,7 +83,7 @@ function summarize(rows,head,majorityRelation) {
   };
 }
 function addTotals(target,source) {
-  for(const key of ["targets","headCorrect","oracleRelationCorrect","relationCovered","lasCorrect"]) {
+  for(const key of ["targets","headCorrect","oracleRelationCorrect","predictedHeadRelationCorrect","relationCovered","lasCorrect"]) {
     target[key]+=source[key]||0;
   }
   target.baselineHeadCorrect+=source.baseline.headCorrect||0;
@@ -92,7 +92,8 @@ function addTotals(target,source) {
 }
 function emptyTotals() {
   return {
-    targets:0,headCorrect:0,oracleRelationCorrect:0,relationCovered:0,lasCorrect:0,
+    targets:0,headCorrect:0,oracleRelationCorrect:0,predictedHeadRelationCorrect:0,
+    relationCovered:0,lasCorrect:0,
     baselineHeadCorrect:0,baselineRelationCorrect:0,baselineLASCorrect:0,
     oracleHeadRelationMacroF1BySeed:[],
     predictedHeadRelationMacroF1BySeed:[]
@@ -204,6 +205,8 @@ const aggregateReport=Object.fromEntries(Object.entries(aggregate).map(([variant
       headAccuracy:ratio(row.headCorrect,row.targets),
       oracleRelationCorrect:row.oracleRelationCorrect,
       oracleRelationAccuracy:ratio(row.oracleRelationCorrect,row.relationCovered),
+      predictedHeadRelationCorrect:row.predictedHeadRelationCorrect,
+      predictedHeadRelationAccuracy:ratio(row.predictedHeadRelationCorrect,row.targets),
       relationCovered:row.relationCovered,
       relationCoverage:ratio(row.relationCovered,row.targets),
       correctLAS:row.lasCorrect,
