@@ -26,14 +26,16 @@ For each annotated sentence:
 The corpus importer decontaminates train and test sentences and samples 320 training sentences plus 240 independent test sentences. For each of three fixed seeds, the contextual encoder creates its own deterministic train/validation/test partition inside the 320-sentence training sample:
 
 - Contextual train partition: supplies the encoder learning data and the only dependency annotations used to train the two heads.
-- Contextual validation partition: selects the checkpoint by LAS.
+- Contextual validation partition: selects component checkpoints independently — attachment by UAS and DEPREL by relation macro-F1. Combined LAS is reported but does not select either component.
 - Contextual internal test partition: remains held out from encoder training and is not used to train either dependency head.
 - Independent UD test: used only for the final benchmark report.
 
-Two paired relation-head variants are trained with the same encoder, examples, split, initialization seed and validation_las checkpoint metric:
+Two paired relation-head variants are trained with the same encoder, examples, split, initialization seed and component-specific checkpoint protocol:
 
 - Unweighted DEPREL loss.
 - Square-root inverse-frequency DEPREL weighting, with weights derived only from supervised training rows and normalized to mean sample weight 1.
+
+The attachment checkpoint is selected only by validation UAS and training stops only from that UAS curve. The relation checkpoint is selected separately by validation relation macro-F1. This prevents relation class weighting from changing the number of attachment updates or the selected attachment epoch. The two variants must produce identical HEAD predictions; the experiment changes only the DEPREL loss weighting. LAS remains an independently reported combined metric.
 
 The attachment objective is unweighted and receives identical examples in both variants. CI asserts that the paired variants return identical attachment counts on the independent test; only relation-loss class weighting may change.
 
