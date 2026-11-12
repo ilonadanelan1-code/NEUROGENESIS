@@ -113,8 +113,8 @@ function parseConllu(content) {
 
 function annotationSummary(rows) {
   const sentences = Array.isArray(rows) ? rows : [];
-  const upos = {};
-  const dependencyRelations = {};
+  const upos = Object.create(null);
+  const dependencyRelations = Object.create(null);
   let tokens = 0, lemmaAnnotated = 0, featureAnnotated = 0, dependencyAnnotated = 0;
   for (const sentence of sentences) {
     for (const token of Array.isArray(sentence.tokens) ? sentence.tokens : []) {
