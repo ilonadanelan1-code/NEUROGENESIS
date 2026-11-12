@@ -311,6 +311,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedSurfaceGeneratedCorrect=0,seedSurfaceGeneratedCovered=0,seedSurfaceOovTargets=0,seedSurfaceCandidateHits=0;
   let seedSurfaceRetrievalLemmaCorrect=0,seedSurfaceRetrievalLemmaCovered=0,seedSurfaceRetrievalSurfaceCorrect=0,seedSurfaceRetrievalSurfaceCovered=0;
   let seedSurfaceContextMorphologyBackoffs=0;
+  let seedInversionLemmaCorrect=0,seedInversionLemmaCovered=0,seedInversionSurfaceCorrect=0,seedInversionSurfaceCovered=0;
   for(const testCase of cases){
     const surfaceTokens=Attention.tokenize(testCase.text);
     const group=surfaceMaskGroups[testCase.group]||(surfaceMaskGroups[testCase.group]={
@@ -358,6 +359,18 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             group.retrievalSurfaceCorrect++;seedSurfaceRetrievalSurfaceCorrect++;
           }
         }
+        const inversionPrediction=contextual.predictMasked(testCase.text,index,{allowOrderInversion:true});
+        const inversionCandidate=inversionPrediction?.retrievalCandidate;
+        if(inversionCandidate){
+          seedInversionLemmaCovered++;
+          if(Attention.russianStem(inversionCandidate.token)===Attention.russianStem(surfaceTokens[index])){
+            seedInversionLemmaCorrect++;
+          }
+          if(inversionCandidate.token===surfaceTokens[index]){
+            seedInversionSurfaceCovered++;
+            seedInversionSurfaceCorrect++;
+          }
+        }
         if(group.examples.length<12)group.examples.push({
           target:surfaceTokens[index],neuralSurface:generated?.surface||null,
           retrievalBase:retrieval?.token||null,retrievalSurface:retrievalSurface?.surface||null,
@@ -382,7 +395,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
     contextRetrievalSurface:{correct:seedSurfaceRetrievalSurfaceCorrect,covered:seedSurfaceRetrievalSurfaceCovered,
       oovTargets:seedSurfaceOovTargets,accuracy:seedSurfaceRetrievalSurfaceCovered?seedSurfaceRetrievalSurfaceCorrect/seedSurfaceRetrievalSurfaceCovered:null,
       coverage:seedSurfaceOovTargets?seedSurfaceRetrievalSurfaceCovered/seedSurfaceOovTargets:null},
-    contextMorphologyBackoffUses:seedSurfaceContextMorphologyBackoffs
+    contextMorphologyBackoffUses:seedSurfaceContextMorphologyBackoffs,
+    orderInvariantRetrievalLemma:{correct:seedInversionLemmaCorrect,covered:seedInversionLemmaCovered,oovTargets:seedSurfaceOovTargets,
+      accuracy:seedInversionLemmaCovered?seedInversionLemmaCorrect/seedInversionLemmaCovered:null,
+      coverage:seedSurfaceOovTargets?seedInversionLemmaCovered/seedSurfaceOovTargets:null},
+    orderInvariantRetrievalSurface:{correct:seedInversionSurfaceCorrect,covered:seedInversionSurfaceCovered,oovTargets:seedSurfaceOovTargets,
+      accuracy:seedInversionSurfaceCovered?seedInversionSurfaceCorrect/seedInversionSurfaceCovered:null,
+      coverage:seedSurfaceOovTargets?seedInversionSurfaceCovered/seedSurfaceOovTargets:null}
   };
   for (const testCase of cases.filter(row => row.roles)) {
     const result = composer.analyse(testCase.text, contextual, core, knowledge);
@@ -505,6 +524,14 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
 }
 
 // Frozen results from commit 6b28016004cb73525ffd5687dbc8ffab9e6693f2 (0.58.93).
+const surfaceInversionTotal=seedReports.reduce((sum,row)=>({
+ lemmaCorrect:sum.lemmaCorrect+row.surfaceAlignedMasked.orderInvariantRetrievalLemma.correct,
+ lemmaCovered:sum.lemmaCovered+row.surfaceAlignedMasked.orderInvariantRetrievalLemma.covered,
+ surfaceCorrect:sum.surfaceCorrect+row.surfaceAlignedMasked.orderInvariantRetrievalSurface.correct,
+ surfaceCovered:sum.surfaceCovered+row.surfaceAlignedMasked.orderInvariantRetrievalSurface.covered,
+ oovTargets:sum.oovTargets+row.surfaceAlignedMasked.orderInvariantRetrievalLemma.oovTargets
+}),{lemmaCorrect:0,lemmaCovered:0,surfaceCorrect:0,surfaceCovered:0,oovTargets:0});
+
 const baseline05893 = Object.freeze({
   heldOutSentences: 49,
   phraseRoles: { correct: 147, total: 285, tp: 106, fp: 314, fn: 119 },
@@ -732,6 +759,16 @@ const summary = {
       oovTargets:surfaceMaskTotal.oovTargets,accuracy:ratio(surfaceMaskTotal.retrievalSurfaceCorrect,surfaceMaskTotal.retrievalSurfaceCovered),
       coverage:ratio(surfaceMaskTotal.retrievalSurfaceCovered,surfaceMaskTotal.oovTargets)},
     contextMorphologyBackoffUses:surfaceMaskTotal.contextMorphologyBackoffs,
+    orderInvariantRetrievalLemma:{
+      correct:surfaceInversionTotal.lemmaCorrect,covered:surfaceInversionTotal.lemmaCovered,oovTargets:surfaceInversionTotal.oovTargets,
+      accuracy:ratio(surfaceInversionTotal.lemmaCorrect,surfaceInversionTotal.lemmaCovered),
+      coverage:ratio(surfaceInversionTotal.lemmaCovered,surfaceInversionTotal.oovTargets)
+    },
+    orderInvariantRetrievalSurface:{
+      correct:surfaceInversionTotal.surfaceCorrect,covered:surfaceInversionTotal.surfaceCovered,oovTargets:surfaceInversionTotal.oovTargets,
+      accuracy:ratio(surfaceInversionTotal.surfaceCorrect,surfaceInversionTotal.surfaceCovered),
+      coverage:ratio(surfaceInversionTotal.surfaceCovered,surfaceInversionTotal.oovTargets)
+    },
     examples:surfaceMaskTotal.examples,
     baselineComparison:"new raw-token metric; no frozen 0.58.93 baseline"
   },

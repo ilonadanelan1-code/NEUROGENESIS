@@ -179,7 +179,8 @@ function create(options={}){
    }
   }return examples;
  }
- function retrieveContextCandidate(context){
+ function retrieveContextCandidate(context,options={}){
+  const allowOrderInversion=options.allowOrderInversion===true;
   if(!Array.isArray(context)||!trainingContextExamples.length)return null;
   const query=context.map(item=>{
    const surface=item.contextSourceToken||item.contextMorphologyToken||
@@ -207,7 +208,7 @@ function create(options={}){
    const exactMatches=matches.filter(row=>row.exact).length;
    const offsetMatches=matches.filter(row=>row.aligned).length;
    // Fully stem-based matches are accepted only when both context positions align.
-   if(offsetMatches<2)continue;
+   if(offsetMatches<2&&!(allowOrderInversion&&offsetMatches>=1))continue;
    const shared=matches.map(row=>row.surface);
    const score=exactMatches*4+(matches.length-exactMatches)*2+offsetMatches*2;
    const prior=bestByTarget.get(example.target);
@@ -220,7 +221,8 @@ function create(options={}){
   if(ranked.length>1&&ranked[0].score===ranked[1].score)return null;
   return{token:ranked[0].token,score:ranked[0].score,sharedTokens:ranked[0].sharedTokens,
    exactMatches:ranked[0].exactMatches,stemMatches:ranked[0].stemMatches,
-   offsetMatches:ranked[0].offsetMatches,support:ranked[0].support,method:"unique_training_context_retrieval"};
+   offsetMatches:ranked[0].offsetMatches,support:ranked[0].support,
+   method:allowOrderInversion?"unique_training_context_retrieval_order_inversion":"unique_training_context_retrieval"};
  }
  function forwardBlock(inputRows,block){
   const count=inputRows.length,headPasses=[],concatenated=Array.from({length:count},()=>[]);
@@ -430,7 +432,7 @@ function create(options={}){
   return{rebuilt:trainingContextExamples.length>0,reason:trainingContextExamples.length?"rebuilt":"no_retrievable_examples",
    examples:trainingContextExamples.length,sourceRows:sourceRows.length,splitFallback:!!lastTraining.splitFallback};
  }
- function predictMasked(text,targetIndex){
+ function predictMasked(text,targetIndex,options={}){
   const tokens=tokenize(text),safeIndex=Math.max(0,Math.min(tokens.length-1,Math.floor(finite(targetIndex,0))));
   if(!tokens.length)return null;
   const sequence=tokens.map(token=>featureForToken(token,false));
@@ -439,7 +441,7 @@ function create(options={}){
   if(!context.length)return{maskedTokenIndex:safeIndex,available:false,predictions:[],morphologyHint:null,generatedCandidates:[],generatedPrediction:null,contextMorphologyBackoffs};
   const pass=forward(context),predictions=pass.probabilities.map((probability,index)=>({token:vocabulary[index],probability})).sort((a,b)=>b.probability-a.probability);
   const morphologyHint=inferMaskedNumber(tokens,safeIndex),generatedCandidates=[];
-  const retrievalCandidate=retrieveContextCandidate(context);
+  const retrievalCandidate=retrieveContextCandidate(context,options);
   const retrievalSurface=retrievalCandidate&&morphologyHint&&morphologyHint.number==="plural"?russianNounPlural(retrievalCandidate.token):null;
   const retrievalPrediction=retrievalSurface?{surface:retrievalSurface,baseToken:retrievalCandidate.token,
    features:{number:"plural"},method:"training_context_retrieval_plus_plural_rule",

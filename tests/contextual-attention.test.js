@@ -171,6 +171,13 @@ assert.equal(retrievalPrediction.retrievalPrediction.surface,"нейроны");
 const singleAlignedMatch= morphologyModel.predictMasked("сигнал [MASK] получает",1);
 assert.equal(singleAlignedMatch.retrievalCandidate,null,
  "a retrieval candidate must be rejected when fewer than two context positions align");
+const invertedOrderPrediction=morphologyModel.predictMasked("сигнал [MASK] получает",1,{allowOrderInversion:true});
+assert.equal(invertedOrderPrediction.retrievalCandidate?.token,"нейрон",
+ "opt-in order-invariant retrieval should recover a training target from two shared context tokens when one offset remains aligned");
+assert.equal(invertedOrderPrediction.retrievalCandidate?.method,"unique_training_context_retrieval_order_inversion");
+const invertedOrderVisible=morphologyModel.predictMasked("сигнал нейрон получает",1,{allowOrderInversion:true});
+assert.deepEqual(invertedOrderVisible.retrievalCandidate,invertedOrderPrediction.retrievalCandidate,
+ "order-invariant retrieval must not inspect the hidden target surface");
 const hiddenRetrievalPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
 assert.deepEqual(hiddenRetrievalPrediction.retrievalCandidate,retrievalPrediction.retrievalCandidate,
  "context retrieval must not inspect the hidden target form");
