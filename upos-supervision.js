@@ -211,6 +211,8 @@
           !row.features.every(value => Number.isFinite(Number(value))) || !cleanLabel(row.label))) {
         throw new TypeError("UPOS validation examples have invalid features or labels.");
       }
+      trainingSteps = 0;
+      lastTraining = null;
       labels = [...new Set(rows.map(row => cleanLabel(row.label)))].sort();
       if (labels.length < 2) throw new TypeError("UPOS training needs at least two distinct classes.");
       featureDimension = dimension;
@@ -276,6 +278,8 @@
       const trainReport = evaluate(rows);
       const validationReport = validation.length ? evaluate(validation) : null;
       const majorityLabel = Object.entries(labelCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+      const trainMajorityCorrect = rows.filter(row => row.label === majorityLabel).length;
+      const validationMajorityCorrect = validation.filter(row => row.label === majorityLabel).length;
       lastTraining = {
         trainExamples: rows.length,
         validationExamples: validation.length,
@@ -293,6 +297,10 @@
         validationAccuracy: validationReport ? validationReport.accuracy : null,
         majorityLabel,
         majorityTrainingCount: labelCounts[majorityLabel],
+        trainMajorityCorrect,
+        trainMajorityAccuracy: trainMajorityCorrect / rows.length,
+        validationMajorityCorrect: validation.length ? validationMajorityCorrect : null,
+        validationMajorityAccuracy: validation.length ? validationMajorityCorrect / validation.length : null,
         trainingSteps
       };
       return {...lastTraining};
