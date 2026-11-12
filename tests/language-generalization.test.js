@@ -312,6 +312,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   let seedSurfaceRetrievalLemmaCorrect=0,seedSurfaceRetrievalLemmaCovered=0,seedSurfaceRetrievalSurfaceCorrect=0,seedSurfaceRetrievalSurfaceCovered=0;
   let seedSurfaceContextMorphologyBackoffs=0;
   let seedInversionLemmaCorrect=0,seedInversionLemmaCovered=0,seedInversionSurfaceCorrect=0,seedInversionSurfaceCovered=0;
+  let seedInversionIdfLemmaCorrect=0,seedInversionIdfLemmaCovered=0,seedInversionIdfSurfaceCorrect=0,seedInversionIdfSurfaceCovered=0;
   for(const testCase of cases){
     const surfaceTokens=Attention.tokenize(testCase.text);
     const group=surfaceMaskGroups[testCase.group]||(surfaceMaskGroups[testCase.group]={
@@ -371,6 +372,19 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             seedInversionSurfaceCorrect++;
           }
         }
+        const inversionIdfPrediction=contextual.predictMasked(testCase.text,index,
+          {allowOrderInversion:true,scoring:"inverse_frequency"});
+        const inversionIdfCandidate=inversionIdfPrediction?.retrievalCandidate;
+        if(inversionIdfCandidate){
+          seedInversionIdfLemmaCovered++;
+          if(Attention.russianStem(inversionIdfCandidate.token)===Attention.russianStem(surfaceTokens[index])){
+            seedInversionIdfLemmaCorrect++;
+          }
+          if(inversionIdfCandidate.token===surfaceTokens[index]){
+            seedInversionIdfSurfaceCovered++;
+            seedInversionIdfSurfaceCorrect++;
+          }
+        }
         if(group.examples.length<12)group.examples.push({
           target:surfaceTokens[index],neuralSurface:generated?.surface||null,
           retrievalBase:retrieval?.token||null,retrievalSurface:retrievalSurface?.surface||null,
@@ -402,6 +416,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
     orderInvariantRetrievalSurface:{correct:seedInversionSurfaceCorrect,covered:seedInversionSurfaceCovered,oovTargets:seedSurfaceOovTargets,
       accuracy:seedInversionSurfaceCovered?seedInversionSurfaceCorrect/seedInversionSurfaceCovered:null,
       coverage:seedSurfaceOovTargets?seedInversionSurfaceCovered/seedSurfaceOovTargets:null}
+,
+    orderInvariantIdfLemma:{correct:seedInversionIdfLemmaCorrect,covered:seedInversionIdfLemmaCovered,oovTargets:seedSurfaceOovTargets,
+      accuracy:seedInversionIdfLemmaCovered?seedInversionIdfLemmaCorrect/seedInversionIdfLemmaCovered:null,
+      coverage:seedSurfaceOovTargets?seedInversionIdfLemmaCovered/seedSurfaceOovTargets:null},
+    orderInvariantIdfSurface:{correct:seedInversionIdfSurfaceCorrect,covered:seedInversionIdfSurfaceCovered,oovTargets:seedSurfaceOovTargets,
+      accuracy:seedInversionIdfSurfaceCovered?seedInversionIdfSurfaceCorrect/seedInversionIdfSurfaceCovered:null,
+      coverage:seedSurfaceOovTargets?seedInversionIdfSurfaceCovered/seedSurfaceOovTargets:null}
   };
   for (const testCase of cases.filter(row => row.roles)) {
     const result = composer.analyse(testCase.text, contextual, core, knowledge);
@@ -530,6 +551,14 @@ const surfaceInversionTotal=seedReports.reduce((sum,row)=>({
  surfaceCorrect:sum.surfaceCorrect+row.surfaceAlignedMasked.orderInvariantRetrievalSurface.correct,
  surfaceCovered:sum.surfaceCovered+row.surfaceAlignedMasked.orderInvariantRetrievalSurface.covered,
  oovTargets:sum.oovTargets+row.surfaceAlignedMasked.orderInvariantRetrievalLemma.oovTargets
+}),{lemmaCorrect:0,lemmaCovered:0,surfaceCorrect:0,surfaceCovered:0,oovTargets:0});
+
+const surfaceInversionIdfTotal=seedReports.reduce((sum,row)=>({
+ lemmaCorrect:sum.lemmaCorrect+row.surfaceAlignedMasked.orderInvariantIdfLemma.correct,
+ lemmaCovered:sum.lemmaCovered+row.surfaceAlignedMasked.orderInvariantIdfLemma.covered,
+ surfaceCorrect:sum.surfaceCorrect+row.surfaceAlignedMasked.orderInvariantIdfSurface.correct,
+ surfaceCovered:sum.surfaceCovered+row.surfaceAlignedMasked.orderInvariantIdfSurface.covered,
+ oovTargets:sum.oovTargets+row.surfaceAlignedMasked.orderInvariantIdfLemma.oovTargets
 }),{lemmaCorrect:0,lemmaCovered:0,surfaceCorrect:0,surfaceCovered:0,oovTargets:0});
 
 const baseline05893 = Object.freeze({
@@ -769,6 +798,16 @@ const summary = {
       accuracy:ratio(surfaceInversionTotal.surfaceCorrect,surfaceInversionTotal.surfaceCovered),
       coverage:ratio(surfaceInversionTotal.surfaceCovered,surfaceInversionTotal.oovTargets)
     },
+    orderInvariantRetrievalInverseFrequencyLemma:{
+      correct:surfaceInversionIdfTotal.lemmaCorrect,covered:surfaceInversionIdfTotal.lemmaCovered,oovTargets:surfaceInversionIdfTotal.oovTargets,
+      accuracy:ratio(surfaceInversionIdfTotal.lemmaCorrect,surfaceInversionIdfTotal.lemmaCovered),
+      coverage:ratio(surfaceInversionIdfTotal.lemmaCovered,surfaceInversionIdfTotal.oovTargets)
+    },
+    orderInvariantRetrievalInverseFrequencySurface:{
+      correct:surfaceInversionIdfTotal.surfaceCorrect,covered:surfaceInversionIdfTotal.surfaceCovered,oovTargets:surfaceInversionIdfTotal.oovTargets,
+      accuracy:ratio(surfaceInversionIdfTotal.surfaceCorrect,surfaceInversionIdfTotal.surfaceCovered),
+      coverage:ratio(surfaceInversionIdfTotal.surfaceCovered,surfaceInversionIdfTotal.oovTargets)
+    },
     examples:surfaceMaskTotal.examples,
     baselineComparison:"new raw-token metric; no frozen 0.58.93 baseline"
   },
@@ -838,5 +877,5 @@ const summary = {
 };
 
 assert.deepEqual(semanticFailures, [], "all independent semantic proposition cases must pass");
-console.log("NEUROGENESIS 0.58.94 independent language benchmark: " + JSON.stringify(summary));
+console.log("NEUROGENESIS 0.58.103 independent language benchmark: " + JSON.stringify(summary));
 console.log("No train/test sentence leakage; metrics retain exact numerators, denominators, coverage and three-seed variation.");

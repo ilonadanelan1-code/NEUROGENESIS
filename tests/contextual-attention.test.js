@@ -175,6 +175,17 @@ const invertedOrderPrediction=morphologyModel.predictMasked("сигнал [MASK]
 assert.equal(invertedOrderPrediction.retrievalCandidate?.token,"нейрон",
  "opt-in order-invariant retrieval should recover a training target from two shared context tokens when one offset remains aligned");
 assert.equal(invertedOrderPrediction.retrievalCandidate?.method,"unique_training_context_retrieval_order_inversion");
+const invertedOrderIdfPrediction=morphologyModel.predictMasked("сигнал [MASK] получает",1,
+ {allowOrderInversion:true,scoring:"inverse_frequency"});
+assert.equal(invertedOrderIdfPrediction.retrievalCandidate?.token,"нейрон",
+ "inverse-frequency scoring should preserve a distinctive two-token order-invariant retrieval");
+assert.equal(invertedOrderIdfPrediction.retrievalCandidate?.scoring,"inverse_frequency");
+assert.equal(invertedOrderIdfPrediction.retrievalCandidate?.method,
+ "unique_training_context_retrieval_order_inversion_inverse_frequency");
+const invertedOrderIdfVisible=morphologyModel.predictMasked("сигнал нейрон получает",1,
+ {allowOrderInversion:true,scoring:"inverse_frequency"});
+assert.deepEqual(invertedOrderIdfVisible.retrievalCandidate,invertedOrderIdfPrediction.retrievalCandidate,
+ "inverse-frequency retrieval must not inspect the hidden target surface");
 const invertedOrderVisible=morphologyModel.predictMasked("сигнал нейрон получает",1,{allowOrderInversion:true});
 assert.deepEqual(invertedOrderVisible.retrievalCandidate,invertedOrderPrediction.retrievalCandidate,
  "order-invariant retrieval must not inspect the hidden target surface");
@@ -204,4 +215,4 @@ assert.deepEqual(knownContextPrediction.predictions,maskedContextPrediction.pred
  "masked prediction must not depend on the hidden target surface form");
 assert.deepEqual(knownContextPrediction.generatedCandidates,maskedContextPrediction.generatedCandidates,
  "generated inflections must be produced from context and model vocabulary, not the hidden answer");
-console.log("NEUROGENESIS contextual attention v5: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");
+console.log("NEUROGENESIS contextual attention v6: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");

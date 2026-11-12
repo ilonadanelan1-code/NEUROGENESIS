@@ -181,6 +181,7 @@ function create(options={}){
  }
  function retrieveContextCandidate(context,options={}){
   const allowOrderInversion=options.allowOrderInversion===true;
+  const inverseFrequency=options.scoring==="inverse_frequency";
   if(!Array.isArray(context)||!trainingContextExamples.length)return null;
   const query=context.map(item=>{
    const surface=item.contextSourceToken||item.contextMorphologyToken||
@@ -189,31 +190,47 @@ function create(options={}){
    return{offset:item.offset,surface,token,stem:russianStem(surface)};
   }).filter(item=>item.surface);
   if(query.length<2)return null;
-  const bestByTarget=new Map();
+  const stemFrequency=new Map();
+  if(inverseFrequency){
+   for(const example of trainingContextExamples){
+    const seen=new Set(example.context.map(row=>row.stem||russianStem(row.token)).filter(Boolean));
+    for(const stem of seen)stemFrequency.set(stem,(stemFrequency.get(stem)||0)+1);
+   }
+  }
+  const documentCount=trainingContextExamples.length,bestByTarget=new Map();
   for(const example of trainingContextExamples){
    const used=new Set(),matches=[];
    for(const item of query){
     let best=null,bestWeight=-1;
     for(let index=0;index<example.context.length;index++){
      if(used.has(index))continue;
-     const row=example.context[index],exact=!!item.token&&item.token===row.token;
-     const sameStem=!!item.stem&&item.stem.length>=3&&item.stem===(row.stem||russianStem(row.token));
+     const row=example.context[index],rowStem=row.stem||russianStem(row.token);
+     const exact=!!item.token&&item.token===row.token;
+     const sameStem=!!item.stem&&item.stem.length>=3&&item.stem===rowStem;
      if(!exact&&!sameStem)continue;
-     const aligned=item.offset===row.offset,weight=(exact?4:2)+(aligned?2:0);
-     if(weight>bestWeight){best={index,exact,aligned,surface:item.surface,matchedToken:row.token};bestWeight=weight;}
+     const aligned=item.offset===row.offset;
+     const frequency=stemFrequency.get(item.stem||rowStem)||0;
+     const rarity=inverseFrequency?1+Math.log((documentCount+1)/(frequency+1)):1;
+     const weight=inverseFrequency
+      ?rarity*(exact?1.25:0.8)*(aligned?1.25:(allowOrderInversion?0.75:0.55))
+      :(exact?4:2)+(aligned?2:0);
+     if(weight>bestWeight){best={index,exact,aligned,surface:item.surface,matchedToken:row.token,weight};bestWeight=weight;}
     }
     if(best){used.add(best.index);matches.push(best);}
    }
    if(matches.length<2)continue;
    const exactMatches=matches.filter(row=>row.exact).length;
    const offsetMatches=matches.filter(row=>row.aligned).length;
-   // Fully stem-based matches are accepted only when both context positions align.
+   // Stem-only retrieval remains position-constrained unless the opt-in inversion mode is enabled.
    if(offsetMatches<2&&!(allowOrderInversion&&offsetMatches>=1))continue;
    const shared=matches.map(row=>row.surface);
-   const score=exactMatches*4+(matches.length-exactMatches)*2+offsetMatches*2;
+   const score=inverseFrequency
+    ?Number(matches.reduce((sum,row)=>sum+row.weight,0).toFixed(6))
+    :exactMatches*4+(matches.length-exactMatches)*2+offsetMatches*2;
    const prior=bestByTarget.get(example.target);
    if(!prior||score>prior.score)bestByTarget.set(example.target,{token:example.target,score,sharedTokens:shared,
-    exactMatches,stemMatches:matches.length-exactMatches,offsetMatches,support:1});
+    exactMatches,stemMatches:matches.length-exactMatches,offsetMatches,support:1,matchedCount:matches.length,
+    queryCount:query.length,queryCoverage:matches.length/query.length});
    else if(score===prior.score)prior.support++;
   }
   const ranked=[...bestByTarget.values()].sort((a,b)=>b.score-a.score||a.token.localeCompare(b.token));
@@ -222,7 +239,10 @@ function create(options={}){
   return{token:ranked[0].token,score:ranked[0].score,sharedTokens:ranked[0].sharedTokens,
    exactMatches:ranked[0].exactMatches,stemMatches:ranked[0].stemMatches,
    offsetMatches:ranked[0].offsetMatches,support:ranked[0].support,
-   method:allowOrderInversion?"unique_training_context_retrieval_order_inversion":"unique_training_context_retrieval"};
+   matchedCount:ranked[0].matchedCount,queryCount:ranked[0].queryCount,queryCoverage:ranked[0].queryCoverage,
+   scoring:inverseFrequency?"inverse_frequency":"uniform",
+   method:(allowOrderInversion?"unique_training_context_retrieval_order_inversion":"unique_training_context_retrieval")+
+    (inverseFrequency?"_inverse_frequency":"")};
  }
  function forwardBlock(inputRows,block){
   const count=inputRows.length,headPasses=[],concatenated=Array.from({length:count},()=>[]);
