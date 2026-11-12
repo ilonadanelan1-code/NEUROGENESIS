@@ -17,7 +17,7 @@ const prepared = importer.prepareCorpus(
   fs.readFileSync(testPath, "utf8"),
   {trainLimit:320,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40}
 );
-assert.equal(prepared.stats.normalizedTrainTestOverlaps,0);
+assert.equal(prepared.stats.normalizedSampleTrainTestOverlaps,0);
 assert.equal(prepared.trainingRecords.length,320);
 assert.equal(prepared.testRecords.length,240);
 
