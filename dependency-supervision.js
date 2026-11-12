@@ -328,8 +328,8 @@
         throw new TypeError("Dependency validation examples have invalid candidate features or gold heads.");
       }
       const requestedMetric = trainOptions.selectionMetric;
-      if (requestedMetric && requestedMetric !== "las") {
-        throw new TypeError("Dependency checkpoint selection supports only the paired LAS metric.");
+      if (requestedMetric && requestedMetric !== "component_specific") {
+        throw new TypeError("Dependency checkpoint selection uses separate validation UAS and relation macro-F1 criteria.");
       }
 
       trainingSteps = 0;
@@ -368,11 +368,13 @@
       const patience = Math.max(2,Math.min(20,Math.floor(finite(trainOptions.patience,5))));
       const l2 = Math.max(0,Math.min(0.01,finite(trainOptions.l2,0.00002)));
       const shuffleRandom = seededRandom(trainOptions.shuffleSeed == null ? seed ^ 0x9e3779b9 : trainOptions.shuffleSeed);
-      let bestScore = validation.length ? evaluate(validation).las : -Infinity;
+      const initialValidation=validation.length?evaluate(validation):null;
+      let bestArcScore=initialValidation?initialValidation.headAccuracy:-Infinity;
+      let bestRelationScore=initialValidation?initialValidation.relationMacroF1:-Infinity;
       let bestArcWeights = arcWeights.slice();
       let bestRelationWeights = relationWeights.map(row=>row.slice());
       let bestRelationBias = relationBias.slice();
-      let bestEpoch = 0, staleEpochs = 0, epochsRun = 0, earlyStopped = false;
+      let bestArcEpoch=0,bestRelationEpoch=0,staleArcEpochs=0,epochsRun=0,earlyStopped=false;
 
       for (let epoch=0;epoch<epochs;epoch++) {
         const order=rows.slice();
@@ -414,20 +416,26 @@
         epochsRun=epoch+1;
         if(validation.length){
           const report=evaluate(validation);
-          const improved=report.las>bestScore+1e-8;
-          if(improved){
-            bestScore=report.las;
+          if(report.headAccuracy>bestArcScore+1e-8){
+            bestArcScore=report.headAccuracy;
             bestArcWeights=arcWeights.slice();
+            bestArcEpoch=epochsRun;
+            staleArcEpochs=0;
+          }else{
+            staleArcEpochs++;
+          }
+          const relationScore=Number.isFinite(report.relationMacroF1)?report.relationMacroF1:-Infinity;
+          if(relationScore>bestRelationScore+1e-8){
+            bestRelationScore=relationScore;
             bestRelationWeights=relationWeights.map(row=>row.slice());
             bestRelationBias=relationBias.slice();
-            bestEpoch=epochsRun;
-            staleEpochs=0;
-          }else{
-            staleEpochs++;
-            if(staleEpochs>=patience){
-              earlyStopped=epochsRun<epochs;
-              break;
-            }
+            bestRelationEpoch=epochsRun;
+          }
+          // Stop only from the attachment validation curve. Class weighting
+          // affects DEPREL, so it must not change how many attachment updates run.
+          if(staleArcEpochs>=patience){
+            earlyStopped=epochsRun<epochs;
+            break;
           }
         }
       }
@@ -436,7 +444,8 @@
         relationWeights=bestRelationWeights;
         relationBias=bestRelationBias;
       }else{
-        bestEpoch=epochsRun;
+        bestArcEpoch=epochsRun;
+        bestRelationEpoch=epochsRun;
       }
       const trainReport=evaluate(rows);
       const validationReport=validation.length?evaluate(validation):null;
@@ -449,7 +458,8 @@
         featureDimension,
         epochs:epochsRun,
         requestedEpochs:epochs,
-        bestEpoch,
+        bestArcEpoch,
+        bestRelationEpoch,
         earlyStopped,
         learningRate,
         l2,
@@ -458,8 +468,9 @@
         minimumClassExamples,
         relationTrainingExamples:relationRows.length,
         unsupportedRelationTrainingExamples:rows.length-relationRows.length,
-        selectionMetric:"validation_las",
-        bestSelectionScore:Number.isFinite(bestScore)?bestScore:null,
+        selectionMetric:"validation_uas_and_relation_macro_f1",
+        bestHeadSelectionScore:Number.isFinite(bestArcScore)?bestArcScore:null,
+        bestRelationSelectionScore:Number.isFinite(bestRelationScore)?bestRelationScore:null,
         trainingHeadAccuracy:trainReport.headAccuracy,
         trainingOracleRelationAccuracy:trainReport.oracleRelationAccuracy,
         trainingRelationMacroF1:trainReport.relationMacroF1,
