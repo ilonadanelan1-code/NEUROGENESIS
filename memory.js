@@ -3415,7 +3415,8 @@
       return;
     }
     if (mustAskClarification) {
-      say("assistant", dialoguePlan.clarification);
+      say("assistant", dialoguePlan.clarification, null,
+        dialoguePlan.intent === "topic_return" ? "topic_return_clarification" : undefined);
       setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
       return;
     }
