@@ -38,11 +38,11 @@ const seeds = [
   {model:2718,split:9044}
 ];
 const variants = {
-  unweighted:{classWeighting:"none",selectionMetric:"las"},
-  sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"las"}
+  unweighted:{classWeighting:"none",selectionMetric:"component_specific"},
+  sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"component_specific"}
 };
 assert.equal(new Set(Object.values(variants).map(row=>row.selectionMetric)).size,1,
-  "dependency weighting variants must use the same validation LAS checkpoint metric");
+  "dependency weighting variants must use the same component-specific validation checkpoint protocol");
 
 function recordsFor(rows,map) {
   return rows.map(text => {
@@ -141,7 +141,7 @@ for(const seed of seeds) {
     assert.ok(trainingReport.classes.length>=2);
     assert.ok(trainingReport.validationExamples>0);
     assert.equal(trainingReport.classWeighting,configuration.classWeighting);
-    assert.equal(trainingReport.selectionMetric,"validation_las");
+    assert.equal(trainingReport.selectionMetric,"validation_uas_and_relation_macro_f1");
     assert.equal(trainingReport.trainExamples,training.groups.length);
     assert.equal(trainingReport.validationExamples,validation.groups.length);
 
@@ -157,9 +157,11 @@ for(const seed of seeds) {
     }
     variantReports[variant]={training:trainingReport,metrics};
   }
-  assert.equal(variantReports.unweighted.metrics.all.headCorrect,
-    variantReports.sqrtInverse.metrics.all.headCorrect,
-    "only relation-class weighting may change; the paired attachment head must remain identical");
+  for (const slice of Object.keys(slices)) {
+    assert.equal(variantReports.unweighted.metrics[slice].headCorrect,
+      variantReports.sqrtInverse.metrics[slice].headCorrect,
+      "only relation-class weighting may change; paired attachment predictions must remain identical for "+slice);
+  }
   assert.deepEqual(
     Object.keys(variantReports.unweighted.metrics),
     Object.keys(variantReports.sqrtInverse.metrics),
@@ -223,7 +225,11 @@ const summary={
     sameContextualEncoderAndSentenceSplits:true,
     headSelection:"softmax over ROOT and every other token in the sentence",
     relationPrediction:"multiclass DEPREL classifier conditioned on the selected head; oracle-head relation accuracy also reported",
-    checkpointSelection:"validation LAS",
+    componentSpecificCheckpointSelection:{
+      attachment:"validation UAS",
+      dependencyRelation:"validation relation macro-F1",
+      combinedLAS:"reported independently; not used to select either component"
+    },
     classWeightsDerivedOnlyFromSupervisedTrainRows:true,
     minimumClassExamples:12,
     rareRelationsBelowThreshold:"not fitted by the relation head; explicitly counted in relation coverage and remain errors for LAS",
@@ -236,7 +242,7 @@ const summary={
     independentTestSentences:prepared.testRecords.length,
     normalizedSentenceLeakage:prepared.stats.normalizedSampleTrainTestOverlaps,
     supervisedAnnotationsUsedOnlyFromContextualTrainSplit:true,
-    validationUsedOnlyForCheckpointSelection:true,
+    validationUsedOnlyForComponentSpecificCheckpointSelection:true,
     independentTestUsedOnlyForEvaluation:true
   },
   aggregate:aggregateReport,
