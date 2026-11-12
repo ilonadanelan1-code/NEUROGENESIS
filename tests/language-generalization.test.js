@@ -172,6 +172,7 @@ const seeds = [
   { model: 31415, split: 2718, phrase: 2718 }
 ];
 const maskGroups = {};
+const surfaceMaskGroups = {};
 const phraseGroups = {};
 const seedReports = [];
 let baselineShort = null;
@@ -305,6 +306,84 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
     }
   }
 
+  let seedSurfaceCorrect=0,seedSurfaceCovered=0,seedSurfaceTotal=0;
+  let seedSurfaceMorphologyCorrect=0,seedSurfaceMorphologyCovered=0;
+  let seedSurfaceGeneratedCorrect=0,seedSurfaceGeneratedCovered=0,seedSurfaceOovTargets=0,seedSurfaceCandidateHits=0;
+  let seedSurfaceRetrievalLemmaCorrect=0,seedSurfaceRetrievalLemmaCovered=0,seedSurfaceRetrievalSurfaceCorrect=0,seedSurfaceRetrievalSurfaceCovered=0;
+  let seedSurfaceContextMorphologyBackoffs=0;
+  for(const testCase of cases){
+    const surfaceTokens=Attention.tokenize(testCase.text);
+    const group=surfaceMaskGroups[testCase.group]||(surfaceMaskGroups[testCase.group]={
+      correct:0,covered:0,total:0,morphologyCorrect:0,morphologyCovered:0,
+      generatedCorrect:0,generatedCovered:0,oovTargets:0,candidateHits:0,
+      retrievalLemmaCorrect:0,retrievalLemmaCovered:0,retrievalSurfaceCorrect:0,retrievalSurfaceCovered:0,
+      contextMorphologyBackoffs:0,examples:[]
+    });
+    for(let index=0;index<surfaceTokens.length;index++){
+      const score=contextual.score(testCase.text,index);
+      group.total++;seedSurfaceTotal++;
+      if(!score)continue;
+      group.contextMorphologyBackoffs+=score.contextMorphologyBackoffs.length;
+      seedSurfaceContextMorphologyBackoffs+=score.contextMorphologyBackoffs.length;
+      if(score.targetKnown){
+        group.covered++;seedSurfaceCovered++;
+        if(score.predictions[0]?.token===surfaceTokens[index]){group.correct++;seedSurfaceCorrect++;}
+      }
+      if(score.morphologyKnown){
+        group.morphologyCovered++;seedSurfaceMorphologyCovered++;
+        if(score.morphologyCorrect){group.morphologyCorrect++;seedSurfaceMorphologyCorrect++;}
+      }
+      if(!score.targetKnown){
+        group.oovTargets++;seedSurfaceOovTargets++;
+        const prediction=contextual.predictMasked(testCase.text,index);
+        const generated=prediction?.generatedPrediction;
+        if(generated){
+          group.generatedCovered++;seedSurfaceGeneratedCovered++;
+          if(generated.surface===surfaceTokens[index]){group.generatedCorrect++;seedSurfaceGeneratedCorrect++;}
+        }
+        if(prediction?.generatedCandidates.some(row=>row.surface===surfaceTokens[index])){
+          group.candidateHits++;seedSurfaceCandidateHits++;
+        }
+        const retrieval=prediction?.retrievalCandidate;
+        if(retrieval){
+          group.retrievalLemmaCovered++;seedSurfaceRetrievalLemmaCovered++;
+          if(Attention.russianStem(retrieval.token)===Attention.russianStem(surfaceTokens[index])){
+            group.retrievalLemmaCorrect++;seedSurfaceRetrievalLemmaCorrect++;
+          }
+        }
+        const retrievalSurface=prediction?.retrievalPrediction;
+        if(retrievalSurface){
+          group.retrievalSurfaceCovered++;seedSurfaceRetrievalSurfaceCovered++;
+          if(retrievalSurface.surface===surfaceTokens[index]){
+            group.retrievalSurfaceCorrect++;seedSurfaceRetrievalSurfaceCorrect++;
+          }
+        }
+        if(group.examples.length<12)group.examples.push({
+          target:surfaceTokens[index],neuralSurface:generated?.surface||null,
+          retrievalBase:retrieval?.token||null,retrievalSurface:retrievalSurface?.surface||null,
+          retrievalMatched:retrieval?.sharedTokens||[]
+        });
+      }
+    }
+  }
+  const seedSurfaceAlignedMasked={
+    correct:seedSurfaceCorrect,covered:seedSurfaceCovered,total:seedSurfaceTotal,
+    accuracy:seedSurfaceCovered?seedSurfaceCorrect/seedSurfaceCovered:null,
+    coverage:seedSurfaceTotal?seedSurfaceCovered/seedSurfaceTotal:null,
+    morphology:{correct:seedSurfaceMorphologyCorrect,covered:seedSurfaceMorphologyCovered,
+      accuracy:seedSurfaceMorphologyCovered?seedSurfaceMorphologyCorrect/seedSurfaceMorphologyCovered:null},
+    neuralOovGeneration:{correct:seedSurfaceGeneratedCorrect,covered:seedSurfaceGeneratedCovered,
+      oovTargets:seedSurfaceOovTargets,accuracy:seedSurfaceGeneratedCovered?seedSurfaceGeneratedCorrect/seedSurfaceGeneratedCovered:null,
+      coverage:seedSurfaceOovTargets?seedSurfaceGeneratedCovered/seedSurfaceOovTargets:null,
+      candidateRecallAt8:seedSurfaceOovTargets?seedSurfaceCandidateHits/seedSurfaceOovTargets:null},
+    contextRetrievalLemma:{correct:seedSurfaceRetrievalLemmaCorrect,covered:seedSurfaceRetrievalLemmaCovered,
+      oovTargets:seedSurfaceOovTargets,accuracy:seedSurfaceRetrievalLemmaCovered?seedSurfaceRetrievalLemmaCorrect/seedSurfaceRetrievalLemmaCovered:null,
+      coverage:seedSurfaceOovTargets?seedSurfaceRetrievalLemmaCovered/seedSurfaceOovTargets:null},
+    contextRetrievalSurface:{correct:seedSurfaceRetrievalSurfaceCorrect,covered:seedSurfaceRetrievalSurfaceCovered,
+      oovTargets:seedSurfaceOovTargets,accuracy:seedSurfaceRetrievalSurfaceCovered?seedSurfaceRetrievalSurfaceCorrect/seedSurfaceRetrievalSurfaceCovered:null,
+      coverage:seedSurfaceOovTargets?seedSurfaceRetrievalSurfaceCovered/seedSurfaceOovTargets:null},
+    contextMorphologyBackoffUses:seedSurfaceContextMorphologyBackoffs
+  };
   for (const testCase of cases.filter(row => row.roles)) {
     const result = composer.analyse(testCase.text, contextual, core, knowledge);
     const tokens = result.tokens.map(normalise);
@@ -380,6 +459,7 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       covered: contextualReport.testExamples,
       total: Math.round(contextualReport.testExamples / contextualReport.testCoverage)
     },
+    surfaceAlignedMasked: seedSurfaceAlignedMasked,
     independentMasked: {
       correct: seedCorrect,
       covered: seedCovered,
@@ -449,6 +529,32 @@ const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, gro
   contextRetrievalAccuracy:ratio(group.retrievalCorrect,group.retrievalCovered),
   contextRetrievalCoverage:ratio(group.retrievalCovered,group.retrievalOovTargets)
 }]));
+const surfaceMaskOutput=Object.fromEntries(Object.entries(surfaceMaskGroups).map(([name,group])=>[name,{
+  ...group,
+  accuracy:ratio(group.correct,group.covered),
+  coverage:ratio(group.covered,group.total),
+  allTargetAccuracy:ratio(group.correct,group.total),
+  morphologyAccuracy:ratio(group.morphologyCorrect,group.morphologyCovered),
+  neuralOovGenerationAccuracy:ratio(group.generatedCorrect,group.generatedCovered),
+  neuralOovGenerationCoverage:ratio(group.generatedCovered,group.oovTargets),
+  contextRetrievalLemmaAccuracy:ratio(group.retrievalLemmaCorrect,group.retrievalLemmaCovered),
+  contextRetrievalLemmaCoverage:ratio(group.retrievalLemmaCovered,group.oovTargets),
+  contextRetrievalSurfaceAccuracy:ratio(group.retrievalSurfaceCorrect,group.retrievalSurfaceCovered),
+  contextRetrievalSurfaceCoverage:ratio(group.retrievalSurfaceCovered,group.oovTargets)
+}]));
+const surfaceMaskTotal=Object.values(surfaceMaskGroups).reduce((sum,group)=>({
+  correct:sum.correct+group.correct,covered:sum.covered+group.covered,total:sum.total+group.total,
+  morphologyCorrect:sum.morphologyCorrect+group.morphologyCorrect,morphologyCovered:sum.morphologyCovered+group.morphologyCovered,
+  generatedCorrect:sum.generatedCorrect+group.generatedCorrect,generatedCovered:sum.generatedCovered+group.generatedCovered,
+  oovTargets:sum.oovTargets+group.oovTargets,candidateHits:sum.candidateHits+group.candidateHits,
+  retrievalLemmaCorrect:sum.retrievalLemmaCorrect+group.retrievalLemmaCorrect,
+  retrievalLemmaCovered:sum.retrievalLemmaCovered+group.retrievalLemmaCovered,
+  retrievalSurfaceCorrect:sum.retrievalSurfaceCorrect+group.retrievalSurfaceCorrect,
+  retrievalSurfaceCovered:sum.retrievalSurfaceCovered+group.retrievalSurfaceCovered,
+  contextMorphologyBackoffs:sum.contextMorphologyBackoffs+group.contextMorphologyBackoffs,
+  examples:sum.examples.concat(group.examples).slice(0,36)
+}),{correct:0,covered:0,total:0,morphologyCorrect:0,morphologyCovered:0,generatedCorrect:0,generatedCovered:0,oovTargets:0,candidateHits:0,
+ retrievalLemmaCorrect:0,retrievalLemmaCovered:0,retrievalSurfaceCorrect:0,retrievalSurfaceCovered:0,contextMorphologyBackoffs:0,examples:[]});
 const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name, group]) => [name, {
   ...group,
   roleAccuracy: ratio(group.roleCorrect, group.roleTotal),
@@ -525,11 +631,12 @@ assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
 assert.equal(semanticTotal.cases, cases.length);
 
 const groupNames = [...new Set([
-  ...Object.keys(semanticGroups), ...Object.keys(maskOutput), ...Object.keys(phraseOutput)
+  ...Object.keys(semanticGroups), ...Object.keys(maskOutput), ...Object.keys(surfaceMaskOutput), ...Object.keys(phraseOutput)
 ])];
 const groups = Object.fromEntries(groupNames.map(name => [name, {
   semantic: semanticGroups[name] || null,
   maskedToken: maskOutput[name] || null,
+  surfaceAlignedMaskedToken:surfaceMaskOutput[name]||null,
   phraseComposition: phraseOutput[name] || null
 }]));
 
@@ -589,7 +696,13 @@ assert.equal(cases.length, baseline05893.heldOutSentences,
 assert.equal(phraseTotal.roleTotal, baseline05893.phraseRoles.total,
   "phrase-role comparison must use the same token denominator as 0.58.93");
 assert.equal(maskTotal.total, baseline05893.maskedTokens.total,
-  "masked-token coverage comparison must use the same token denominator as 0.58.93");
+  "legacy knowledge-token metric must retain the 0.58.93 denominator");
+assert.equal(surfaceMaskTotal.total,seedReports.length*cases.reduce((sum,row)=>sum+Attention.tokenize(row.text).length,0),
+  "surface-aligned metric must count actual contextual token positions");
+assert.equal(surfaceMaskTotal.oovTargets,surfaceMaskTotal.total-surfaceMaskTotal.covered,
+  "surface-aligned OOV denominator must use exact vocabulary coverage");
+assert.ok(surfaceMaskTotal.retrievalLemmaCovered<=surfaceMaskTotal.oovTargets);
+assert.ok(surfaceMaskTotal.retrievalSurfaceCovered<=surfaceMaskTotal.oovTargets);
 
 const summary = {
   trainingSentences: trainRows.length,
@@ -601,6 +714,27 @@ const summary = {
   comparisonTo05893,
   independentHeldOutSentences: cases.length,
   exactSentenceLeakage: leakage.length,
+  surfaceAlignedMaskedToken:{
+    correct:surfaceMaskTotal.correct,covered:surfaceMaskTotal.covered,total:surfaceMaskTotal.total,
+    accuracy:ratio(surfaceMaskTotal.correct,surfaceMaskTotal.covered),
+    coverage:ratio(surfaceMaskTotal.covered,surfaceMaskTotal.total),
+    allTargetAccuracy:ratio(surfaceMaskTotal.correct,surfaceMaskTotal.total),
+    morphology:{correct:surfaceMaskTotal.morphologyCorrect,covered:surfaceMaskTotal.morphologyCovered,
+      accuracy:ratio(surfaceMaskTotal.morphologyCorrect,surfaceMaskTotal.morphologyCovered)},
+    neuralOovGeneration:{correct:surfaceMaskTotal.generatedCorrect,covered:surfaceMaskTotal.generatedCovered,
+      oovTargets:surfaceMaskTotal.oovTargets,accuracy:ratio(surfaceMaskTotal.generatedCorrect,surfaceMaskTotal.generatedCovered),
+      coverage:ratio(surfaceMaskTotal.generatedCovered,surfaceMaskTotal.oovTargets),
+      candidateRecallAt8:ratio(surfaceMaskTotal.candidateHits,surfaceMaskTotal.oovTargets)},
+    contextRetrievalLemma:{correct:surfaceMaskTotal.retrievalLemmaCorrect,covered:surfaceMaskTotal.retrievalLemmaCovered,
+      oovTargets:surfaceMaskTotal.oovTargets,accuracy:ratio(surfaceMaskTotal.retrievalLemmaCorrect,surfaceMaskTotal.retrievalLemmaCovered),
+      coverage:ratio(surfaceMaskTotal.retrievalLemmaCovered,surfaceMaskTotal.oovTargets)},
+    contextRetrievalSurface:{correct:surfaceMaskTotal.retrievalSurfaceCorrect,covered:surfaceMaskTotal.retrievalSurfaceCovered,
+      oovTargets:surfaceMaskTotal.oovTargets,accuracy:ratio(surfaceMaskTotal.retrievalSurfaceCorrect,surfaceMaskTotal.retrievalSurfaceCovered),
+      coverage:ratio(surfaceMaskTotal.retrievalSurfaceCovered,surfaceMaskTotal.oovTargets)},
+    contextMorphologyBackoffUses:surfaceMaskTotal.contextMorphologyBackoffs,
+    examples:surfaceMaskTotal.examples,
+    baselineComparison:"new raw-token metric; no frozen 0.58.93 baseline"
+  },
   seeds: seedReports,
   internalValidation: {
     ...internalValidation,
