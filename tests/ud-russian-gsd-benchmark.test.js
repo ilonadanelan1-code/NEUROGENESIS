@@ -242,9 +242,99 @@ if (!trainPath && !testPath) {
     });
   }
 
+  const shuffledAggregate = {
+    total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+    frequencyBuckets: createFrequencyBuckets()
+  };
+  const shuffledSeedReports = [];
+  for (const seed of seeds) {
+    const model = Attention.create({
+      dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model
+    });
+    const shuffleSeed = (seed.model ^ 0x5f3759df) >>> 0;
+    const training = model.train(prepared.trainingTexts, {
+      epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split,
+      shuffleExamples: true, shuffleSeed
+    });
+    const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
+    assert.equal(trainingSplit.train.length, training.trainRows,
+      "shuffled diagnostics must use the exact model training partition");
+    const tokenFrequency = new Map();
+    for (const row of trainingSplit.train) {
+      for (const token of Attention.tokenize(row)) {
+        tokenFrequency.set(token, (tokenFrequency.get(token) || 0) + 1);
+      }
+    }
+    const metrics = {
+      total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      frequencyBuckets: createFrequencyBuckets()
+    };
+    for (const sentence of prepared.testTexts) {
+      const tokens = Attention.tokenize(sentence);
+      for (let index = 0; index < tokens.length; index++) {
+        metrics.total++;
+        const score = model.score(sentence, index);
+        if (!score) continue;
+        if (score.targetKnown) {
+          metrics.known++;
+          const frequency = tokenFrequency.get(tokens[index]) || 0;
+          assert.ok(frequency > 0, "known targets must occur in the shuffled training partition");
+          const band = frequency === 1 ? "1" : frequency <= 4 ? "2-4" :
+            frequency <= 9 ? "5-9" : "10+";
+          metrics.frequencyBuckets[band].targets++;
+          if (score.predictions[0]?.token === tokens[index]) {
+            metrics.exact++;
+            metrics.frequencyBuckets[band].correct++;
+          }
+        }
+        if (score.morphologyKnown) {
+          metrics.morphologyCovered++;
+          if (score.morphologyCorrect) metrics.morphologyCorrect++;
+        }
+      }
+    }
+    for (const key of ["total", "known", "exact", "morphologyCovered", "morphologyCorrect"]) {
+      shuffledAggregate[key] += metrics[key];
+    }
+    mergeFrequencyBuckets(shuffledAggregate.frequencyBuckets, metrics.frequencyBuckets);
+    const fixed = seedReports.find(row => row.modelSeed === seed.model);
+    shuffledSeedReports.push({
+      modelSeed: seed.model,
+      splitSeed: seed.split,
+      training: {
+        trainRows: training.trainRows,
+        validationRows: training.validationRows,
+        internalTestRows: training.testRows,
+        vocabularySize: training.vocabularySize,
+        vocabularySaturated: training.vocabularySize >= 1024,
+        epochs: training.epochs,
+        shuffleExamples: training.shuffleExamples,
+        shuffleSeed: training.shuffleSeed
+      },
+      metrics: {
+        targets: metrics.total,
+        knownTargetCoverage: ratio(metrics.known, metrics.total),
+        exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+        allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
+        frequencyBuckets: summarizeFrequencyBuckets(metrics.frequencyBuckets),
+        morphology: {
+          correct: metrics.morphologyCorrect,
+          covered: metrics.morphologyCovered,
+          accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered),
+          coverage: ratio(metrics.morphologyCovered, metrics.total)
+        },
+        pairedFixedOrder: {
+          exactKnownTargetAccuracy: fixed.metrics.exactKnownTargetAccuracy,
+          allTargetExactAccuracy: fixed.metrics.allTargetExactAccuracy,
+          frequencyBuckets: fixed.metrics.frequencyBuckets
+        }
+      }
+    });
+  }
+
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.106",
+    version: "0.58.107",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -291,12 +381,32 @@ if (!trainPath && !testPath) {
       }
     },
     seeds: seedReports,
+    trainingOrderExperiment: {
+      control: "fixed training-example order each epoch",
+      experiment: "seeded Fisher-Yates shuffle before each epoch",
+      onlyChangedVariable: "training example order",
+      sameCorpusSplitSeedsModelSeedsAndHyperparameters: true,
+      shuffledAggregate: {
+        targets: shuffledAggregate.total,
+        knownTargetCoverage: ratio(shuffledAggregate.known, shuffledAggregate.total),
+        exactKnownTargetAccuracy: ratio(shuffledAggregate.exact, shuffledAggregate.known),
+        allTargetExactAccuracy: ratio(shuffledAggregate.exact, shuffledAggregate.total),
+        frequencyBuckets: summarizeFrequencyBuckets(shuffledAggregate.frequencyBuckets),
+        morphology: {
+          correct: shuffledAggregate.morphologyCorrect,
+          covered: shuffledAggregate.morphologyCovered,
+          accuracy: ratio(shuffledAggregate.morphologyCorrect, shuffledAggregate.morphologyCovered),
+          coverage: ratio(shuffledAggregate.morphologyCovered, shuffledAggregate.total)
+        }
+      },
+      pairedSeeds: shuffledSeedReports
+    },
     leakageChecks: {
       exactNormalizedTrainTestSentences: 0,
       sourceOverlapSentencesExcludedFromTrain: prepared.stats.normalizedTrainTestOverlapsExcluded,
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
   };
-  console.log("NEUROGENESIS 0.58.106 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
+  console.log("NEUROGENESIS 0.58.107 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
 }

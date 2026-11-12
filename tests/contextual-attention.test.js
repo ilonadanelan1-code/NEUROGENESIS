@@ -49,6 +49,8 @@ assert.ok(Number.isFinite(report.testLoss));
 assert.equal(report.evaluationIsolated,true,"held-out evaluation must use a fresh initialization and disjoint rows");
 assert.equal(model.status().trainingSteps,report.trainingSteps,"the step counter must describe the selected checkpoint");
 assert.ok(report.attemptedTrainingSteps>=report.trainingSteps);
+assert.equal(report.shuffleExamples,false,"fixed-order training remains the default control");
+assert.equal(report.shuffleSeed,null);
 assert.ok(report.finalLoss<report.initialLoss,"multi-head masked-token loss must decrease after training");
 assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
 assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
@@ -100,6 +102,21 @@ assert.equal(repeatReport.testLoss,report.testLoss,"test evaluation must be repr
 const secondModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
 const secondReport=secondModel.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
 assert.ok(secondReport.trainingSteps>0&&secondModel.status().trained);
+const shuffledOptions={epochs:45,learningRate:.025,splitSeed:902,patience:12,shuffleExamples:true,shuffleSeed:55173};
+const shuffledA=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const shuffledReportA=shuffledA.train(corpus,shuffledOptions);
+assert.equal(shuffledReportA.shuffleExamples,true);
+assert.equal(shuffledReportA.shuffleSeed,55173);
+assert.equal(shuffledReportA.evaluationIsolated,true);
+const shuffledStateA=shuffledA.exportState();
+const shuffledB=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const shuffledReportB=shuffledB.train(corpus,shuffledOptions);
+assert.deepEqual(shuffledB.exportState(),shuffledStateA,
+ "seeded epoch-wise shuffling must reproduce the complete trained checkpoint");
+assert.equal(shuffledReportB.validationLoss,shuffledReportA.validationLoss);
+assert.equal(shuffledReportB.testLoss,shuffledReportA.testLoss);
+assert.equal(api.fromState(shuffledStateA).status().lastTraining.shuffleExamples,true,
+ "shuffle diagnostics must survive checkpoint export/import");
 const restored=api.fromState(model.exportState());
 assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
 assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"training diagnostics must persist with the selected checkpoint");

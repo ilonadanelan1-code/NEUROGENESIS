@@ -389,16 +389,30 @@ function create(options={}){
   const epochs=Math.max(1,Math.min(240,Math.floor(finite(trainOptions.epochs,40))));
   const learningRate=Math.max(.0001,Math.min(.2,finite(trainOptions.learningRate,.025)));
   const patience=Math.max(2,Math.min(60,Math.floor(finite(trainOptions.patience,Math.max(6,Math.min(30,epochs*.25))))));
+  const shuffleExamples=trainOptions.shuffleExamples===true;
+  const shuffleSeed=Math.floor(finite(trainOptions.shuffleSeed,split.seed^0x9e3779b9))>>>0;
+  const shuffleRandom=makeRandom(shuffleSeed);
+  const runTrainingEpoch=()=>{
+   let order=trainExamples;
+   if(shuffleExamples){
+    order=trainExamples.slice();
+    for(let index=order.length-1;index>0;index--){
+     const swapIndex=Math.floor(shuffleRandom()*(index+1));
+     const item=order[index];order[index]=order[swapIndex];order[swapIndex]=item;
+    }
+   }
+   for(const example of order)trainExample(example,learningRate);
+   trainingSteps+=trainExamples.length;
+  };
   const initialTrain=evaluateExamples(trainExamples);
   const initialValidation=validationExamples.length?evaluateExamples(validationExamples):{loss:null,accuracy:null,examples:0};
   let bestValidationLoss=initialValidation.loss,bestEpoch=0,bestState=exportState(),staleEpochs=0,epochsRun=0,earlyStopped=false;
   if(splitFallback){
-   for(let epoch=0;epoch<epochs;epoch++){for(const example of trainExamples)trainExample(example,learningRate);trainingSteps+=trainExamples.length;epochsRun=epoch+1;}
+   for(let epoch=0;epoch<epochs;epoch++){runTrainingEpoch();epochsRun=epoch+1;}
    bestEpoch=null;bestState=exportState();
   }else{
    for(let epoch=0;epoch<epochs;epoch++){
-    for(const example of trainExamples)trainExample(example,learningRate);
-    trainingSteps+=trainExamples.length;epochsRun=epoch+1;
+    runTrainingEpoch();epochsRun=epoch+1;
     const validation=evaluateExamples(validationExamples);
     if(validation.loss<bestValidationLoss-1e-8){bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;}
     else{staleEpochs++;if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}}
@@ -422,6 +436,7 @@ function create(options={}){
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
    lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
+   shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
    trainingContextExamples:trainingContextExamples.length};
   return{...lastTraining};
