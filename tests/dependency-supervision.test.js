@@ -169,11 +169,13 @@ const invalidRecord = {
   tokens:[
     {id:1,form:"Лидар",lemma:"лидар",head:1,deprel:"nsubj"},
     {id:2,form:"видит",lemma:"видеть",head:0,deprel:"root"},
-    {id:3,form:"сигнал",lemma:"сигнал",head:2,deprel:"obj"}
+    {id:3,form:"сигнал",lemma:"сигнал",head:null,deprel:"obj"}
   ]
 };
 const invalid = Dependency.extractExamples([invalidRecord],contextual);
 assert.equal(invalid.stats.skippedReasons.self_head,1,
   "self-headed annotation must be skipped instead of training a malformed arc");
+assert.equal(invalid.stats.skippedReasons.missing_dependency_annotation,1,
+  "a null HEAD must not be coerced to ROOT");
 
 console.log("NEUROGENESIS dependency head/relation head: token alignment, candidate-head supervision, ROOT handling, OOV holdout, LAS selection, class weighting and checkpoint parity passed.");
