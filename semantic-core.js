@@ -732,7 +732,7 @@
         const semanticKeys = new Set();
         for (const argument of semanticArguments) {
           const text = clean(argument && argument.text, 180);
-          if (!text || pronounGenders(text, "object")) continue;
+          if (!text || pronounGenders(text, "subject") || pronounGenders(text, "object")) continue;
           const gender = grammaticalGender(text);
           if (!genders.includes(gender)) continue;
           const key = normalise(text);
