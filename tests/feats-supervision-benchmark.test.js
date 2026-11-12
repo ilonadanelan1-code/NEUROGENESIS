@@ -96,6 +96,9 @@ function add(target,source) {
   for(const key of ["targets","covered","correct","unsupported","majorityBaselineCorrect"])
     target[key] += source[key] || 0;
 }
+function difference(left,right) {
+  return Number.isFinite(left) && Number.isFinite(right) ? left-right : null;
+}
 function aggregateVariant(aggregate,variant,attribute,metrics,seed) {
   const row = aggregate[variant][attribute] || (aggregate[variant][attribute]={
     all:{targets:0,covered:0,correct:0,unsupported:0,majorityBaselineCorrect:0},
@@ -203,12 +206,10 @@ for(const seed of seeds) {
       trainLabelCounts:item.trainLabelCounts,
       identicalTrainValidationAndTestRows:true,
       comparison:{
-        allAccuracyDelta:ratio(weighted.all.correct,weighted.all.covered)-
-          ratio(unweighted.all.correct,unweighted.all.covered),
-        unseenLemmaAccuracyDelta:ratio(weighted.unseenLemma.correct,weighted.unseenLemma.covered)-
-          ratio(unweighted.unseenLemma.correct,unweighted.unseenLemma.covered),
-        allMacroF1Delta:weighted.all.macroF1-unweighted.all.macroF1,
-        unseenLemmaMacroF1Delta:weighted.unseenLemma.macroF1-unweighted.unseenLemma.macroF1
+        allAccuracyDelta:difference(weighted.all.accuracy,unweighted.all.accuracy),
+        unseenLemmaAccuracyDelta:difference(weighted.unseenLemma.accuracy,unweighted.unseenLemma.accuracy),
+        allMacroF1Delta:difference(weighted.all.macroF1,unweighted.all.macroF1),
+        unseenLemmaMacroF1Delta:difference(weighted.unseenLemma.macroF1,unweighted.unseenLemma.macroF1)
       },
       variants:variantReports
     };
