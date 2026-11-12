@@ -223,13 +223,29 @@
         Array.from({length: featureDimension}, () => (random() * 2 - 1) * 0.015));
       bias = Array.from({length: labels.length}, () => 0);
       const labelIndexes = new Map(labels.map((label, index) => [label, index]));
+      const classWeighting = trainOptions.classWeighting === "sqrt_inverse" ? "sqrt_inverse" : "none";
+      const classWeights = new Map(labels.map(label => [label, 1]));
+      if (classWeighting === "sqrt_inverse") {
+        const rawWeights = labels.map(label =>
+          Math.sqrt(rows.length / (labels.length * Math.max(1, labelCounts[label] || 0))));
+        const weightedMass = labels.reduce((sum, label, index) =>
+          sum + (labelCounts[label] || 0) * rawWeights[index], 0);
+        const normalizer = weightedMass > 0 ? rows.length / weightedMass : 1;
+        labels.forEach((label, index) => classWeights.set(label, rawWeights[index] * normalizer));
+      }
+      const classWeightReport = Object.fromEntries(labels.map(label => [label, classWeights.get(label)]));
+      const requestedSelectionMetric = trainOptions.selectionMetric;
+      const selectionMetric = requestedSelectionMetric === "loss" ? "loss" :
+        (requestedSelectionMetric === "macro_f1" || classWeighting === "sqrt_inverse" ? "macro_f1" : "loss");
+      const validationScore = report => selectionMetric === "macro_f1" ? report.macroF1 : report.loss;
       const learningRate = Math.max(0.0001, Math.min(0.2, finite(trainOptions.learningRate, 0.035)));
       const epochs = Math.max(1, Math.min(200, Math.floor(finite(trainOptions.epochs, 80))));
       const patience = Math.max(2, Math.min(40, Math.floor(finite(trainOptions.patience, 12))));
       const l2 = Math.max(0, Math.min(0.01, finite(trainOptions.l2, 0.00005)));
       const shuffleRandom = seededRandom(trainOptions.shuffleSeed == null ? seed ^ 0x9e3779b9 : trainOptions.shuffleSeed);
       const initialValidation = validation.length ? evaluate(validation) : null;
-      let bestLoss = initialValidation && initialValidation.loss != null ? initialValidation.loss : Infinity;
+      let bestScore = initialValidation ? validationScore(initialValidation) :
+        (selectionMetric === "macro_f1" ? -Infinity : Infinity);
       let bestWeights = weights.map(row => row.slice()), bestBias = bias.slice();
       let bestEpoch = 0, staleEpochs = 0, epochsRun = 0, earlyStopped = false;
       for (let epoch = 0; epoch < epochs; epoch++) {
@@ -241,8 +257,9 @@
         for (const example of order) {
           const classIndex = labelIndexes.get(example.label);
           const probabilities = softmax(logitsFor(example.features));
+          const sampleWeight = classWeights.get(example.label) || 1;
           for (let category = 0; category < labels.length; category++) {
-            const error = probabilities[category] - (category === classIndex ? 1 : 0);
+            const error = (probabilities[category] - (category === classIndex ? 1 : 0)) * sampleWeight;
             for (let feature = 0; feature < featureDimension; feature++) {
               weights[category][feature] -= learningRate *
                 (error * Number(example.features[feature]) + l2 * weights[category][feature]);
@@ -254,8 +271,12 @@
         epochsRun = epoch + 1;
         if (validation.length) {
           const report = evaluate(validation);
-          if (report.loss < bestLoss - 1e-8) {
-            bestLoss = report.loss;
+          const currentScore = validationScore(report);
+          const improved = selectionMetric === "macro_f1"
+            ? currentScore > bestScore + 1e-8
+            : currentScore < bestScore - 1e-8;
+          if (improved) {
+            bestScore = currentScore;
             bestWeights = weights.map(row => row.slice());
             bestBias = bias.slice();
             bestEpoch = epochsRun;
@@ -291,10 +312,16 @@
         earlyStopped,
         learningRate,
         l2,
+        classWeighting,
+        classWeights: classWeightReport,
+        selectionMetric,
+        bestSelectionScore: Number.isFinite(bestScore) ? bestScore : null,
         initialValidationLoss: initialValidation ? initialValidation.loss : null,
         validationLoss: validationReport ? validationReport.loss : null,
         trainingAccuracy: trainReport.accuracy,
+        trainingMacroF1: trainReport.macroF1,
         validationAccuracy: validationReport ? validationReport.accuracy : null,
+        validationMacroF1: validationReport ? validationReport.macroF1 : null,
         majorityLabel,
         majorityTrainingCount: labelCounts[majorityLabel],
         trainMajorityCorrect,
