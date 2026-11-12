@@ -414,6 +414,68 @@
       .trim();
   }
 
+  const SOV_FINAL_PREDICATES = new Set([
+    "получает", "получают", "получил", "получила", "получило", "получили",
+    "сохраняет", "сохраняют", "сохранил", "сохранила", "сохранили",
+    "проверяет", "проверяют", "обрабатывает", "обрабатывают",
+    "обнаруживает", "обнаруживают", "фиксирует", "фиксируют",
+    "регистрирует", "регистрируют", "измеряет", "измеряют",
+    "активирует", "активируют", "выбирает", "выбирают",
+    "хранит", "хранят", "принимает", "принимают",
+    "передает", "передаёт", "передают", "отправляет", "отправляют",
+    "запускает", "запускают", "создает", "создаёт", "создают",
+    "открывает", "открывают", "использует", "используют",
+    "работает", "работают", "поддерживает", "поддерживают",
+    "меняет", "меняют", "защищает", "защищают",
+    "изучает", "изучают", "делает", "делают",
+    "активируется", "активируются", "усиливается", "усиливаются",
+    "ослабевает", "ослабевают", "находится", "находятся"
+  ]);
+  const SOV_ADJECTIVE_SURFACE = /(?:ый|ий|ой|ая|яя|ое|ее|ые|ие|ого|его|ому|ему|ым|им|ую|юю|ыми|ими)$/iu;
+
+  function extractVerbFinalProposition(value) {
+    const text = clean(value, 800).replace(/[?!.…]+$/u, "").replace(/[,;:]+/gu, " ").trim();
+    const words = text.split(/\s+/u).filter(Boolean);
+    if (words.length < 3 || words.length > 12) return null;
+    const predicate = normalise(words[words.length - 1]);
+    if (!SOV_FINAL_PREDICATES.has(predicate)) return null;
+
+    const body = words.slice(0, -1);
+    const negated = normalise(body[body.length - 1] || "") === "не";
+    if (negated) body.pop();
+    if (body.length < 2 || body.length > 10) return null;
+
+    // In bounded SOV order the subject is the final noun phrase immediately
+    // before the verb. Include only its adjacent inflected adjectives.
+    let subjectStart = body.length - 1;
+    while (subjectStart > 0 && SOV_ADJECTIVE_SURFACE.test(normalise(body[subjectStart - 1]))) {
+      subjectStart--;
+    }
+    const subjectWords = body.slice(subjectStart);
+    const objectWords = body.slice(0, subjectStart);
+    if (!subjectWords.length || !objectWords.length) return null;
+
+    const subject = clean(subjectWords.join(" "), 180);
+    const object = clean(objectWords.join(" "), 220);
+    const subjectHead = normalise(subjectWords[subjectWords.length - 1]);
+    const objectHead = normalise(objectWords[objectWords.length - 1]);
+    if (!subjectHead || !objectHead ||
+        GRAMMATICAL_FUNCTION_WORDS.has(subjectHead) || GRAMMATICAL_FUNCTION_WORDS.has(objectHead) ||
+        SOV_ADJECTIVE_SURFACE.test(subjectHead) || SOV_ADJECTIVE_SURFACE.test(objectHead) ||
+        /^\d+$/u.test(subjectHead) || /^\d+$/u.test(objectHead)) return null;
+
+    const subjectGender = grammaticalGender(subject);
+    const objectGender = grammaticalGender(object);
+    if (subjectGender === "unknown" || objectGender === "unknown") return null;
+    // Do not promote a clearly oblique noun phrase to grammatical subject.
+    if (semanticPhraseCase(subject, "", "") !== "unknown") return null;
+
+    return {
+      subject, predicate, object, negated,
+      confidence: subjectWords.length > 1 || objectWords.length > 1 ? 0.68 : 0.7
+    };
+  }
+
   function extractProposition(value, intent = "conversation", slots = {}) {
     const original = clean(value, 800);
     const text = original.replace(/[?!.…]+$/u, "").trim();
@@ -567,16 +629,16 @@
       };
     }
 
-    const sovFinal = propositionText.match(/^([^\s]+)\s+([^\s]+)\s+(получает|сохраняет|проверяет)$/iu);
-    if (sovFinal && grammaticalGender(sovFinal[1]) !== "unknown" &&
-        grammaticalGender(sovFinal[2]) !== "unknown") {
+    const sovFinal = extractVerbFinalProposition(propositionText);
+    if (sovFinal) {
       return {
         ...base, kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
-        subject: cleanQuantifiedSubject(sovFinal[2]), predicate: clean(sovFinal[3], 80),
-        object: clean(sovFinal[1], 220), relation: "predicate",
-        polarity: polarityScope.polarity, polarityScope,
+        subject: cleanQuantifiedSubject(sovFinal.subject), predicate: clean(sovFinal.predicate, 80),
+        object: clean(sovFinal.object, 220), relation: "predicate",
+        polarity: polarityScope.scope !== "none" ? polarityScope.polarity : sovFinal.negated ? "negative" : "positive",
+        polarityScope,
         modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
-        confidence: 0.7,
+        confidence: sovFinal.confidence,
         attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
       };
     }
