@@ -38,7 +38,10 @@ const duplicateSplit=model.splitCorpus([...corpus,corpus[0],corpus[1]],902);
 assert.equal(duplicateSplit.duplicateRows,2,"duplicate sentences must be removed before splitting");
 assert.equal(duplicateSplit.uniqueRows,corpus.length);
 assert.throws(()=>model.splitCorpus([corpus[0],corpus[0]],902),/three distinct sentences/u);
-const initialState=model.exportState(),report=model.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
+const initialState=model.exportState();
+assert.equal(model.status().vocabularyCapacity,1024,"the historical vocabulary capacity must remain the default");
+assert.equal(initialState.maxVocabulary,1024,"the default capacity must be persisted in checkpoints");
+const report=model.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
 assert.ok(report.examples>0);
 assert.ok(report.validationExamples>0&&report.testExamples>0);
 assert.equal(report.trainRows+report.validationRows+report.testRows,report.uniqueRows);
@@ -232,4 +235,31 @@ assert.deepEqual(knownContextPrediction.predictions,maskedContextPrediction.pred
  "masked prediction must not depend on the hidden target surface form");
 assert.deepEqual(knownContextPrediction.generatedCandidates,maskedContextPrediction.generatedCandidates,
  "generated inflections must be produced from context and model vocabulary, not the hidden answer");
+const expandedCapacityCorpus=Array.from({length:80},(_,row)=>
+ "нейросеть обрабатывает сигнал "+Array.from({length:45},(_,word)=>"слово"+row+"номер"+word).join(" "));
+const expandedCapacityModel=api.create({dimension:4,windowSize:1,heads:1,blocks:1,seed:812,maxVocabulary:2048});
+const expandedCapacityReport=expandedCapacityModel.train(expandedCapacityCorpus,
+ {epochs:1,learningRate:.02,patience:2,splitSeed:902});
+assert.equal(expandedCapacityReport.vocabularyCapacity,2048,
+ "the training report must expose the configured vocabulary capacity");
+assert.ok(expandedCapacityReport.vocabularySize>1024,
+ "the expanded vocabulary must actually retain more than 1024 training tokens");
+assert.ok(expandedCapacityReport.vocabularySize<=2048);
+assert.equal(expandedCapacityModel.status().vocabularyCapacity,2048);
+assert.equal(expandedCapacityModel.status().vocabularySize,expandedCapacityReport.vocabularySize);
+assert.equal(expandedCapacityReport.vocabularySaturated,expandedCapacityReport.vocabularySize>=2048);
+const expandedCapacityState=expandedCapacityModel.exportState();
+assert.equal(expandedCapacityState.maxVocabulary,2048,
+ "the expanded capacity must be persisted in checkpoints");
+const restoredExpandedCapacity=api.fromState(expandedCapacityState);
+assert.equal(restoredExpandedCapacity.status().vocabularyCapacity,2048);
+assert.equal(restoredExpandedCapacity.status().vocabularySize,expandedCapacityReport.vocabularySize);
+assert.throws(()=>api.create({dimension:4,windowSize:1,heads:1,blocks:1,maxVocabulary:1024})
+ .loadState(expandedCapacityState),/vocabulary capacity/u,
+ "a checkpoint must not silently load into a smaller vocabulary allocation");
+const legacyCheckpoint={...initialState};
+delete legacyCheckpoint.maxVocabulary;
+const restoredLegacyCheckpoint=api.fromState(legacyCheckpoint);
+assert.equal(restoredLegacyCheckpoint.status().vocabularyCapacity,1024,
+ "legacy version-5 checkpoints without capacity metadata must retain the old 1024 limit");
 console.log("NEUROGENESIS contextual attention v6: stacked transformer blocks, cross-layer gradients, subword OOV handling, conservative Russian morphology fallback and checkpoint persistence passed.");
