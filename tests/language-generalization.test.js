@@ -427,6 +427,22 @@ const comparisonTo05893 = {
     currentCount: maskTotal.covered, currentTotal: maskTotal.total,
     deltaPercentagePoints: (ratio(maskTotal.covered, maskTotal.total) -
       ratio(baseline05893.maskedTokens.covered, baseline05893.maskedTokens.total)) * 100
+  },
+  relationEdgePrecision: {
+    previous: ratio(baseline05893.phraseRoles.tp, baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fp),
+    current: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fp),
+    previousCount: baseline05893.phraseRoles.tp, previousTotal: baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fp,
+    currentCount: phraseTotal.tp, currentTotal: phraseTotal.tp + phraseTotal.fp,
+    deltaPercentagePoints: (ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fp) -
+      ratio(baseline05893.phraseRoles.tp, baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fp)) * 100
+  },
+  relationEdgeRecall: {
+    previous: ratio(baseline05893.phraseRoles.tp, baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fn),
+    current: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fn),
+    previousCount: baseline05893.phraseRoles.tp, previousTotal: baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fn,
+    currentCount: phraseTotal.tp, currentTotal: phraseTotal.tp + phraseTotal.fn,
+    deltaPercentagePoints: (ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fn) -
+      ratio(baseline05893.phraseRoles.tp, baseline05893.phraseRoles.tp + baseline05893.phraseRoles.fn)) * 100
   }
 };
 

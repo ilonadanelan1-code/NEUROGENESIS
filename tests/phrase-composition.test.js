@@ -28,6 +28,14 @@ assert.ok(report.roleTrainingAccuracy>=0&&report.roleTrainingAccuracy<=1);
 assert.ok(report.relationTrainingAccuracy>=0&&report.relationTrainingAccuracy<=1);
 assert.equal(report.supervision,"weak_semantic_parser_labels");
 assert.equal(report.evaluation,"training_only_not_held_out");
+const defaultComposer=Composer.create({dimension:12,seed:24082});
+const defaultReport=defaultComposer.train(["нейрон получает сигнал"],contextual,core,knowledge,{
+ epochs:1,learningRate:.02
+});
+assert.equal(defaultReport.augmentationEnabled,false,
+ "word-order augmentation must stay disabled in the default training path");
+assert.equal(defaultReport.augmentedSentences,0,
+ "the default training path must not add synthetic held-out-like phrases");
 const forward=composer.analyse("нейрон получает сигнал",contextual,core,knowledge);
 const reverse=composer.analyse("сигнал получает нейрон",contextual,core,knowledge);
 assert.equal(forward.weakFrame.subject,"нейрон");
