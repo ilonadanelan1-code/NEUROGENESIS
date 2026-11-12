@@ -816,7 +816,10 @@
       // Keep an oblique phrase such as "с ним" in its original case. Also avoid
       // copying a dative/instrumental antecedent into a nominative subject slot:
       // the reference is retained, but no ungrounded declension is fabricated.
-      const caseMismatch = decisive && role === "subject" &&
+      const antecedentWords = clean(resolvedCandidate && resolvedCandidate.text, 180).split(/\s+/u);
+      const antecedentHasPreposition = antecedentWords.length > 1 &&
+        OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(antecedentWords[0]));
+      const caseMismatch = decisive && role === "subject" && !antecedentHasPreposition &&
         resolvedCandidate.grammaticalCase &&
         !["nominative", "accusative", "unknown"].includes(resolvedCandidate.grammaticalCase);
       const preserveCaseSurface = hasPrepositionContext || caseMismatch ||
