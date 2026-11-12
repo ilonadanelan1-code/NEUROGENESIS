@@ -142,6 +142,9 @@ for(const seed of seeds) {
     });
     assert.ok(trainingReport.classes.length>=2);
     assert.ok(trainingReport.validationExamples>0);
+    assert.ok(Number.isFinite(trainingReport.validationHeadAccuracy));
+    assert.ok(Number.isFinite(trainingReport.validationOracleHeadRelationMacroF1),
+      "validation must contain at least one DEPREL class supported by supervised training");
     assert.equal(trainingReport.classWeighting,configuration.classWeighting);
     assert.equal(trainingReport.selectionMetric,"validation_uas_and_relation_macro_f1");
     assert.equal(trainingReport.trainExamples,training.groups.length);
