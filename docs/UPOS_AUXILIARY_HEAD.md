@@ -30,3 +30,10 @@ The UPOS pilot uses the same pinned UD_Russian-GSD r2.18 sample and three model 
 ## Interpretation
 
 A stronger UPOS score indicates improved grammatical-category recognition under this auxiliary task. It is not a masked-word prediction score, a semantic-role score or proof of word meaning understanding. Further work should add supervised FEATS prediction and dependency-role evaluation, then test whether these auxiliary features improve independent lexical prediction and compositional generalization.
+
+
+## Class-balance experiment · 0.58.116
+
+The unweighted pilot showed that aggregate token accuracy can hide weak transfer to unseen lemmas. The experimental classifier therefore supports an optional square-root inverse-frequency weighting mode. Class weights are derived only from labels in the supervised training partition and normalized to mean sample weight 1. For this mode, checkpoint selection uses validation macro-F1; the independent test set remains evaluation-only.
+
+The benchmark compares unweighted and weighted heads using the same contextual encoder, sentence split and three seeds. This is an experiment, not a default model setting. It should only be integrated if independent unseen-lemma metrics and macro-F1 show reproducible gains without regressions.
