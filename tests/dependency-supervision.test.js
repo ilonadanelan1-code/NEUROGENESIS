@@ -122,10 +122,10 @@ assert.ok(trainSet.groups.some(row=>row.relation==="obj"));
 const head = Dependency.create({seed:812});
 const training = head.train(trainSet.groups,validationSet.groups,{
   epochs:12,learningRate:.012,patience:4,seed:812,
-  classWeighting:"none",selectionMetric:"las"
+  classWeighting:"none",selectionMetric:"component_specific"
 });
 assert.ok(training.trainingSteps>0);
-assert.equal(training.selectionMetric,"validation_las");
+assert.equal(training.selectionMetric,"validation_uas_and_relation_macro_f1");
 assert.ok(Number.isFinite(training.validationLAS));
 assert.equal(training.trainExamples,trainSet.groups.length);
 assert.equal(training.validationExamples,validationSet.groups.length);
@@ -150,10 +150,10 @@ assert.equal(head.evaluate(unseenRows).targets,unseenRows.length);
 const balanced = Dependency.create({seed:812});
 const balancedTraining = balanced.train(trainSet.groups,validationSet.groups,{
   epochs:8,learningRate:.012,patience:4,seed:812,
-  classWeighting:"sqrt_inverse",selectionMetric:"las"
+  classWeighting:"sqrt_inverse",selectionMetric:"component_specific"
 });
 assert.equal(balancedTraining.classWeighting,"sqrt_inverse");
-assert.equal(balancedTraining.selectionMetric,"validation_las");
+assert.equal(balancedTraining.selectionMetric,"validation_uas_and_relation_macro_f1");
 assert.ok(Object.values(balancedTraining.classWeights).every(value=>Number.isFinite(value)&&value>0));
 
 const restored = Dependency.create();
@@ -178,4 +178,4 @@ assert.equal(invalid.stats.skippedReasons.self_head,1,
 assert.equal(invalid.stats.skippedReasons.missing_dependency_annotation,1,
   "a null HEAD must not be coerced to ROOT");
 
-console.log("NEUROGENESIS dependency head/relation head: token alignment, candidate-head supervision, ROOT handling, OOV holdout, LAS selection, class weighting and checkpoint parity passed.");
+console.log("NEUROGENESIS dependency head/relation head: token alignment, candidate-head supervision, ROOT handling, OOV holdout, component-specific checkpoint selection, class weighting and checkpoint parity passed.");
