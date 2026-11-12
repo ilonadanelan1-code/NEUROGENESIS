@@ -17,7 +17,7 @@ const prepared = importer.prepareCorpus(
   fs.readFileSync(testPath, "utf8"),
   {trainLimit:320,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40}
 );
-assert.equal(prepared.stats.normalizedSampleTrainTestOverlaps,0);
+assert.equal(prepared.stats.normalizedTrainTestOverlaps,0);
 assert.equal(prepared.trainingRecords.length,320);
 assert.equal(prepared.testRecords.length,240);
 
@@ -35,11 +35,17 @@ const seeds = [
   {model:31415,split:2718},
   {model:2718,split:9044}
 ];
+const variants = {
+  unweighted: {classWeighting:"none",selectionMetric:"loss"},
+  sqrtInverse: {classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
+};
 const normalizedRecordMap = new Map(prepared.trainingRecords.map(row=>[row.normalized,row]));
 const seedsReport = [];
-const groupTotals = Object.fromEntries(["all","knownLemma","unseenLemma"].map(key=>[key,{
-  targets:0,covered:0,correct:0,majorityBaselineCorrect:0
-}]));
+const groupTotals = Object.fromEntries(Object.keys(variants).map(variant=>[variant,
+  Object.fromEntries(["all","knownLemma","unseenLemma"].map(key=>[key,{
+    targets:0,covered:0,correct:0,majorityBaselineCorrect:0
+  }]))
+]));
 const ratio=(numerator,denominator)=>denominator?numerator/denominator:null;
 
 function summarize(examples,head,majorityLabel) {
@@ -85,11 +91,6 @@ for (const seed of seeds) {
   const validationSet=Supervision.extractExamples(validationRecords,contextual);
   const testSet=Supervision.extractExamples(prepared.testRecords,contextual);
   assert.ok(trainSet.examples.length>0&&validationSet.examples.length>0&&testSet.examples.length>0);
-  const head=Supervision.create({seed:seed.model});
-  const headTraining=head.train(trainSet.examples,validationSet.examples,{
-    epochs:80,learningRate:.035,patience:12,seed:seed.model
-  });
-  assert.ok(headTraining.classes.length>=2);
 
   const seenLemmas=new Set(trainSet.examples.map(row=>row.lemma).filter(Boolean));
   const groups={
@@ -97,10 +98,19 @@ for (const seed of seeds) {
     knownLemma:testSet.examples.filter(row=>seenLemmas.has(row.lemma)),
     unseenLemma:testSet.examples.filter(row=>!seenLemmas.has(row.lemma))
   };
-  const metrics=Object.fromEntries(Object.entries(groups).map(([key,examples])=>[
-    key,summarize(examples,head,headTraining.majorityLabel)
-  ]));
-  for(const key of Object.keys(groupTotals))addGroup(groupTotals[key],metrics[key]);
+  const variantReports={};
+  for(const [variant,configuration] of Object.entries(variants)){
+    const head=Supervision.create({seed:seed.model});
+    const headTraining=head.train(trainSet.examples,validationSet.examples,{
+      epochs:80,learningRate:.035,patience:12,seed:seed.model,...configuration
+    });
+    assert.ok(headTraining.classes.length>=2);
+    const metrics=Object.fromEntries(Object.entries(groups).map(([key,examples])=>[
+      key,summarize(examples,head,headTraining.majorityLabel)
+    ]));
+    for(const key of Object.keys(groupTotals[variant]))addGroup(groupTotals[variant][key],metrics[key]);
+    variantReports[variant]={training:headTraining,metrics};
+  }
   seedsReport.push({
     modelSeed:seed.model,
     splitSeed:seed.split,
@@ -116,24 +126,34 @@ for (const seed of seeds) {
       validation:validationSet.stats,
       independentTest:testSet.stats
     },
-    uposTraining:headTraining,
-    metrics
+    variants:variantReports
   });
 }
 
-const aggregate=Object.fromEntries(Object.entries(groupTotals).map(([key,row])=>[key,{
-  ...row,
-  accuracy:ratio(row.correct,row.covered),
-  coverage:ratio(row.covered,row.targets),
-  majorityBaselineAccuracy:ratio(row.majorityBaselineCorrect,row.covered)
-}]));
+const aggregate=Object.fromEntries(Object.entries(groupTotals).map(([variant,groups])=>[
+  variant,Object.fromEntries(Object.entries(groups).map(([key,row])=>[key,{
+    ...row,
+    accuracy:ratio(row.correct,row.covered),
+    coverage:ratio(row.covered,row.targets),
+    majorityBaselineAccuracy:ratio(row.majorityBaselineCorrect,row.covered)
+  }]))
+]));
 const summary={
-  benchmark:"NEUROGENESIS supervised contextual UPOS pilot",
-  version:"0.58.113",
+  benchmark:"NEUROGENESIS supervised contextual UPOS class-balance experiment",
+  version:"0.58.116",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",
     license:"CC BY-SA 4.0"
+  },
+  protocol:{
+    seeds,
+    variants,
+    sameEncoderAndSplitsForBothHeads:true,
+    classWeightsDerivedOnlyFromSupervisedTrainingRows:true,
+    unweightedEarlyStopping:"validation cross-entropy",
+    sqrtInverseEarlyStopping:"validation macro-F1",
+    sqrtInverseFormula:"sqrt(N / (K * classCount)), normalized to mean sample weight 1"
   },
   isolation:{
     trainSentences:prepared.trainingRecords.length,
@@ -147,6 +167,11 @@ const summary={
   seeds:seedsReport
 };
 assert.equal(summary.isolation.normalizedSentenceLeakage,0);
-assert.ok(aggregate.unseenLemma.targets>0,
+assert.ok(aggregate.unweighted.unseenLemma.targets>0,
   "the independent test must include lemmas not seen in the supervised training partition");
-console.log("NEUROGENESIS 0.58.113 supervised contextual UPOS benchmark: "+JSON.stringify(summary));
+assert.deepEqual(
+  Object.values(aggregate.sqrtInverse).map(row=>row.targets),
+  Object.values(aggregate.unweighted).map(row=>row.targets),
+  "both variants must use the exact same independent test rows"
+);
+console.log("NEUROGENESIS 0.58.116 supervised contextual UPOS class-balance benchmark: "+JSON.stringify(summary));
