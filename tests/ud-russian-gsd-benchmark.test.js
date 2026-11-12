@@ -35,6 +35,9 @@ const fixtureTest = [
   ""
 ].join("\n");
 assert.equal(importer.decodeEntities("тест &#39;пример&#39; &amp; текст"), "тест 'пример' & текст");
+assert.deepEqual(importer.parseFeatures("__proto__=polluted|Case=Nom|Number=Sing"),
+ {Case:"Nom",Number:"Sing"},"only valid UD feature keys may enter the annotation map");
+
 const parsedFixture = importer.parseConllu(fixtureTrain);
 assert.equal(parsedFixture.length, 2);
 assert.equal(parsedFixture[0].tokenCount, 3);
