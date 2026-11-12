@@ -279,8 +279,9 @@ const summary = {
     maximumAttributes,
     minimumClassExamples,
     sameContextualEncoderAndRowsForBothVariants:true,
-    unweightedCheckpointSelection:"validation loss",
-    sqrtInverseCheckpointSelection:"validation macro-F1",
+    checkpointSelectionMetricByVariant:Object.fromEntries(
+      Object.entries(variants).map(([name,configuration])=>[name,configuration.selectionMetric])
+    ),
     weightsDerivedOnlyFromSupervisedTrainExamples:true,
     independentTestUse:"evaluation only",
     lemmaSlice:"per-attribute train-lemma overlap"
