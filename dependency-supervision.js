@@ -269,48 +269,73 @@
       if (!rows.length) return {
         targets:0,headCorrect:0,headAccuracy:null,oracleRelationCorrect:0,
         relationCovered:0,relationCoverage:null,oracleRelationAccuracy:null,
-        relationMacroF1:null,lasCorrect:0,las:null,perRelation:{}
+        oracleHeadRelationMacroF1:null,predictedHeadRelationCorrect:0,
+        predictedHeadRelationAccuracy:null,predictedHeadRelationMacroF1:null,
+        lasCorrect:0,las:null,perRelationOracleHead:{},perRelationPredictedHead:{}
       };
-      let headCorrect = 0, oracleRelationCorrect = 0, lasCorrect = 0;
-      const totals = Object.create(null), predicted = Object.create(null), correct = Object.create(null);
+      let headCorrect = 0, oracleRelationCorrect = 0, predictedHeadRelationCorrect = 0, lasCorrect = 0;
+      const totals = Object.create(null);
+      const oraclePredicted = Object.create(null), oracleCorrect = Object.create(null);
+      const predictedHeadPredicted = Object.create(null), predictedHeadCorrect = Object.create(null);
       for (const group of rows) {
         const predictedIndex = predictedHeadIndex(group);
         const headIsCorrect = predictedIndex === group.targetCandidateIndex;
         if (headIsCorrect) headCorrect++;
         const oracleRelation = predictRelation(group.candidateFeatures[group.targetCandidateIndex]);
         const predictedRelation = predictRelation(group.candidateFeatures[predictedIndex]);
-        if (oracleRelation && oracleRelation.label === group.relation) oracleRelationCorrect++;
+        if (oracleRelation) {
+          oraclePredicted[oracleRelation.label] = (oraclePredicted[oracleRelation.label] || 0) + 1;
+          if (oracleRelation.label === group.relation) {
+            oracleRelationCorrect++;
+            oracleCorrect[group.relation] = (oracleCorrect[group.relation] || 0) + 1;
+          }
+        }
+        if (predictedRelation) {
+          predictedHeadPredicted[predictedRelation.label] = (predictedHeadPredicted[predictedRelation.label] || 0) + 1;
+          if (predictedRelation.label === group.relation) {
+            predictedHeadRelationCorrect++;
+            predictedHeadCorrect[group.relation] = (predictedHeadCorrect[group.relation] || 0) + 1;
+          }
+        }
         if (headIsCorrect && predictedRelation && predictedRelation.label === group.relation) lasCorrect++;
         totals[group.relation] = (totals[group.relation] || 0) + 1;
-        if (oracleRelation) predicted[oracleRelation.label] = (predicted[oracleRelation.label] || 0) + 1;
-        if (oracleRelation && oracleRelation.label === group.relation) {
-          correct[group.relation] = (correct[group.relation] || 0) + 1;
+      }
+      function relationReport(predictions, correct) {
+        const perRelation = Object.create(null), f1 = [];
+        for (const label of new Set([...Object.keys(totals), ...Object.keys(predictions)])) {
+          const support = totals[label] || 0;
+          const predictedCount = predictions[label] || 0;
+          const truePositive = correct[label] || 0;
+          const precision = predictedCount ? truePositive / predictedCount : 0;
+          const recall = support ? truePositive / support : 0;
+          const score = precision + recall ? 2 * precision * recall / (precision + recall) : 0;
+          perRelation[label] = {targets:support,predicted:predictedCount,correct:truePositive,precision,recall,f1:score};
+          if (support) f1.push(score);
         }
+        return {
+          perRelation,
+          macroF1:f1.length?f1.reduce((sum,value)=>sum+value,0)/f1.length:null
+        };
       }
-      const perRelation = Object.create(null), f1 = [];
-      for (const label of new Set([...Object.keys(totals), ...Object.keys(predicted)])) {
-        const support = totals[label] || 0;
-        const predictedCount = predicted[label] || 0;
-        const truePositive = correct[label] || 0;
-        const precision = predictedCount ? truePositive / predictedCount : 0;
-        const recall = support ? truePositive / support : 0;
-        const score = precision + recall ? 2 * precision * recall / (precision + recall) : 0;
-        perRelation[label] = {targets:support,predicted:predictedCount,correct:truePositive,precision,recall,f1:score};
-        if (support) f1.push(score);
-      }
+      const oracleReport=relationReport(oraclePredicted,oracleCorrect);
+      const predictedHeadReport=relationReport(predictedHeadPredicted,predictedHeadCorrect);
+      const relationCovered=rows.filter(row=>labels.includes(row.relation)).length;
       return {
         targets:rows.length,
         headCorrect,
         headAccuracy:headCorrect/rows.length,
         oracleRelationCorrect,
-        relationCovered:rows.filter(row=>labels.includes(row.relation)).length,
-        relationCoverage:rows.filter(row=>labels.includes(row.relation)).length/rows.length,
-        oracleRelationAccuracy:labels.length
-          ?oracleRelationCorrect/Math.max(1,rows.filter(row=>labels.includes(row.relation)).length):null,
-        relationMacroF1:f1.length?f1.reduce((sum,value)=>sum+value,0)/f1.length:null,
+        relationCovered,
+        relationCoverage:relationCovered/rows.length,
+        oracleRelationAccuracy:relationCovered?oracleRelationCorrect/relationCovered:null,
+        oracleHeadRelationMacroF1:oracleReport.macroF1,
+        predictedHeadRelationCorrect,
+        predictedHeadRelationAccuracy:predictedHeadRelationCorrect/rows.length,
+        predictedHeadRelationMacroF1:predictedHeadReport.macroF1,
         lasCorrect,
         las:lasCorrect/rows.length,
-        perRelation
+        perRelationOracleHead:oracleReport.perRelation,
+        perRelationPredictedHead:predictedHeadReport.perRelation
       };
     }
 
@@ -424,7 +449,7 @@
           }else{
             staleArcEpochs++;
           }
-          const relationScore=Number.isFinite(report.relationMacroF1)?report.relationMacroF1:-Infinity;
+          const relationScore=Number.isFinite(report.oracleHeadRelationMacroF1)?report.oracleHeadRelationMacroF1:-Infinity;
           if(relationScore>bestRelationScore+1e-8){
             bestRelationScore=relationScore;
             bestRelationWeights=relationWeights.map(row=>row.slice());
@@ -473,11 +498,11 @@
         bestRelationSelectionScore:Number.isFinite(bestRelationScore)?bestRelationScore:null,
         trainingHeadAccuracy:trainReport.headAccuracy,
         trainingOracleRelationAccuracy:trainReport.oracleRelationAccuracy,
-        trainingRelationMacroF1:trainReport.relationMacroF1,
+        trainingOracleHeadRelationMacroF1:trainReport.oracleHeadRelationMacroF1,
         trainingLAS:trainReport.las,
         validationHeadAccuracy:validationReport?validationReport.headAccuracy:null,
         validationOracleRelationAccuracy:validationReport?validationReport.oracleRelationAccuracy:null,
-        validationRelationMacroF1:validationReport?validationReport.relationMacroF1:null,
+        validationOracleHeadRelationMacroF1:validationReport?validationReport.oracleHeadRelationMacroF1:null,
         validationLAS:validationReport?validationReport.las:null,
         majorityLabel,
         majorityTrainingCount:labelCounts[majorityLabel],
