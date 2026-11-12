@@ -38,6 +38,13 @@ assert.equal(importer.decodeEntities("тест &#39;пример&#39; &amp; те
 assert.deepEqual(importer.parseFeatures("__proto__=polluted|Case=Nom|Number=Sing"),
  {Case:"Nom",Number:"Sing"},"only valid UD feature keys may enter the annotation map");
 
+const unsafeAnnotationSummary = importer.annotationSummary([{
+  tokens: [{upos: "__proto__", deprel: "__proto__", feats: {}}]
+}]);
+assert.equal(Object.getPrototypeOf(unsafeAnnotationSummary.upos), null);
+assert.equal(unsafeAnnotationSummary.upos.__proto__, 1);
+assert.equal(unsafeAnnotationSummary.dependencyRelations.__proto__, 1);
+
 const parsedFixture = importer.parseConllu(fixtureTrain);
 assert.equal(parsedFixture.length, 2);
 assert.equal(parsedFixture[0].tokenCount, 3);
