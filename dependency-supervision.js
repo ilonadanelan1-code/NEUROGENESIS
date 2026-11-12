@@ -292,7 +292,10 @@
         headCorrect,
         headAccuracy:headCorrect/rows.length,
         oracleRelationCorrect,
-        oracleRelationAccuracy:oracleRelationCorrect/rows.length,
+        relationCovered:rows.filter(row=>labels.includes(row.relation)).length,
+        relationCoverage:rows.filter(row=>labels.includes(row.relation)).length/rows.length,
+        oracleRelationAccuracy:labels.length
+          ?oracleRelationCorrect/Math.max(1,rows.filter(row=>labels.includes(row.relation)).length):null,
         relationMacroF1:f1.length?f1.reduce((sum,value)=>sum+value,0)/f1.length:null,
         lasCorrect,
         las:lasCorrect/rows.length,
@@ -321,10 +324,17 @@
       trainingSteps = 0;
       lastTraining = null;
       featureDimension = dimension;
-      labels = [...new Set(rows.map(row => cleanRelation(row.relation)).filter(Boolean))].sort();
-      if (labels.length < 2) throw new TypeError("Dependency training needs at least two relation labels.");
+      const allLabels = [...new Set(rows.map(row => cleanRelation(row.relation)).filter(Boolean))].sort();
+      if (allLabels.length < 2) throw new TypeError("Dependency training needs at least two relation labels.");
       labelCounts = Object.create(null);
       for (const row of rows) labelCounts[row.relation] = (labelCounts[row.relation] || 0) + 1;
+      const minimumClassExamples=Math.max(1,Math.floor(finite(trainOptions.minimumClassExamples,1)));
+      labels = Object.entries(labelCounts)
+        .filter(([,count])=>count>=minimumClassExamples)
+        .map(([label])=>label).sort();
+      if(labels.length<2) throw new TypeError("Dependency training needs at least two relations meeting minimumClassExamples.");
+      const supportedLabels=new Set(labels);
+      const relationRows=rows.filter(row=>supportedLabels.has(row.relation));
       const random = seededRandom(trainOptions.seed == null ? seed : trainOptions.seed);
       arcWeights = Array.from({length:featureDimension}, () => (random()*2-1)*0.006);
       relationWeights = Array.from({length:labels.length}, () =>
@@ -335,10 +345,10 @@
       const classWeights = new Map(labels.map(label => [label,1]));
       if (classWeighting === "sqrt_inverse") {
         const raw = labels.map(label =>
-          Math.sqrt(rows.length / (labels.length * Math.max(1,labelCounts[label] || 0))));
+          Math.sqrt(relationRows.length / (labels.length * Math.max(1,labelCounts[label] || 0))));
         const weightedMass = labels.reduce((sum,label,index) =>
           sum + (labelCounts[label] || 0) * raw[index],0);
-        const normalizer = weightedMass > 0 ? rows.length/weightedMass : 1;
+        const normalizer = weightedMass > 0 ? relationRows.length/weightedMass : 1;
         labels.forEach((label,index)=>classWeights.set(label,raw[index]*normalizer));
       }
       const classWeightReport = Object.fromEntries(labels.map(label=>[label,classWeights.get(label)]));
@@ -375,16 +385,18 @@
           }
 
           const targetFeatures=group.candidateFeatures[group.targetCandidateIndex];
-          const probabilities=softmax(relationLogits(targetFeatures));
           const targetClass=labels.indexOf(group.relation);
-          const sampleWeight=classWeights.get(group.relation) || 1;
-          for(let category=0;category<labels.length;category++){
-            const error=(probabilities[category]-(category===targetClass?1:0))*sampleWeight;
-            for(let feature=0;feature<featureDimension;feature++){
-              relationWeights[category][feature]-=learningRate*
-                (clip(error*Number(targetFeatures[feature]))+l2*relationWeights[category][feature]);
+          if(targetClass>=0){
+            const probabilities=softmax(relationLogits(targetFeatures));
+            const sampleWeight=classWeights.get(group.relation) || 1;
+            for(let category=0;category<labels.length;category++){
+              const error=(probabilities[category]-(category===targetClass?1:0))*sampleWeight;
+              for(let feature=0;feature<featureDimension;feature++){
+                relationWeights[category][feature]-=learningRate*
+                  (clip(error*Number(targetFeatures[feature]))+l2*relationWeights[category][feature]);
+              }
+              relationBias[category]-=learningRate*clip(error);
             }
-            relationBias[category]-=learningRate*clip(error);
           }
           trainingSteps++;
         }
@@ -432,6 +444,9 @@
         l2,
         classWeighting,
         classWeights:classWeightReport,
+        minimumClassExamples,
+        relationTrainingExamples:relationRows.length,
+        unsupportedRelationTrainingExamples:rows.length-relationRows.length,
         selectionMetric:"validation_las",
         bestSelectionScore:Number.isFinite(bestScore)?bestScore:null,
         trainingHeadAccuracy:trainReport.headAccuracy,
