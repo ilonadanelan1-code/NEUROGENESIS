@@ -317,8 +317,11 @@
         bestSelectionScore: Number.isFinite(bestScore) ? bestScore : null,
         trainingAccuracy: trainReport.accuracy,
         trainingMacroF1: trainReport.macroF1,
+        trainingLoss: trainReport.loss,
+        initialValidationLoss: initialValidation ? initialValidation.loss : null,
         validationAccuracy: validationReport ? validationReport.accuracy : null,
         validationMacroF1: validationReport ? validationReport.macroF1 : null,
+        validationLoss: validationReport ? validationReport.loss : null,
         majorityLabel,
         majorityTrainingCount: labelCounts[majorityLabel],
         trainingSteps
