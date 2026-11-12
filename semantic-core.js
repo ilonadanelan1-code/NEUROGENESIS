@@ -432,6 +432,16 @@
     "ослабевает", "ослабевают", "находится", "находятся"
   ]);
   const SOV_ADJECTIVE_SURFACE = /(?:ый|ий|ой|ая|яя|ое|ее|ые|ие|ого|его|ому|ему|ым|им|ую|юю|ыми|ими)$/iu;
+  const SOV_NOMINAL_HEAD_SETS = [
+    FEMININE_HEADS, MASCULINE_HEADS, NEUTER_HEADS,
+    FEMININE_INFLECTED_HEADS, MASCULINE_INFLECTED_HEADS,
+    NEUTER_INFLECTED_HEADS, PLURAL_INFLECTED_HEADS
+  ];
+  function isSovAdjectiveSurface(value) {
+    const word = normalise(value);
+    if (SOV_NOMINAL_HEAD_SETS.some(set => set.has(word)) || NOMINATIVE_FORM_BY_INFLECTION.has(word)) return false;
+    return SOV_ADJECTIVE_SURFACE.test(word);
+  }
 
   function extractVerbFinalProposition(value) {
     const text = clean(value, 800).replace(/[?!.…]+$/u, "").replace(/[,;:]+/gu, " ").trim();
@@ -448,7 +458,7 @@
     // In bounded SOV order the subject is the final noun phrase immediately
     // before the verb. Include only its adjacent inflected adjectives.
     let subjectStart = body.length - 1;
-    while (subjectStart > 0 && SOV_ADJECTIVE_SURFACE.test(normalise(body[subjectStart - 1]))) {
+    while (subjectStart > 0 && isSovAdjectiveSurface(body[subjectStart - 1])) {
       subjectStart--;
     }
     const subjectWords = body.slice(subjectStart);
@@ -461,7 +471,7 @@
     const objectHead = normalise(objectWords[objectWords.length - 1]);
     if (!subjectHead || !objectHead ||
         GRAMMATICAL_FUNCTION_WORDS.has(subjectHead) || GRAMMATICAL_FUNCTION_WORDS.has(objectHead) ||
-        SOV_ADJECTIVE_SURFACE.test(subjectHead) || SOV_ADJECTIVE_SURFACE.test(objectHead) ||
+        isSovAdjectiveSurface(subjectHead) || isSovAdjectiveSurface(objectHead) ||
         /^\d+$/u.test(subjectHead) || /^\d+$/u.test(objectHead)) return null;
 
     const subjectGender = grammaticalGender(subject);
