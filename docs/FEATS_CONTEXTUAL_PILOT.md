@@ -11,7 +11,7 @@ The external UD_Russian-GSD r2.18 pilot shows a low baseline for the existing mo
 - The input is the concatenation of the contextual model's token and context vectors.
 - Comma-separated multi-values are preserved as one canonical label (unique values sorted consistently).
 - Weighted class weights use square-root inverse frequency, computed only from the supervised training partition and normalised to mean sample weight 1; unweighted class weights are all 1.
-- Unweighted checkpoints are selected by validation loss; weighted checkpoints use validation macro-F1.
+- Both variants use the same validation macro-F1 checkpoint-selection metric, so class weighting is the only changed training variable.
 - The pilot is conditional: a head predicts a value for an annotated attribute. It does not yet decide whether that attribute applies to a token, and it is not a complete FEATS tagger.
 
 ## Data and isolation
