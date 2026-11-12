@@ -293,6 +293,53 @@ assert.equal(themeReference.status, "resolved",
 assert.equal(themeReference.antecedentText, "сигнал");
 assert.equal(themeReference.candidates[0].role, "theme");
 
+const inflectionCoreference = core.analyse(
+  "Система передаёт сигнал модулю. Он принимает его.",
+  { contextRelation: "new_topic" }, knowledge
+).propositionChain;
+assert.equal(inflectionCoreference.items[1].proposition.subject, "модуль",
+  "a known dative noun form can be restored to its nominative head");
+const inflectionReference = inflectionCoreference.items[1].proposition.references.find(row => row.mention === "он");
+assert.equal(inflectionReference.antecedentText, "модулю");
+assert.equal(inflectionReference.candidates[0].canonicalText, "модуль");
+assert.equal(inflectionReference.candidates[0].gender, "masculine");
+assert.equal(inflectionReference.candidates[0].number, "singular");
+
+const adjectiveInflection = core.analyse(
+  "Система передаёт данные новому модулю. Он принимает их.",
+  { contextRelation: "new_topic" }, knowledge
+).propositionChain;
+assert.equal(adjectiveInflection.items[1].proposition.subject, "новый модуль",
+  "a bounded adjective+noun phrase can be restored with matching nominative agreement");
+
+const dativePronounCase = core.analyse(
+  "Система передаёт сигнал модулю. Модель обращается к нему.",
+  { contextRelation: "new_topic" }, knowledge
+).propositionChain.items[1].proposition.references.find(row => row.mention === "нему");
+assert.equal(dativePronounCase.status, "resolved");
+assert.deepEqual(Array.from(dativePronounCase.mentionCases), ["dative"]);
+
+const multiComplementCases = [
+  {
+    text: "Контроллер передаёт сигнал из архива модулю через сеть.",
+    expected: [["agent", "Контроллер"], ["theme", "сигнал"], ["source", "архива"], ["recipient", "модулю"], ["instrument", "сеть"]]
+  },
+  {
+    text: "Модель отправляет данные через сеть системе.",
+    expected: [["agent", "Модель"], ["theme", "данные"], ["instrument", "сеть"], ["recipient", "системе"]]
+  },
+  {
+    text: "Сигнал передан из архива модулю системой.",
+    expected: [["theme", "Сигнал"], ["source", "архива"], ["recipient", "модулю"], ["agent", "системой"]]
+  }
+];
+for (const item of multiComplementCases) {
+  const proposition = core.analyse(item.text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.arguments.length, item.expected.length, "multiple participant count: " + item.text);
+  assert.deepEqual(Array.from(proposition.arguments, row => [row.role, row.text]),
+    item.expected, "multiple semantic participants: " + item.text);
+}
+
 const passiveArgumentCases = [
   {
     text: "Сигнал передан модулю системой.",

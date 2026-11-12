@@ -148,6 +148,50 @@
     "под", "над", "между", "около", "возле", "рядом", "с", "со", "по", "при",
     "о", "об", "обо", "за", "через", "про", "перед", "после", "среди", "внутри"
   ]);
+  const NOMINATIVE_FORM_BY_INFLECTION = new Map([
+    ["сигнала", "сигнал"], ["сигналу", "сигнал"], ["сигналом", "сигнал"], ["сигнале", "сигнал"],
+    ["модуля", "модуль"], ["модулю", "модуль"], ["модулем", "модуль"], ["модуле", "модуль"],
+    ["словаря", "словарь"], ["словарю", "словарь"], ["словарем", "словарь"], ["словарём", "словарь"],
+    ["нейрона", "нейрон"], ["нейрону", "нейрон"], ["нейроном", "нейрон"], ["нейроне", "нейрон"],
+    ["процесса", "процесс"], ["процессу", "процесс"], ["процессом", "процесс"], ["процессе", "процесс"],
+    ["объекта", "объект"], ["объекту", "объект"], ["объектом", "объект"], ["объекте", "объект"],
+    ["результата", "результат"], ["результату", "результат"], ["результатом", "результат"], ["результате", "результат"],
+    ["сервера", "сервер"], ["серверу", "сервер"], ["сервером", "сервер"], ["сервере", "сервер"],
+    ["узла", "узел"], ["узлу", "узел"], ["узлом", "узел"], ["узле", "узел"],
+    ["пакета", "пакет"], ["пакету", "пакет"], ["пакетом", "пакет"], ["пакете", "пакет"],
+    ["токена", "токен"], ["токену", "токен"], ["токеном", "токен"], ["токене", "токен"],
+    ["системы", "система"], ["системе", "система"], ["систему", "система"], ["системой", "система"],
+    ["моделью", "модель"], ["нейросетью", "нейросеть"], ["сетью", "сеть"], ["памятью", "память"],
+    ["комнате", "комната"], ["комнату", "комната"], ["комнатой", "комната"],
+    ["дверью", "дверь"], ["программой", "программа"], ["программе", "программа"], ["программу", "программа"],
+    ["причине", "причина"], ["причиной", "причина"], ["станцией", "станция"],
+    ["ядра", "ядро"], ["ядру", "ядро"], ["ядром", "ядро"], ["ядре", "ядро"],
+    ["состояния", "состояние"], ["состоянию", "состояние"], ["состоянием", "состояние"], ["состоянии", "состояние"],
+    ["сообщения", "сообщение"], ["сообщению", "сообщение"], ["сообщением", "сообщение"], ["сообщении", "сообщение"],
+    ["действия", "действие"], ["действию", "действие"], ["действием", "действие"], ["действии", "действие"],
+    ["нейронами", "нейроны"], ["нейронам", "нейроны"], ["нейронах", "нейроны"],
+    ["модулями", "модули"], ["модулям", "модули"], ["модулях", "модули"],
+    ["системами", "системы"], ["системам", "системы"], ["системах", "системы"],
+    ["данных", "данные"], ["данным", "данные"], ["данными", "данные"]
+  ]);
+  const NOMINATIVE_ADJECTIVE_FORMS = new Map([
+    ["нового", { masculine: "новый", feminine: "новая", neuter: "новое", plural: "новые" }],
+    ["новому", { masculine: "новый", feminine: "новая", neuter: "новое", plural: "новые" }],
+    ["новым", { masculine: "новый", feminine: "новая", neuter: "новое", plural: "новые" }],
+    ["новом", { masculine: "новый", feminine: "новая", neuter: "новое", plural: "новые" }],
+    ["новой", { feminine: "новая", plural: "новые" }],
+    ["новую", { feminine: "новая" }],
+    ["безопасного", { masculine: "безопасный", feminine: "безопасная", neuter: "безопасное", plural: "безопасные" }],
+    ["безопасному", { masculine: "безопасный", feminine: "безопасная", neuter: "безопасное", plural: "безопасные" }],
+    ["безопасным", { masculine: "безопасный", feminine: "безопасная", neuter: "безопасное", plural: "безопасные" }],
+    ["безопасном", { masculine: "безопасный", feminine: "безопасная", neuter: "безопасное", plural: "безопасные" }],
+    ["большого", { masculine: "большой", feminine: "большая", neuter: "большое", plural: "большие" }],
+    ["большому", { masculine: "большой", feminine: "большая", neuter: "большое", plural: "большие" }],
+    ["большим", { masculine: "большой", feminine: "большая", neuter: "большое", plural: "большие" }],
+    ["большом", { masculine: "большой", feminine: "большая", neuter: "большое", plural: "большие" }],
+    ["большой", { feminine: "большая" }],
+    ["большую", { feminine: "большая" }]
+  ]);
 
 
   const clean = (value, max = 240) =>
@@ -661,6 +705,77 @@
     return object[key] || null;
   }
 
+  function pronounCaseOptions(value, role) {
+    const words = clean(value, 100).split(/\s+/u).filter(Boolean);
+    const key = normalise(words[words.length - 1] || "");
+    if (!key) return [];
+    if (role === "subject") return ["nominative"];
+    if (words.length === 2 && OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]))) {
+      const prep = normalise(words[0]);
+      if (["к", "ко", "по"].includes(prep)) return ["dative"];
+      if (["от", "из", "изо", "у", "для", "без", "до", "около", "возле", "после"].includes(prep)) return ["genitive"];
+      if (["с", "со"].includes(prep)) return ["ним", "ней", "нею", "ними"].includes(key) ? ["instrumental"] : ["genitive"];
+      if (["о", "об", "обо", "при"].includes(prep)) return ["prepositional"];
+      if (["над", "перед", "между", "под"].includes(prep)) return ["instrumental"];
+      if (["через", "за"].includes(prep)) return ["accusative"];
+      if (["в", "во", "на"].includes(prep)) {
+        if (["нем", "нём", "ней"].includes(key)) return ["prepositional"];
+        return ["accusative", "prepositional"];
+      }
+    }
+    const cases = {
+      "ему": ["dative"], "нему": ["dative"], "ей": ["dative"], "ней": ["dative", "prepositional"],
+      "им": ["dative", "instrumental"], "его": ["genitive", "accusative"], "него": ["genitive", "accusative"],
+      "ее": ["genitive", "accusative"], "её": ["genitive", "accusative"], "нее": ["genitive", "accusative"],
+      "неё": ["genitive", "accusative"], "их": ["genitive", "accusative"], "них": ["genitive", "accusative"],
+      "ими": ["instrumental"], "ними": ["instrumental"], "ним": ["instrumental"], "нею": ["instrumental"], "ею": ["instrumental"],
+      "которого": ["genitive", "accusative"], "которую": ["accusative"], "которому": ["dative"],
+      "которой": ["genitive", "dative", "instrumental", "prepositional"], "которым": ["dative", "instrumental"],
+      "которыми": ["instrumental"], "которых": ["genitive", "accusative"]
+    };
+    return cases[key] || [];
+  }
+
+  function canonicalNominativePhrase(value, gender, number) {
+    const text = clean(value, 180);
+    const words = text.split(/\s+/u).filter(Boolean);
+    if (!words.length || words.length > 2 ||
+        (words.length > 1 && GRAMMATICAL_FUNCTION_WORDS.has(normalise(words[0])))) return null;
+    const head = normalise(words[words.length - 1]);
+    const lemma = NOMINATIVE_FORM_BY_INFLECTION.get(head);
+    if (!lemma) return null;
+    if (words.length === 1) return lemma;
+    const adjective = NOMINATIVE_ADJECTIVE_FORMS.get(normalise(words[0]));
+    const adjectiveForm = adjective && adjective[number === "plural" ? "plural" : gender];
+    return adjectiveForm ? adjectiveForm + " " + lemma : null;
+  }
+
+  function grammaticalFeatures(value, role = "object", suppliedCase = null) {
+    const text = clean(value, 180);
+    const gender = grammaticalGender(text);
+    const number = gender === "plural" ? "plural"
+      : ["masculine", "feminine", "neuter"].includes(gender) ? "singular" : "unknown";
+    const words = text.split(/\s+/u).filter(Boolean);
+    let marker = "", phrase = text;
+    if (words.length > 1) {
+      if (["рядом с", "с помощью"].includes(normalise(words.slice(0, 2).join(" ")))) {
+        marker = normalise(words.slice(0, 2).join(" "));
+        phrase = words.slice(2).join(" ");
+      } else if (OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]))) {
+        marker = normalise(words[0]);
+        phrase = words.slice(1).join(" ");
+      }
+    }
+    const allowedCases = ["nominative", "accusative", "genitive", "dative", "instrumental", "prepositional", "unknown"];
+    const grammaticalCase = allowedCases.includes(suppliedCase) && suppliedCase !== "unknown"
+      ? suppliedCase : role === "subject" && !marker ? "nominative"
+      : semanticPhraseCase(phrase, marker, "");
+    return {
+      gender, number, grammaticalCase: allowedCases.includes(grammaticalCase) ? grammaticalCase : "unknown",
+      canonicalText: canonicalNominativePhrase(text, gender, number)
+    };
+  }
+
   function validatePropositionReferences(raw, fallback = undefined) {
     const rows = Array.isArray(fallback) ? fallback : Array.isArray(raw) ? raw : [];
     const output = [];
@@ -681,7 +796,12 @@
           ? candidate.role : "object",
         grammaticalCase: ["nominative", "accusative", "genitive", "dative",
           "instrumental", "prepositional", "unknown"].includes(candidate && candidate.grammaticalCase)
-          ? candidate.grammaticalCase : null
+          ? candidate.grammaticalCase : null,
+        gender: ["masculine", "feminine", "neuter", "plural", "unknown"].includes(candidate && candidate.gender)
+          ? candidate.gender : "unknown",
+        number: ["singular", "plural", "unknown"].includes(candidate && candidate.number)
+          ? candidate.number : "unknown",
+        canonicalText: clean(candidate && candidate.canonicalText, 180) || null
       })).filter(candidate => candidate.text);
       const confidence = Number(row.confidence);
       const provenanceSource = row.provenance && row.provenance.source;
@@ -695,6 +815,9 @@
       output.push({
         schema: COREFERENCE_SCHEMA, mention, mentionRole: ["subject", "object"].includes(row.mentionRole) ? row.mentionRole : null,
         mentionContext: clean(row.mentionContext, 40) || null,
+        mentionCases: (Array.isArray(row.mentionCases) ? row.mentionCases : [])
+          .filter(value => ["nominative", "accusative", "genitive", "dative", "instrumental", "prepositional"].includes(value))
+          .slice(0, 3),
         targetType, status,
         antecedentId: status === "resolved" ? antecedentId : null,
         antecedentText: status === "resolved" ? antecedentText : null,
@@ -715,6 +838,7 @@
         OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]));
       const mention = words[words.length - 1] || surfaceMention;
       const mentionContext = hasPrepositionContext ? clean(words[0], 24) : null;
+      const mentionCases = pronounCaseOptions(surfaceMention, role);
       const currentArgument = (Array.isArray(proposition.arguments) ? proposition.arguments : [])
         .find(argument => normalise(argument.text) === normalise(surfaceMention));
       // Only valency-specific roles provide a safe tie-breaker. Generic agent,
@@ -786,9 +910,12 @@
           const score = (index - priorIndex) * 10 + rolePenalty;
           const existing = candidatesByEntity.get(key);
           if (!existing || score < existing.score) {
+            const features = grammaticalFeatures(text, candidateRole, argument.grammaticalCase);
             candidatesByEntity.set(key, {
               id: previous.id, text, role: candidateRole,
-              grammaticalCase: argument.grammaticalCase || "unknown",
+              grammaticalCase: features.grammaticalCase,
+              gender: features.gender, number: features.number,
+              canonicalText: features.canonicalText,
               score, semantic: true
             });
           }
@@ -805,8 +932,11 @@
           const score = (index - priorIndex) * 10 + (candidateRole === "subject" ? 0 : 1);
           const existing = candidatesByEntity.get(key);
           if (!existing || score < existing.score) {
+            const features = grammaticalFeatures(text, candidateRole, null);
             candidatesByEntity.set(key, { id: previous.id, text, role: candidateRole,
-              grammaticalCase: null, score, semantic: false });
+              grammaticalCase: features.grammaticalCase, gender: features.gender,
+              number: features.number, canonicalText: features.canonicalText,
+              score, semantic: false });
           }
         }
       }
@@ -832,13 +962,16 @@
         : roleMatches.length === 1 ? roleMatches[0] : null;
       const decisive = !!resolvedCandidate;
       references.push({
-        schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role, targetType: "entity",
+        schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role,
+        mentionCases, targetType: "entity",
         status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
         antecedentId: decisive ? resolvedCandidate.id : null,
         antecedentText: decisive ? resolvedCandidate.text : null,
         candidates: candidates.slice(0, 3).map(row => ({
           id: row.id, text: row.text, role: row.role,
-          grammaticalCase: row.grammaticalCase || null
+          grammaticalCase: row.grammaticalCase || null,
+          gender: row.gender || "unknown", number: row.number || "unknown",
+          canonicalText: row.canonicalText || null
         })),
         provenance: { source: "semantic_core_rule", rule: "semantic_role_case_number_compatibility", window: 6 },
         confidence: decisive ? (roleMatches.length ? 0.88 : 0.84) : candidates.length ? 0.42 : 0.12
@@ -852,9 +985,13 @@
       const caseMismatch = decisive && role === "subject" && !antecedentHasPreposition &&
         resolvedCandidate.grammaticalCase &&
         !["nominative", "accusative", "unknown"].includes(resolvedCandidate.grammaticalCase);
-      const preserveCaseSurface = hasPrepositionContext || caseMismatch ||
+      const preserveCaseSurface = hasPrepositionContext ||
+        (caseMismatch && !resolvedCandidate.canonicalText) ||
         (role === "object" && /^котор/iu.test(mention));
-      if (decisive && !preserveCaseSurface) proposition[role] = resolvedCandidate.text;
+      if (decisive && !preserveCaseSurface) {
+        proposition[role] = caseMismatch && resolvedCandidate.canonicalText
+          ? resolvedCandidate.canonicalText : resolvedCandidate.text;
+      }
     };
 
     return items.map((item, index) => {
@@ -980,8 +1117,11 @@
     const text = clean(value, 180).toLowerCase().replace(/ё/gu, "е");
     const last = text.split(/\s+/u).filter(Boolean).pop() || "";
     const prep = normalise(marker);
-    if (["от", "из", "из-за", "для", "без", "около", "возле", "после"].includes(prep)) return "genitive";
-    if (["к", "ко"].includes(prep)) return "dative";
+    if (["от", "из", "из-за", "для", "без", "до", "у", "около", "возле", "после", "среди", "внутри"].includes(prep)) return "genitive";
+    if (["к", "ко", "по"].includes(prep)) return "dative";
+    if (["над", "перед", "между", "под", "рядом с"].includes(prep)) return "instrumental";
+    if (["о", "об", "обо", "при"].includes(prep)) return "prepositional";
+    if (prep === "через") return "accusative";
     if (["с", "со"].includes(prep)) {
       if (INSTRUMENTAL_FEMININE_FORMS.has(last) || INSTRUMENTAL_MASCULINE_FORMS.has(last) ||
           INSTRUMENTAL_NEUTER_FORMS.has(last) || /(?:ом|ем|ой|ей|ью|ами|ями)$/u.test(last)) return "instrumental";
@@ -1021,15 +1161,16 @@
   function splitSemanticComplement(value, predicate) {
     const original = clean(value, 220);
     if (!original) return { theme: "", complement: null };
-    const prepMatch = original.match(/^(.+?)\s+(с помощью|посредством|из-за|рядом с|от|из|к|ко|для|в|во|на|при|с|со)\s+(.+)$/iu);
+    const prepMatch = original.match(/^(.+?)\s+(с помощью|посредством|из-за|рядом с|от|из|к|ко|для|без|до|у|около|возле|после|среди|внутри|над|перед|между|под|через|по|о|об|обо|в|во|на|при|с|со)\s+(.+)$/iu);
     if (prepMatch) {
       const marker = clean(prepMatch[2], 24);
       const phrase = clean(prepMatch[3], 120);
       const grammaticalCase = semanticPhraseCase(phrase, marker, predicate);
       const prep = normalise(marker);
       let role = "context";
-      if (["от", "из", "из-за"].includes(prep) || (["с", "со"].includes(prep) && grammaticalCase === "genitive")) role = "source";
-      else if (["с помощью", "посредством"].includes(prep) ||
+      if (prep === "из-за") role = "cause";
+      else if (["от", "из"].includes(prep) || (["с", "со"].includes(prep) && grammaticalCase === "genitive")) role = "source";
+      else if (["с помощью", "посредством", "через"].includes(prep) ||
           ((prep === "с" || prep === "со") && grammaticalCase === "instrumental")) role = "instrument";
       else if (["к", "ко"].includes(prep)) role = TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "destination";
       else if (prep === "для") role = "beneficiary";
@@ -1079,50 +1220,140 @@
     return { theme: original, complement: null };
   }
 
-  function splitPassiveComplements(value, predicate) {
-    let remaining = clean(value, 220);
-    const complements = [];
-    if (!remaining) return complements;
-    const words = remaining.split(/\s+/u);
-    const last = normalise(words[words.length - 1]);
-    const hasInstrumentalTail = INSTRUMENTAL_FEMININE_FORMS.has(last) ||
+  const SEMANTIC_PREPOSITION_MARKERS = [
+    "с помощью", "рядом с", "посредством", "из-за", "изо", "около", "возле",
+    "после", "среди", "внутри", "перед", "между", "через", "от", "из",
+    "для", "без", "до", "у", "над", "под", "по", "к", "ко",
+    "в", "во", "на", "при", "о", "об", "обо", "с", "со"
+  ];
+  function prepositionExpectedCase(marker, predicate) {
+    const key = normalise(marker);
+    if (["от", "из", "изо", "из-за", "для", "без", "до", "у", "около", "возле", "после", "среди", "внутри"].includes(key)) return "genitive";
+    if (["к", "ко", "по"].includes(key)) return "dative";
+    if (["над", "перед", "между", "рядом с"].includes(key)) return "instrumental";
+    if (["о", "об", "обо", "при"].includes(key)) return "prepositional";
+    if (key === "через") return "accusative";
+    if (["в", "во", "на"].includes(key)) return TRANSFER_PREDICATES.has(normalise(predicate)) ? "accusative" : "prepositional";
+    if (["с", "со"].includes(key) || key === "под") return null;
+    return null;
+  }
+
+  function extractInflectedComplementTail(words, predicate) {
+    const source = words.slice();
+    if (!source.length || (source.length === 1 && !PASSIVE_PREDICATES.has(normalise(predicate)))) return null;
+    const last = normalise(source[source.length - 1]);
+    const dative = DATIVE_FEMININE_FORMS.has(last) || DATIVE_MASCULINE_FORMS.has(last) ||
+      DATIVE_NEUTER_FORMS.has(last) || ["системам", "модулям", "нейронам", "данным"].includes(last);
+    const instrumental = INSTRUMENTAL_FEMININE_FORMS.has(last) ||
       INSTRUMENTAL_MASCULINE_FORMS.has(last) || INSTRUMENTAL_NEUTER_FORMS.has(last);
-    if (hasInstrumentalTail) {
-      const adjectiveBefore = words.length > 1 &&
-        /(?:ому|ему|ой|ей|ым|им)$/iu.test(normalise(words[words.length - 2]));
-      const take = adjectiveBefore ? 2 : 1;
-      const phrase = words.slice(-take).join(" ");
-      const role = PASSIVE_AGENT_FORMS.has(last) ? "agent" : "instrument";
-      complements.push({
-        role, text: phrase, marker: null, grammaticalCase: "instrumental",
-        confidence: 0.78, rule: role === "agent"
-          ? "passive_instrumental_agent" : "passive_instrumental_instrument"
+    if (!dative && !instrumental) return null;
+    const adjectiveBefore = source.length > 1 &&
+      /(?:ого|его|ому|ему|ой|ей|ым|им|ую|юю|ыми|ими)$/iu.test(normalise(source[source.length - 2]));
+    const take = adjectiveBefore ? 2 : 1;
+    const phrase = source.slice(-take).join(" ");
+    const role = dative
+      ? TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object"
+      : PASSIVE_PREDICATES.has(normalise(predicate)) && PASSIVE_AGENT_FORMS.has(last) ? "agent" : "instrument";
+    return {
+      remaining: source.slice(0, -take),
+      complement: {
+        role, text: phrase, marker: null,
+        grammaticalCase: dative ? "dative" : "instrumental",
+        confidence: 0.78,
+        rule: dative ? "multi_complement_dative_suffix"
+          : role === "agent" ? "passive_instrumental_agent" : "multi_complement_instrumental_suffix"
+      }
+    };
+  }
+
+  function splitSemanticComplements(value, predicate) {
+    const original = clean(value, 220);
+    if (!original) return { theme: "", complements: [] };
+    const words = original.split(/\s+/u);
+    const markers = [];
+    for (let index = 0; index < words.length; index++) {
+      const found = SEMANTIC_PREPOSITION_MARKERS.find(marker => {
+        const markerWords = marker.split(/\s+/u);
+        return markerWords.every((word, offset) => normalise(words[index + offset]) === word);
       });
-      remaining = clean(words.slice(0, -take).join(" "), 180);
-    }
-    if (remaining) {
-      const split = splitSemanticComplement(remaining, predicate);
-      if (split.complement) {
-        if (split.theme) {
-          complements.unshift({
-            role: "theme", text: split.theme, marker: null,
-            grammaticalCase: "accusative", confidence: 0.68,
-            rule: "passive_secondary_theme"
-          });
-        }
-        complements.unshift(split.complement);
-      } else {
-        const grammaticalCase = semanticPhraseCase(remaining, "", predicate);
-        if (grammaticalCase === "dative") {
-          complements.unshift({
-            role: PASSIVE_TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object",
-            text: remaining, marker: null, grammaticalCase: "dative",
-            confidence: 0.78, rule: "passive_dative_complement"
-          });
-        }
+      if (found) {
+        markers.push({ index, marker: found, length: found.split(/\s+/u).length });
+        index += found.split(/\s+/u).length - 1;
       }
     }
-    return complements.slice(0, 3);
+    if (!markers.length) {
+      let remaining = words.slice();
+      const complements = [];
+      while (remaining.length > 1 || PASSIVE_PREDICATES.has(normalise(predicate))) {
+        const tail = extractInflectedComplementTail(remaining, predicate);
+        if (!tail) break;
+        complements.unshift(tail.complement);
+        remaining = tail.remaining;
+        if (!remaining.length) break;
+      }
+      return { theme: clean(remaining.join(" "), 180), complements };
+    }
+
+    let prefix = words.slice(0, markers[0].index);
+    const complements = [];
+    while (prefix.length > 1) {
+      const tail = extractInflectedComplementTail(prefix, predicate);
+      if (!tail) break;
+      complements.unshift(tail.complement);
+      prefix = tail.remaining;
+    }
+    const theme = clean(prefix.join(" "), 180);
+    for (let markerIndex = 0; markerIndex < markers.length && complements.length < 5; markerIndex++) {
+      const current = markers[markerIndex];
+      const next = markers[markerIndex + 1];
+      const end = next ? next.index : words.length;
+      let segment = words.slice(current.index + current.length, end);
+      const expectedCase = prepositionExpectedCase(current.marker, predicate);
+      const trailingComplements = [];
+      while (segment.length > 1 || PASSIVE_PREDICATES.has(normalise(predicate))) {
+        const tail = extractInflectedComplementTail(segment, predicate);
+        if (!tail || !expectedCase || tail.complement.grammaticalCase === expectedCase) break;
+        trailingComplements.unshift(tail.complement);
+        segment = tail.remaining;
+        if (!segment.length) break;
+      }
+      const phrase = clean(segment.join(" "), 140);
+      if (phrase) {
+        const grammaticalCase = semanticPhraseCase(phrase, current.marker, predicate);
+        const prep = normalise(current.marker);
+        let role = "context";
+        if (prep === "из-за") role = "cause";
+        else if (["от", "из", "изо"].includes(prep) ||
+          (["с", "со"].includes(prep) && grammaticalCase === "genitive")) role = "source";
+        else if (["с помощью", "посредством", "через"].includes(prep) ||
+          ((prep === "с" || prep === "со") && grammaticalCase === "instrumental")) role = "instrument";
+        else if (["к", "ко"].includes(prep)) role = TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "destination";
+        else if (prep === "для") role = "beneficiary";
+        else if (["в", "во", "на", "при", "рядом с", "под", "над", "перед", "между"].includes(prep)) {
+          role = grammaticalCase === "prepositional" || ["при", "рядом с", "под", "над", "перед", "между"].includes(prep)
+            ? "location" : TRANSFER_PREDICATES.has(normalise(predicate)) ? "destination" : "location";
+        }
+        complements.push({
+          role, text: phrase, marker: current.marker, grammaticalCase,
+          confidence: grammaticalCase === "unknown" ? 0.52 : 0.82,
+          rule: "multi_preposition_case_valency"
+        });
+      }
+      complements.push(...trailingComplements);
+    }
+    return { theme, complements: complements.slice(0, 5) };
+  }
+
+  function splitPassiveComplements(value, predicate) {
+    const split = splitSemanticComplements(value, predicate);
+    const complements = [];
+    if (split.theme) complements.push({
+      role: "theme", text: split.theme, marker: null,
+      grammaticalCase: "accusative", confidence: 0.68,
+      rule: "passive_secondary_theme"
+    });
+    complements.push(...split.complements);
+    return complements.slice(0, 5);
   }
 
   function buildSemanticArguments(subject, predicate, object) {
@@ -1146,12 +1377,12 @@
         add(complement.role, complement.text, complement.marker,
           complement.grammaticalCase, complement.confidence, complement.rule);
       }
-      return result.slice(0, 5);
+      return result.slice(0, 7);
     }
     const subjectRole = RECEIVING_PREDICATES.has(verb) ? "recipient"
       : CAUSATIVE_PREDICATES.has(verb) ? "cause" : "agent";
     add(subjectRole, actor, null, "nominative", 0.8, "bounded_verb_valency");
-    const split = splitSemanticComplement(object, predicate);
+    const split = splitSemanticComplements(object, predicate);
     if (split.theme) {
       const themeRole = CAUSATIVE_PREDICATES.has(verb) ? "effect"
         : RECEIVING_PREDICATES.has(verb) || TRANSFER_PREDICATES.has(verb) ||
@@ -1159,9 +1390,9 @@
           ? "theme" : "patient";
       add(themeRole, split.theme, null, "accusative", 0.76, "verb_object_valency");
     }
-    if (split.complement) add(split.complement.role, split.complement.text, split.complement.marker,
-      split.complement.grammaticalCase, split.complement.confidence, split.complement.rule);
-    return result.slice(0, 5);
+    for (const complement of split.complements) add(complement.role, complement.text, complement.marker,
+      complement.grammaticalCase, complement.confidence, complement.rule);
+    return result.slice(0, 7);
   }
 
   function validateProposition(raw, fallback = {}) {

@@ -35,6 +35,11 @@ assert.equal(subjectVersusObject.items[1].proposition.subject, "сигнал",
 assert.equal(reference(subjectVersusObject.items[1], "subject").candidates[0].role, "theme",
   "the semantic argument role must be more specific than the legacy object slot");
 
+const dativeNominativeReference = parseChain("Система передаёт сигнал модулю. Он принимает его.");
+assert.equal(dativeNominativeReference.items[1].proposition.subject, "модуль");
+assert.equal(reference(dativeNominativeReference.items[1], "subject").antecedentText, "модулю");
+assert.equal(reference(dativeNominativeReference.items[1], "subject").candidates[0].canonicalText, "модуль");
+
 const objectReference = parseChain("Система получает сигнал. Модель обрабатывает его.");
 assert.equal(objectReference.items[1].proposition.object, "сигнал",
   "an object pronoun must be resolved from the prior proposition object");
