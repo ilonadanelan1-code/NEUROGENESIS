@@ -3404,12 +3404,17 @@
     const dialoguePlan = DIALOG_MANAGER
       ? DIALOG_MANAGER.plan(submittedQuery, { ...(dialogueReport || {}), resolution:dialogueResolution })
       : null;
+    const mustAskClarification = dialoguePlan && DIALOG_MANAGER &&
+      typeof DIALOG_MANAGER.shouldAskClarification === "function"
+      ? DIALOG_MANAGER.shouldAskClarification(dialoguePlan, semanticPlan)
+      : !!(dialoguePlan && dialoguePlan.needsClarification &&
+        (dialoguePlan.intent === "topic_return" || !trustedSemanticDecision));
     if (semanticRelation === "unclear" && semanticPlan && Number(semanticPlan.confidence) >= 0.62) {
       say("assistant", "Я вижу несколько возможных смыслов этого сообщения и не хочу выбирать тему наугад. Уточни, пожалуйста, к какому объекту или факту относится вопрос.");
       setFeedback("СМЫСЛОВОЙ РАЗБОР · НУЖНО УТОЧНЕНИЕ");
       return;
     }
-    if (dialoguePlan && dialoguePlan.needsClarification && !trustedSemanticDecision) {
+    if (mustAskClarification) {
       say("assistant", dialoguePlan.clarification);
       setFeedback("ДИАЛОГ · ТРЕБУЕТСЯ УТОЧНЕНИЕ · " + dialoguePlan.intent.toUpperCase());
       return;
