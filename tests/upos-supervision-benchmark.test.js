@@ -107,6 +107,8 @@ for (const seed of seeds) {
       epochs:80,learningRate:.035,patience:12,seed:seed.model,...configuration
     });
     assert.ok(headTraining.classes.length>=2);
+    assert.equal(headTraining.selectionMetric,configuration.selectionMetric,
+      "the trained UPOS head must report the checkpoint-selection metric requested by its paired configuration");
     const metrics=Object.fromEntries(Object.entries(groups).map(([key,examples])=>[
       key,summarize(examples,head,headTraining.majorityLabel)
     ]));
@@ -153,8 +155,9 @@ const summary={
     variants,
     sameEncoderAndSplitsForBothHeads:true,
     classWeightsDerivedOnlyFromSupervisedTrainingRows:true,
-    unweightedEarlyStopping:"validation cross-entropy",
-    sqrtInverseEarlyStopping:"validation macro-F1",
+    checkpointSelectionMetricByVariant:Object.fromEntries(
+      Object.entries(variants).map(([name,configuration])=>[name,configuration.selectionMetric])
+    ),
     sqrtInverseFormula:"sqrt(N / (K * classCount)), normalized to mean sample weight 1"
   },
   isolation:{
