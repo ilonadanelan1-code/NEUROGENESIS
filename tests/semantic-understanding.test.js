@@ -276,6 +276,50 @@ for (const item of semanticArgumentCases) {
     assert.equal(actual.provenance.source, "semantic_core_rule");
   }
 }
+const roleAlignedCoreference = core.analyse(
+  "Система передаёт сигнал модулю. Затем он принимает его.",
+  { contextRelation: "new_topic" }, knowledge
+).propositionChain;
+const recipientReference = roleAlignedCoreference.items[1].proposition.references.find(row =>
+  row.mention === "он");
+assert.equal(recipientReference.status, "resolved",
+  "a subject pronoun can resolve through the earlier recipient argument");
+assert.equal(recipientReference.antecedentText, "модулю");
+assert.equal(recipientReference.candidates[0].role, "recipient");
+const themeReference = roleAlignedCoreference.items[1].proposition.references.find(row =>
+  row.mention === "его");
+assert.equal(themeReference.status, "resolved",
+  "the object pronoun should resolve to the prior theme, not reuse the subject entity");
+assert.equal(themeReference.antecedentText, "сигнал");
+assert.equal(themeReference.candidates[0].role, "theme");
+
+const passiveArgumentCases = [
+  {
+    text: "Сигнал передан модулю системой.",
+    expected: [["theme", "Сигнал", "nominative"], ["recipient", "модулю", "dative"], ["agent", "системой", "instrumental"]]
+  },
+  {
+    text: "Дверь открыта ключом.",
+    expected: [["patient", "Дверь", "nominative"], ["instrument", "ключом", "instrumental"]]
+  },
+  {
+    text: "Файл был сохранён пользователем.",
+    expected: [["patient", "Файл", "nominative"], ["agent", "пользователем", "instrumental"]]
+  }
+];
+for (const item of passiveArgumentCases) {
+  const proposition = core.analyse(item.text, { contextRelation: "new_topic" }, knowledge).proposition;
+  assert.equal(proposition.kind, "assertion", "passive proposition must be parsed: " + item.text);
+  assert.equal(proposition.arguments.length, item.expected.length, "passive participant count: " + item.text);
+  for (let index = 0; index < item.expected.length; index++) {
+    const [role, text, grammaticalCase] = item.expected[index];
+    const actual = proposition.arguments[index];
+    assert.equal(actual.role, role, "passive semantic role: " + item.text + " #" + index);
+    assert.equal(actual.text.toLowerCase(), text.toLowerCase(), "passive participant: " + item.text + " #" + index);
+    assert.equal(actual.grammaticalCase, grammaticalCase, "passive case: " + item.text + " #" + index);
+  }
+}
+
 const nestedPhrase = core.analyse("Алгоритм выбирает безопасный маршрут обхода.", {
   contextRelation: "new_topic"
 }, knowledge).proposition;

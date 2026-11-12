@@ -446,6 +446,23 @@
       .replace(/(^|\s)не\s+всегда\s+/u, "$1")
       .replace(/(^|\s)всегда\s+не\s+/u, "$1");
 
+    const passive = propositionText.match(/^(.+?)\s+(?:(?:был|была|было|были)\s+)?(передан|передана|передано|переданы|отправлен|отправлена|отправлено|отправлены|сообщен|сообщена|сообщено|сообщены|получен|получена|получено|получены|принят|принята|принято|приняты|открыт|открыта|открыто|открыты|создан|создана|создано|созданы|сохранен|сохранена|сохранено|сохранены|обнаружен|обнаружена|обнаружено|обнаружены|обработан|обработана|обработано|обработаны|запущен|запущена|запущено|запущены|выбран|выбрана|выбрано|выбраны|измерен|измерена|измерено|измерены|проверен|проверена|проверено|проверены|активирован|активирована|активировано|активированы|защищен|защищена|защищено|защищены|изменен|изменена|изменено|изменены)(?:\s+(.+))?$/iu);
+    if (passive && PASSIVE_PREDICATES.has(normalise(passive[2]))) {
+      const modality = explicitPossible ? "possible" : "asserted";
+      return {
+        ...base,
+        kind: conditional ? "conditional" : opinion ? "opinion" : modality === "possible" ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(passive[1]),
+        predicate: clean(passive[2], 80),
+        object: clean(passive[3], 220),
+        relation: "predicate",
+        polarity: polarityScope.polarity, polarityScope,
+        modality: conditional ? "conditional" : opinion ? "opinion" : modality,
+        confidence: 0.78,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
     const directCause = propositionText.match(/^(.+?)\s+(?:(может|могут|способен|способна|способны)\s+)?(не\s+)?(вызывает|вызывают|провоцирует|провоцируют|порождает|порождают|обусловливает|обусловливают)\s+(.+)$/iu);
     if (directCause) {
       const modality = directCause[2] ? "possible" : explicitPossible ? "possible" : "asserted";
@@ -656,7 +673,13 @@
       const candidates = (Array.isArray(row.candidates) ? row.candidates : []).slice(0, 3).map(candidate => ({
         id: /^p[1-6]$/u.test(clean(candidate && candidate.id, 8)) ? clean(candidate.id, 8) : null,
         text: clean(candidate && candidate.text, 120),
-        role: ["subject", "object", "event", "location", "time"].includes(candidate && candidate.role) ? candidate.role : "object"
+        role: ["subject", "object", "event", "location", "time", "agent", "recipient", "theme",
+          "patient", "cause", "effect", "source", "instrument", "destination",
+          "beneficiary", "indirect_object", "context"].includes(candidate && candidate.role)
+          ? candidate.role : "object",
+        grammaticalCase: ["nominative", "accusative", "genitive", "dative",
+          "instrumental", "prepositional", "unknown"].includes(candidate && candidate.grammaticalCase)
+          ? candidate.grammaticalCase : null
       })).filter(candidate => candidate.text);
       const confidence = Number(row.confidence);
       const provenanceSource = row.provenance && row.provenance.source;
@@ -690,40 +713,103 @@
         OBLIQUE_PRONOUN_PREPOSITIONS.has(normalise(words[0]));
       const mention = words[words.length - 1] || surfaceMention;
       const mentionContext = hasPrepositionContext ? clean(words[0], 24) : null;
+      const currentArgument = (Array.isArray(proposition.arguments) ? proposition.arguments : [])
+        .find(argument => normalise(argument.text) === normalise(surfaceMention));
+      const desiredRole = currentArgument && currentArgument.role || null;
       const candidatesByEntity = new Map();
       for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 6); priorIndex--) {
         const previous = items[priorIndex], prior = previous.proposition || {};
-        for (const candidateRole of ["subject", "object"]) {
-          const text = clean(prior[candidateRole], 180);
-          if (!text || pronounGenders(text, candidateRole)) continue;
+        const semanticArguments = Array.isArray(prior.arguments) ? prior.arguments : [];
+        const semanticKeys = new Set();
+        for (const argument of semanticArguments) {
+          const text = clean(argument && argument.text, 180);
+          if (!text || pronounGenders(text, "object")) continue;
           const gender = grammaticalGender(text);
           if (!genders.includes(gender)) continue;
           const key = normalise(text);
           if (!key) continue;
-          const score = (index - priorIndex) * 2 + (candidateRole === "subject" ? 0 : 1);
+          semanticKeys.add(key);
+          const candidateRole = clean(argument.role, 32) || "object";
+          const rolePenalty = desiredRole && candidateRole !== desiredRole ? 2 : 0;
+          const score = (index - priorIndex) * 10 + rolePenalty;
           const existing = candidatesByEntity.get(key);
           if (!existing || score < existing.score) {
-            candidatesByEntity.set(key, { id: previous.id, text, role: candidateRole, score });
+            candidatesByEntity.set(key, {
+              id: previous.id, text, role: candidateRole,
+              grammaticalCase: argument.grammaticalCase || "unknown",
+              score, semantic: true
+            });
+          }
+        }
+        // Backward-compatible fallback for propositions created before semantic
+        // arguments existed, or for legacy phrases that the bounded role rules miss.
+        for (const candidateRole of ["subject", "object"]) {
+          const text = clean(prior[candidateRole], 180);
+          if (!text || pronounGenders(text, candidateRole)) continue;
+          const key = normalise(text);
+          if (!key || semanticKeys.has(key)) continue;
+          const gender = grammaticalGender(text);
+          if (!genders.includes(gender)) continue;
+          const score = (index - priorIndex) * 10 + (candidateRole === "subject" ? 0 : 1);
+          const existing = candidatesByEntity.get(key);
+          if (!existing || score < existing.score) {
+            candidatesByEntity.set(key, { id: previous.id, text, role: candidateRole,
+              grammaticalCase: null, score, semantic: false });
           }
         }
       }
-      const candidates = [...candidatesByEntity.values()].sort((a, b) => a.score - b.score);
-      // A unique compatible entity is safe; two distinct entities remain ambiguous,
-      // even if one is slightly nearer or happens to occupy the subject role.
-      const decisive = candidates.length === 1;
+      let candidates = [...candidatesByEntity.values()].sort((a, b) => a.score - b.score);
+      // When two pronouns occupy complementary argument slots, semantic role
+      // continuity can distinguish a recipient from a theme without guessing
+      // from proximity alone.
+      const roleMatches = desiredRole
+        ? candidates.filter(candidate => candidate.semantic && candidate.role === desiredRole)
+        : [];
+      const decisiveCandidate = candidates.length === 1 ? candidates[0]
+        : roleMatches.length === 1 ? roleMatches[0] : null;
+      // If the current subject already resolved to one participant, do not let a
+      // second non-reflexive object pronoun silently reuse that same entity when
+      // another compatible participant exists.
+      const priorSubjectReference = role === "object"
+        ? references.find(reference => reference.mentionRole === "subject" &&
+          reference.targetType === "entity" && reference.status === "resolved")
+        : null;
+      if (priorSubjectReference && candidates.length > 1) {
+        const alternatives = candidates.filter(candidate =>
+          normalise(candidate.text) !== normalise(priorSubjectReference.antecedentText));
+        if (alternatives.length) candidates = alternatives;
+      }
+      const finalRoleMatches = desiredRole
+        ? candidates.filter(candidate => candidate.semantic && candidate.role === desiredRole)
+        : [];
+      const resolvedCandidate = candidates.length === 1 ? candidates[0]
+        : finalRoleMatches.length === 1 ? finalRoleMatches[0]
+        : decisiveCandidate && candidates.some(candidate =>
+          candidate.semantic && candidate.role === decisiveCandidate.role &&
+          normalise(candidate.text) === normalise(decisiveCandidate.text))
+          ? decisiveCandidate : null;
+      const decisive = !!resolvedCandidate;
       references.push({
         schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role, targetType: "entity",
         status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
-        antecedentId: decisive ? candidates[0].id : null,
-        antecedentText: decisive ? candidates[0].text : null,
-        candidates: candidates.slice(0, 3).map(row => ({ id: row.id, text: row.text, role: row.role })),
-        provenance: { source: "semantic_core_rule", rule: "case_number_role_compatibility", window: 6 },
-        confidence: decisive ? 0.84 : candidates.length ? 0.42 : 0.12
+        antecedentId: decisive ? resolvedCandidate.id : null,
+        antecedentText: decisive ? resolvedCandidate.text : null,
+        candidates: candidates.slice(0, 3).map(row => ({
+          id: row.id, text: row.text, role: row.role,
+          grammaticalCase: row.grammaticalCase || null
+        })),
+        provenance: { source: "semantic_core_rule", rule: "semantic_role_case_number_compatibility", window: 6 },
+        confidence: decisive ? (roleMatches.length ? 0.88 : 0.84) : candidates.length ? 0.42 : 0.12
       });
-      // Keep an oblique phrase such as "с ним" in its original case: a nominative
-      // antecedent cannot be substituted without declension.
-      const preserveCaseSurface = hasPrepositionContext || (role === "object" && /^котор/iu.test(mention));
-      if (decisive && !preserveCaseSurface) proposition[role] = candidates[0].text;
+      // Keep an oblique phrase such as "с ним" in its original case. Also avoid
+      // copying a dative/instrumental antecedent into a nominative subject slot:
+      // the reference is retained, but no ungrounded declension is fabricated.
+      const caseMismatch = decisive && role === "subject" &&
+        resolvedCandidate.grammaticalCase &&
+        !["nominative", "accusative", "unknown"].includes(resolvedCandidate.grammaticalCase);
+      const preserveCaseSurface = hasPrepositionContext || caseMismatch ||
+        (role === "object" && /^котор/iu.test(mention));
+      if (decisive && !preserveCaseSurface) proposition[role] = resolvedCandidate.text;
     };
 
     return items.map((item, index) => {
@@ -799,11 +885,42 @@
     });
   }
 
+  const PASSIVE_PREDICATES = new Set([
+    "передан", "передана", "передано", "переданы",
+    "отправлен", "отправлена", "отправлено", "отправлены",
+    "сообщен", "сообщена", "сообщено", "сообщены",
+    "получен", "получена", "получено", "получены",
+    "принят", "принята", "принято", "приняты",
+    "открыт", "открыта", "открыто", "открыты",
+    "создан", "создана", "создано", "созданы",
+    "сохранен", "сохранена", "сохранено", "сохранены",
+    "обнаружен", "обнаружена", "обнаружено", "обнаружены",
+    "обработан", "обработана", "обработано", "обработаны",
+    "запущен", "запущена", "запущено", "запущены",
+    "выбран", "выбрана", "выбрано", "выбраны",
+    "измерен", "измерена", "измерено", "измерены",
+    "проверен", "проверена", "проверено", "проверены",
+    "активирован", "активирована", "активировано", "активированы",
+    "защищен", "защищена", "защищено", "защищены",
+    "изменен", "изменена", "изменено", "изменены"
+  ]);
+  const PASSIVE_TRANSFER_PREDICATES = new Set([
+    "передан", "передана", "передано", "переданы",
+    "отправлен", "отправлена", "отправлено", "отправлены",
+    "сообщен", "сообщена", "сообщено", "сообщены"
+  ]);
+  const PASSIVE_AGENT_FORMS = new Set([
+    "системой", "моделью", "нейросетью", "сетью", "программой",
+    "контроллером", "алгоритмом", "сервером", "модулем", "модулем",
+    "исследователем", "оператором", "пользователем", "инженером",
+    "роботом", "администратором", "автором"
+  ]);
   const TRANSFER_PREDICATES = new Set([
     "передает", "передаёт", "передают", "передал", "передала", "передали",
     "отправляет", "отправляют", "отправил", "отправила", "отправили",
     "сообщает", "сообщают", "сообщил", "сообщила", "сообщили",
-    "дает", "даёт", "дают", "вручает", "вручают"
+    "дает", "даёт", "дают", "вручает", "вручают",
+    ...PASSIVE_TRANSFER_PREDICATES
   ]);
   const RECEIVING_PREDICATES = new Set([
     "получает", "получают", "получил", "получила", "получило", "получили",
@@ -917,6 +1034,52 @@
     return { theme: original, complement: null };
   }
 
+  function splitPassiveComplements(value, predicate) {
+    let remaining = clean(value, 220);
+    const complements = [];
+    if (!remaining) return complements;
+    const words = remaining.split(/\s+/u);
+    const last = normalise(words[words.length - 1]);
+    const hasInstrumentalTail = INSTRUMENTAL_FEMININE_FORMS.has(last) ||
+      INSTRUMENTAL_MASCULINE_FORMS.has(last) || INSTRUMENTAL_NEUTER_FORMS.has(last);
+    if (hasInstrumentalTail) {
+      const adjectiveBefore = words.length > 1 &&
+        /(?:ому|ему|ой|ей|ым|им)$/iu.test(normalise(words[words.length - 2]));
+      const take = adjectiveBefore ? 2 : 1;
+      const phrase = words.slice(-take).join(" ");
+      const role = PASSIVE_AGENT_FORMS.has(last) ? "agent" : "instrument";
+      complements.push({
+        role, text: phrase, marker: null, grammaticalCase: "instrumental",
+        confidence: 0.78, rule: role === "agent"
+          ? "passive_instrumental_agent" : "passive_instrumental_instrument"
+      });
+      remaining = clean(words.slice(0, -take).join(" "), 180);
+    }
+    if (remaining) {
+      const split = splitSemanticComplement(remaining, predicate);
+      if (split.complement) {
+        if (split.theme) {
+          complements.unshift({
+            role: "theme", text: split.theme, marker: null,
+            grammaticalCase: "accusative", confidence: 0.68,
+            rule: "passive_secondary_theme"
+          });
+        }
+        complements.unshift(split.complement);
+      } else {
+        const grammaticalCase = semanticPhraseCase(remaining, "", predicate);
+        if (grammaticalCase === "dative") {
+          complements.unshift({
+            role: PASSIVE_TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object",
+            text: remaining, marker: null, grammaticalCase: "dative",
+            confidence: 0.78, rule: "passive_dative_complement"
+          });
+        }
+      }
+    }
+    return complements.slice(0, 3);
+  }
+
   function buildSemanticArguments(subject, predicate, object) {
     const actor = clean(subject, 180), verb = normalise(predicate);
     if (!actor || !verb) return [];
@@ -931,6 +1094,15 @@
         provenance: { source: "semantic_core_rule", rule }
       });
     };
+    if (PASSIVE_PREDICATES.has(verb)) {
+      const passiveThemeRole = PASSIVE_TRANSFER_PREDICATES.has(verb) ? "theme" : "patient";
+      add(passiveThemeRole, actor, null, "nominative", 0.82, "passive_surface_subject");
+      for (const complement of splitPassiveComplements(object, predicate)) {
+        add(complement.role, complement.text, complement.marker,
+          complement.grammaticalCase, complement.confidence, complement.rule);
+      }
+      return result.slice(0, 5);
+    }
     const subjectRole = RECEIVING_PREDICATES.has(verb) ? "recipient"
       : CAUSATIVE_PREDICATES.has(verb) ? "cause" : "agent";
     add(subjectRole, actor, null, "nominative", 0.8, "bounded_verb_valency");
