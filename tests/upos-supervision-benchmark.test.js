@@ -39,6 +39,8 @@ const variants = {
   unweighted: {classWeighting:"none",selectionMetric:"macro_f1"},
   sqrtInverse: {classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
 };
+assert.equal(new Set(Object.values(variants).map(row=>row.selectionMetric)).size,1,
+  "UPOS weighting variants must use the same validation checkpoint-selection metric");
 const normalizedRecordMap = new Map(prepared.trainingRecords.map(row=>[row.normalized,row]));
 const seedsReport = [];
 const groupTotals = Object.fromEntries(Object.keys(variants).map(variant=>[variant,
