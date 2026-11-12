@@ -135,8 +135,7 @@
     const relation = semanticPlan && semanticPlan.contextRelation;
     const source = semanticPlan && semanticPlan.source;
     const confidence = Number(semanticPlan && semanticPlan.confidence);
-    const trusted = ["model", "local", "local_fallback"].includes(source) &&
-      confidence >= (source === "model" ? 0.58 : 0.5) &&
+    const trusted = source === "model" && confidence >= 0.58 &&
       ["new_topic", "follow_up", "same_topic"].includes(relation);
     return !trusted;
   }
