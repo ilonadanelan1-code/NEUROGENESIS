@@ -96,11 +96,11 @@
     if(analysis.morphologyAmbiguousTokens.length){
       lines.push("Неоднозначные основы, не засчитанные в покрытие: "+analysis.morphologyAmbiguousTokens.join(" · "));
     }
-    for(let targetIndex=0;targetIndex<analysis.tokens.length;targetIndex++){
-      const generated=model.predictMasked(text,targetIndex);
+    for(const row of analysis.positions){
+      if(row.targetKnown)continue;
+      const generated=model.predictMasked(text,row.index);
       if(generated&&generated.generatedPrediction){
-        const row=analysis.positions[targetIndex];
-        if(row&&!row.targetKnown)lines.push("КОНТЕКСТНАЯ ГЕНЕРАЦИЯ для «"+row.token+"»: "+
+        lines.push("КОНТЕКСТНАЯ ГЕНЕРАЦИЯ для «"+row.token+"»: "+
           generated.generatedPrediction.baseToken+" → "+generated.generatedPrediction.surface+
           " · подсказка: "+generated.morphologyHint.source+" · "+generated.generatedPrediction.method);
       }

@@ -15,12 +15,14 @@ assert.equal(api.russianNounPlural("система"),"системы");
 assert.equal(api.russianNounPlural("море"),"моря");
 assert.equal(api.russianVerbNumber("получают"),"plural");
 assert.equal(api.russianVerbNumber("получает"),"singular");
-assert.deepEqual(api.inferMaskedNumber(["новые","нейроны","получают","сигнал"],1),{
- number:"plural",source:"preceding_plural_adjective",confidence:"rule"
-});
-assert.deepEqual(api.inferMaskedNumber(["нейроны","получают","сигнал"],0),{
- number:"plural",source:"following_finite_verb",confidence:"rule"
-});
+const adjectiveHint=api.inferMaskedNumber(["новые","нейроны","получают","сигнал"],1);
+assert.equal(adjectiveHint.number,"plural");
+assert.equal(adjectiveHint.source,"preceding_plural_adjective");
+assert.equal(adjectiveHint.confidence,"rule");
+const verbHint=api.inferMaskedNumber(["нейроны","получают","сигнал"],0);
+assert.equal(verbHint.number,"plural");
+assert.equal(verbHint.source,"following_finite_verb");
+assert.equal(verbHint.confidence,"rule");
 const corpus=["нейрон получает сигнал","нейрон обрабатывает сигнал","сигнал активирует нейрон",
  "сеть получает данные","сеть обрабатывает сигнал","память хранит информацию","модель изучает контекст",
  "контекст меняет значение слова","ключ открывает замок","ключ запускает программу","программа использует ключ","замок защищает помещение"];
