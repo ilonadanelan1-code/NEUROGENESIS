@@ -222,16 +222,31 @@ function create(options={}){
    return{offset:item.offset,surface,token,stem:russianStem(surface)};
   }).filter(item=>item.surface);
   if(query.length<2)return null;
-  const index=buildTrainingContextIndex();
-  const candidateByExample=new Map();
-  const addPosting=(queryIndex,posting)=>{
-   let perQuery=candidateByExample.get(posting.exampleIndex);
-   if(!perQuery){perQuery=new Map();candidateByExample.set(posting.exampleIndex,perQuery);}
-   let positions=perQuery.get(queryIndex);
-   if(!positions){positions=new Set();perQuery.set(queryIndex,positions);}
-   positions.add(posting.contextIndex);
-  };
+
+  // The reference path intentionally preserves the pre-index scan and IDF counting
+  // so performance measurements compare the actual legacy algorithm, not an
+  // indexed algorithm with a legacy candidate loop.
+  const index=useLegacyScan?null:buildTrainingContextIndex();
+  const documentCount=trainingContextExamples.length;
+  let stemFrequency=index?.stemFrequency||new Map();
+  if(useLegacyScan&&inverseFrequency){
+   stemFrequency=new Map();
+   for(const example of trainingContextExamples){
+    const seen=new Set(example.context.map(row=>row.stem||russianStem(row.token)).filter(Boolean));
+    for(const stem of seen)stemFrequency.set(stem,(stemFrequency.get(stem)||0)+1);
+   }
+  }
+
+  let candidateByExample=null,candidateIndexes=null;
   if(!useLegacyScan){
+   candidateByExample=new Map();
+   const addPosting=(queryIndex,posting)=>{
+    let perQuery=candidateByExample.get(posting.exampleIndex);
+    if(!perQuery){perQuery=new Map();candidateByExample.set(posting.exampleIndex,perQuery);}
+    let positions=perQuery.get(queryIndex);
+    if(!positions){positions=new Set();perQuery.set(queryIndex,positions);}
+    positions.add(posting.contextIndex);
+   };
    for(let queryIndex=0;queryIndex<query.length;queryIndex++){
     const item=query[queryIndex];
     if(item.token){
@@ -241,21 +256,24 @@ function create(options={}){
      for(const posting of index.stems.get(item.stem)||[])addPosting(queryIndex,posting);
     }
    }
+   candidateIndexes=Array.from(candidateByExample.keys()).sort((a,b)=>a-b);
   }
-  const candidateIndexes=useLegacyScan
-   ?Array.from({length:trainingContextExamples.length},(_,index)=>index)
-   :Array.from(candidateByExample.keys()).sort((a,b)=>a-b);
-  const bestByTarget=new Map(),documentCount=index.documentCount,stemFrequency=index.stemFrequency;
-  for(const exampleIndex of candidateIndexes){
-   const example=trainingContextExamples[exampleIndex],perQuery=candidateByExample.get(exampleIndex);
+
+  const bestByTarget=new Map();
+  const candidateExampleCount=useLegacyScan?trainingContextExamples.length:candidateIndexes.length;
+  for(let candidateCursor=0;candidateCursor<candidateExampleCount;candidateCursor++){
+   const exampleIndex=useLegacyScan?candidateCursor:candidateIndexes[candidateCursor];
+   const example=trainingContextExamples[exampleIndex];
+   const perQuery=useLegacyScan?null:candidateByExample.get(exampleIndex);
    const used=new Set(),matches=[];
    for(let queryIndex=0;queryIndex<query.length;queryIndex++){
     const item=query[queryIndex];
     let best=null,bestWeight=-1;
-    const possibleIndexes=useLegacyScan
-     ?Array.from({length:example.context.length},(_,index)=>index)
-     :Array.from(perQuery&&perQuery.get(queryIndex)||[]).sort((a,b)=>a-b);
-    for(const contextIndex of possibleIndexes){
+    const possibleIndexes=useLegacyScan?null:
+     Array.from(perQuery&&perQuery.get(queryIndex)||[]).sort((a,b)=>a-b);
+    const possibleCount=useLegacyScan?example.context.length:possibleIndexes.length;
+    for(let possibleCursor=0;possibleCursor<possibleCount;possibleCursor++){
+     const contextIndex=useLegacyScan?possibleCursor:possibleIndexes[possibleCursor];
      if(used.has(contextIndex))continue;
      const row=example.context[contextIndex],rowStem=row.stem||russianStem(row.token);
      const exact=!!item.token&&item.token===row.token;
@@ -630,7 +648,7 @@ function create(options={}){
   return status();
  }
  const initialCheckpoint=exportState();
- return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,retrievalIndexStatus,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
+ return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,retrievalIndexStatus,retrieveContextCandidate,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
 function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;

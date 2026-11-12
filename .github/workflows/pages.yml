@@ -295,6 +295,7 @@ jobs:
           node --check semantic-core.js
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
+          node tests/contextual-attention-retrieval-benchmark.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
           node tests/proposition-chain-regression.test.js
