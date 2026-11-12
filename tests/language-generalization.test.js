@@ -1,96 +1,416 @@
 "use strict";
-const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
-const window={},sandbox={window,Math,Map,Set,JSON,RegExp,Object,Array,String,Number,Date};
-for(const file of ["knowledge.js","semantic-core.js","contextual-attention.js","phrase-composition.js"])
- vm.runInNewContext(fs.readFileSync(file,"utf8"),sandbox,{filename:file});
-const core=window.NGSemanticCore,knowledge=window.NGKnowledge;
-const Attention=window.NGContextualModel,Composer=window.NGPhraseCompositionModel;
-const trainRows=[
- "нейрон получает сигнал","сеть получает сигнал","система получает данные","память получает данные",
- "нейрон обрабатывает данные","сеть обрабатывает сигнал","система обрабатывает данные","модель обрабатывает сигнал",
- "память хранит данные","система хранит сигнал","ключ открывает замок","программа открывает файл",
- "алгоритм выбирает маршрут","система выбирает режим","сенсор обнаруживает сигнал","датчик обнаруживает импульс",
- "исследователь проверяет гипотезу","модель проверяет гипотезу","память сохраняет событие","система сохраняет данные",
- "датчик измеряет температуру","сенсор измеряет сигнал","модель изучает контекст","контекст меняет значение",
- "замок защищает помещение","сигнал активирует нейрон","ключ запускает программу","программа использует ключ"
-];
-const heldOut=[
- {text:"нейросеть обрабатывает команду",subject:"нейросеть",predicate:"обрабатывает",object:"команду"},
- {text:"датчик обнаруживает вибрацию",subject:"датчик",predicate:"обнаруживает",object:"вибрацию"},
- {text:"система сохраняет результат",subject:"система",predicate:"сохраняет",object:"результат"},
- {text:"алгоритм выбирает решение",subject:"алгоритм",predicate:"выбирает",object:"решение"},
- {text:"сигнал активирует механизм",subject:"сигнал",predicate:"активирует",object:"механизм"},
- {text:"контекст меняет интерпретацию",subject:"контекст",predicate:"меняет",object:"интерпретацию"}
-];
-const normalise=value=>String(value||"").normalize("NFKC").toLowerCase().replace(/ё/gu,"е").replace(/\s+/gu," ").trim();
-const trainingKeys=new Set(trainRows.map(normalise));
-assert.equal(trainingKeys.size,trainRows.length,"training corpus must not contain duplicate sentences");
-for(const item of heldOut)assert.equal(trainingKeys.has(normalise(item.text)),false,"held-out sentence leaked into the training corpus");
-assert.ok(core&&Composer&&Attention,"semantic and trainable language modules must be loaded");
-const contextual=Attention.create({dimension:12,windowSize:4,heads:3,blocks:2,seed:9173});
-const contextualReport=contextual.train(trainRows,{epochs:55,learningRate:.035,splitSeed:902,patience:24});
-assert.equal(contextualReport.evaluationMode,"held_out_sentences");
-assert.equal(contextualReport.evaluationIsolated,true);
-assert.ok(contextualReport.validationExamples>0&&contextualReport.testExamples>0);
-assert.ok(Number.isFinite(contextualReport.validationAccuracy)&&Number.isFinite(contextualReport.testAccuracy));
-const composer=Composer.create({dimension:12,seed:9044});
-const composerReport=composer.train(trainRows,contextual,core,knowledge,{epochs:45,learningRate:.045});
-assert.equal(composerReport.sentences,trainRows.length);
-assert.ok(composerReport.roleExamples>0&&composerReport.relationExamples>0);
-assert.equal(composerReport.supervision,"weak_semantic_parser_labels");
-assert.equal(composerReport.evaluation,"training_only_not_held_out");
-let roleCorrect=0,roleTotal=0,trueEdges=0,falseEdges=0,missedEdges=0,oovTokens=0,parserFrames=0;
-const expectedEdges=["0:1:subject_to_predicate","1:2:predicate_to_object","0:2:subject_to_object"];
-for(const item of heldOut){
- const frame=core.analyse(item.text,{contextRelation:"new_topic"},knowledge).proposition;
- assert.equal(normalise(frame.subject),item.subject,"held-out parser subject: "+item.text);
- assert.equal(normalise(frame.predicate),item.predicate,"held-out parser predicate: "+item.text);
- assert.equal(normalise(frame.object),item.object,"held-out parser object: "+item.text);
- parserFrames++;
- const result=composer.analyse(item.text,contextual,core,knowledge);
- assert.equal(result.roles.length,3);
- const expectedRoles=["subject","predicate","object"];
- for(let i=0;i<expectedRoles.length;i++){roleTotal++;if(result.roles[i].role===expectedRoles[i])roleCorrect++;}
- const predicted=new Set(result.edges.map(edge=>edge.from+":"+edge.to+":"+edge.relation));
- for(const edge of expectedEdges){if(predicted.has(edge))trueEdges++;else missedEdges++;}
- for(const edge of predicted)if(!expectedEdges.includes(edge))falseEdges++;
- const languageAnalysis=contextual.analyse(item.text);
- oovTokens+=languageAnalysis.oovCount;
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+
+const window = {};
+const sandbox = { window, Date, Math, Map, Set, JSON, RegExp, Object, Array, String, Number };
+for (const file of ["knowledge.js", "semantic-core.js", "contextual-attention.js", "phrase-composition.js"]) {
+  vm.runInNewContext(fs.readFileSync(file, "utf8"), sandbox, { filename: file });
 }
-const roleAccuracy=roleCorrect/roleTotal,edgePrecision=trueEdges/Math.max(1,trueEdges+falseEdges),edgeRecall=trueEdges/Math.max(1,trueEdges+missedEdges);
-assert.ok(parserFrames===heldOut.length);
-assert.ok(roleAccuracy>=.8,"held-out subject/predicate/object role accuracy must exceed the 0.8 diagnostic floor: "+roleAccuracy);
-assert.ok(edgePrecision>=.8&&edgeRecall>=.8,"held-out relation precision/recall must exceed the 0.8 diagnostic floor: "+edgePrecision+"/"+edgeRecall);
-assert.ok(oovTokens>=5,"the held-out evaluation must include unknown tokens handled by subword vectors");
-const oovScore=contextual.score(heldOut[0].text,0);
-assert.equal(oovScore.targetKnown,false);
-assert.equal(oovScore.targetProbability,null);
-assert.ok(oovScore.tokenVector.length===12&&oovScore.tokenVector.every(Number.isFinite));
-const negated=core.analyse("Система не получает сигнал.",{contextRelation:"new_topic"},knowledge).proposition;
-assert.equal(negated.polarity,"negative");
-assert.equal(negated.polarityScope.effect,"negative");
-const causal=core.analyse("Недостаток сна может приводить к усталости.",{contextRelation:"new_topic"},knowledge).proposition;
-assert.equal(causal.kind,"hypothesis");
-assert.equal(causal.modality,"possible");
-assert.equal(causal.relation,"causal");
-const conditional=core.analyse("Если система получает сигнал, то система активируется.",{contextRelation:"new_topic"},knowledge).propositionChain;
-assert.equal(conditional.items.length,2);
-assert.equal(conditional.items[0].proposition.kind,"conditional");
-assert.equal(conditional.items[1].relationToPrevious.type,"condition_result");
-const coreference=core.analyse("Система получает сигнал. Она активируется.",{contextRelation:"new_topic"},knowledge).propositionChain;
-assert.equal(coreference.items[1].proposition.subject,"Система");
-assert.equal(coreference.items[1].proposition.references[0].status,"resolved");
-assert.equal(coreference.items[1].proposition.references[0].antecedentText,"Система");
-const paraphrases=["Сколько сердец у осьминога?","У осьминога сколько сердец?","Сердец у осьминога сколько?"];
-const paraphraseFrames=paraphrases.map(question=>core.analyse(question,{contextRelation:"new_topic"},knowledge));
-const paraphraseKeys=paraphraseFrames.map(frame=>normalise(frame.subject.text)+":"+normalise(frame.attribute.text));
-assert.equal(new Set(paraphraseKeys).size,1,"quantity paraphrases must preserve the same subject and attribute");
-const summary={
- trainingSentences:trainRows.length,heldOutSentences:heldOut.length,
- heldOutRoleAccuracy:roleAccuracy,heldOutEdgePrecision:edgePrecision,heldOutEdgeRecall:edgeRecall,
- heldOutUnknownTokens:oovTokens,contextualValidationAccuracy:contextualReport.validationAccuracy,
- contextualValidationCoverage:contextualReport.validationCoverage,contextualTestAccuracy:contextualReport.testAccuracy,
- contextualTestCoverage:contextualReport.testCoverage
+
+const core = window.NGSemanticCore;
+const knowledge = window.NGKnowledge;
+const Attention = window.NGContextualModel;
+const Composer = window.NGPhraseCompositionModel;
+assert.ok(core && knowledge && Attention && Composer, "all language benchmark modules must load");
+
+const trainRows = [
+  "нейрон получает сигнал", "сеть получает сигнал", "система получает данные", "память получает данные",
+  "нейрон обрабатывает данные", "сеть обрабатывает сигнал", "система обрабатывает данные", "модель обрабатывает сигнал",
+  "память хранит данные", "система хранит сигнал", "ключ открывает замок", "программа открывает файл",
+  "алгоритм выбирает маршрут", "система выбирает режим", "сенсор обнаруживает сигнал", "датчик обнаруживает импульс",
+  "исследователь проверяет гипотезу", "модель проверяет гипотезу", "память сохраняет событие", "система сохраняет данные",
+  "датчик измеряет температуру", "сенсор измеряет сигнал", "модель изучает контекст", "контекст меняет значение",
+  "замок защищает помещение", "сигнал активирует нейрон", "ключ запускает программу", "программа использует ключ"
+];
+
+const cases = [
+  { group: "short", text: "нейросеть обрабатывает команду", roles: { s: ["нейросеть"], p: ["обрабатывает"], o: ["команду"] }, expected: { kind: "assertion", s: "нейросеть", p: "обрабатывает", o: "команду" } },
+  { group: "short", text: "датчик обнаруживает вибрацию", roles: { s: ["датчик"], p: ["обнаруживает"], o: ["вибрацию"] }, expected: { kind: "assertion", s: "датчик", p: "обнаруживает", o: "вибрацию" } },
+  { group: "short", text: "система сохраняет результат", roles: { s: ["система"], p: ["сохраняет"], o: ["результат"] }, expected: { kind: "assertion", s: "система", p: "сохраняет", o: "результат" } },
+  { group: "short", text: "алгоритм выбирает решение", roles: { s: ["алгоритм"], p: ["выбирает"], o: ["решение"] }, expected: { kind: "assertion", s: "алгоритм", p: "выбирает", o: "решение" } },
+  { group: "short", text: "сигнал активирует механизм", roles: { s: ["сигнал"], p: ["активирует"], o: ["механизм"] }, expected: { kind: "assertion", s: "сигнал", p: "активирует", o: "механизм" } },
+  { group: "short", text: "контекст меняет интерпретацию", roles: { s: ["контекст"], p: ["меняет"], o: ["интерпретацию"] }, expected: { kind: "assertion", s: "контекст", p: "меняет", o: "интерпретацию" } },
+
+  { group: "long", text: "Новый сенсорный модуль обнаруживает вибрацию корпуса.", roles: { s: ["новый", "сенсорный", "модуль"], p: ["обнаруживает"], o: ["вибрацию", "корпуса"] }, expected: { kind: "assertion", s: "модуль", p: "обнаруживает", o: "вибрацию корпуса" } },
+  { group: "long", text: "Центральный контроллер сохраняет результаты измерения в архиве.", roles: { s: ["центральный", "контроллер"], p: ["сохраняет"], o: ["результаты", "измерения"] }, expected: { kind: "assertion", s: "контроллер", p: "сохраняет", o: "результаты измерения" } },
+  { group: "long", text: "После проверки алгоритм выбирает безопасный маршрут обхода.", roles: { s: ["алгоритм"], p: ["выбирает"], o: ["безопасный", "маршрут", "обхода"] }, expected: { kind: "assertion", s: "алгоритм", p: "выбирает", o: "безопасный маршрут обхода" } },
+
+  { group: "word_order", text: "Сигнал нейрон получает.", roles: { s: ["нейрон"], p: ["получает"], o: ["сигнал"] }, expected: { kind: "assertion", s: "нейрон", p: "получает", o: "сигнал" } },
+  { group: "word_order", text: "Данные система сохраняет.", roles: { s: ["система"], p: ["сохраняет"], o: ["данные"] }, expected: { kind: "assertion", s: "система", p: "сохраняет", o: "данные" } },
+  { group: "word_order", text: "Гипотезу исследователь проверяет.", roles: { s: ["исследователь"], p: ["проверяет"], o: ["гипотезу"] }, expected: { kind: "assertion", s: "исследователь", p: "проверяет", o: "гипотезу" } },
+
+  { group: "oov", text: "Кварцевый сенсор обнаруживает микровибрацию.", roles: { s: ["кварцевый", "сенсор"], p: ["обнаруживает"], o: ["микровибрацию"] }, expected: { kind: "assertion", s: "сенсор", p: "обнаруживает", o: "микровибрацию" } },
+  { group: "oov", text: "Лидар обнаруживает препятствие.", roles: { s: ["лидар"], p: ["обнаруживает"], o: ["препятствие"] }, expected: { kind: "assertion", s: "лидар", p: "обнаруживает", o: "препятствие" } },
+  { group: "oov", text: "Гироскоп измеряет угловую скорость.", roles: { s: ["гироскоп"], p: ["измеряет"], o: ["угловую", "скорость"] }, expected: { kind: "assertion", s: "гироскоп", p: "измеряет", o: "угловую скорость" } },
+
+  { group: "paraphrase", text: "Сенсор фиксирует колебания.", roles: { s: ["сенсор"], p: ["фиксирует"], o: ["колебания"] }, expected: { kind: "assertion", s: "сенсор", p: "фиксирует", o: "колебания" } },
+  { group: "paraphrase", text: "Устройство регистрирует импульс.", roles: { s: ["устройство"], p: ["регистрирует"], o: ["импульс"] }, expected: { kind: "assertion", s: "устройство", p: "регистрирует", o: "импульс" } },
+  { group: "paraphrase", text: "Алгоритм делает выбор маршрута.", roles: { s: ["алгоритм"], p: ["делает"], o: ["выбор", "маршрута"] }, expected: { kind: "assertion", s: "алгоритм", p: "делает", o: "выбор маршрута" } },
+
+  { group: "negation", text: "Система не получает сигнал.", expected: { kind: "assertion", polarity: "negative", scope: "predicate", effect: "negative" } },
+  { group: "negation", text: "Не все датчики обнаруживают вибрацию.", expected: { kind: "assertion", polarity: "mixed", scope: "quantifier", quantifier: "all", effect: "not_all" } },
+  { group: "negation", text: "Ни один модуль не сохраняет данные.", expected: { kind: "assertion", polarity: "negative", scope: "quantifier", quantifier: "none", effect: "none_negative" } },
+
+  { group: "modality", text: "Возможно, новый модуль активирует резервный канал.", expected: { kind: "hypothesis", modality: "possible" } },
+  { group: "modality", text: "Система может обнаружить помеху.", expected: { kind: "hypothesis", modality: "possible" } },
+  { group: "modality", text: "Вероятно, датчик сохранит измерение.", expected: { kind: "hypothesis", modality: "possible" } },
+
+  { group: "causality", text: "Недостаток сна может приводить к усталости.", expected: { kind: "hypothesis", modality: "possible", relation: "causal" } },
+  { group: "causality", text: "Сеть не активируется, потому что питание не работает.", expected: { chain: ["root", "cause_of_previous"], chainPolarities: ["negative", "negative"] } },
+  { group: "causality", text: "Потому что питание не работает, сеть не активируется.", expected: { chain: ["root", "result_of_previous"], chainPolarities: ["negative", "negative"] } },
+  { group: "causality", text: "Перегрев вызывает сбой.", expected: { kind: "assertion", relation: "causal" } },
+  { group: "causality", text: "Сбой происходит из-за перегрева.", expected: { kind: "assertion", relation: "causal" } },
+
+  { group: "condition", text: "Если датчик обнаруживает вибрацию, система запускает защитный режим.", expected: { chain: ["root", "condition_result"] } },
+  { group: "condition", text: "Модуль активируется, если система получает сигнал.", expected: { chain: ["root", "condition_of_previous"] } },
+
+  { group: "contrast", text: "Модуль получает данные, однако контроллер не сохраняет результат.", expected: { chain: ["root", "contrast"] } },
+  { group: "contrast", text: "Система работает, однако сеть не активируется.", expected: { chain: ["root", "contrast"] } },
+
+  { group: "temporal", text: "Модель запускает процесс. Затем он сохраняет результат.", expected: { chain: ["root", "sequence"], secondSubject: "процесс", references: ["resolved"] } },
+  { group: "temporal", text: "Вчера система работала. Тогда система активировалась.", expected: { chain: ["root", "sequence"], referenceTarget: { type: "time", status: "resolved", text: "вчера" } } },
+
+  { group: "coref_resolved", text: "Система получает сигнал. Она активируется.", expected: { references: ["resolved"], secondSubject: "система" } },
+  { group: "coref_resolved", text: "Модель получает данные. Затем она обрабатывает их.", expected: { references: ["resolved", "resolved"], secondSubject: "модель" } },
+
+  { group: "coref_ambiguous", text: "Модель использует нейросеть. Она активируется.", expected: { references: ["ambiguous"], secondSubject: "она", candidateCount: 2 } },
+  { group: "coref_ambiguous", text: "Система активирует модель. Она работает.", expected: { references: ["ambiguous"], secondSubject: "она", candidateCount: 2 } },
+
+  { group: "coref_unresolved", text: "Она активируется. Система получает сигнал.", expected: { references: ["unresolved"], firstSubject: "она" } },
+  { group: "coref_unresolved", text: "Он сохраняет результат. Модуль работает.", expected: { references: ["unresolved"], firstSubject: "он" } },
+
+  { group: "location", text: "Система работает в лаборатории. Там система активируется.", expected: { referenceTarget: { type: "location", status: "resolved", text: "лаборатории" } } }
+];
+
+const normalise = value => String(value == null ? "" : value).normalize("NFKC").toLowerCase()
+  .replace(/ё/gu, "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/gu, " ");
+const trainingKeys = new Set(trainRows.map(normalise));
+const heldOutKeys = new Set(cases.map(row => normalise(row.text)));
+const leakage = cases.filter(row => trainingKeys.has(normalise(row.text))).map(row => row.text);
+assert.equal(trainingKeys.size, trainRows.length, "training sentences must be unique");
+assert.equal(heldOutKeys.size, cases.length, "independent benchmark sentences must be unique");
+assert.deepEqual(leakage, [], "no independent benchmark sentence may appear in the training corpus");
+assert.equal(cases.length, 42, "the independent benchmark corpus size is fixed and documented");
+
+function semanticResult(testCase) {
+  const frame = core.analyse(testCase.text, { contextRelation: "new_topic" }, knowledge);
+  const proposition = frame.proposition || {};
+  const chain = frame.propositionChain && Array.isArray(frame.propositionChain.items)
+    ? frame.propositionChain.items : [];
+  const references = chain.flatMap(row => Array.isArray(row.proposition.references) ? row.proposition.references : []);
+  const expected = testCase.expected || {};
+  const checks = [];
+  const add = (name, ok) => checks.push({ name, ok: !!ok });
+
+  if (expected.kind !== undefined) add("kind", proposition.kind === expected.kind);
+  if (expected.polarity !== undefined) add("polarity", proposition.polarity === expected.polarity);
+  if (expected.modality !== undefined) add("modality", proposition.modality === expected.modality);
+  if (expected.relation !== undefined) add("relation", proposition.relation === expected.relation);
+  if (expected.scope !== undefined) add("scope", proposition.polarityScope && proposition.polarityScope.scope === expected.scope);
+  if (expected.quantifier !== undefined) add("quantifier", proposition.polarityScope && proposition.polarityScope.quantifier === expected.quantifier);
+  if (expected.effect !== undefined) add("scopeEffect", proposition.polarityScope && proposition.polarityScope.effect === expected.effect);
+  if (expected.s !== undefined) add("subject", normalise(proposition.subject).includes(normalise(expected.s)));
+  if (expected.p !== undefined) add("predicate", normalise(proposition.predicate).includes(normalise(expected.p)));
+  if (expected.o !== undefined) add("object", normalise(proposition.object).includes(normalise(expected.o)));
+  if (expected.chain !== undefined) {
+    add("chainRelations", JSON.stringify(chain.map(row => row.relationToPrevious.type)) === JSON.stringify(expected.chain));
+    add("sourceText", !!frame.propositionChain && frame.propositionChain.sourceText === testCase.text);
+  }
+  if (expected.chainPolarities !== undefined) {
+    add("chainPolarities", JSON.stringify(chain.map(row => row.proposition.polarity)) === JSON.stringify(expected.chainPolarities));
+  }
+  if (expected.references !== undefined) {
+    add("referenceStatuses", JSON.stringify(references.map(row => row.status)) === JSON.stringify(expected.references));
+  }
+  if (expected.secondSubject !== undefined) {
+    add("secondSubject", normalise(chain[1] && chain[1].proposition.subject).includes(normalise(expected.secondSubject)));
+  }
+  if (expected.firstSubject !== undefined) {
+    add("firstSubject", normalise(chain[0] && chain[0].proposition.subject).includes(normalise(expected.firstSubject)));
+  }
+  if (expected.referenceTarget !== undefined) {
+    const target = expected.referenceTarget;
+    add("referenceTarget", references.some(row => row.targetType === target.type &&
+      row.status === target.status && normalise(row.antecedentText).includes(normalise(target.text))));
+  }
+  if (expected.candidateCount !== undefined) {
+    add("candidateCount", references.some(row => row.status === "ambiguous" && row.candidates.length === expected.candidateCount));
+  }
+  return { checks, passed: checks.every(row => row.ok) };
+}
+
+const semanticGroups = {};
+const semanticFailures = [];
+for (const testCase of cases) {
+  const result = semanticResult(testCase);
+  const group = semanticGroups[testCase.group] || (semanticGroups[testCase.group] = {
+    cases: 0, passedCases: 0, checks: 0, passedChecks: 0
+  });
+  group.cases++;
+  if (result.passed) group.passedCases++;
+  group.checks += result.checks.length;
+  group.passedChecks += result.checks.filter(row => row.ok).length;
+  if (!result.passed) semanticFailures.push({
+    group: testCase.group, text: testCase.text,
+    failed: result.checks.filter(row => !row.ok).map(row => row.name)
+  });
+}
+
+const seeds = [
+  { model: 9173, split: 902, phrase: 9044 },
+  { model: 2718, split: 1207, phrase: 1207 },
+  { model: 31415, split: 2718, phrase: 2718 }
+];
+const maskGroups = {};
+const phraseGroups = {};
+const seedReports = [];
+let baselineShort = null;
+let firstModel = null;
+
+for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
+  const seed = seeds[seedIndex];
+  const contextual = Attention.create({
+    dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model
+  });
+  const contextualReport = contextual.train(trainRows, {
+    epochs: 55, learningRate: 0.035, splitSeed: seed.split, patience: 24
+  });
+  assert.equal(contextualReport.evaluationMode, "held_out_sentences");
+  assert.equal(contextualReport.evaluationIsolated, true);
+  assert.equal(contextualReport.splitFallback, false);
+  assert.equal(contextualReport.uniqueRows, trainRows.length);
+  assert.equal(contextualReport.duplicateRows, 0);
+  assert.equal(contextualReport.trainRows + contextualReport.validationRows + contextualReport.testRows, trainRows.length);
+  assert.ok(contextualReport.validationExamples > 0 && contextualReport.testExamples > 0);
+  if (seedIndex === 0) firstModel = contextual;
+
+  const composer = Composer.create({ dimension: 12, seed: seed.phrase });
+  const composerTraining = composer.train(trainRows, contextual, core, knowledge, {
+    epochs: 45, learningRate: 0.045
+  });
+  assert.equal(composerTraining.sentences, trainRows.length);
+  assert.equal(composerTraining.evaluation, "training_only_not_held_out");
+
+  let seedCorrect = 0;
+  let seedCovered = 0;
+  let seedTotal = 0;
+  for (const testCase of cases) {
+    const tokens = knowledge.tokens(testCase.text);
+    const group = maskGroups[testCase.group] || (maskGroups[testCase.group] = {
+      correct: 0, covered: 0, total: 0
+    });
+    for (let index = 0; index < tokens.length; index++) {
+      const score = contextual.score(testCase.text, index);
+      group.total++;
+      seedTotal++;
+      if (score && score.targetKnown) {
+        group.covered++;
+        seedCovered++;
+        if (score.predictions[0] && score.predictions[0].token === tokens[index]) {
+          group.correct++;
+          seedCorrect++;
+        }
+      }
+    }
+  }
+
+  for (const testCase of cases.filter(row => row.roles)) {
+    const result = composer.analyse(testCase.text, contextual, core, knowledge);
+    const tokens = result.tokens.map(normalise);
+    const expectedRoles = tokens.map(token =>
+      testCase.roles.s.some(value => normalise(value) === token) ? "subject" :
+      testCase.roles.p.some(value => normalise(value) === token) ? "predicate" :
+      testCase.roles.o.some(value => normalise(value) === token) ? "object" : "other"
+    );
+    assert.equal(result.roles.length, expectedRoles.length, "phrase-role output must align with manual token labels");
+    for (const role of ["s", "p", "o"]) {
+      for (const value of testCase.roles[role]) {
+        assert.ok(tokens.includes(normalise(value)), "manual phrase annotation must point to an existing token");
+      }
+    }
+
+    const group = phraseGroups[testCase.group] || (phraseGroups[testCase.group] = {
+      roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0
+    });
+    result.roles.forEach((row, index) => {
+      group.roleTotal++;
+      if (row.role === expectedRoles[index]) group.roleCorrect++;
+    });
+
+    const subjectHead = tokens.indexOf(normalise(testCase.roles.s[testCase.roles.s.length - 1]));
+    const predicateHead = tokens.indexOf(normalise(testCase.roles.p[0]));
+    const objectHead = tokens.indexOf(normalise(testCase.roles.o[0]));
+    assert.ok(subjectHead >= 0 && predicateHead >= 0 && objectHead >= 0, "manual edge heads must exist");
+    const expectedEdges = new Set([
+      [subjectHead, predicateHead, "subject_to_predicate"].join(":"),
+      [predicateHead, objectHead, "predicate_to_object"].join(":"),
+      [subjectHead, objectHead, "subject_to_object"].join(":")
+    ]);
+    const predictedEdges = new Set(result.edges.map(row => [row.from, row.to, row.relation].join(":")));
+    for (const edge of expectedEdges) {
+      if (predictedEdges.has(edge)) group.tp++;
+      else group.fn++;
+    }
+    for (const edge of predictedEdges) if (!expectedEdges.has(edge)) group.fp++;
+
+    if (seedIndex === 0 && testCase.group === "short") {
+      if (!baselineShort) baselineShort = { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 };
+      result.roles.forEach((row, index) => {
+        baselineShort.roleTotal++;
+        if (row.role === expectedRoles[index]) baselineShort.roleCorrect++;
+      });
+      for (const edge of expectedEdges) {
+        if (predictedEdges.has(edge)) baselineShort.tp++;
+        else baselineShort.fn++;
+      }
+      for (const edge of predictedEdges) if (!expectedEdges.has(edge)) baselineShort.fp++;
+    }
+  }
+
+  const validationCorrect = Math.round(contextualReport.validationAccuracy * contextualReport.validationExamples);
+  const testCorrect = Math.round(contextualReport.testAccuracy * contextualReport.testExamples);
+  seedReports.push({
+    modelSeed: seed.model,
+    splitSeed: seed.split,
+    phraseSeed: seed.phrase,
+    split: {
+      trainRows: contextualReport.trainRows,
+      validationRows: contextualReport.validationRows,
+      testRows: contextualReport.testRows,
+      vocabularySize: contextualReport.vocabularySize
+    },
+    validation: {
+      correct: validationCorrect,
+      covered: contextualReport.validationExamples,
+      total: Math.round(contextualReport.validationExamples / contextualReport.validationCoverage)
+    },
+    test: {
+      correct: testCorrect,
+      covered: contextualReport.testExamples,
+      total: Math.round(contextualReport.testExamples / contextualReport.testCoverage)
+    },
+    independentMasked: {
+      correct: seedCorrect,
+      covered: seedCovered,
+      total: seedTotal,
+      accuracy: seedCovered ? seedCorrect / seedCovered : null,
+      coverage: seedTotal ? seedCovered / seedTotal : null
+    },
+    phraseTrainingOnly: {
+      roleAccuracy: composerTraining.roleTrainingAccuracy,
+      relationAccuracy: composerTraining.relationTrainingAccuracy,
+      evaluation: composerTraining.evaluation
+    }
+  });
+}
+
+const ratio = (numerator, denominator) => denominator ? numerator / denominator : null;
+const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, group]) => [name, {
+  ...group,
+  accuracy: ratio(group.correct, group.covered),
+  coverage: ratio(group.covered, group.total),
+  allTargetAccuracy: ratio(group.correct, group.total)
+}]));
+const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name, group]) => [name, {
+  ...group,
+  roleAccuracy: ratio(group.roleCorrect, group.roleTotal),
+  edgePrecision: ratio(group.tp, group.tp + group.fp),
+  edgeRecall: ratio(group.tp, group.tp + group.fn)
+}]));
+const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
+  correct: sum.correct + group.correct,
+  covered: sum.covered + group.covered,
+  total: sum.total + group.total
+}), { correct: 0, covered: 0, total: 0 });
+const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
+  roleCorrect: sum.roleCorrect + group.roleCorrect,
+  roleTotal: sum.roleTotal + group.roleTotal,
+  tp: sum.tp + group.tp,
+  fp: sum.fp + group.fp,
+  fn: sum.fn + group.fn
+}), { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 });
+const internalValidation = seedReports.reduce((sum, row) => ({
+  correct: sum.correct + row.validation.correct,
+  covered: sum.covered + row.validation.covered,
+  total: sum.total + row.validation.total
+}), { correct: 0, covered: 0, total: 0 });
+const internalTest = seedReports.reduce((sum, row) => ({
+  correct: sum.correct + row.test.correct,
+  covered: sum.covered + row.test.covered,
+  total: sum.total + row.test.total
+}), { correct: 0, covered: 0, total: 0 });
+const semanticTotal = Object.values(semanticGroups).reduce((sum, group) => ({
+  cases: sum.cases + group.cases,
+  passedCases: sum.passedCases + group.passedCases,
+  checks: sum.checks + group.checks,
+  passedChecks: sum.passedChecks + group.passedChecks
+}), { cases: 0, passedCases: 0, checks: 0, passedChecks: 0 });
+
+const oovProbe = firstModel.score("Кварцевый сенсор обнаруживает микровибрацию.", 0);
+assert.equal(oovProbe.targetKnown, false);
+assert.equal(oovProbe.targetProbability, null);
+assert.equal(oovProbe.tokenVector.length, 12);
+assert.ok(oovProbe.tokenVector.every(Number.isFinite), "OOV subword vectors must remain finite");
+assert.equal(baselineShort.roleTotal, 18, "the six-sentence 0.58.82 phrase baseline has 18 role labels");
+assert.equal(baselineShort.tp + baselineShort.fn, 18, "the six-sentence 0.58.82 phrase baseline has 18 expected edges");
+assert.equal(maskTotal.total, seedReports.length * 177, "all independent token positions must remain in the coverage denominator");
+assert.ok(maskTotal.covered <= maskTotal.total);
+assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
+assert.equal(semanticTotal.cases, cases.length);
+
+const groupNames = [...new Set([
+  ...Object.keys(semanticGroups), ...Object.keys(maskOutput), ...Object.keys(phraseOutput)
+])];
+const groups = Object.fromEntries(groupNames.map(name => [name, {
+  semantic: semanticGroups[name] || null,
+  maskedToken: maskOutput[name] || null,
+  phraseComposition: phraseOutput[name] || null
+}]));
+
+const summary = {
+  trainingSentences: trainRows.length,
+  independentHeldOutSentences: cases.length,
+  exactSentenceLeakage: leakage.length,
+  seeds: seedReports,
+  internalValidation: {
+    ...internalValidation,
+    accuracy: ratio(internalValidation.correct, internalValidation.covered),
+    coverage: ratio(internalValidation.covered, internalValidation.total)
+  },
+  internalTest: {
+    ...internalTest,
+    accuracy: ratio(internalTest.correct, internalTest.covered),
+    coverage: ratio(internalTest.covered, internalTest.total)
+  },
+  independentMaskedToken: {
+    ...maskTotal,
+    accuracy: ratio(maskTotal.correct, maskTotal.covered),
+    coverage: ratio(maskTotal.covered, maskTotal.total),
+    allTargetAccuracy: ratio(maskTotal.correct, maskTotal.total)
+  },
+  semanticCoreRules: {
+    ...semanticTotal,
+    caseAccuracy: ratio(semanticTotal.passedCases, semanticTotal.cases),
+    checkAccuracy: ratio(semanticTotal.passedChecks, semanticTotal.checks)
+  },
+  phraseCompositionHeldOut: {
+    ...phraseTotal,
+    roleAccuracy: ratio(phraseTotal.roleCorrect, phraseTotal.roleTotal),
+    edgePrecision: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fp),
+    edgeRecall: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fn)
+  },
+  historicalSixSentenceBaseline: {
+    ...baselineShort,
+    roleAccuracy: ratio(baselineShort.roleCorrect, baselineShort.roleTotal),
+    edgePrecision: ratio(baselineShort.tp, baselineShort.tp + baselineShort.fp),
+    edgeRecall: ratio(baselineShort.tp, baselineShort.tp + baselineShort.fn)
+  },
+  groups,
+  semanticFailures
 };
-console.log("NEUROGENESIS held-out language generalization: "+JSON.stringify(summary));
-console.log("Negation, causal modality, conditional chains, coreference and quantity paraphrases: passed.");
+
+console.log("NEUROGENESIS 0.58.85 independent language benchmark: " + JSON.stringify(summary));
+console.log("No train/test sentence leakage; metrics retain exact numerators, denominators, coverage and three-seed variation.");

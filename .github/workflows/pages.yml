@@ -259,6 +259,9 @@ jobs:
             dist/neurogenesis.wasm
           if-no-files-found: error
 
+      - name: Run independent language-understanding benchmark
+        run: node tests/language-generalization.test.js
+
       - name: Run regression tests
         run: |
           node tests/experience-quality.test.js
@@ -277,7 +280,6 @@ jobs:
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
           node tests/phrase-composition.test.js
-          node tests/language-generalization.test.js
           node tests/semantic-understanding.test.js
           node tests/proposition-chain-regression.test.js
           node tests/semantic-retrieval.test.js
