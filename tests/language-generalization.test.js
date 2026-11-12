@@ -196,9 +196,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
 
   const composer = Composer.create({ dimension: 12, seed: seed.phrase });
   const composerTraining = composer.train(trainRows, contextual, core, knowledge, {
-    epochs: 45, learningRate: 0.045
+    epochs: 45, learningRate: 0.045,
+    augmentWordOrder: true, excludeSentences: cases.map(row => row.text)
   });
-  assert.equal(composerTraining.sentences, trainRows.length);
+  assert.equal(composerTraining.sourceSentences, trainRows.length);
+  assert.ok(composerTraining.augmentedSentences > 0, "verified word-order permutations must expand phrase training");
+  assert.ok(composerTraining.excludedAugmentations > 0, "held-out phrases must be excluded from augmentation");
+  assert.equal(composerTraining.sentences, trainRows.length + composerTraining.augmentedSentences);
   assert.equal(composerTraining.evaluation, "training_only_not_held_out");
 
   let seedCorrect = 0;
@@ -307,12 +311,25 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       coverage: seedTotal ? seedCovered / seedTotal : null
     },
     phraseTrainingOnly: {
+      sourceSentences: composerTraining.sourceSentences,
+      augmentedSentences: composerTraining.augmentedSentences,
+      excludedAugmentations: composerTraining.excludedAugmentations,
+      unverifiedAugmentations: composerTraining.unverifiedAugmentations,
+      augmentation: composerTraining.augmentation,
       roleAccuracy: composerTraining.roleTrainingAccuracy,
       relationAccuracy: composerTraining.relationTrainingAccuracy,
       evaluation: composerTraining.evaluation
     }
   });
 }
+
+// Frozen results from commit 6b28016004cb73525ffd5687dbc8ffab9e6693f2 (0.58.93).
+const baseline05893 = Object.freeze({
+  heldOutSentences: 49,
+  phraseRoles: { correct: 147, total: 285, tp: 106, fp: 314, fn: 119 },
+  maskedTokens: { correct: 19, covered: 225, total: 609 },
+  wordOrder: { roleCorrect: 15, roleTotal: 108, tp: 5, fp: 132, fn: 85 }
+});
 
 const ratio = (numerator, denominator) => denominator ? numerator / denominator : null;
 const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, group]) => [name, {
@@ -377,8 +394,56 @@ const groups = Object.fromEntries(groupNames.map(name => [name, {
   phraseComposition: phraseOutput[name] || null
 }]));
 
+const comparisonTo05893 = {
+  phraseRoleAccuracy: {
+    previous: ratio(baseline05893.phraseRoles.correct, baseline05893.phraseRoles.total),
+    current: ratio(phraseTotal.roleCorrect, phraseTotal.roleTotal),
+    previousCount: baseline05893.phraseRoles.correct, previousTotal: baseline05893.phraseRoles.total,
+    currentCount: phraseTotal.roleCorrect, currentTotal: phraseTotal.roleTotal,
+    deltaPercentagePoints: (ratio(phraseTotal.roleCorrect, phraseTotal.roleTotal) -
+      ratio(baseline05893.phraseRoles.correct, baseline05893.phraseRoles.total)) * 100
+  },
+  wordOrderRoleAccuracy: {
+    previous: ratio(baseline05893.wordOrder.roleCorrect, baseline05893.wordOrder.roleTotal),
+    current: ratio(phraseGroups.word_order.roleCorrect, phraseGroups.word_order.roleTotal),
+    previousCount: baseline05893.wordOrder.roleCorrect, previousTotal: baseline05893.wordOrder.roleTotal,
+    currentCount: phraseGroups.word_order.roleCorrect, currentTotal: phraseGroups.word_order.roleTotal,
+    deltaPercentagePoints: (ratio(phraseGroups.word_order.roleCorrect, phraseGroups.word_order.roleTotal) -
+      ratio(baseline05893.wordOrder.roleCorrect, baseline05893.wordOrder.roleTotal)) * 100
+  },
+  maskedTokenAccuracy: {
+    previous: ratio(baseline05893.maskedTokens.correct, baseline05893.maskedTokens.covered),
+    current: ratio(maskTotal.correct, maskTotal.covered),
+    previousCount: baseline05893.maskedTokens.correct, previousTotal: baseline05893.maskedTokens.covered,
+    currentCount: maskTotal.correct, currentTotal: maskTotal.covered,
+    deltaPercentagePoints: (ratio(maskTotal.correct, maskTotal.covered) -
+      ratio(baseline05893.maskedTokens.correct, baseline05893.maskedTokens.covered)) * 100
+  },
+  maskedTokenCoverage: {
+    previous: ratio(baseline05893.maskedTokens.covered, baseline05893.maskedTokens.total),
+    current: ratio(maskTotal.covered, maskTotal.total),
+    previousCount: baseline05893.maskedTokens.covered, previousTotal: baseline05893.maskedTokens.total,
+    currentCount: maskTotal.covered, currentTotal: maskTotal.total,
+    deltaPercentagePoints: (ratio(maskTotal.covered, maskTotal.total) -
+      ratio(baseline05893.maskedTokens.covered, baseline05893.maskedTokens.total)) * 100
+  }
+};
+
+assert.equal(cases.length, baseline05893.heldOutSentences,
+  "the comparison must keep the exact 0.58.93 held-out sentence set");
+assert.equal(phraseTotal.roleTotal, baseline05893.phraseRoles.total,
+  "phrase-role comparison must use the same token denominator as 0.58.93");
+assert.equal(maskTotal.total, baseline05893.maskedTokens.total,
+  "masked-token coverage comparison must use the same token denominator as 0.58.93");
+
 const summary = {
   trainingSentences: trainRows.length,
+  augmentation: {
+    enabled: true,
+    perSeed: seedReports.map(row => row.phraseTrainingOnly.augmentation)
+  },
+  baselineVersion: "0.58.93",
+  comparisonTo05893,
   independentHeldOutSentences: cases.length,
   exactSentenceLeakage: leakage.length,
   seeds: seedReports,
@@ -420,5 +485,5 @@ const summary = {
 };
 
 assert.deepEqual(semanticFailures, [], "all independent semantic proposition cases must pass");
-console.log("NEUROGENESIS 0.58.93 independent language benchmark: " + JSON.stringify(summary));
+console.log("NEUROGENESIS 0.58.94 independent language benchmark: " + JSON.stringify(summary));
 console.log("No train/test sentence leakage; metrics retain exact numerators, denominators, coverage and three-seed variation.");
