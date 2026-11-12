@@ -241,7 +241,8 @@
           kind: clean(source.lastDecision.kind, 32),
           text: clean(source.lastDecision.text, 160),
           candidates: Array.isArray(source.lastDecision.candidates)
-            ? source.lastDecision.candidates.filter(x => typeof x === "string").slice(0, 4) : []
+            ? source.lastDecision.candidates.filter(x => typeof x === "string").slice(0, 4) : [],
+          awaitingClarification: source.lastDecision.awaitingClarification === true
         };
       }
       return result;
@@ -289,14 +290,45 @@
       const text = clean(message.text);
       if (!text) return state;
       const time = Math.max(0, Number(message.time) || Date.now());
+      const awaitingUnresolvedReturnClarification = role === "user" && !returnTarget(text) &&
+        state.lastDecision && state.lastDecision.kind === "unresolved_return" &&
+        state.lastDecision.awaitingClarification === true;
       if (role === "user" && !returnTarget(text) && state.lastDecision &&
-          state.lastDecision.kind === "unresolved_return") state.lastDecision = null;
+          state.lastDecision.kind === "unresolved_return" && !awaitingUnresolvedReturnClarification) {
+        state.lastDecision = null;
+      }
       let thread = activeThread(state);
       let relation = role === "assistant" ? "assistant_reply" : "continuation";
       let summaryCandidateText = text;
       let answerQuestionText = "";
       let resolvedAmbiguousReturn = false;
-      if (role === "user" && !returnTarget(text) &&
+      let resolvedUnresolvedReturn = false;
+      let handledUnresolvedReturnClarification = false;
+      if (awaitingUnresolvedReturnClarification) {
+        const clarificationThread = activeThread(state);
+        const previousThreadIds = state.threads
+          .filter(row => !clarificationThread || row.id !== clarificationThread.id)
+          .map(row => row.id);
+        const match = resolveReturn(state, text, previousThreadIds);
+        if (match.thread) {
+          thread = match.thread;
+          for (const row of state.threads) row.status = row.id === thread.id ? "active" : "paused";
+          state.activeThreadId = thread.id;
+          relation = "explicit_return";
+          state.lastDecision = { kind: "returned", text, candidates: [thread.id] };
+          resolvedUnresolvedReturn = true;
+        } else if (match.ambiguous) {
+          state.lastDecision = {
+            kind: "ambiguous_return", text: state.lastDecision.text, candidates: match.candidates
+          };
+          handledUnresolvedReturnClarification = true;
+          relation = "continuation";
+        } else {
+          state.lastDecision = null;
+        }
+      }
+      if (role === "user" && !returnTarget(text) && !resolvedUnresolvedReturn &&
+          !handledUnresolvedReturnClarification &&
           state.lastDecision && state.lastDecision.kind === "ambiguous_return") {
         const match = resolveReturn(state, text, state.lastDecision.candidates);
         if (match.thread) {
@@ -314,8 +346,10 @@
         const target = returnTarget(text);
         const relationHint = ["new_topic", "continuation"].includes(message.relationHint)
           ? message.relationHint : "";
-        if (resolvedAmbiguousReturn) {
-          // The user's clarification selected one of the previously ambiguous topics.
+        if (resolvedAmbiguousReturn || resolvedUnresolvedReturn) {
+          // The user's clarification selected a saved topic.
+        } else if (handledUnresolvedReturnClarification) {
+          // Keep the clarification exchange in its temporary thread until the user selects one topic.
         } else if (target) {
           const match = resolveReturn(state, target);
           if (match.ambiguous) {
@@ -388,6 +422,10 @@
         thread = createThread(state, text, time);
       }
       if (role === "assistant") {
+        if (message.relationHint === "topic_return_clarification" && state.lastDecision &&
+            state.lastDecision.kind === "unresolved_return") {
+          state.lastDecision.awaitingClarification = true;
+        }
         thread.lastAssistantText = text;
         thread.updatedAt = time;
         const questions = extractQuestions(text);
