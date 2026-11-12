@@ -127,10 +127,25 @@
     };
   }
 
+  function shouldAskClarification(dialoguePlan, semanticPlan) {
+    if (!dialoguePlan || !dialoguePlan.needsClarification) return false;
+    // An explicit return must be resolved against a saved thread. A semantic
+    // guess must never turn an unresolved or ambiguous return into a new topic.
+    if (dialoguePlan.intent === "topic_return") return true;
+    const relation = semanticPlan && semanticPlan.contextRelation;
+    const source = semanticPlan && semanticPlan.source;
+    const confidence = Number(semanticPlan && semanticPlan.confidence);
+    const trusted = ["model", "local", "local_fallback"].includes(source) &&
+      confidence >= (source === "model" ? 0.58 : 0.5) &&
+      ["new_topic", "follow_up", "same_topic"].includes(relation);
+    return !trusted;
+  }
+
   function create(contextEngine = null) {
     return Object.freeze({
       classify: (input, context = {}) => classify(input, context, contextEngine),
       plan: (input, context = {}) => plan(input, context, contextEngine),
+      shouldAskClarification,
       isQuestion, isFollowUp, returnTarget, isConversationalFiller
     });
   }
