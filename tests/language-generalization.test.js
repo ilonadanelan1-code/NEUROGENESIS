@@ -362,7 +362,7 @@ assert.equal(oovProbe.tokenVector.length, 12);
 assert.ok(oovProbe.tokenVector.every(Number.isFinite), "OOV subword vectors must remain finite");
 assert.equal(baselineShort.roleTotal, 18, "the six-sentence 0.58.82 phrase baseline has 18 role labels");
 assert.equal(baselineShort.tp + baselineShort.fn, 18, "the six-sentence 0.58.82 phrase baseline has 18 expected edges");
-assert.equal(maskTotal.total, seedReports.length * 177, "all independent token positions must remain in the coverage denominator");
+assert.equal(maskTotal.total, seedReports.length * cases.reduce((sum, row) => sum + knowledge.tokens(row.text).length, 0), "all independent token positions must remain in the coverage denominator");
 assert.ok(maskTotal.covered <= maskTotal.total);
 assert.ok(phraseTotal.roleTotal > 0 && phraseTotal.tp + phraseTotal.fn > 0);
 assert.equal(semanticTotal.cases, cases.length);
