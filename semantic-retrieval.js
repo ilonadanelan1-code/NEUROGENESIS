@@ -137,6 +137,73 @@
     return { score: Math.min(1, harmonic), subjectScore: 1, attributeScore: relationScore,
       relationScore, predicateScore, objectScore };
   }
+  const COMPOSITION_HINT_SCHEMA = "NG_PHRASE_COMPOSITION_HINT_V1";
+  function normaliseCompositionHint(raw, queryText) {
+    const originalText = String(queryText == null ? "" : queryText).slice(0, 420);
+    if (!raw || raw.schema !== COMPOSITION_HINT_SCHEMA || raw.version !== 1 ||
+        raw.originalText !== originalText || raw.active !== true ||
+        !raw.provenance || raw.provenance.source !== "local_phrase_composition_prediction" ||
+        raw.provenance.supervision !== "weak_semantic_parser_labels" ||
+        raw.provenance.usage !== "retrieval_tie_break_only") return null;
+    const tokens = originalText.normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+      .match(/[\p{L}\p{N}]+/gu)?.slice(0, 48) || [];
+    const suppliedTokens = Array.isArray(raw.tokens) ? raw.tokens.slice(0, 48).map(value =>
+      String(value || "").normalize("NFKC").toLowerCase().replace(/ё/gu, "е")) : [];
+    if (!tokens.length || tokens.length !== suppliedTokens.length ||
+        tokens.some((token, index) => token !== suppliedTokens[index])) return null;
+    const allowedRoles = new Set(["subject", "predicate", "object"]);
+    const relationRoles = {
+      subject_to_predicate: ["subject", "predicate"],
+      predicate_to_object: ["predicate", "object"],
+      subject_to_object: ["subject", "object"]
+    };
+    const roleAt = Array(tokens.length).fill(null), nodes = [];
+    for (const row of (Array.isArray(raw.nodes) ? raw.nodes : []).slice(0, 6)) {
+      const start = Number(row && row.start), end = Number(row && row.end);
+      const confidence = Number(row && row.confidence);
+      if (!row || !allowedRoles.has(row.role) || !Number.isInteger(start) || !Number.isInteger(end) ||
+          start < 0 || end <= start || end > tokens.length || !Number.isFinite(confidence) || confidence < 0.62 ||
+          clean(row.text, 180).toLowerCase().replace(/ё/gu, "е") !== tokens.slice(start, end).join(" ")) return null;
+      for (let index = start; index < end; index++) {
+        if (roleAt[index] && roleAt[index] !== row.role) return null;
+        roleAt[index] = row.role;
+      }
+      nodes.push({ role: row.role, start, end, text: tokens.slice(start, end).join(" "),
+        confidence: Math.max(0, Math.min(1, confidence)) });
+    }
+    const edges = [];
+    for (const row of (Array.isArray(raw.edges) ? raw.edges : []).slice(0, 8)) {
+      const expected = row && relationRoles[row.relation];
+      const from = Number(row && row.from), to = Number(row && row.to), confidence = Number(row && row.confidence);
+      if (!expected || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 ||
+          from >= tokens.length || to >= tokens.length || from === to ||
+          roleAt[from] !== expected[0] || roleAt[to] !== expected[1] ||
+          !Number.isFinite(confidence) || confidence < 0.62) return null;
+      edges.push({ from, to, fromRole: expected[0], toRole: expected[1], relation: row.relation,
+        confidence: Math.max(0, Math.min(1, confidence)) });
+    }
+    const hasSubject = nodes.some(row => row.role === "subject");
+    const hasPredicate = nodes.some(row => row.role === "predicate");
+    const hasCoreEdge = edges.some(row => row.relation === "subject_to_predicate");
+    const confidence = Number(raw.confidence);
+    if (!hasSubject || !hasPredicate || !hasCoreEdge || !Number.isFinite(confidence) || confidence < 0.62) return null;
+    return { schema: COMPOSITION_HINT_SCHEMA, originalText, tokens, nodes, edges,
+      confidence: Math.max(0, Math.min(1, confidence)),
+      provenance: { source: "local_phrase_composition_prediction",
+        supervision: "weak_semantic_parser_labels", usage: "retrieval_tie_break_only" } };
+  }
+  function compositionAlignment(hint, claim, knowledge) {
+    if (!hint || !claim) return 0;
+    const fields = { subject: clean(claim.subject, 180), predicate: clean(claim.predicate, 100),
+      object: clean(claim.object, 180) };
+    const scores = [];
+    for (const edge of hint.edges) {
+      const left = match(hint.tokens[edge.from], fields[edge.fromRole], knowledge);
+      const right = match(hint.tokens[edge.to], fields[edge.toRole], knowledge);
+      if (left > 0 && right > 0) scores.push(Math.min(left, right) * edge.confidence);
+    }
+    return scores.length ? scores.reduce((sum, value) => sum + value, 0) / hint.edges.length : 0;
+  }
   function normaliseEvidencePlan(rawPlan, frame, options = {}) {
     const source = Array.isArray(rawPlan) ? rawPlan.slice(0, 4) : [];
     const steps = [], known = new Set();
@@ -204,6 +271,8 @@
   }
   function rankClaims(frame, memories, knowledge, rawPlan, options = {}) {
     const rows = Array.isArray(memories) ? memories : [];
+    const compositionHint = normaliseCompositionHint(options.compositionHint, options.queryText);
+    let compositionRankedCandidates = 0;
     const plan = normaliseEvidencePlan(rawPlan, frame, options);
     const sourceClaims = [];
     for (const item of rows) {
@@ -265,17 +334,21 @@
             ? origin.parent.pathClaimIds : [];
           const parentMemoryIds = origin.parent && Array.isArray(origin.parent.pathMemoryIds)
             ? origin.parent.pathMemoryIds : [];
+          const compositionScore = compositionHint && !source.unstructured
+            ? compositionAlignment(compositionHint, source.claim, knowledge) : 0;
+          if (compositionScore > 0) compositionRankedCandidates++;
           candidates.set(source.key, {
             stepId: step.id, memoryId: source.item.id, memoryText: source.item.text || "",
             claim: source.claim, claimKey: source.key, role: source.role,
-            score, rawScore, relationScore: Number(scored.relationScore || 0), resolvedSubject: origin.subject,
+            score, rawScore, relationScore: Number(scored.relationScore || 0), compositionScore, resolvedSubject: origin.subject,
             subjectVerified: !source.unstructured && !!clean(source.claim.subject, 180),
             pathClaimIds: [...parentClaimIds, clean(source.claim.id, 100)].filter(Boolean),
             pathMemoryIds: [...parentMemoryIds, source.item.id]
           });
         }
       }
-      const hits = [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+      const hits = [...candidates.values()].sort((a, b) => b.score - a.score ||
+        (b.compositionScore || 0) - (a.compositionScore || 0)).slice(0, 8);
       for (const hit of hits) {
         const existing = evidenceHits.get(hit.claimKey);
         if (existing) {
@@ -381,6 +454,13 @@
       plan, requirements, coverage,
       complete: requirements.length > 0 && requirements.every(item => item.matched && !item.ambiguous && !item.conflicted),
       evidence, conflicts, ambiguities, paths,
+      compositionRanking: { applied: !!compositionHint,
+        source: compositionHint ? "local_phrase_composition_prediction" : null,
+        confidence: compositionHint ? compositionHint.confidence : null,
+        usage: compositionHint ? "tie_break_only" : "inactive",
+        supervision: compositionHint ? "weak_semantic_parser_labels" : null,
+        originalText: compositionHint ? compositionHint.originalText : "",
+        rankedCandidates: compositionHint ? compositionRankedCandidates : 0 },
       memoryScores: [...memoryScores.entries()].map(([id, score]) => ({ id, score }))
         .sort((a, b) => b.score - a.score)
     };

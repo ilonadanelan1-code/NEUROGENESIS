@@ -11,6 +11,13 @@ for (const file of ["knowledge.js", "semantic-core.js", "contextual-attention.js
 const engine = window.NGSemanticQuery;
 const knowledge = window.NGKnowledge;
 assert.ok(engine && engine.version === 3);
+const rawLegacyInput = "  Нейрон   получает сигнал!  ";
+const noModelPlan = engine.local(rawLegacyInput, {}, knowledge);
+assert.equal(noModelPlan.originalText, rawLegacyInput,
+  "the exact incoming query text must remain available beside its normalised frame");
+assert.equal(noModelPlan.phraseComposition, null);
+assert.equal(noModelPlan.compositionHint, null,
+  "the legacy query path must remain available when contextual/phrase models are absent");
 
 const oldTopic = {
   activeThread: { id:"T-old", title:"Изучение устройства нейросетей", contextSummary:"Обсуждение контекста диалога." },
@@ -335,6 +342,11 @@ contextualModel.train(["нейрон получает сигнал", "сеть �
   { epochs: 4, learningRate: 0.02 });
 window.NGContextualAttention = contextualModel;
 const phraseModel = window.NGPhraseCompositionModel.create({dimension:8,seed:17});
+window.NGPhraseComposition = phraseModel;
+const untrainedPhrasePlan = engine.local("Нейрон получает сигнал", {}, knowledge);
+assert.equal(untrainedPhrasePlan.phraseComposition, null);
+assert.equal(untrainedPhrasePlan.compositionHint, null,
+  "an untrained phrase head must not interfere with the legacy semantic frame");
 phraseModel.train(["нейрон получает сигнал","сеть получает данные","ключ открывает замок","программа использует ключ"],
   contextualModel,window.NGSemanticCore,knowledge,{epochs:12,learningRate:0.04});
 window.NGPhraseComposition = phraseModel;
@@ -347,4 +359,18 @@ assert.ok(Array.isArray(contextualPlan.contextualHints));
 assert.ok(contextualPlan.phraseComposition&&contextualPlan.phraseComposition.trained,
   "trained phrase composition must flow into the local semantic query plan");
 assert.equal(contextualPlan.phraseComposition.weakFrame.subject,"нейрон");
-console.log("NEUROGENESIS semantic query planner: passed, including contextual attention integration.");
+assert.equal(contextualPlan.originalText,"Нейрон получает сигнал");
+assert.ok(contextualPlan.compositionHint&&contextualPlan.compositionHint.active,
+  "a trained high-confidence phrase graph must become a bounded retrieval hint");
+assert.equal(contextualPlan.compositionHint.schema,"NG_PHRASE_COMPOSITION_HINT_V1");
+assert.equal(contextualPlan.compositionHint.originalText,contextualPlan.originalText);
+assert.ok(contextualPlan.compositionHint.nodes.some(row=>row.role==="subject"&&row.text==="нейрон"));
+assert.ok(contextualPlan.compositionHint.nodes.some(row=>row.role==="predicate"&&row.text==="получает"));
+assert.ok(contextualPlan.compositionHint.edges.some(row=>row.relation==="subject_to_predicate"));
+assert.ok(contextualPlan.compositionHint.edges.some(row=>row.relation==="predicate_to_object"));
+assert.equal(contextualPlan.compositionHint.provenance.supervision,"weak_semantic_parser_labels");
+assert.equal(contextualPlan.compositionHint.provenance.usage,"retrieval_tie_break_only");
+assert.equal(contextualPlan.compositionHint.provenance.evaluation,"training_only_not_held_out");
+assert.equal("weakFrame" in contextualPlan.compositionHint,false,
+  "weak parser labels must not be copied into the retrieval hint as verified facts");
+console.log("NEUROGENESIS semantic query planner: passed, including bounded phrase-graph provenance and legacy fallback.");

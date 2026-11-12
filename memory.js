@@ -3426,8 +3426,11 @@
         }
       }
     }
+    let localCompositionHint = null, localCompositionQueryText = "";
     if (SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function") {
       const lexicalPlan = SEMANTIC_QUERY.local(query, {}, KNOWLEDGE);
+      localCompositionHint = lexicalPlan.compositionHint || null;
+      localCompositionQueryText = lexicalPlan.originalText || query;
       for (const candidate of lexicalPlan.searchQueries || []) {
         if (!semanticSearchQueries.includes(candidate) && semanticSearchQueries.length < 8) semanticSearchQueries.push(candidate);
       }
@@ -3526,7 +3529,8 @@
     }
     const claimRecall=SEMANTIC_RETRIEVAL&&semanticFrame&&typeof SEMANTIC_RETRIEVAL.rankClaims==="function"
       ?SEMANTIC_RETRIEVAL.rankClaims(semanticFrame,memories,KNOWLEDGE,semanticPlan&&semanticPlan.evidencePlan,
-        {allowFallback:!(semanticPlan&&semanticPlan.evidencePlanInvalid)})
+        {allowFallback:!(semanticPlan&&semanticPlan.evidencePlanInvalid),
+          compositionHint:localCompositionHint,queryText:localCompositionQueryText})
       :null;
     const claimMemoryScores=new Map((claimRecall&&claimRecall.memoryScores||[]).map(row=>[row.id,row.score]));
     const ranked = memories.filter(item => {

@@ -614,4 +614,67 @@ const wrongRelationAnswer = retrieval.parseAnswer(JSON.stringify({
 assert.equal(wrongRelationAnswer, null,
   "a claim ID cannot authorize a conclusion whose predicate no longer matches the requested relation");
 
-console.log("NEUROGENESIS semantic retrieval: entity/property matching, paraphrase invariance, evidence provenance and grounded answer validation passed.");
+const compositionFrame = { subject: { text: "нейрон" }, attribute: { text: "получает" } };
+const compositionMemories = [
+  { id: "M-DATA", text: "Нейрон получает данные.", claims: [{
+    id: "C-DATA", kind: "fact", subject: "нейрон", predicate: "получает", object: "данные",
+    evidence: "Нейрон получает данные.", verification: "user_supplied"
+  }] },
+  { id: "M-SIGNAL", text: "Нейрон получает сигнал.", claims: [{
+    id: "C-SIGNAL", kind: "fact", subject: "нейрон", predicate: "получает", object: "сигнал",
+    evidence: "Нейрон получает сигнал.", verification: "user_supplied"
+  }] }
+];
+const compositionHint = {
+  schema: "NG_PHRASE_COMPOSITION_HINT_V1", version: 1,
+  originalText: "нейрон получает сигнал",
+  tokens: ["нейрон", "получает", "сигнал"],
+  nodes: [
+    { role: "subject", start: 0, end: 1, text: "нейрон", confidence: 0.94 },
+    { role: "predicate", start: 1, end: 2, text: "получает", confidence: 0.81 },
+    { role: "object", start: 2, end: 3, text: "сигнал", confidence: 0.88 }
+  ],
+  edges: [
+    { from: 0, to: 1, fromRole: "subject", toRole: "predicate", relation: "subject_to_predicate", confidence: 0.90 },
+    { from: 1, to: 2, fromRole: "predicate", toRole: "object", relation: "predicate_to_object", confidence: 0.91 },
+    { from: 0, to: 2, fromRole: "subject", toRole: "object", relation: "subject_to_object", confidence: 0.89 }
+  ],
+  confidence: 0.81, active: true,
+  provenance: { source: "local_phrase_composition_prediction",
+    supervision: "weak_semantic_parser_labels", usage: "retrieval_tie_break_only",
+    evaluation: "training_only_not_held_out" }
+};
+const legacyCompositionRecall = retrieval.rankClaims(compositionFrame, compositionMemories, knowledge, [], {
+  allowFallback: true
+});
+const guidedCompositionRecall = retrieval.rankClaims(compositionFrame, compositionMemories, knowledge, [], {
+  allowFallback: true, compositionHint, queryText: "нейрон получает сигнал"
+});
+assert.equal(guidedCompositionRecall.compositionRanking.applied, true);
+assert.equal(guidedCompositionRecall.compositionRanking.usage, "tie_break_only");
+assert.equal(guidedCompositionRecall.compositionRanking.supervision, "weak_semantic_parser_labels");
+assert.equal(guidedCompositionRecall.compositionRanking.originalText, "нейрон получает сигнал");
+assert.deepEqual(Array.from(guidedCompositionRecall.evidence, row => row.id), ["M-SIGNAL", "M-DATA"],
+  "the phrase graph may break a lexical-score tie using its subject/predicate/object edges");
+assert.deepEqual(Array.from(guidedCompositionRecall.requirements, row => row.matched),
+  Array.from(legacyCompositionRecall.requirements, row => row.matched),
+  "the model hint must not change whether a claim satisfies the legacy evidence requirement");
+assert.equal(guidedCompositionRecall.complete, legacyCompositionRecall.complete);
+const legacyClaimIds = legacyCompositionRecall.evidence.flatMap(row => row.claims.map(claim => claim.id)).sort();
+const guidedClaimIds = guidedCompositionRecall.evidence.flatMap(row => row.claims.map(claim => claim.id)).sort();
+assert.deepEqual(guidedClaimIds, legacyClaimIds,
+  "phrase predictions may reorder existing evidence but must never create or remove factual claims");
+const mismatchedCompositionRecall = retrieval.rankClaims(compositionFrame, compositionMemories, knowledge, [], {
+  allowFallback: true, compositionHint, queryText: "другой исходный запрос"
+});
+assert.equal(mismatchedCompositionRecall.compositionRanking.applied, false,
+  "a phrase graph from a different original query must be ignored");
+const noFrameCompositionRecall = retrieval.rankClaims(null, compositionMemories, knowledge, [], {
+  compositionHint, queryText: "нейрон получает сигнал"
+});
+assert.equal(noFrameCompositionRecall.evidence.length, 0,
+  "a phrase graph alone must not invent a retrieval requirement or a fact");
+assert.equal(legacyCompositionRecall.compositionRanking.applied, false,
+  "the legacy retrieval path remains unchanged when no phrase graph is available");
+
+console.log("NEUROGENESIS semantic retrieval: entity/property matching, phrase-graph tie-break, legacy fallback, evidence provenance and grounded answer validation passed.");

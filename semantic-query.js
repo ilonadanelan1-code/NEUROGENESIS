@@ -24,8 +24,59 @@ function synonymExpansion(v,k){const base=tokens(v,k),out=new Set(base);for(cons
 function tokenOverlap(a,b,k){const x=new Set(synonymExpansion(a,k)),y=new Set(synonymExpansion(b,k));if(!x.size||!y.size)return 0;let n=0;for(const t of x)if(y.has(t))n++;return n/Math.min(x.size,y.size);}
 function answerType(q){return CORE?CORE.answerType(q):"description";}
 function isStructuredCommand(text){const v=normalise(text);return /^(?:покажи последний когнитивный цикл|покажи последний цикл мышления|что происходило в последнем цикле|покажи историю когнитивных циклов|покажи последние когнитивные циклы|покажи жизненный цикл гипотез|жизненный цикл гипотез|покажи состояния гипотез|история жизненного цикла гипотез|какие гипотезы проверяются|покажи текущие цели|какие у тебя цели|покажи прогресс целей|что сейчас блокирует цели|покажи хронологию наблюдений|хронология наблюдений|покажи журнал наблюдений|покажи карточки наблюдений|список наблюдений|что сохранено как опыт|составь план исследования|покажи план исследования|выбери следующий исследовательский шаг|найди пробелы в знаниях|исследуй пробелы в памяти|покажи очередь вопросов|какие вопросы открыты|покажи оценку исследовательских ответов)$/u.test(v)||/^(?:пропусти вопрос|возобнови вопрос|верни вопрос)\s+q\d+/u.test(v);}
+const PHRASE_HINT_SCHEMA="NG_PHRASE_COMPOSITION_HINT_V1",PHRASE_HINT_MIN_CONFIDENCE=.62;
+function buildCompositionHint(originalText,analysis){
+ const text=String(originalText==null?"":originalText).slice(0,MAX_QUERY);
+ if(!analysis||analysis.schema!=="NG_PHRASE_COMPOSITION_V1"||analysis.trained!==true||
+  analysis.supervision!=="weak_semantic_parser_labels"||!Array.isArray(analysis.tokens)||
+  !Array.isArray(analysis.nodes)||!Array.isArray(analysis.edges))return null;
+ const tokens=text.normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,48)||[];
+ const modelTokens=analysis.tokens.slice(0,48).map(value=>String(value||"").normalize("NFKC").toLowerCase().replace(/ё/gu,"е"));
+ if(!tokens.length||tokens.length!==modelTokens.length||tokens.some((token,index)=>token!==modelTokens[index]))return null;
+ const roles=new Set(["subject","predicate","object"]),relationRoles={
+  subject_to_predicate:["subject","predicate"],predicate_to_object:["predicate","object"],subject_to_object:["subject","object"]
+ };
+ const nodes=[],roleAt=Array(tokens.length).fill(null),occupied=Array(tokens.length).fill(false);
+ for(const row of analysis.nodes.slice(0,12)){
+  if(!row||!roles.has(row.role))continue;
+  const start=Number(row.start),end=Number(row.end),confidence=Number(row.confidence);
+  if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<=start||end>tokens.length||
+   !Number.isFinite(confidence)||confidence<PHRASE_HINT_MIN_CONFIDENCE)continue;
+  const span=tokens.slice(start,end),spanText=span.join(" ");
+  if(clean(row.text,180).toLowerCase().replace(/ё/gu,"е")!==spanText||span.some((_,offset)=>occupied[start+offset]))continue;
+  for(let index=start;index<end;index++){occupied[index]=true;roleAt[index]=row.role;}
+  nodes.push({role:row.role,start,end,text:spanText,confidence:Math.max(0,Math.min(1,confidence))});
+  if(nodes.length>=6)break;
+ }
+ const edges=[];
+ const candidates=analysis.edges.slice(0,24).slice().sort((a,b)=>(Number(b&&b.confidence)||0)-(Number(a&&a.confidence)||0));
+ for(const row of candidates){
+  if(!row||!Object.prototype.hasOwnProperty.call(relationRoles,row.relation))continue;
+  const from=Number(row.from),to=Number(row.to),confidence=Number(row.confidence),expected=relationRoles[row.relation];
+  if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<0||from>=tokens.length||to>=tokens.length||from===to||
+   !Number.isFinite(confidence)||confidence<PHRASE_HINT_MIN_CONFIDENCE||
+   roleAt[from]!==expected[0]||roleAt[to]!==expected[1])continue;
+  const fromToken=String(row.fromToken||"").normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+  const toToken=String(row.toToken||"").normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+  if(fromToken!==tokens[from]||toToken!==tokens[to])continue;
+  edges.push({from,to,fromRole:expected[0],toRole:expected[1],relation:row.relation,
+   confidence:Math.max(0,Math.min(1,confidence))});
+  if(edges.length>=8)break;
+ }
+ const subject=nodes.filter(row=>row.role==="subject").sort((a,b)=>b.confidence-a.confidence)[0];
+ const predicate=nodes.filter(row=>row.role==="predicate").sort((a,b)=>b.confidence-a.confidence)[0];
+ const mainEdge=edges.filter(row=>row.relation==="subject_to_predicate").sort((a,b)=>b.confidence-a.confidence)[0];
+ if(!subject||!predicate||!mainEdge)return null;
+ const confidence=Math.min(subject.confidence,predicate.confidence,mainEdge.confidence);
+ if(confidence<PHRASE_HINT_MIN_CONFIDENCE)return null;
+ return{schema:PHRASE_HINT_SCHEMA,version:1,originalText:text,tokens,nodes,edges,confidence,active:true,
+  provenance:{source:"local_phrase_composition_prediction",modelSchema:analysis.schema,
+   supervision:"weak_semantic_parser_labels",labelSource:"semantic_core_weak_frame",
+   evaluation:"training_only_not_held_out",confidenceKind:"uncalibrated_model_score",
+   usage:"retrieval_tie_break_only"}};
+}
 function local(input,context={},knowledge=null){
- const query=clean(input),active=context&&context.activeThread||null,id=active&&active.id||"";
+ const originalText=String(input==null?"":input).slice(0,MAX_QUERY),query=clean(input),active=context&&context.activeThread||null,id=active&&active.id||"";
  const recent=Array.isArray(context&&context.recentMessages)?context.recentMessages.filter(r=>r&&r.threadId===id).slice(-8):[];
  const resolution=context&&context.resolution||null,normalized=normalise(query);
  const contextFocus=context&&context.focus||resolution&&resolution.context&&resolution.context.focus||null;
@@ -59,13 +110,16 @@ function local(input,context={},knowledge=null){
  const contextualQuery=contextualHints.join(" ");
  const phraseModel=window.NGPhraseComposition&&typeof window.NGPhraseComposition.analyse==="function"?window.NGPhraseComposition:null;
  const phraseStatus=phraseModel&&typeof phraseModel.status==="function"?phraseModel.status():null;
- const phraseComposition=phraseStatus&&phraseStatus.trained&&contextualModel&&contextualStatus&&contextualStatus.trained
-  ?phraseModel.analyse(query,contextualModel,CORE,knowledge):null;
+ let phraseComposition=null;
+ if(phraseStatus&&phraseStatus.trained&&contextualModel&&contextualStatus&&contextualStatus.trained){
+  try{phraseComposition=phraseModel.analyse(query,contextualModel,CORE,knowledge);}catch(_){phraseComposition=null;}
+ }
+ const compositionHint=buildCompositionHint(originalText,phraseComposition);
  const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
- return {version:4,source:"local",contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
+ return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
-  contextualAnalysis,contextualHints,phraseComposition};
+  contextualAnalysis,contextualHints,phraseComposition,compositionHint};
 }
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";
