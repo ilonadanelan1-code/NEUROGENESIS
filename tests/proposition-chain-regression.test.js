@@ -65,6 +65,15 @@ assert.equal(longChain.items[2].proposition.subject, "модуль",
   "a resolved antecedent must remain available through a longer bounded chain");
 assert.equal(reference(longChain.items[2], "subject").status, "resolved");
 
+const longSemanticChain = parseChain(
+  "Система передаёт сигнал модулю. Он принимает его. Сигнал усиливается. Затем он активируется."
+);
+assert.equal(longSemanticChain.items.length, 4);
+assert.equal(longSemanticChain.items[3].proposition.subject, "Сигнал",
+  "a unique participant in the immediately preceding proposition should retain focus across a longer chain");
+assert.equal(reference(longSemanticChain.items[3], "subject").status, "resolved");
+assert.equal(reference(longSemanticChain.items[3], "subject").antecedentId, "p3");
+
 const prepositionalHead = parseChain("Модуль находится в большой комнате. Она работает.");
 assert.equal(prepositionalHead.items[1].proposition.subject, "в большой комнате",
   "a preposition and adjective must not be mistaken for the grammatical head");
@@ -118,13 +127,14 @@ const nestedRelative = parseChain("Система в большой комнат
 assert.equal(nestedRelative.items.length, 2);
 assert.equal(nestedRelative.items[0].proposition.subject, "Система в большой комнате");
 assert.equal(nestedRelative.items[0].proposition.predicate, "активируется");
-assert.equal(nestedRelative.items[1].proposition.subject, "Система в большой комнате");
+assert.equal(nestedRelative.items[1].proposition.subject, "большая комната",
+  "a relative clause must attach to the nearest nominal head inside a locative phrase and recover nominative form");
 assert.equal(nestedRelative.items[1].proposition.predicate, "получает");
 assert.equal(nestedRelative.items[1].proposition.object, "сигнал");
 assert.equal(nestedRelative.items[1].relationToPrevious.type, "relative_modifier");
 assert.equal(reference(nestedRelative.items[1], "subject").mention, "которая");
 assert.equal(reference(nestedRelative.items[1], "subject").status, "resolved");
-assert.equal(reference(nestedRelative.items[1], "subject").antecedentText, "Система в большой комнате");
+assert.equal(reference(nestedRelative.items[1], "subject").antecedentText, "большой комнате");
 
 const objectRelative = parseChain("Модель, которую использует модуль, активируется.");
 assert.equal(objectRelative.items.length, 2);
@@ -138,16 +148,25 @@ assert.equal(reference(objectRelative.items[1], "object").mention, "котору
 assert.equal(reference(objectRelative.items[1], "object").antecedentText, "Модель");
 
 const nestedObject = parseChain("Модуль активирует систему в большой комнате. Она работает.");
-assert.equal(nestedObject.items[1].proposition.subject, "систему в большой комнате");
-assert.equal(reference(nestedObject.items[1], "subject").status, "resolved");
-assert.equal(reference(nestedObject.items[1], "subject").antecedentText, "систему в большой комнате");
+assert.equal(nestedObject.items[1].proposition.subject, "Она",
+  "a pronoun must not bind to a compound object when its head and locative modifier are both viable antecedents");
+assert.equal(reference(nestedObject.items[1], "subject").status, "ambiguous");
+assert.ok(reference(nestedObject.items[1], "subject").candidates.some(row => row.text === "систему"));
+assert.ok(reference(nestedObject.items[1], "subject").candidates.some(row => row.text === "большой комнате"));
 
-const ambiguousRelative = parseChain("Модель работает. Система, которая активируется, работает.");
-assert.equal(ambiguousRelative.items.length, 3);
-assert.equal(ambiguousRelative.items[2].proposition.subject, "которая",
-  "relative pronouns must remain unresolved when several compatible entities are present");
-assert.equal(reference(ambiguousRelative.items[2], "subject").status, "ambiguous");
-assert.equal(reference(ambiguousRelative.items[2], "subject").candidates.length, 2);
+const attachedRelative = parseChain("Модель работает. Система, которая активируется, работает.");
+assert.equal(attachedRelative.items.length, 3);
+assert.equal(attachedRelative.items[2].proposition.subject, "Система",
+  "a relative pronoun must bind to its matrix noun, not an older compatible entity");
+assert.equal(reference(attachedRelative.items[2], "subject").status, "resolved");
+assert.equal(reference(attachedRelative.items[2], "subject").antecedentText, "Система");
+
+const coordinatedRelative = parseChain("Модель и система, которая активируется, получает сигнал.");
+assert.equal(coordinatedRelative.items.length, 2);
+assert.equal(coordinatedRelative.items[1].proposition.subject, "которая",
+  "a relative pronoun must remain unresolved when its target is a coordinated noun phrase");
+assert.equal(reference(coordinatedRelative.items[1], "subject").status, "ambiguous");
+assert.equal(reference(coordinatedRelative.items[1], "subject").candidates.length, 2);
 
 const causal = parseChain("Сеть не активируется, потому что питание не работает.");
 assert.equal(causal.items.length, 2);

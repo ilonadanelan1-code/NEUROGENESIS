@@ -849,6 +849,7 @@
       ]);
       const desiredRole = currentArgument && roleSensitive.has(currentArgument.role)
         ? currentArgument.role : null;
+      const relativeAttachment = items[index] && items[index].relativeAttachment || null;
       const candidatesByEntity = new Map();
       for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 6); priorIndex--) {
         const previous = items[priorIndex], prior = previous.proposition || {};
@@ -862,22 +863,10 @@
         const nestedObjectLocation = nestedObject && semanticArguments.find(argument =>
           argument && argument.role === "location" &&
           normalise(argument.text) === normalise(nestedObject[2]));
-        const collapseNestedObject = !!(nestedObjectHead && nestedObjectLocation &&
-          genders.includes(grammaticalGender(nestedObject[1])) &&
-          genders.includes(grammaticalGender(nestedObject[2])) &&
-          genders.includes(grammaticalGender(legacyObject)));
-        if (collapseNestedObject) {
-          // The old proposition slot treats "систему в большой комнате" as
-          // one noun phrase. When both its head and locative modifier agree
-          // with the pronoun, keep that complete phrase as one antecedent
-          // instead of presenting two pieces of the same noun phrase as rivals.
-          const key = normalise(legacyObject);
-          const score = (index - priorIndex) * 10;
-          candidatesByEntity.set(key, {
-            id: previous.id, text: legacyObject, role: "object",
-            grammaticalCase: null, score, semantic: true
-          });
-          semanticKeys.add(key);
+        const separateNestedObject = !!(nestedObjectHead && nestedObjectLocation);
+        if (separateNestedObject) {
+          // A nested object and its locative modifier are distinct referents.
+          semanticKeys.add(normalise(legacyObject));
           semanticKeys.add(normalise(nestedObject[1]));
           semanticKeys.add(normalise(nestedObject[2]));
         }
@@ -885,9 +874,7 @@
           const rawText = clean(argument && argument.text, 180);
           if (!rawText || pronounGenders(rawText, "subject") || pronounGenders(rawText, "object")) continue;
           const candidateRole = clean(argument.role, 32) || "object";
-          if (collapseNestedObject &&
-              (normalise(rawText) === normalise(nestedObject[1]) ||
-               normalise(rawText) === normalise(nestedObject[2]))) continue;
+          if (argument.attachmentType === "modifier" && !relativeAttachment) continue;
           let text = rawText;
           const legacyWords = legacyObject.split(/\s+/u);
           const hasObliquePrefix = legacyWords.length > 1 &&
@@ -896,7 +883,7 @@
           // argument frame stores only the noun phrase. Preserve the complete
           // surface group as the antecedent so "в большой комнате" is not
           // silently reduced to "большой комнате".
-          if (!collapseNestedObject && hasObliquePrefix &&
+          if (!separateNestedObject && hasObliquePrefix &&
               normalise(legacyObject).endsWith(" " + normalise(rawText))) {
             text = legacyObject;
           }
@@ -941,6 +928,33 @@
         }
       }
       let candidates = [...candidatesByEntity.values()].sort((a, b) => a.score - b.score);
+      if (relativeAttachment && relativeAttachment.status === "target") {
+        candidates = candidates.filter(candidate =>
+          candidate.id === relativeAttachment.id &&
+          normalise(candidate.text) === normalise(relativeAttachment.text));
+        if (relativeAttachment.synthetic && !candidates.length) {
+          const features = grammaticalFeatures(relativeAttachment.text, relativeAttachment.role || "location", null);
+          if (genders.includes(features.gender)) candidates.push({
+            id: relativeAttachment.id, text: relativeAttachment.text,
+            role: relativeAttachment.role || "location",
+            grammaticalCase: features.grammaticalCase,
+            gender: features.gender, number: features.number,
+            canonicalText: features.canonicalText, score: 0, semantic: true
+          });
+        }
+      } else if (relativeAttachment && relativeAttachment.status === "ambiguous") {
+        candidates = (relativeAttachment.candidates || []).map(candidate => {
+          const features = grammaticalFeatures(candidate.text, candidate.role || "object", null);
+          return {
+            id: relativeAttachment.id, text: candidate.text, role: candidate.role || "object",
+            grammaticalCase: features.grammaticalCase, gender: features.gender,
+            number: features.number, canonicalText: features.canonicalText,
+            score: 0, semantic: true
+          };
+        }).filter(candidate => genders.includes(candidate.gender));
+      } else if (relativeAttachment && relativeAttachment.status === "unresolved") {
+        candidates = [];
+      }
       // A second non-reflexive object pronoun should not silently reuse the
       // participant already resolved as the current subject when an alternative
       // compatible participant is present.
@@ -958,8 +972,11 @@
       const roleMatches = desiredRole
         ? candidates.filter(candidate => candidate.semantic && candidate.role === desiredRole)
         : [];
+      const immediateCandidates = index > 0
+        ? candidates.filter(candidate => candidate.id === items[index - 1].id) : [];
       const resolvedCandidate = candidates.length === 1 ? candidates[0]
-        : roleMatches.length === 1 ? roleMatches[0] : null;
+        : roleMatches.length === 1 ? roleMatches[0]
+        : immediateCandidates.length === 1 ? immediateCandidates[0] : null;
       const decisive = !!resolvedCandidate;
       references.push({
         schema: COREFERENCE_SCHEMA, mention, mentionContext, mentionRole: role,
@@ -1398,6 +1415,20 @@
     if (PASSIVE_PREDICATES.has(verb)) {
       const passiveThemeRole = PASSIVE_TRANSFER_PREDICATES.has(verb) ? "theme" : "patient";
       add(passiveThemeRole, actor, null, "nominative", 0.82, "passive_surface_subject");
+      const nestedPassiveLocation = actor.match(/^(.*?)\s+(в|во|на|при|под|над|около|возле|между|рядом\s+с)\s+(.+)$/iu);
+      if (nestedPassiveLocation && nestedPassiveLocation[1] && nestedPassiveLocation[3]) {
+        const phrase = clean(nestedPassiveLocation[3], 120);
+        const described = describeSemanticPhrase(phrase);
+        result.push({
+          role: "location", text: phrase, head: described.head, modifiers: described.modifiers,
+          marker: clean(nestedPassiveLocation[2], 24),
+          grammaticalCase: semanticPhraseCase(phrase, nestedPassiveLocation[2], predicate),
+          confidence: 0.68,
+          provenance: { source: "semantic_core_rule", rule: "embedded_subject_locative_modifier" },
+          attachmentType: "modifier",
+          attachmentTo: { role: passiveThemeRole, text: actor }
+        });
+      }
       for (const complement of splitPassiveComplements(object, predicate)) {
         add(complement.role, complement.text, complement.marker,
           complement.grammaticalCase, complement.confidence, complement.rule);
@@ -1407,6 +1438,20 @@
     const subjectRole = RECEIVING_PREDICATES.has(verb) ? "recipient"
       : CAUSATIVE_PREDICATES.has(verb) ? "cause" : "agent";
     add(subjectRole, actor, null, "nominative", 0.8, "bounded_verb_valency");
+    const nestedSubjectLocation = actor.match(/^(.*?)\s+(в|во|на|при|под|над|около|возле|между|рядом\s+с)\s+(.+)$/iu);
+    if (nestedSubjectLocation && nestedSubjectLocation[1] && nestedSubjectLocation[3]) {
+      const phrase = clean(nestedSubjectLocation[3], 120);
+      const described = describeSemanticPhrase(phrase);
+      result.push({
+        role: "location", text: phrase, head: described.head, modifiers: described.modifiers,
+        marker: clean(nestedSubjectLocation[2], 24),
+        grammaticalCase: semanticPhraseCase(phrase, nestedSubjectLocation[2], predicate),
+        confidence: 0.68,
+        provenance: { source: "semantic_core_rule", rule: "embedded_subject_locative_modifier" },
+        attachmentType: "modifier",
+        attachmentTo: { role: subjectRole, text: actor }
+      });
+    }
     const split = splitSemanticComplements(object, predicate);
     if (split.theme) {
       const themeRole = CAUSATIVE_PREDICATES.has(verb) ? "effect"
@@ -1533,6 +1578,7 @@
       segments.push({
         text: clause,
         sourceText: String(metadata.sourceText == null ? text : metadata.sourceText).slice(0, 300).trim(),
+        relativeAntecedentText: clean(metadata.relativeAntecedentText, 180) || null,
         relation,
         marker: clean(metadata.marker, 40) || null,
         rule: clean(metadata.rule, 80) || "sentence_boundary",
@@ -1589,6 +1635,7 @@
         });
         add(relativeClause, "relative_modifier", {
           sourceText: relativePronoun + " " + match[3] + ",", marker: relativePronoun,
+          relativeAntecedentText: antecedentPhrase,
           rule: "relative_clause_attachment", direction: "current_to_previous", confidence: 0.86
         });
         continue;
@@ -1769,6 +1816,7 @@
         id: "p" + (index + 1),
         text: segment.text,
         sourceText: segment.sourceText,
+        relativeAntecedentText: segment.relativeAntecedentText,
         proposition,
         relationToPrevious: {
           type: index === 0 ? "root" : segment.relation,
@@ -1790,6 +1838,63 @@
       ...item,
       proposition: validateProposition(item.proposition, {})
     }));
+    for (let index = 1; index < preparedItems.length; index++) {
+      const item = preparedItems[index];
+      if (item.relationToPrevious.type !== "relative_modifier") continue;
+      const matrix = preparedItems[index - 1];
+      const matrixText = clean(item.relativeAntecedentText || matrix.text, 300);
+      const argumentsList = Array.isArray(matrix.proposition.arguments) ? matrix.proposition.arguments : [];
+      const coordinated = argumentsList
+        .filter(argument => argument && typeof argument.text === "string")
+        .map(argument => ({
+          text: clean(argument.text, 180), role: argument.role || "object",
+          match: clean(argument.text, 180).match(/^(.+?)\s+и\s+(.+)$/iu)
+        }))
+        .find(argument => argument.match);
+      if (coordinated) {
+        item.relativeAttachment = {
+          status: "ambiguous", id: matrix.id,
+          candidates: [
+            { text: clean(coordinated.match[1], 120), role: coordinated.role },
+            { text: clean(coordinated.match[2], 120), role: coordinated.role }
+          ]
+        };
+        continue;
+      }
+      const normalizedMatrix = normalise(matrixText);
+      const positioned = argumentsList.map(argument => {
+        const text = clean(argument && argument.text, 180);
+        const phrase = normalise(text);
+        return {
+          text, role: clean(argument && argument.role, 32) || "object",
+          position: phrase ? normalizedMatrix.lastIndexOf(phrase) : -1
+        };
+      }).filter(candidate => candidate.text && candidate.position >= 0);
+      const trailingLocation = matrixText.match(/(?:^|\s)(в|во|на|при|под|над|около|возле|между|рядом\s+с)\s+([\p{L}-]+(?:\s+[\p{L}-]+){0,2})$/iu);
+      if (trailingLocation) {
+        const phrase = clean(trailingLocation[2], 120);
+        const exactModifier = positioned.find(candidate => normalise(candidate.text) === normalise(phrase));
+        item.relativeAttachment = {
+          status: "target", id: matrix.id,
+          text: exactModifier ? exactModifier.text : phrase,
+          role: exactModifier ? exactModifier.role : "location",
+          synthetic: !exactModifier
+        };
+        continue;
+      }
+      if (!positioned.length) {
+        item.relativeAttachment = { status: "unresolved", id: matrix.id };
+        continue;
+      }
+      const latestPosition = Math.max(...positioned.map(candidate => candidate.position));
+      const nearest = positioned.filter(candidate => candidate.position === latestPosition);
+      const unique = [...new Map(nearest.map(candidate => [normalise(candidate.text), candidate])).values()];
+      item.relativeAttachment = unique.length === 1
+        ? { status: "target", id: matrix.id, text: unique[0].text, role: unique[0].role }
+        : { status: "ambiguous", id: matrix.id, candidates: unique.map(candidate => ({
+            text: candidate.text, role: candidate.role
+          })) };
+    }
     const localChain = {
       schema: PROPOSITION_CHAIN_SCHEMA, version: 1, sourceText,
       items: resolvePropositionReferences(preparedItems)
