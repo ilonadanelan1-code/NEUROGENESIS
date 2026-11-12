@@ -118,7 +118,7 @@ if (!trainPath && !testPath) {
     });
     assert.ok(training.trainRows > 0 && training.vocabularySize > 1);
     assert.ok(model.status().trainingContextExamples > 0);
-    const trainingSplit = Attention.splitCorpus(prepared.trainingTexts, seed.split);
+    const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
     assert.equal(trainingSplit.train.length, training.trainRows,
       "frequency diagnostics must use the exact model training partition");
     const trainingTokenFrequency = new Map();
