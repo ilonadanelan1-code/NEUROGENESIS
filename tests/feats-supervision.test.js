@@ -21,9 +21,9 @@ const sentences = [
     ["сигнал","сигнал",{Case:"Acc",Number:"Sing",Gender:"Masc"}]
   ]],
   ["Система хранит данные.", [
-    ["Система","система",{Case:"Nom",Number:"Sing",Gender:"Fem"}],
+    ["Система","система",{Case:"Nom",Number:"Sing",Gender:"Fem",PronType:"Int,Rel"}],
     ["хранит","хранить",{Number:"Sing",Person:"3",Tense:"Pres",Aspect:"Imp",VerbForm:"Fin"}],
-    ["данные","данные",{Case:"Acc",Number:"Plur"}]
+    ["данные","данные",{Case:"Acc",Number:"Plur",PronType:"Rel,Int"}]
   ]],
   ["Система анализирует контекст.", [
     ["Система","система",{Case:"Nom",Number:"Sing",Gender:"Fem"}],
@@ -123,8 +123,12 @@ assert.equal(testing.stats.alignedSentences,2);
 assert.ok(testing.byAttribute.Case.length>0);
 assert.ok(testing.byAttribute.Number.length>0);
 assert.ok(testing.byAttribute.Tense.length>0);
-assert.ok(training.byAttribute.PronType.some(row=>row.label==="Int,Rel"),
-  "comma-separated UD values must remain a single observed attribute value");
+assert.ok(training.byAttribute.PronType.length>=2);
+assert.deepEqual(
+  [...new Set(training.byAttribute.PronType.map(row=>row.label))],
+  ["Int,Rel"],
+  "comma-separated UD values with different source ordering must canonicalize to one label"
+);
 assert.ok(testing.byAttribute.Case.every(row=>row.lemma));
 assert.ok(testing.byAttribute.Case.every(row=>row.targetKnown===false),
   "test examples must use subword representations for unseen lexical targets");
