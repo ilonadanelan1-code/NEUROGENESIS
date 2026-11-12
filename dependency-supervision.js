@@ -158,7 +158,7 @@
         const dependent = wordRows[dependentIndex];
         const annotation = dependent.annotation;
         const relation = cleanRelation(annotation.deprel);
-        const headId = Number(annotation.head);
+        const headId = Number.isInteger(annotation.head) ? annotation.head : NaN;
         if (!relation || !Number.isInteger(headId) || headId < 0) {
           skip("missing_dependency_annotation");
           continue;
@@ -268,7 +268,8 @@
       const rows = Array.isArray(examples) ? examples.filter(Boolean) : [];
       if (!rows.length) return {
         targets:0,headCorrect:0,headAccuracy:null,oracleRelationCorrect:0,
-        oracleRelationAccuracy:null,relationMacroF1:null,lasCorrect:0,las:null,perRelation:{}
+        relationCovered:0,relationCoverage:null,oracleRelationAccuracy:null,
+        relationMacroF1:null,lasCorrect:0,las:null,perRelation:{}
       };
       let headCorrect = 0, oracleRelationCorrect = 0, lasCorrect = 0;
       const totals = Object.create(null), predicted = Object.create(null), correct = Object.create(null);
