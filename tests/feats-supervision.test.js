@@ -117,15 +117,16 @@ assert.ok(trainRecords.every(Boolean)&&validationRecords.every(Boolean));
 const training = Feats.extractExamples(trainRecords,contextual);
 const validation = Feats.extractExamples(validationRecords,contextual);
 const testing = Feats.extractExamples(heldOut,contextual);
+const allAnnotatedTraining = Feats.extractExamples(records,contextual);
 assert.ok(training.stats.featureTargets>0);
 assert.ok(validation.stats.featureTargets>0);
 assert.equal(testing.stats.alignedSentences,2);
 assert.ok(testing.byAttribute.Case.length>0);
 assert.ok(testing.byAttribute.Number.length>0);
 assert.ok(testing.byAttribute.Tense.length>0);
-assert.ok(training.byAttribute.PronType.length>=2);
+assert.ok(allAnnotatedTraining.byAttribute.PronType.length>=2);
 assert.deepEqual(
-  [...new Set(training.byAttribute.PronType.map(row=>row.label))],
+  [...new Set(allAnnotatedTraining.byAttribute.PronType.map(row=>row.label))],
   ["Int,Rel"],
   "comma-separated UD values with different source ordering must canonicalize to one label"
 );
