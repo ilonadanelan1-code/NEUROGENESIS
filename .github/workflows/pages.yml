@@ -259,6 +259,9 @@ jobs:
             dist/neurogenesis.wasm
           if-no-files-found: error
 
+      - name: Test UD annotation importer and deterministic splits
+        run: node tests/ud-russian-gsd-benchmark.test.js
+
       - name: Run independent language-understanding benchmark
         run: node tests/language-generalization.test.js
 
