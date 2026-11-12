@@ -306,7 +306,6 @@ jobs:
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
           node upos-supervision.test.js
-          node upos-supervision.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
           node tests/proposition-chain-regression.test.js
