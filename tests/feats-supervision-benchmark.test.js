@@ -62,7 +62,18 @@ function summarize(allRows,head,majorityLabel,lemmas=null) {
   const labels = new Set(head.status().labels);
   const coveredRows = rows.filter(row => labels.has(row.label));
   const report = head.evaluate(coveredRows);
-  const majorityCorrect = coveredRows.filter(row => row.label === majorityLabel).length;
+  const counts = Object.create(null);
+  for(const row of coveredRows) counts[row.label]=(counts[row.label]||0)+1;
+  const majorityCorrect = counts[majorityLabel] || 0;
+  const majorityMacroRows = Object.entries(counts).map(([label,targets])=>{
+    const truePositive = label===majorityLabel ? targets : 0;
+    const predicted = label===majorityLabel ? coveredRows.length : 0;
+    const precision = predicted ? truePositive/predicted : 0;
+    const recall = targets ? truePositive/targets : 0;
+    return precision+recall ? 2*precision*recall/(precision+recall) : 0;
+  });
+  const majorityBaselineMacroF1 = majorityMacroRows.length
+    ? majorityMacroRows.reduce((sum,value)=>sum+value,0)/majorityMacroRows.length : null;
   return {
     targets:rows.length,
     covered:coveredRows.length,
@@ -72,6 +83,7 @@ function summarize(allRows,head,majorityLabel,lemmas=null) {
     coverage:ratio(coveredRows.length,rows.length),
     majorityBaselineCorrect:majorityCorrect,
     majorityBaselineAccuracy:ratio(majorityCorrect,coveredRows.length),
+    majorityBaselineMacroF1,
     macroF1:report.macroF1,
     perClass:report.perClass
   };
@@ -165,7 +177,13 @@ for(const seed of seeds) {
     add(row.all,all);
     add(row.knownLemma,known);
     add(row.unseenLemma,unseen);
-    row.macroF1BySeed.push({seed:seed.model,all:all.macroF1,unseenLemma:unseen.macroF1});
+    row.macroF1BySeed.push({
+      seed:seed.model,
+      all:all.macroF1,
+      allMajorityBaseline:all.majorityBaselineMacroF1,
+      unseenLemma:unseen.macroF1,
+      unseenLemmaMajorityBaseline:unseen.majorityBaselineMacroF1
+    });
     attributeReports[attribute] = {
       training,
       trainTargets:item.trainTargets,
@@ -212,7 +230,9 @@ const aggregateReport = Object.fromEntries(Object.entries(aggregate).map(([attri
   return [attribute,{
     ...metrics,
     meanMacroF1AcrossSeeds:macro("all"),
+    meanMajorityBaselineMacroF1AcrossSeeds:macro("allMajorityBaseline"),
     meanUnseenLemmaMacroF1AcrossSeeds:macro("unseenLemma"),
+    meanUnseenLemmaMajorityBaselineMacroF1AcrossSeeds:macro("unseenLemmaMajorityBaseline"),
     macroF1BySeed:row.macroF1BySeed
   }];
 }));
