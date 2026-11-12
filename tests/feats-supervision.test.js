@@ -157,7 +157,9 @@ const unweightedResult = unweightedHead.train(trainCase,validationCase,{
 assert.equal(unweightedResult.classWeighting,"none");
 assert.equal(unweightedResult.selectionMetric,"validation_loss");
 assert.ok(Object.values(unweightedResult.classWeights).every(value=>value===1));
+assert.ok(Number.isFinite(unweightedResult.initialValidationLoss));
 assert.ok(Number.isFinite(unweightedResult.validationLoss));
+assert.ok(Number.isFinite(unweightedResult.trainingLoss));
 assert.deepEqual(Array.from(unweightedHead.status().labels),Array.from(head.status().labels));
 
 const testCase = testing.byAttribute.Case;
