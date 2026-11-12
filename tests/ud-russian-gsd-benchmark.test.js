@@ -8,9 +8,9 @@ const importer = require("../scripts/ud-russian-gsd.js");
 const fixtureTrain = [
   "# sent_id = train-1",
   "# text = Нейрон получает сигнал.",
-  "1\tНейрон\tнейрон\tNOUN\t_\t_\t2\tnsubj\t_\t_",
-  "2\tполучает\tполучать\tVERB\t_\t_\t0\troot\t_\t_",
-  "3\tсигнал\tсигнал\tNOUN\t_\t_\t2\tobj\t_\t_",
+  "1\tНейрон\tнейрон\tNOUN\t_\tCase=Nom|Number=Sing\t2\tnsubj\t_\t_",
+  "2\tполучает\tполучать\tVERB\t_\tMood=Ind|Number=Sing|Person=3|Tense=Pres|VerbForm=Fin\t0\troot\t_\t_",
+  "3\tсигнал\tсигнал\tNOUN\t_\tCase=Acc|Number=Sing\t2\tobj\t_\t_",
   "",
   "# sent_id = train-2",
   "# text = Сеть хранит данные.",
@@ -38,17 +38,54 @@ assert.equal(importer.decodeEntities("тест &#39;пример&#39; &amp; те
 const parsedFixture = importer.parseConllu(fixtureTrain);
 assert.equal(parsedFixture.length, 2);
 assert.equal(parsedFixture[0].tokenCount, 3);
+assert.equal(parsedFixture[0].sentenceId, "train-1");
+assert.equal(parsedFixture[0].annotationTokenCount, 3);
+assert.equal(parsedFixture[0].tokens[0].lemma, "нейрон");
+assert.equal(parsedFixture[0].tokens[0].upos, "NOUN");
+assert.deepEqual(parsedFixture[0].tokens[0].feats, {Case: "Nom", Number: "Sing"});
+assert.equal(parsedFixture[0].tokens[1].feats.VerbForm, "Fin");
+assert.equal(parsedFixture[0].tokens[1].head, 0);
+assert.equal(parsedFixture[0].tokens[1].deprel, "root");
+
 const fixtureOptions = {trainLimit: 10, testLimit: 10, minimumTokens: 3, maximumTokens: 20, seed: 17};
 const preparedFixture = importer.prepareCorpus(fixtureTrain, fixtureTest, fixtureOptions);
 assert.equal(preparedFixture.stats.normalizedTrainTestOverlapsExcluded, 1);
 assert.equal(preparedFixture.stats.normalizedSampleTrainTestOverlaps, 0);
 assert.equal(preparedFixture.trainingTexts.length, 1);
 assert.equal(preparedFixture.trainingTexts[0], "Сеть хранит данные.");
+assert.equal(preparedFixture.trainingRecords.length, 1);
+assert.equal(preparedFixture.trainingRecords[0].sentenceId, "train-2");
+assert.equal(preparedFixture.trainingRecords[0].tokens[0].lemma, "сеть");
+assert.equal(preparedFixture.trainingRecords[0].tokens[0].upos, "NOUN");
+assert.equal(preparedFixture.testRecords.length, 2);
+assert.equal(preparedFixture.stats.annotations.training.sentences, 1);
+assert.equal(preparedFixture.stats.annotations.training.tokens, 3);
+assert.equal(preparedFixture.stats.annotations.training.lemmaAnnotated, 3);
+assert.equal(preparedFixture.stats.annotations.training.featureAnnotated, 3);
+assert.equal(preparedFixture.stats.annotations.training.upos.NOUN, 2);
+assert.equal(preparedFixture.stats.annotations.training.upos.VERB, 1);
+assert.equal(preparedFixture.stats.annotations.test.sentences, 2);
+assert.equal(preparedFixture.stats.annotations.test.tokens, 7);
+
 assert.deepEqual(
   importer.prepareCorpus(fixtureTrain, fixtureTest, fixtureOptions).trainingTexts,
   preparedFixture.trainingTexts,
   "training sample must be deterministic"
 );
+
+const structuralRows = importer.parseConllu([
+  "# sent_id = structural-1",
+  "# text = Мы видим связь.",
+  "1-2\\tМы видим\\t_\\t_\\t_\\t_\\t_\\t_\\t_\\t_",
+  "1\\tМы\\tмы\\tPRON\\t_\\tCase=Nom\\t2\\tnsubj\\t_\\t_",
+  "1.1\\tмы\\tмы\\tX\\t_\\t_\\t_\\t_\\t_\\t_",
+  "2\\tвидим\\tвидеть\\tVERB\\t_\\tMood=Ind\\t0\\troot\\t_\\t_",
+  "3\\tсвязь\\tсвязь\\tNOUN\\t_\\tCase=Acc\\t2\\tobj\\t_\\t_",
+  ""
+].join("\\n"));
+assert.equal(structuralRows[0].tokens.length, 3,
+  "multiword ranges and empty nodes must not become duplicate lexical annotations");
+assert.deepEqual(structuralRows[0].tokens.map(row => row.id), [1, 2, 3]);
 
 const trainPath = process.argv[2];
 const testPath = process.argv[3];
