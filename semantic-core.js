@@ -1329,6 +1329,12 @@
       const expectedCase = prepositionExpectedCase(current.marker, predicate);
       const trailingComplements = [];
       while (segment.length > 1 || PASSIVE_PREDICATES.has(normalise(predicate))) {
+        const lastWord = normalise(segment[segment.length - 1] || "");
+        const explicitlyPrepositional = expectedCase === "prepositional" &&
+          (PREPOSITIONAL_FEMININE_FORMS.has(lastWord) ||
+           PREPOSITIONAL_MASCULINE_FORMS.has(lastWord) ||
+           PREPOSITIONAL_NEUTER_FORMS.has(lastWord));
+        if (explicitlyPrepositional) break;
         const tail = extractInflectedComplementTail(segment, predicate);
         if (!tail || !expectedCase || tail.complement.grammaticalCase === expectedCase) break;
         trailingComplements.unshift(tail.complement);
