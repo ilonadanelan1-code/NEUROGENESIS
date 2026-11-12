@@ -32,7 +32,8 @@ assert.equal(reference(competing.items[1], "subject").candidates.length, 2);
 const subjectVersusObject = parseChain("Система получает сигнал. Он усиливается.");
 assert.equal(subjectVersusObject.items[1].proposition.subject, "сигнал",
   "a masculine subject pronoun must resolve to the only compatible prior object");
-assert.equal(reference(subjectVersusObject.items[1], "subject").candidates[0].role, "object");
+assert.equal(reference(subjectVersusObject.items[1], "subject").candidates[0].role, "theme",
+  "the semantic argument role must be more specific than the legacy object slot");
 
 const objectReference = parseChain("Система получает сигнал. Модель обрабатывает его.");
 assert.equal(objectReference.items[1].proposition.object, "сигнал",
