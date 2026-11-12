@@ -112,9 +112,9 @@ function create(options={}){
   if(!sourceRows.length)throw new TypeError("Add sentences for phrase-structure training.");
   const excluded=Array.isArray(trainOptions.excludeSentences)
    ?trainOptions.excludeSentences.map(value=>clean(value,1200)).filter(Boolean):[];
-  const augmentation=trainOptions.augmentWordOrder===false
-   ?{rows:[],excludedCount:0,unverifiedCount:0}
-   :deriveVerifiedSovAugmentations(sourceRows,core,knowledge,excluded);
+  const augmentation=trainOptions.augmentWordOrder===true
+   ?deriveVerifiedSovAugmentations(sourceRows,core,knowledge,excluded)
+   :{rows:[],excludedCount:0,unverifiedCount:0};
   const rawAugmentationWeight=Number(trainOptions.augmentationWeight);
   const augmentationWeight=Number.isFinite(rawAugmentationWeight)
    ?Math.max(0,Math.min(1,rawAugmentationWeight)):0.3;
@@ -155,7 +155,8 @@ function create(options={}){
    roleExamples:roleExamples.length,relationExamples:relationExamples.length,positiveRelations:relationExamples.filter(row=>row.label>0).length,
    roleCounts,relationCounts,epochs,learningRate,roleTrainingAccuracy:roleCorrect/roleExamples.length,relationTrainingAccuracy:relationCorrect/relationExamples.length,
    roleTrainingLoss:roleLoss/roleExamples.length,relationTrainingLoss:relationLoss/relationExamples.length,
-   augmentation:"verified_sov_permutations_excluding_held_out",supervision:"weak_semantic_parser_labels",evaluation:"training_only_not_held_out"};
+   augmentationEnabled:trainOptions.augmentWordOrder===true,
+   augmentation:trainOptions.augmentWordOrder===true?"verified_sov_permutations_excluding_held_out":"disabled",supervision:"weak_semantic_parser_labels",evaluation:"training_only_not_held_out"};
   return{...lastTraining};
  }
  function argmax(values){let best=0;for(let i=1;i<values.length;i++)if(values[i]>values[best])best=i;return best;}
