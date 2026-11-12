@@ -1,6 +1,6 @@
 (() => {
 "use strict";
-const SCHEMA="NG_CONTEXTUAL_ATTENTION_V5",MAX_VOCABULARY=1024,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24,MAX_TRANSFORMER_BLOCKS=4;
+const SCHEMA="NG_CONTEXTUAL_ATTENTION_V5",MAX_VOCABULARY=1024,MAX_ALLOWED_VOCABULARY=8192,MAX_TOKENS=96,MAX_WINDOW_SIZE=8,SUBWORD_BUCKETS=256,MAX_SUBWORD_FEATURES=24,MAX_TRANSFORMER_BLOCKS=4;
 const clean=(value,limit=4000)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
 function tokenize(value){return clean(value,6000).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").match(/[\p{L}\p{N}]+/gu)?.slice(0,MAX_TOKENS)||[];}
 const RUSSIAN_VERB_ENDINGS=["ировались","ировалось","ировали","ировать","ируются","ируется","ируете","ируешь","ируют","ирует","ываете","ывают","ываешь","ывает","ывают","ивает","ивают","аете","ают","яете","яют","уете","уют","ает","яет","ует","вает","вают","ишь","ешь","ите","ете","или","ыли","ет","ит","ят","ат","ут","ют"].sort((a,b)=>b.length-a.length);
@@ -101,6 +101,7 @@ function create(options={}){
  if(!heads)throw new RangeError("Model dimension must be divisible by the requested attention heads.");
  const headDimension=dimension/heads,feedForwardDimension=dimension*2;
  const windowSize=Math.max(1,Math.min(MAX_WINDOW_SIZE,Math.floor(finite(options.windowSize,4))));
+ const maxVocabulary=Math.max(64,Math.min(MAX_ALLOWED_VOCABULARY,Math.floor(finite(options.maxVocabulary,MAX_VOCABULARY))));
  const random=makeRandom(options.seed),tokenSeed=finite(options.seed,173)+104729;
  let tokenRandom=makeRandom(tokenSeed);
  const scale=Math.sqrt(2/(dimension+headDimension));
@@ -123,7 +124,7 @@ function create(options={}){
   const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
   if(!token||!/[\p{L}\p{N}]/u.test(token))return-1;
   if(indices.has(token))return indices.get(token);
-  if(vocabulary.length>=MAX_VOCABULARY)return-1;
+  if(vocabulary.length>=maxVocabulary)return-1;
   const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);stemIndexCache=null;
   embeddings.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));
   outputWeights.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));outputBias.push(0);
@@ -435,7 +436,7 @@ function create(options={}){
    validationCoverage:validationExamples.length?validationExamples.length/Math.max(1,rowsForTargets(validationRows)):null,
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
-   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
+   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,vocabularyCapacity:maxVocabulary,vocabularySaturated:vocabulary.length>=maxVocabulary,transformerBlocks:blockCount,
    shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
    trainingContextExamples:trainingContextExamples.length};
@@ -531,20 +532,22 @@ function create(options={}){
    morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,
    contextMorphologyBackoffCount,positions};}
  function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
-  feedForwardDimension,trainingSteps,trainingContextExamples:trainingContextExamples.length,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
+  feedForwardDimension,vocabularyCapacity:maxVocabulary,trainingSteps,trainingContextExamples:trainingContextExamples.length,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice()),copyBlock=block=>({
    attentionHeads:block.attentionHeads.map(head=>({query:copy(head.query),key:copy(head.key),value:copy(head.value)})),relativePositionBias:copy(block.relativePositionBias),attentionOutput:copy(block.attentionOutput),
    norm1Gamma:block.norm1Gamma.slice(),norm1Beta:block.norm1Beta.slice(),norm2Gamma:block.norm2Gamma.slice(),norm2Beta:block.norm2Beta.slice(),
    feedForward1:copy(block.feedForward1),feedForward1Bias:block.feedForward1Bias.slice(),feedForward2:copy(block.feedForward2),feedForward2Bias:block.feedForward2Bias.slice()
   });
-  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
+  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,maxVocabulary,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
    trainingContextExamples:trainingContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({...item}))}))};
  }
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
-  if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||!Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
-   throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
+  const stateVocabularyCapacity=state.maxVocabulary==null?MAX_VOCABULARY:state.maxVocabulary;
+  if(!Number.isInteger(stateVocabularyCapacity)||stateVocabularyCapacity<64||stateVocabularyCapacity>MAX_ALLOWED_VOCABULARY||stateVocabularyCapacity!==maxVocabulary||
+   state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||!Array.isArray(state.vocabulary)||state.vocabulary.length>stateVocabularyCapacity||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
+   throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary capacity are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
   const validVector=(values,length)=>Array.isArray(values)&&values.length===length&&values.every(value=>Number.isFinite(Number(value)));
   const count=state.vocabulary.length,vocabularySet=new Set(state.vocabulary),storedContextExamples=state.trainingContextExamples??[],
@@ -579,7 +582,7 @@ function create(options={}){
  const initialCheckpoint=exportState();
  return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
-function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
+function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks,maxVocabulary:state.maxVocabulary??MAX_VOCABULARY});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
 root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 })();
