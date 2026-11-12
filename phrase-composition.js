@@ -72,7 +72,84 @@ function create(options={}){
   }
   return{probs,loss:-Math.log(Math.max(1e-12,probs[label]))};
  }
+ function normaliseTrainingText(value){
+  return String(value==null?"":value).normalize("NFKC").toLowerCase()
+   .replace(/ё/gu,"е").replace(/[^\p{L}\p{N}\s]+/gu," ")
+   .replace(/\s+/gu," ").trim();
+ }
+ function deriveVerifiedSovAugmentations(rows,core,knowledge,excluded){
+  const blocked=new Set(rows.concat(excluded).map(normaliseTrainingText).filter(Boolean));
+  const generated=[],seen=new Set(blocked);
+  let excludedCount=0,unverifiedCount=0;
+  for(const source of rows){
+   const frame=core.analyse(source,{contextRelation:"new_topic"},knowledge).proposition||{};
+   if(frame.kind!=="assertion"||frame.modality!=="asserted"||frame.polarity!=="positive"||
+      frame.relation!=="predicate")continue;
+   const subject=clean(frame.subject,180),predicate=clean(frame.predicate,80),object=clean(frame.object,180);
+   if(!subject||!predicate||!object)continue;
+   const sourceWords=String(source).match(/[\p{L}\p{N}]+/gu)||[];
+   if(sourceWords.length>14)continue;
+   const candidate=clean(object+" "+subject+" "+predicate,500)+".";
+   const key=normaliseTrainingText(candidate);
+   if(!key||seen.has(key)){
+    if(blocked.has(key))excludedCount++;
+    continue;
+   }
+   const verified=core.analyse(candidate,{contextRelation:"new_topic"},knowledge).proposition||{};
+   const matches=verified.kind==="assertion"&&
+     normaliseTrainingText(verified.subject)===normaliseTrainingText(subject)&&
+     normaliseTrainingText(verified.predicate)===normaliseTrainingText(predicate)&&
+     normaliseTrainingText(verified.object)===normaliseTrainingText(object);
+   if(!matches){unverifiedCount++;continue;}
+   seen.add(key);
+   generated.push(candidate);
+  }
+  return{rows:generated,excludedCount,unverifiedCount};
+ }
+
  function train(texts,contextual,core,knowledge,trainOptions={}){
+  const sourceRows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,MAX_SENTENCES);
+  if(!sourceRows.length)throw new TypeError("Add sentences for phrase-structure training.");
+  const excluded=Array.isArray(trainOptions.excludeSentences)
+   ?trainOptions.excludeSentences.map(value=>clean(value,1200)).filter(Boolean):[];
+  const augmentation=trainOptions.augmentWordOrder===false
+   ?{rows:[],excludedCount:0,unverifiedCount:0}
+   :deriveVerifiedSovAugmentations(sourceRows,core,knowledge,excluded);
+  const rows=sourceRows.concat(augmentation.rows).slice(0,MAX_SENTENCES);
+  const prepared=rows.map(text=>({text,data:build(text,contextual,core,knowledge)})).filter(row=>row.data.labels.some(label=>label>0));
+  const roleExamples=prepared.flatMap(row=>row.data.features.map((features,index)=>({features,label:row.data.labels[index]})));
+  const relationExamples=prepared.flatMap(row=>row.data.relationExamples);
+  if(!prepared.length||!roleExamples.some(row=>row.label>0))throw new Error("The semantic parser could not identify subject, predicate or object spans in this corpus.");
+  if(!relationExamples.some(row=>row.label>0))throw new Error("The corpus does not contain enough aligned phrase relations.");
+  const epochs=Math.max(1,Math.min(120,Math.floor(Number(trainOptions.epochs)||35)));
+  const learningRate=Math.max(.001,Math.min(.2,Number(trainOptions.learningRate)||.055));
+  let roleLoss=0,relationLoss=0;
+  const roleCounts=zeros(ROLES.length),relationCounts=zeros(RELATIONS.length);
+  for(const row of roleExamples)roleCounts[row.label]++;
+  for(const row of relationExamples)relationCounts[row.label]++;
+  for(let epoch=0;epoch<epochs;epoch++){
+   roleLoss=0;relationLoss=0;
+   for(const example of roleExamples){
+    const weight=example.label===0?.45:1.4,updated=update(roleWeights,roleBias,example.features,example.label,learningRate,weight);
+    roleLoss+=updated.loss*weight;
+   }
+   for(const example of relationExamples){
+    const weight=example.label===0?.35:2.0,updated=update(relationWeights,relationBias,example.features,example.label,learningRate,weight);
+    relationLoss+=updated.loss*weight;
+   }
+   trainingSteps+=roleExamples.length+relationExamples.length;
+  }
+  const roleCorrect=roleExamples.filter(row=>argmax(probabilities(roleWeights,roleBias,row.features))===row.label).length;
+  const relationCorrect=relationExamples.filter(row=>argmax(probabilities(relationWeights,relationBias,row.features))===row.label).length;
+  lastTraining={sentences:prepared.length,sourceSentences:sourceRows.length,augmentedSentences:augmentation.rows.length,
+   excludedAugmentations:augmentation.excludedCount,unverifiedAugmentations:augmentation.unverifiedCount,
+   roleExamples:roleExamples.length,relationExamples:relationExamples.length,positiveRelations:relationExamples.filter(row=>row.label>0).length,
+   roleCounts,relationCounts,epochs,learningRate,roleTrainingAccuracy:roleCorrect/roleExamples.length,relationTrainingAccuracy:relationCorrect/relationExamples.length,
+   roleTrainingLoss:roleLoss/roleExamples.length,relationTrainingLoss:relationLoss/relationExamples.length,
+   augmentation:"verified_sov_permutations_excluding_held_out",supervision:"weak_semantic_parser_labels",evaluation:"training_only_not_held_out"};
+  return{...lastTraining};
+ }
+
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,MAX_SENTENCES);
   if(!rows.length)throw new TypeError("Add sentences for phrase-structure training.");
   const prepared=rows.map(text=>({text,data:build(text,contextual,core,knowledge)})).filter(row=>row.data.labels.some(label=>label>0));
