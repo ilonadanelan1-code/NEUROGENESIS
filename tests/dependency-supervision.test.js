@@ -64,11 +64,11 @@ const records = sentences.map(([text,rows],index)=>({
 const heldOut = [
   {
     sentenceId:"test-1",
-    text:"Лидар диагностирует препятствие.",
+    text:"Лидар диагностирует преграду.",
     tokens:[
       {id:1,form:"Лидар",lemma:"лидар",head:2,deprel:"nsubj"},
       {id:2,form:"диагностирует",lemma:"диагностировать",head:0,deprel:"root"},
-      {id:3,form:"препятствие",lemma:"препятствие",head:2,deprel:"obj"}
+      {id:3,form:"преграду",lemma:"преграда",head:2,deprel:"obj"}
     ]
   },
   {
@@ -107,10 +107,10 @@ assert.ok(testSet.groups.every(row=>row.candidateHeadIds[0]===0),
   "root must be an explicit head candidate");
 assert.ok(testSet.groups.every(row=>row.candidateHeadIds.length===row.sentenceLength),
   "each dependent must be scored against ROOT and all other words");
-assert.ok(testSet.groups.every(row=>
-  row.candidateHeadIds[row.targetCandidateIndex]===(
-    row.relation==="root"?0:row.candidateHeadIds[row.targetCandidateIndex]
-  )));
+assert.ok(testSet.groups.filter(row=>row.relation==="root").every(row=>
+  row.candidateHeadIds[row.targetCandidateIndex]===0));
+assert.ok(testSet.groups.filter(row=>row.relation!=="root").every(row=>
+  row.candidateHeadIds[row.targetCandidateIndex]!==0));
 assert.ok(trainSet.groups.some(row=>row.relation==="root"));
 assert.ok(trainSet.groups.some(row=>row.relation==="nsubj"));
 assert.ok(trainSet.groups.some(row=>row.relation==="obj"));
