@@ -327,9 +327,10 @@ function create(options={}){
    }
   }return{inputGradients:dInput,gradients:g};
  }
- function trainExample(example,learningRate){
+ function trainExample(example,learningRate,gradientWeight=1){
   const pass=forward(example.context),loss=-Math.log(Math.max(1e-12,pass.probabilities[example.target]||0));
-  const dLogits=pass.probabilities.slice();dLogits[example.target]-=1;
+  const safeGradientWeight=Math.max(.25,Math.min(4,finite(gradientWeight,1)));
+  const dLogits=pass.probabilities.map(value=>value*safeGradientWeight);dLogits[example.target]-=safeGradientWeight;
   const dOutputWeights=outputWeights.map((row,i)=>row.map((_,col)=>dLogits[i]*pass.pooled[col]));
   const dOutputBias=dLogits.slice(),dPooled=transposeMultiply(outputWeights,dLogits);
   let rowGradients=pass.finalRows.map(()=>dPooled.map(v=>v/pass.finalRows.length));const blockGradients=Array(blockCount);
@@ -386,6 +387,24 @@ function create(options={}){
    evaluationMode="train_only_insufficient_validation";splitFallback=true;
   }
   if(!trainExamples.length||vocabulary.length<2)throw new Error("Training needs at least two known words in the training corpus.");
+  const targetFrequencyWeighting=trainOptions.targetFrequencyWeighting===true;
+  const targetFrequencyWeightFormula=targetFrequencyWeighting
+   ?"inverse_sqrt_target_frequency_mean_normalized_capped_0_5_to_1":null;
+  const targetCounts=new Map();
+  if(targetFrequencyWeighting){
+   for(const example of trainExamples)targetCounts.set(example.target,(targetCounts.get(example.target)||0)+1);
+   const rawWeights=trainExamples.map(example=>Math.max(.5,1/Math.sqrt(targetCounts.get(example.target)||1)));
+   const normalizer=rawWeights.reduce((sum,value)=>sum+value,0)/Math.max(1,rawWeights.length);
+   const normalizedWeights=rawWeights.map(value=>value/Math.max(1e-12,normalizer));
+   for(let index=0;index<trainExamples.length;index++)trainExamples[index].gradientWeight=normalizedWeights[index];
+  }
+  const targetWeightValues=targetFrequencyWeighting?trainExamples.map(example=>example.gradientWeight):[];
+  const targetFrequencyWeightStats={
+   classes:targetFrequencyWeighting?targetCounts.size:0,
+   minimum:targetWeightValues.length?Math.min(...targetWeightValues):null,
+   maximum:targetWeightValues.length?Math.max(...targetWeightValues):null,
+   mean:targetWeightValues.length?targetWeightValues.reduce((sum,value)=>sum+value,0)/targetWeightValues.length:null
+  };
   const epochs=Math.max(1,Math.min(240,Math.floor(finite(trainOptions.epochs,40))));
   const learningRate=Math.max(.0001,Math.min(.2,finite(trainOptions.learningRate,.025)));
   const patience=Math.max(2,Math.min(60,Math.floor(finite(trainOptions.patience,Math.max(6,Math.min(30,epochs*.25))))));
@@ -401,7 +420,7 @@ function create(options={}){
      const item=order[index];order[index]=order[swapIndex];order[swapIndex]=item;
     }
    }
-   for(const example of order)trainExample(example,learningRate);
+   for(const example of order)trainExample(example,learningRate,example.gradientWeight??1);
    trainingSteps+=trainExamples.length;
   };
   const initialTrain=evaluateExamples(trainExamples);
@@ -437,6 +456,11 @@ function create(options={}){
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
    lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
    shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
+   targetFrequencyWeighting,targetFrequencyWeightFormula,
+   targetFrequencyWeightClasses:targetFrequencyWeightStats.classes,
+   targetFrequencyWeightMinimum:targetFrequencyWeightStats.minimum,
+   targetFrequencyWeightMaximum:targetFrequencyWeightStats.maximum,
+   targetFrequencyWeightMean:targetFrequencyWeightStats.mean,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
    trainingContextExamples:trainingContextExamples.length};
   return{...lastTraining};

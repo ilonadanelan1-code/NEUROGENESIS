@@ -51,6 +51,8 @@ assert.equal(model.status().trainingSteps,report.trainingSteps,"the step counter
 assert.ok(report.attemptedTrainingSteps>=report.trainingSteps);
 assert.equal(report.shuffleExamples,false,"fixed-order training remains the default control");
 assert.equal(report.shuffleSeed,null);
+assert.equal(report.targetFrequencyWeighting,false,"frequency weighting must remain opt-in");
+assert.equal(report.targetFrequencyWeightFormula,null);
 assert.ok(report.finalLoss<report.initialLoss,"multi-head masked-token loss must decrease after training");
 assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
 assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
@@ -117,6 +119,25 @@ assert.equal(shuffledReportB.validationLoss,shuffledReportA.validationLoss);
 assert.equal(shuffledReportB.testLoss,shuffledReportA.testLoss);
 assert.equal(api.fromState(shuffledStateA).status().lastTraining.shuffleExamples,true,
  "shuffle diagnostics must survive checkpoint export/import");
+const weightedOptions={...shuffledOptions,targetFrequencyWeighting:true};
+const weightedA=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const weightedReportA=weightedA.train(corpus,weightedOptions);
+assert.equal(weightedReportA.targetFrequencyWeighting,true);
+assert.equal(weightedReportA.targetFrequencyWeightFormula,"inverse_sqrt_target_frequency_mean_normalized_capped_0_5_to_1");
+assert.ok(weightedReportA.targetFrequencyWeightClasses>1);
+assert.ok(weightedReportA.targetFrequencyWeightMinimum>0);
+assert.ok(weightedReportA.targetFrequencyWeightMaximum>weightedReportA.targetFrequencyWeightMinimum);
+assert.ok(Math.abs(weightedReportA.targetFrequencyWeightMean-1)<1e-9,
+ "normalized target weights must retain mean one");
+const weightedStateA=weightedA.exportState();
+const weightedB=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const weightedReportB=weightedB.train(corpus,weightedOptions);
+assert.deepEqual(weightedB.exportState(),weightedStateA,
+ "frequency-weighted shuffled training must reproduce the complete checkpoint");
+assert.deepEqual(weightedReportB,weightedReportA,
+ "frequency-weighting diagnostics must also be deterministic");
+assert.equal(api.fromState(weightedStateA).status().lastTraining.targetFrequencyWeighting,true,
+ "frequency-weighting configuration must survive checkpoint export/import");
 const restored=api.fromState(model.exportState());
 assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
 assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"training diagnostics must persist with the selected checkpoint");

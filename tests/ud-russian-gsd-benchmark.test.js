@@ -332,9 +332,105 @@ if (!trainPath && !testPath) {
     });
   }
 
+
+  const weightedAggregate = {
+    total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+    frequencyBuckets: createFrequencyBuckets()
+  };
+  const weightedSeedReports = [];
+  for (const seed of seeds) {
+    const model = Attention.create({
+      dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model
+    });
+    const shuffleSeed = (seed.model ^ 0x5f3759df) >>> 0;
+    const training = model.train(prepared.trainingTexts, {
+      epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split,
+      shuffleExamples: true, shuffleSeed, targetFrequencyWeighting: true
+    });
+    const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
+    assert.equal(trainingSplit.train.length, training.trainRows,
+      "weighted diagnostics must use the exact model training partition");
+    const tokenFrequency = new Map();
+    for (const row of trainingSplit.train) {
+      for (const token of Attention.tokenize(row)) {
+        tokenFrequency.set(token, (tokenFrequency.get(token) || 0) + 1);
+      }
+    }
+    const metrics = {
+      total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      frequencyBuckets: createFrequencyBuckets()
+    };
+    for (const sentence of prepared.testTexts) {
+      const tokens = Attention.tokenize(sentence);
+      for (let index = 0; index < tokens.length; index++) {
+        metrics.total++;
+        const score = model.score(sentence, index);
+        if (!score) continue;
+        if (score.targetKnown) {
+          metrics.known++;
+          const frequency = tokenFrequency.get(tokens[index]) || 0;
+          assert.ok(frequency > 0, "weighted known targets must occur in the training partition");
+          const band = frequency === 1 ? "1" : frequency <= 4 ? "2-4" :
+            frequency <= 9 ? "5-9" : "10+";
+          metrics.frequencyBuckets[band].targets++;
+          if (score.predictions[0]?.token === tokens[index]) {
+            metrics.exact++;
+            metrics.frequencyBuckets[band].correct++;
+          }
+        }
+        if (score.morphologyKnown) {
+          metrics.morphologyCovered++;
+          if (score.morphologyCorrect) metrics.morphologyCorrect++;
+        }
+      }
+    }
+    for (const key of ["total", "known", "exact", "morphologyCovered", "morphologyCorrect"]) {
+      weightedAggregate[key] += metrics[key];
+    }
+    mergeFrequencyBuckets(weightedAggregate.frequencyBuckets, metrics.frequencyBuckets);
+    const shuffled = shuffledSeedReports.find(row => row.modelSeed === seed.model);
+    weightedSeedReports.push({
+      modelSeed: seed.model,
+      splitSeed: seed.split,
+      training: {
+        trainRows: training.trainRows,
+        validationRows: training.validationRows,
+        internalTestRows: training.testRows,
+        vocabularySize: training.vocabularySize,
+        vocabularySaturated: training.vocabularySize >= 1024,
+        epochs: training.epochs,
+        shuffleExamples: training.shuffleExamples,
+        targetFrequencyWeighting: training.targetFrequencyWeighting,
+        targetFrequencyWeightFormula: training.targetFrequencyWeightFormula,
+        targetFrequencyWeightClasses: training.targetFrequencyWeightClasses,
+        targetFrequencyWeightMinimum: training.targetFrequencyWeightMinimum,
+        targetFrequencyWeightMaximum: training.targetFrequencyWeightMaximum,
+        targetFrequencyWeightMean: training.targetFrequencyWeightMean
+      },
+      metrics: {
+        targets: metrics.total,
+        knownTargetCoverage: ratio(metrics.known, metrics.total),
+        exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+        allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
+        frequencyBuckets: summarizeFrequencyBuckets(metrics.frequencyBuckets),
+        morphology: {
+          correct: metrics.morphologyCorrect,
+          covered: metrics.morphologyCovered,
+          accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered),
+          coverage: ratio(metrics.morphologyCovered, metrics.total)
+        },
+        pairedUnweightedShuffle: {
+          exactKnownTargetAccuracy: shuffled.metrics.exactKnownTargetAccuracy,
+          allTargetExactAccuracy: shuffled.metrics.allTargetExactAccuracy,
+          frequencyBuckets: shuffled.metrics.frequencyBuckets
+        }
+      }
+    });
+  }
+
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.107",
+    version: "0.58.109",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -400,6 +496,28 @@ if (!trainPath && !testPath) {
         }
       },
       pairedSeeds: shuffledSeedReports
+    },
+    targetFrequencyWeightingExperiment: {
+      control: "seeded shuffle without target-frequency weighting",
+      experiment: "same seeded shuffle with normalized inverse-square-root target-frequency gradient weights",
+      onlyChangedVariable: "training-example gradient weight derived from train-split target frequency",
+      weightsDerivedOnlyFromTrainingTargets: true,
+      meanWeightNormalizedToOne: true,
+      sameCorpusSplitSeedsModelSeedsAndHyperparameters: true,
+      weightedAggregate: {
+        targets: weightedAggregate.total,
+        knownTargetCoverage: ratio(weightedAggregate.known, weightedAggregate.total),
+        exactKnownTargetAccuracy: ratio(weightedAggregate.exact, weightedAggregate.known),
+        allTargetExactAccuracy: ratio(weightedAggregate.exact, weightedAggregate.total),
+        frequencyBuckets: summarizeFrequencyBuckets(weightedAggregate.frequencyBuckets),
+        morphology: {
+          correct: weightedAggregate.morphologyCorrect,
+          covered: weightedAggregate.morphologyCovered,
+          accuracy: ratio(weightedAggregate.morphologyCorrect, weightedAggregate.morphologyCovered),
+          coverage: ratio(weightedAggregate.morphologyCovered, weightedAggregate.total)
+        }
+      },
+      pairedSeeds: weightedSeedReports
     },
     leakageChecks: {
       exactNormalizedTrainTestSentences: 0,
