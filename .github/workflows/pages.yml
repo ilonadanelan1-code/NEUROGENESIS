@@ -279,6 +279,7 @@ jobs:
           node tests/phrase-composition.test.js
           node tests/language-generalization.test.js
           node tests/semantic-understanding.test.js
+          node tests/proposition-chain-regression.test.js
           node tests/semantic-retrieval.test.js
           node tests/dialogue-llm-integration.test.js
           node tests/dialog-manager.test.js

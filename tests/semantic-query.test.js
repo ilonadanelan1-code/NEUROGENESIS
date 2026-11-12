@@ -107,6 +107,8 @@ assert.match(request.messages[0].content, /evidencePlan/u);
 assert.match(request.messages[0].content, /NG_PROPOSITION_FRAME_V1/u);
 assert.match(request.messages[0].content, /Не превращай вопрос, команду, цитату или пересказ источника в утверждение пользователя/u);
 assert.match(request.messages[0].content, /subjectFrom/u);
+assert.match(request.messages[0].content, /advisory_only_no_semantic_override/u);
+assert.match(request.messages[0].content, /condition_of_previous/u);
 assert.equal(request.messages.length, 2);
 assert.match(request.messages[0].content, /НЕ отвечай на вопрос/u);
 assert.match(request.messages[1].content, /А у него сколько/u);

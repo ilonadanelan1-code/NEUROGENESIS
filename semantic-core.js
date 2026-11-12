@@ -17,7 +17,7 @@
   const FEMININE_HEADS = new Set(["система", "сеть", "память", "модель", "нейросеть",
     "связь", "активность", "энергия", "информация", "причина", "лаборатория", "комната"]);
   const MASCULINE_HEADS = new Set(["нейрон", "сигнал", "узел", "пакет", "токен",
-    "процесс", "результат", "мозг", "импульс", "объект", "сервер"]);
+    "процесс", "результат", "мозг", "импульс", "объект", "сервер", "модуль", "словарь", "путь"]);
   const NEUTER_HEADS = new Set(["ядро", "состояние", "сообщение", "действие",
     "событие", "обучение", "питание", "значение", "соединение"]);
 
@@ -391,17 +391,33 @@
   function grammaticalGender(value) {
     const text = clean(value, 180).toLowerCase().replace(/^[«"']|[»"']$/gu, "");
     const words = text.split(/\s+/u).filter(Boolean);
-    const head = (words.find(word => !/^(?:все|вся|всё|каждый|каждая|каждое|один|одна|одно|два|две|три|четыре|пять|много|несколько|этот|эта|это|эти|такой|такая|такое|такие|мой|моя|мое|мои)$/iu.test(word)) || "").replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
+    const ignored = /^(?:все|вся|всё|каждый|каждая|каждое|один|одна|одно|два|две|три|четыре|пять|много|несколько|этот|эта|это|эти|такой|такая|такое|такие|мой|моя|мое|мои)$/iu;
+    const head = (words.find(word => !ignored.test(word)) || "").replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "");
     if (!head) return "unknown";
-    if (/^(?:один|одна|одно|два|две|три|четыре|пять|много|несколько|[0-9]+)$/iu.test(words[0])) return "plural";
-    if (FEMININE_HEADS.has(head)) return "feminine";
-    if (MASCULINE_HEADS.has(head)) return "masculine";
-    if (NEUTER_HEADS.has(head)) return "neuter";
-    if (/(?:ы|и)$/u.test(head)) return "plural";
-    if (/[ая]$/u.test(head)) return "feminine";
-    if (/[оеё]$/u.test(head)) return "neuter";
-    if (/[бвгджзйклмнпрстфхцшщ]$/u.test(head)) return "masculine";
+    const folded = head.replace(/ё/gu, "е");
+    if (FEMININE_HEADS.has(folded)) return "feminine";
+    if (MASCULINE_HEADS.has(folded)) return "masculine";
+    if (NEUTER_HEADS.has(folded)) return "neuter";
+    if (/(?:ов|ев|ей|ам|ям|ах|ях|ы|и)$/u.test(folded)) return "plural";
+    if (/[аяую]$/u.test(folded)) return "feminine";
+    if (/[оеё]$/u.test(folded)) return "neuter";
+    if (/[ь]$/u.test(folded)) return "unknown";
+    if (/[бвгджзйклмнпрстфхцшщ]$/u.test(folded)) return "masculine";
     return "unknown";
+  }
+
+  function pronounGenders(value, role) {
+    const key = normalise(value).replace(/\s+/gu, "");
+    const subject = {
+      "он": ["masculine"], "она": ["feminine"], "оно": ["neuter"], "они": ["plural"]
+    };
+    const object = {
+      "его": ["masculine", "neuter"], "него": ["masculine", "neuter"],
+      "ему": ["masculine"], "им": ["plural"], "их": ["plural"],
+      "ее": ["feminine"], "ей": ["feminine"], "нее": ["feminine"],
+      "её": ["feminine"], "неё": ["feminine"], "них": ["plural"]
+    };
+    return role === "subject" ? subject[key] || null : object[key] || null;
   }
 
   function validatePropositionReferences(raw, fallback = undefined) {
@@ -421,12 +437,20 @@
         role: ["subject", "object", "event", "location", "time"].includes(candidate && candidate.role) ? candidate.role : "object"
       })).filter(candidate => candidate.text);
       const confidence = Number(row.confidence);
+      const provenanceSource = row.provenance && row.provenance.source;
+      const provenance = {
+        source: ["semantic_core_rule", "model_candidate"].includes(provenanceSource) ? provenanceSource : "unknown",
+        rule: clean(row.provenance && row.provenance.rule, 80) || null,
+        window: Number.isInteger(Number(row.provenance && row.provenance.window))
+          ? Math.max(0, Math.min(6, Number(row.provenance.window))) : null
+      };
       if (!mention) continue;
       output.push({
-        schema: COREFERENCE_SCHEMA, mention, targetType, status,
+        schema: COREFERENCE_SCHEMA, mention, mentionRole: ["subject", "object"].includes(row.mentionRole) ? row.mentionRole : null,
+        targetType, status,
         antecedentId: status === "resolved" ? antecedentId : null,
         antecedentText: status === "resolved" ? antecedentText : null,
-        candidates,
+        candidates, provenance,
         confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.2
       });
     }
@@ -434,74 +458,111 @@
   }
 
   function resolvePropositionReferences(items) {
+    const addEntityReference = (proposition, index, role, references) => {
+      const mention = clean(proposition[role], 80);
+      const genders = pronounGenders(mention, role);
+      if (!genders) return;
+      const candidatesByEntity = new Map();
+      for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 6); priorIndex--) {
+        const previous = items[priorIndex], prior = previous.proposition || {};
+        for (const candidateRole of ["subject", "object"]) {
+          const text = clean(prior[candidateRole], 180);
+          if (!text || pronounGenders(text, candidateRole)) continue;
+          const gender = grammaticalGender(text);
+          if (!genders.includes(gender)) continue;
+          const key = normalise(text);
+          if (!key) continue;
+          const score = (index - priorIndex) * 2 + (candidateRole === "subject" ? 0 : 1);
+          const existing = candidatesByEntity.get(key);
+          if (!existing || score < existing.score) {
+            candidatesByEntity.set(key, { id: previous.id, text, role: candidateRole, score });
+          }
+        }
+      }
+      const candidates = [...candidatesByEntity.values()].sort((a, b) => a.score - b.score);
+      // A unique compatible entity is safe; two distinct entities remain ambiguous,
+      // even if one is slightly nearer or happens to occupy the subject role.
+      const decisive = candidates.length === 1;
+      references.push({
+        schema: COREFERENCE_SCHEMA, mention, mentionRole: role, targetType: "entity",
+        status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
+        antecedentId: decisive ? candidates[0].id : null,
+        antecedentText: decisive ? candidates[0].text : null,
+        candidates: candidates.slice(0, 3).map(row => ({ id: row.id, text: row.text, role: row.role })),
+        provenance: { source: "semantic_core_rule", rule: "bounded_gender_role_compatibility", window: 6 },
+        confidence: decisive ? 0.84 : candidates.length ? 0.42 : 0.12
+      });
+      if (decisive) proposition[role] = candidates[0].text;
+    };
+
     return items.map((item, index) => {
       const proposition = { ...item.proposition };
       const references = [];
-      const mention = clean(proposition.subject, 80);
-      const pronoun = mention.match(/^(он|она|оно|они)$/iu);
-      if (pronoun) {
-        const gender = ({ "он": "masculine", "она": "feminine", "оно": "neuter", "они": "plural" })[normalise(pronoun[1])];
-        const candidates = [];
-        for (let priorIndex = index - 1; priorIndex >= Math.max(0, index - 4); priorIndex--) {
-          const previous = items[priorIndex], prior = previous.proposition || {};
-          for (const role of ["subject", "object"]) {
-            const text = clean(prior[role], 180);
-            if (!text || /^(?:он|она|оно|они|это|там|тогда)$/iu.test(text) || grammaticalGender(text) !== gender) continue;
-            if (candidates.some(row => normalise(row.text) === normalise(text))) continue;
-            candidates.push({ id: previous.id, text, role, score: (index - priorIndex) * 2 + (role === "subject" ? 0 : 1) });
+      addEntityReference(proposition, index, "subject", references);
+      addEntityReference(proposition, index, "object", references);
+
+      const text = clean(item.text, 300);
+      const sourceText = clean(item.sourceText, 300);
+      const demonstrative = /^(?:а\s+)?это(?=\s|$)/iu.test(text) ||
+        normalise(proposition.subject) === "это";
+      if (demonstrative) {
+        const previous = index > 0 ? items[index - 1] : null;
+        const candidate = previous ? {
+          id: previous.id, text: clean(previous.sourceText || previous.text, 180), role: "event"
+        } : null;
+        references.push({
+          schema: COREFERENCE_SCHEMA, mention: "это", mentionRole: "subject", targetType: "proposition",
+          status: candidate ? "resolved" : "unresolved",
+          antecedentId: candidate && candidate.id, antecedentText: candidate && candidate.text,
+          candidates: candidate ? [candidate] : [],
+          provenance: { source: "semantic_core_rule", rule: "immediate_demonstrative_antecedent", window: 1 },
+          confidence: candidate ? 0.78 : 0.12
+        });
+      }
+
+      if (/^(?:а\s+)?там(?=\s|$)/iu.test(text) || normalise(proposition.subject) === "там") {
+        const places = new Map();
+        for (let j = index - 1; j >= 0 && j >= index - 6; j--) {
+          const object = clean(items[j].proposition && items[j].proposition.object, 180);
+          if (object && /^(?:в|на|из|к|около|возле|рядом\s+с|под|над|между)\s+/iu.test(object)) {
+            const key = normalise(object);
+            if (!places.has(key)) places.set(key, { id: items[j].id, text: object, role: "location" });
           }
         }
-        candidates.sort((a, b) => a.score - b.score);
-        const best = candidates[0] || null, second = candidates[1] || null;
-        const decisive = !!best && (!second || second.score - best.score >= 2);
-        references.push({
-          schema: COREFERENCE_SCHEMA, mention: pronoun[1], targetType: "entity",
-          status: decisive ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
-          antecedentId: decisive ? best.id : null, antecedentText: decisive ? best.text : null,
-          candidates: candidates.slice(0, 3).map(row => ({ id: row.id, text: row.text, role: row.role })),
-          confidence: decisive ? 0.84 : candidates.length ? 0.46 : 0.12
-        });
-        if (decisive) proposition.subject = best.text;
-      }
-      const text = clean(item.text, 300);
-      if (/(?:^|\s)это(?=\s|$)/iu.test(text) && index > 0) {
-        const previous = items[index - 1];
-        references.push({
-          schema: COREFERENCE_SCHEMA, mention: "это", targetType: "proposition",
-          status: "resolved", antecedentId: previous.id, antecedentText: previous.text,
-          candidates: [{ id: previous.id, text: previous.text, role: "event" }], confidence: 0.78
-        });
-      }
-      if (/(?:^|\s)там(?=\s|$)/iu.test(text)) {
-        let place = null;
-        for (let j = index - 1; j >= 0 && !place; j--) {
-          const object = clean(items[j].proposition && items[j].proposition.object, 180);
-          if (object && /^(?:в|на|из|к|около|возле|рядом\s+с|под|над|между)\s+/iu.test(object))
-            place = { id: items[j].id, text: object };
-        }
+        const candidates = [...places.values()].slice(0, 3);
+        const resolved = candidates.length === 1 ? candidates[0] : null;
         references.push({
           schema: COREFERENCE_SCHEMA, mention: "там", targetType: "location",
-          status: place ? "resolved" : "unresolved",
-          antecedentId: place && place.id, antecedentText: place && place.text,
-          candidates: place ? [{ id: place.id, text: place.text, role: "location" }] : [],
-          confidence: place ? 0.76 : 0.12
+          status: resolved ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
+          antecedentId: resolved && resolved.id, antecedentText: resolved && resolved.text,
+          candidates,
+          provenance: { source: "semantic_core_rule", rule: "bounded_prior_location_search", window: 6 },
+          confidence: resolved ? 0.76 : candidates.length ? 0.4 : 0.12
         });
       }
-      if (/(?:^|\s)тогда(?=\s|$)/iu.test(text)) {
-        let time = null;
-        for (let j = index - 1; j >= 0 && !time; j--) {
+
+      if (/^(?:а\s+)?тогда(?=\s|$)/iu.test(text) || /^(?:а\s+)?тогда(?=\s|$)/iu.test(sourceText) || normalise(proposition.subject) === "тогда") {
+        const times = new Map();
+        for (let j = index - 1; j >= 0 && j >= index - 6; j--) {
           const expression = clean(items[j].proposition && items[j].proposition.temporal &&
             items[j].proposition.temporal.expression, 100) || temporalSignal(items[j].text).expression;
-          if (expression) time = { id: items[j].id, text: expression };
+          if (expression) {
+            const key = normalise(expression);
+            if (!times.has(key)) times.set(key, { id: items[j].id, text: expression, role: "time" });
+          }
         }
+        const candidates = [...times.values()].slice(0, 3);
+        const resolved = candidates.length === 1 ? candidates[0] : null;
         references.push({
           schema: COREFERENCE_SCHEMA, mention: "тогда", targetType: "time",
-          status: time ? "resolved" : "unresolved",
-          antecedentId: time && time.id, antecedentText: time && time.text,
-          candidates: time ? [{ id: time.id, text: time.text, role: "time" }] : [],
-          confidence: time ? 0.76 : 0.12
+          status: resolved ? "resolved" : candidates.length ? "ambiguous" : "unresolved",
+          antecedentId: resolved && resolved.id, antecedentText: resolved && resolved.text,
+          candidates,
+          provenance: { source: "semantic_core_rule", rule: "bounded_prior_time_search", window: 6 },
+          confidence: resolved ? 0.76 : candidates.length ? 0.4 : 0.12
         });
       }
+
       proposition.references = validatePropositionReferences(references);
       return { ...item, proposition };
     });
@@ -599,54 +660,158 @@
 
   const PROPOSITION_CHAIN_SCHEMA = "NG_PROPOSITION_CHAIN_V1";
   const PROPOSITION_LINK_TYPES = Object.freeze([
-    "root", "next_sentence", "condition_result", "cause_of_previous",
-    "result_of_previous", "contrast", "sequence", "addition", "unknown"
+    "root", "next_sentence", "condition_result", "condition_of_previous",
+    "cause_of_previous", "result_of_previous", "contrast", "sequence", "addition", "unknown"
   ]);
 
   function splitDiscourseSegments(value) {
-    const source = clean(value, 800);
-    if (!source) return [];
+    const source = String(value == null ? "" : value).slice(0, 800);
+    if (!source.trim()) return [];
     const sentences = source.split(/(?<=[.!?;])\s+/u).map(part => part.trim()).filter(Boolean);
     const segments = [];
-    const relationFor = marker => {
-      const key = normalise(marker);
-      if (key === "потому что") return "cause_of_previous";
-      if (["поэтому", "в результате", "из за этого"].includes(key)) return "result_of_previous";
-      if (["но", "однако"].includes(key)) return "contrast";
-      if (["затем", "потом", "после этого"].includes(key)) return "sequence";
-      if (["а также", "кроме того"].includes(key)) return "addition";
-      return "next_sentence";
+    const cleanClause = part => clean(part, 300).replace(/[.!?;]+$/u, "").trim();
+    const add = (text, relation, metadata = {}) => {
+      const clause = cleanClause(text);
+      if (!clause) return;
+      segments.push({
+        text: clause,
+        sourceText: String(metadata.sourceText == null ? text : metadata.sourceText).slice(0, 300).trim(),
+        relation,
+        marker: clean(metadata.marker, 40) || null,
+        rule: clean(metadata.rule, 80) || "sentence_boundary",
+        direction: ["current_to_previous", "previous_to_current", "current_before_previous", "undirected"].includes(metadata.direction)
+          ? metadata.direction : "undirected",
+        confidence: Number.isFinite(Number(metadata.confidence))
+          ? Math.max(0, Math.min(1, Number(metadata.confidence))) : 0.48
+      });
     };
-    const add = (text, relation) => {
-      const cleaned = clean(text, 800).replace(/^[,;:\s]+|[,;:\s]+$/gu, "").trim();
-      if (cleaned) segments.push({ text: cleaned, relation });
+    const detailsFor = (marker, hasPrevious) => {
+      const key = normalise(marker);
+      if (["потому что", "так как", "поскольку"].includes(key)) {
+        return { type: hasPrevious ? "cause_of_previous" : "root", direction: "current_to_previous", confidence: 0.86, rule: "causal_subordinator" };
+      }
+      if (["поэтому", "в результате", "из за этого"].includes(key)) {
+        return { type: hasPrevious ? "result_of_previous" : "root", direction: "previous_to_current", confidence: 0.86, rule: "causal_result_marker" };
+      }
+      if (["но", "однако", "хотя"].includes(key)) {
+        return { type: hasPrevious ? "contrast" : "root", direction: "undirected", confidence: 0.82, rule: "contrast_marker" };
+      }
+      if (["затем", "потом", "после этого", "после", "позже", "впоследствии", "тогда"].includes(key)) {
+        return { type: hasPrevious ? "sequence" : "root", direction: "previous_to_current", confidence: 0.84, rule: "temporal_forward_marker" };
+      }
+      if (["сначала", "первоначально", "до этого", "ранее", "раньше"].includes(key)) {
+        return { type: hasPrevious ? "sequence" : "root", direction: "current_before_previous", confidence: 0.82, rule: "temporal_backward_marker" };
+      }
+      if (["а также", "кроме того"].includes(key)) {
+        return { type: hasPrevious ? "addition" : "root", direction: "undirected", confidence: 0.78, rule: "addition_marker" };
+      }
+      return { type: hasPrevious ? "next_sentence" : "root", direction: "undirected", confidence: hasPrevious ? 0.48 : 1, rule: "sentence_boundary" };
     };
 
     for (const sentenceRaw of sentences) {
-      let sentence = sentenceRaw.replace(/[.!?;]+$/u, "").trim();
-      if (!sentence) continue;
+      const terminal = (sentenceRaw.match(/[.!?;]+$/u) || [""])[0];
+      const body = sentenceRaw.replace(/[.!?;]+$/u, "").trim();
+      if (!body) continue;
+      let match;
 
-      const conditional = sentence.match(/^если\s+(.+?),\s*то\s+(.+)$/iu);
-      if (conditional) {
-        add("Если " + conditional[1], segments.length ? "next_sentence" : "root");
-        add(conditional[2], "condition_result");
+      match = body.match(/^если\s+(.+?),\s*(?:то\s+)?(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        add("Если " + match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), marker: "если", rule: "conditional_if_then",
+          direction: "undirected", confidence: 0.9
+        });
+        add(match[2], "condition_result", {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker: "то", rule: "conditional_if_then",
+          direction: "previous_to_current", confidence: 0.9
+        });
         continue;
       }
 
-      const leading = sentence.match(/^(потому что|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того)\s+(.+)$/iu);
-      if (leading) {
-        add(leading[2], segments.length ? relationFor(leading[1]) : "root");
+      match = body.match(/^(.+?),\s*(?:если|при условии что)\s+(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        add(match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), rule: "conditional_postposed",
+          direction: "undirected", confidence: 0.86
+        });
+        add("Если " + match[2], "condition_of_previous", {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker: "если",
+          rule: "conditional_postposed", direction: "current_to_previous", confidence: 0.86
+        });
         continue;
       }
 
-      const internal = sentence.match(/^(.+?),\s*(потому что|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того)\s+(.+)$/iu);
-      if (internal) {
-        add(internal[1], segments.length ? "next_sentence" : "root");
-        add(internal[3], relationFor(internal[2]));
+      match = body.match(/^(?:потому что|так как|поскольку)\s+(.+?),\s*(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        const marker = (body.match(/^(потому что|так как|поскольку)/iu) || [""])[0];
+        add(match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), marker, rule: "fronted_cause_clause",
+          direction: "undirected", confidence: 0.86
+        });
+        add(match[2], "result_of_previous", {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker,
+          rule: "fronted_cause_clause", direction: "previous_to_current", confidence: 0.86
+        });
         continue;
       }
 
-      add(sentence, segments.length ? "next_sentence" : "root");
+      match = body.match(/^(потому что|так как|поскольку|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того|сначала|первоначально|после|позже|впоследствии|до этого|ранее|раньше|тогда)\s+(.+)$/iu);
+      if (match) {
+        const details = detailsFor(match[1], segments.length > 0);
+        add(match[2], details.type, {
+          sourceText: body + terminal, marker: match[1], rule: details.rule,
+          direction: details.direction, confidence: details.confidence
+        });
+        continue;
+      }
+
+      match = body.match(/^хотя\s+(.+?),\s*(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        add("Хотя " + match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), marker: "хотя",
+          rule: "concessive_fronting", confidence: 0.82
+        });
+        add(match[2], "contrast", {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker: "хотя",
+          rule: "concessive_fronting", direction: "undirected", confidence: 0.82
+        });
+        continue;
+      }
+      match = body.match(/^(.+?),\s*хотя\s+(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        add(match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), rule: "concessive_postposing", confidence: 0.82
+        });
+        add(match[2], "contrast", {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker: "хотя",
+          rule: "concessive_postposing", direction: "undirected", confidence: 0.82
+        });
+        continue;
+      }
+
+      match = body.match(/^(.+?),\s*(потому что|так как|поскольку|поэтому|в результате|из-за этого|однако|но|затем|потом|после этого|а также|кроме того|сначала|первоначально|после|позже|впоследствии|до этого|ранее|раньше)\s+(.+)$/iu);
+      if (match) {
+        const comma = body.indexOf(",");
+        const details = detailsFor(match[2], true);
+        add(match[1], segments.length ? "next_sentence" : "root", {
+          sourceText: body.slice(0, comma + 1), rule: "clause_before_discourse_marker",
+          direction: "undirected", confidence: 0.84
+        });
+        add(match[3], details.type, {
+          sourceText: body.slice(comma + 1).trim() + terminal, marker: match[2],
+          rule: details.rule, direction: details.direction, confidence: details.confidence
+        });
+        continue;
+      }
+
+      add(body, segments.length ? "next_sentence" : "root", {
+        sourceText: sentenceRaw, rule: "sentence_boundary",
+        direction: "undirected", confidence: segments.length ? 0.48 : 1
+      });
     }
     return segments.slice(0, 6);
   }
@@ -657,8 +822,9 @@
     const local = validContainer(fallback) ? fallback : null;
     const supplied = validContainer(raw) ? raw : null;
     const localItems = local ? local.items : [];
-    const sourceItems = localItems.length >= 2 ? localItems
-      : supplied ? supplied.items : localItems;
+    const useLocal = localItems.length >= 2;
+    const source = useLocal ? local : supplied;
+    const sourceItems = source ? source.items : localItems;
     const items = [];
     const known = new Set();
 
@@ -676,45 +842,72 @@
           ? link.type : "unknown";
       const referenceId = index === 0 ? null : clean(link.referenceId, 8);
       if (index > 0 && !known.has(referenceId)) continue;
+      const confidence = Number(link.confidence);
+      const provenance = link.provenance && typeof link.provenance === "object" ? link.provenance : {};
+      const direction = ["current_to_previous", "previous_to_current", "current_before_previous", "undirected"].includes(provenance.direction)
+        ? provenance.direction : "undirected";
       items.push({
         id, text,
+        sourceText: useLocal && typeof row.sourceText === "string" ? row.sourceText.slice(0, 300) : text,
         proposition: validateProposition(row.proposition, {}),
-        relationToPrevious: { type, referenceId }
+        relationToPrevious: {
+          type, referenceId,
+          confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.2,
+          provenance: {
+            source: provenance.source === "semantic_core_rule" ? "semantic_core_rule"
+              : provenance.source === "model_candidate" ? "model_candidate" : "unknown",
+            rule: clean(provenance.rule, 80) || null,
+            marker: clean(provenance.marker, 40) || null,
+            direction
+          }
+        }
       });
       known.add(id);
     }
 
+    const sourceText = local && typeof local.sourceText === "string" ? local.sourceText.slice(0, 800)
+      : source && typeof source.sourceText === "string" ? source.sourceText.slice(0, 800) : null;
     return {
       schema: PROPOSITION_CHAIN_SCHEMA,
       version: 1,
+      sourceText,
       items: items.length >= 2 ? items : []
     };
   }
 
   function extractPropositionChain(value) {
-    const segments = splitDiscourseSegments(value);
+    const sourceText = String(value == null ? "" : value).slice(0, 800);
+    const segments = splitDiscourseSegments(sourceText);
     if (segments.length < 2) {
-      return { schema: PROPOSITION_CHAIN_SCHEMA, version: 1, items: [] };
+      return { schema: PROPOSITION_CHAIN_SCHEMA, version: 1, sourceText, items: [] };
     }
     const items = segments.map((segment, index) => {
-      const prefix = segment.text.match(/^(?:а\s+)?(?:там|тогда)\s+(.+)$/iu);
-      const parseText = prefix ? prefix[1] : segment.text;
+      const parseText = segment.text.replace(/^(?:(?:а\s+)?(?:там|тогда)|(?:то\s+)+)\s+/iu, "").trim();
       const type = intentType(parseText, answerType(parseText));
       const proposition = extractProposition(parseText, type, surfaceSlots(parseText));
       return {
         id: "p" + (index + 1),
         text: segment.text,
+        sourceText: segment.sourceText,
         proposition,
         relationToPrevious: {
           type: index === 0 ? "root" : segment.relation,
-          referenceId: index === 0 ? null : "p" + index
+          referenceId: index === 0 ? null : "p" + index,
+          confidence: segment.confidence,
+          provenance: {
+            source: "semantic_core_rule",
+            rule: segment.rule,
+            marker: segment.marker,
+            direction: segment.direction
+          }
         }
       };
     });
-    return validatePropositionChain({
-      schema: PROPOSITION_CHAIN_SCHEMA, version: 1,
+    const localChain = {
+      schema: PROPOSITION_CHAIN_SCHEMA, version: 1, sourceText,
       items: resolvePropositionReferences(items)
-    });
+    };
+    return validatePropositionChain(localChain, localChain);
   }
 
   function validateFrame(raw, fallback = {}, knowledge = null) {
@@ -796,6 +989,7 @@
   }
 
   function analyse(value, options = {}, knowledge = null) {
+    const originalText = String(value == null ? "" : value).slice(0, 800);
     const text = clean(value, 800);
     const type = answerType(text, knowledge);
     const intent = intentType(text, type);
@@ -826,7 +1020,7 @@
       discourseRelation: relation,
       resolvedFrom,
       proposition: extractProposition(text, intent, slots),
-      propositionChain: extractPropositionChain(text),
+      propositionChain: extractPropositionChain(originalText),
       confidence: 0.56
     }, knowledge);
     frame.provenance = "heuristic";

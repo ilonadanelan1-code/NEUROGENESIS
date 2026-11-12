@@ -115,6 +115,25 @@ function local(input,context={},knowledge=null){
   try{phraseComposition=phraseModel.analyse(query,contextualModel,CORE,knowledge);}catch(_){phraseComposition=null;}
  }
  const compositionHint=buildCompositionHint(originalText,phraseComposition);
+ const advisorySignals=[];
+ if(contextualAnalysis){
+  const confidenceRows=contextualAnalysis.positions.map(row=>{
+   const probabilities=(Array.isArray(row.predictions)?row.predictions:[]).map(item=>Number(item&&item.probability)).filter(value=>Number.isFinite(value)&&value>=0&&value<=1);
+   return probabilities.length?Math.max(...probabilities):null;
+  }).filter(value=>value!==null);
+  if(confidenceRows.length)advisorySignals.push({source:"contextual_attention",
+   confidence:confidenceRows.reduce((sum,value)=>sum+value,0)/confidenceRows.length,
+   provenance:{modelSchema:contextualAnalysis.schema,trainingSteps:Number(contextualStatus.trainingSteps)||0,
+    confidenceKind:"mean_top_prediction_probability",calibration:"uncalibrated"},
+   usage:"advisory_only_no_semantic_override"});
+ }
+ if(compositionHint)advisorySignals.push({source:"phrase_composition",confidence:compositionHint.confidence,
+  provenance:{...compositionHint.provenance,confidenceKind:"uncalibrated_model_score"},
+  usage:"advisory_only_no_semantic_override"});
+ if(frame&&frame.propositionChain&&frame.propositionChain.items.length){
+  frame.propositionChain.sourceText=originalText;
+  frame.propositionChain.advisorySignals=advisorySignals;
+ }
  const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
@@ -145,7 +164,8 @@ function buildRequest(input,context={},memories=[]){
   "Разрешай он/она/оно/они по грамматическому роду и ближайшим совместимым участникам из предыдущих частей сообщения. Учитывай и субъект, и объект. Если подходят два участника, оставь местоимение и зафиксируй ambiguous; не выбирай случайно.",
   "«Это» может ссылаться на предыдущую пропозицию, «там» — на ранее названное место, «тогда» — на ранее названный момент. Не создавай ссылку, если предшествующий контекст отсутствует. Локально извлечённые ссылки и их исходные упоминания имеют приоритет над догадками модели.",
   "semanticFrame.propositionChain должен содержать schema NG_PROPOSITION_CHAIN_V1, version 1 и items: массив из 0–6 элементов {id, text, proposition, relationToPrevious:{type,referenceId}}. Разделяй только самостоятельные части мысли; сохраняй исходный порядок и не выдумывай пропущенные субъекты.",
-  "relationToPrevious различает root, next_sentence, condition_result, cause_of_previous, result_of_previous, contrast, sequence, addition и unknown. Для condition_result связывай результат с условием; для cause_of_previous причина объясняет предыдущую часть; для result_of_previous текущий вывод следует из предыдущей причины. Если связь неясна, используй unknown, не угадывай.",
+  "Сохраняй исходный sourceText и sourceText каждого сегмента без перефразирования. Локальные статусы resolved, ambiguous и unresolved не повышай по догадке. Contextual-attention и phrase-composition передаются только как дополнительные сигналы с provenance и confidence, usage=advisory_only_no_semantic_override; они не переписывают исходный текст, не отменяют строгие правила semantic-core и не превращают неоднозначную ссылку в установленный факт.",
+  "relationToPrevious различает root, next_sentence, condition_result, condition_of_previous, cause_of_previous, result_of_previous, contrast, sequence, addition и unknown. Для condition_result текущий результат следует из предыдущего условия; для condition_of_previous текущая часть задаёт условие для предыдущего результата; для cause_of_previous текущая причина объясняет предыдущую часть; для result_of_previous текущий вывод следует из предыдущей причины. Если связь неясна, используй unknown, не угадывай.",
   "polarityScope различает отрицание предиката, «не все X» (частичная отрицательность), «все X не» (универсальная отрицательность), «ни один X не», «не всегда» и «всегда не». Не своди эти конструкции к одному значению polarity; при двойном или неясном отрицании используй scope ambiguous и polarity unknown.",
   "Не превращай вопрос, команду, цитату или пересказ источника в утверждение пользователя. Различай отрицание в предикате, возможность как гипотезу и мнение как мнение; при сомнении используй fragment и низкую уверенность. Не выводи факт из ответа самого ассистента.",
   "evidencePlan — массив из 1–4 минимальных проверяемых шагов только если вопрос требует нескольких фактов или перехода между связанными фактами. Для простого вопроса верни пустой массив.",
