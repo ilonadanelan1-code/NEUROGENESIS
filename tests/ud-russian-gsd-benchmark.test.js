@@ -370,7 +370,7 @@ if (!trainPath && !testPath) {
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.107",
+    version: "0.58.108",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
