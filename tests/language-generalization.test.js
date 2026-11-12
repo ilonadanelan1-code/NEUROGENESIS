@@ -41,6 +41,12 @@ const cases = [
   { group: "word_order", text: "Сигнал нейрон получает.", roles: { s: ["нейрон"], p: ["получает"], o: ["сигнал"] }, expected: { kind: "assertion", s: "нейрон", p: "получает", o: "сигнал" } },
   { group: "word_order", text: "Данные система сохраняет.", roles: { s: ["система"], p: ["сохраняет"], o: ["данные"] }, expected: { kind: "assertion", s: "система", p: "сохраняет", o: "данные" } },
   { group: "word_order", text: "Гипотезу исследователь проверяет.", roles: { s: ["исследователь"], p: ["проверяет"], o: ["гипотезу"] }, expected: { kind: "assertion", s: "исследователь", p: "проверяет", o: "гипотезу" } },
+  { group: "word_order", text: "Сигнал система сохраняет.", roles: { s: ["система"], p: ["сохраняет"], o: ["Сигнал"] }, expected: { kind: "assertion", s: "система", p: "сохраняет", o: "Сигнал" } },
+  { group: "word_order", text: "Новый сигнал опытный нейрон получает.", roles: { s: ["опытный", "нейрон"], p: ["получает"], o: ["Новый", "сигнал"] }, expected: { kind: "assertion", s: "опытный нейрон", p: "получает", o: "Новый сигнал" } },
+  { group: "word_order", text: "Безопасный маршрут алгоритм выбирает.", roles: { s: ["алгоритм"], p: ["выбирает"], o: ["безопасный", "маршрут"] }, expected: { kind: "assertion", s: "алгоритм", p: "выбирает", o: "безопасный маршрут" } },
+  { group: "word_order", text: "Вибрацию сенсор обнаруживает.", roles: { s: ["сенсор"], p: ["обнаруживает"], o: ["Вибрацию"] }, expected: { kind: "assertion", s: "сенсор", p: "обнаруживает", o: "Вибрацию" } },
+  { group: "word_order", text: "Новое сообщение сервер отправляет.", roles: { s: ["сервер"], p: ["отправляет"], o: ["Новое", "сообщение"] }, expected: { kind: "assertion", s: "сервер", p: "отправляет", o: "Новое сообщение" } },
+  { group: "word_order", text: "Сигнал сенсор не получает.", roles: { s: ["сенсор"], p: ["получает"], o: ["Сигнал"] }, expected: { kind: "assertion", s: "сенсор", p: "получает", o: "Сигнал", polarity: "negative" } },
 
   { group: "oov", text: "Кварцевый сенсор обнаруживает микровибрацию.", roles: { s: ["кварцевый", "сенсор"], p: ["обнаруживает"], o: ["микровибрацию"] }, expected: { kind: "assertion", s: "сенсор", p: "обнаруживает", o: "микровибрацию" } },
   { group: "oov", text: "Лидар обнаруживает препятствие.", roles: { s: ["лидар"], p: ["обнаруживает"], o: ["препятствие"] }, expected: { kind: "assertion", s: "лидар", p: "обнаруживает", o: "препятствие" } },
@@ -93,7 +99,7 @@ const leakage = cases.filter(row => trainingKeys.has(normalise(row.text))).map(r
 assert.equal(trainingKeys.size, trainRows.length, "training sentences must be unique");
 assert.equal(heldOutKeys.size, cases.length, "independent benchmark sentences must be unique");
 assert.deepEqual(leakage, [], "no independent benchmark sentence may appear in the training corpus");
-assert.equal(cases.length, 42, "the independent benchmark corpus size is fixed and documented");
+assert.equal(cases.length, 48, "the independent benchmark corpus size is fixed and documented");
 
 function semanticResult(testCase) {
   const frame = core.analyse(testCase.text, { contextRelation: "new_topic" }, knowledge);
