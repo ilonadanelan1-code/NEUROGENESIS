@@ -177,6 +177,16 @@ const restoredRetrievalModel=api.fromState(morphologyModel.exportState());
 assert.equal(restoredRetrievalModel.status().trainingContextExamples,morphologyModel.status().trainingContextExamples);
 assert.deepEqual(restoredRetrievalModel.predictMasked("новые [MASK] получают сигнал",1).retrievalPrediction,
  retrievalPrediction.retrievalPrediction,"training context index must survive state export/import");
+const stemRetrievalModel=api.create({dimension:12,windowSize:2,heads:3,seed:122});
+const stemRetrievalTraining=stemRetrievalModel.train([
+ "система получает сигнал","систему запускает модуль","нейрон обрабатывает данные"
+],{epochs:3,learningRate:.02,splitSeed:902});
+assert.equal(stemRetrievalTraining.splitFallback,true,
+ "stem retrieval fixture must have no fabricated held-out validation");
+const stemContextPrediction=stemRetrievalModel.predictMasked("системы получает сигнал",1);
+assert.equal(stemContextPrediction.retrievalCandidate?.token,"получает",
+ "ambiguous OOV context forms may match by stem only when two different offsets align");
+assert.equal(stemContextPrediction.retrievalCandidate?.stemMatches>=1,true);
 const knownContextPrediction=morphologyModel.predictMasked("новые нейроны получают сигнал",1);
 const maskedContextPrediction=morphologyModel.predictMasked("новые [MASK] получают сигнал",1);
 assert.equal(knownContextPrediction.morphologyHint.number,"plural");

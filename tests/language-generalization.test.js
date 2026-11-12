@@ -298,6 +298,9 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
             surface:retrieved?retrieved.surface:null,base:retrieved?retrieved.baseToken:null,
             matchedContext:retrieved?retrieved.matchedContextTokens:[]});
         }
+        if(group.retrievalExamples.length<12)group.retrievalExamples.push({
+          target:tokens[index],surface:retrieved?retrieved.surface:null,base:retrieved?retrieved.baseToken:null,
+          matchedContext:retrieved?retrieved.matchedContextTokens:[]});
       }
     }
   }
@@ -442,7 +445,9 @@ const maskOutput = Object.fromEntries(Object.entries(maskGroups).map(([name, gro
   oovBackoffCoverage: ratio(group.morphologyBackoffs, group.total - group.covered),
   generatedOovPredictionAccuracy: ratio(group.generatedCorrect,group.generatedCovered),
   generatedOovPredictionCoverage: ratio(group.generatedCovered,group.generatedOovTargets),
-  generatedOovCandidateRecallAt8: ratio(group.generatedCandidateHits,group.generatedOovTargets)
+  generatedOovCandidateRecallAt8: ratio(group.generatedCandidateHits,group.generatedOovTargets),
+  contextRetrievalAccuracy:ratio(group.retrievalCorrect,group.retrievalCovered),
+  contextRetrievalCoverage:ratio(group.retrievalCovered,group.retrievalOovTargets)
 }]));
 const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name, group]) => [name, {
   ...group,

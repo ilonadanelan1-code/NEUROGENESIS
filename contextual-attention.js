@@ -164,7 +164,7 @@ function create(options={}){
   const lexicalContext=context.filter(item=>item.tokenIndex>=0)
    .map(item=>({offset:item.offset,token:vocabulary[item.tokenIndex]}));
   if(new Set(lexicalContext.map(item=>item.token)).size<2)return;
-  trainingContextExamples.push({target:vocabulary[targetIndex],context:lexicalContext});
+  trainingContextExamples.push({target:vocabulary[targetIndex],context:lexicalContext.map(item=>({...item,stem:russianStem(item.token)}))});
  }
  function collectExamples(rows,expand){
   const examples=[];
@@ -181,26 +181,45 @@ function create(options={}){
  }
  function retrieveContextCandidate(context){
   if(!Array.isArray(context)||!trainingContextExamples.length)return null;
-  const query=context.filter(item=>item.tokenIndex>=0)
-   .map(item=>({offset:item.offset,token:vocabulary[item.tokenIndex]}));
-  const queryTokens=new Set(query.map(item=>item.token));
-  if(queryTokens.size<2)return null;
+  const query=context.map(item=>{
+   const surface=item.contextSourceToken||item.contextMorphologyToken||
+    (item.tokenIndex>=0?vocabulary[item.tokenIndex]:"");
+   const token=item.contextMorphologyToken||(item.tokenIndex>=0?vocabulary[item.tokenIndex]:null);
+   return{offset:item.offset,surface,token,stem:russianStem(surface)};
+  }).filter(item=>item.surface);
+  if(query.length<2)return null;
   const bestByTarget=new Map();
   for(const example of trainingContextExamples){
-   const exampleTokens=new Set(example.context.map(item=>item.token));
-   const shared=[...queryTokens].filter(token=>exampleTokens.has(token));
-   if(shared.length<2)continue;
-   const offsetMatches=shared.reduce((count,token)=>count+
-    (query.some(item=>item.token===token&&example.context.some(row=>row.token===token&&row.offset===item.offset))?1:0),0);
-   const score=shared.length*3+offsetMatches*2;
+   const used=new Set(),matches=[];
+   for(const item of query){
+    let best=null,bestWeight=-1;
+    for(let index=0;index<example.context.length;index++){
+     if(used.has(index))continue;
+     const row=example.context[index],exact=!!item.token&&item.token===row.token;
+     const sameStem=!!item.stem&&item.stem.length>=3&&item.stem===(row.stem||russianStem(row.token));
+     if(!exact&&!sameStem)continue;
+     const aligned=item.offset===row.offset,weight=(exact?4:2)+(aligned?2:0);
+     if(weight>bestWeight){best={index,exact,aligned,surface:item.surface,matchedToken:row.token};bestWeight=weight;}
+    }
+    if(best){used.add(best.index);matches.push(best);}
+   }
+   if(matches.length<2)continue;
+   const exactMatches=matches.filter(row=>row.exact).length;
+   const offsetMatches=matches.filter(row=>row.aligned).length;
+   // Fully stem-based matches are accepted only when both context positions align.
+   if(exactMatches===0&&offsetMatches<2)continue;
+   const shared=matches.map(row=>row.surface);
+   const score=exactMatches*4+(matches.length-exactMatches)*2+offsetMatches*2;
    const prior=bestByTarget.get(example.target);
-   if(!prior||score>prior.score)bestByTarget.set(example.target,{token:example.target,score,sharedTokens:shared,offsetMatches,support:1});
+   if(!prior||score>prior.score)bestByTarget.set(example.target,{token:example.target,score,sharedTokens:shared,
+    exactMatches,stemMatches:matches.length-exactMatches,offsetMatches,support:1});
    else if(score===prior.score)prior.support++;
   }
   const ranked=[...bestByTarget.values()].sort((a,b)=>b.score-a.score||a.token.localeCompare(b.token));
   if(!ranked.length)return null;
   if(ranked.length>1&&ranked[0].score===ranked[1].score)return null;
   return{token:ranked[0].token,score:ranked[0].score,sharedTokens:ranked[0].sharedTokens,
+   exactMatches:ranked[0].exactMatches,stemMatches:ranked[0].stemMatches,
    offsetMatches:ranked[0].offsetMatches,support:ranked[0].support,method:"unique_training_context_retrieval"};
  }
  function forwardBlock(inputRows,block){
@@ -494,7 +513,8 @@ function create(options={}){
   const count=state.vocabulary.length,vocabularySet=new Set(state.vocabulary),storedContextExamples=state.trainingContextExamples??[],
    validContextExamples=Array.isArray(storedContextExamples)&&storedContextExamples.length<=12000&&storedContextExamples.every(example=>
     example&&typeof example.target==="string"&&vocabularySet.has(example.target)&&Array.isArray(example.context)&&example.context.length>=2&&example.context.length<=16&&
-    example.context.every(item=>item&&typeof item.token==="string"&&vocabularySet.has(item.token)&&Number.isInteger(item.offset)&&item.offset!==0&&Math.abs(item.offset)<=windowSize)),
+    example.context.every(item=>item&&typeof item.token==="string"&&vocabularySet.has(item.token)&&
+     (item.stem==null||typeof item.stem==="string")&&Number.isInteger(item.offset)&&item.offset!==0&&Math.abs(item.offset)<=windowSize)),
    validBlock=block=>block&&Array.isArray(block.attentionHeads)&&block.attentionHeads.length===heads&&
    block.attentionHeads.every(head=>head&&validMatrix(head.query,headDimension,dimension)&&validMatrix(head.key,headDimension,dimension)&&validMatrix(head.value,headDimension,dimension))&&
    validMatrix(block.relativePositionBias,heads,windowSize*2+1)&&validMatrix(block.attentionOutput,dimension,dimension)&&validVector(block.norm1Gamma,dimension)&&validVector(block.norm1Beta,dimension)&&validVector(block.norm2Gamma,dimension)&&validVector(block.norm2Beta,dimension)&&
@@ -513,7 +533,8 @@ function create(options={}){
    target.feedForward2=copy(source.feedForward2);target.feedForward2Bias=copyVector(source.feedForward2Bias);
   }
   outputWeights=copy(state.outputWeights);outputBias=copyVector(state.outputBias);
-  trainingContextExamples=storedContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({offset:item.offset,token:item.token}))}));
+  trainingContextExamples=storedContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({
+   offset:item.offset,token:item.token,stem:item.stem||russianStem(item.token)}))}));
   trainingSteps=Math.max(0,Math.floor(finite(state.trainingSteps,0)));lastLoss=Number.isFinite(Number(state.lastLoss))?Number(state.lastLoss):null;
   const report=state.lastTraining;lastTraining=report&&typeof report==="object"&&(report.validationLoss==null||Number.isFinite(Number(report.validationLoss)))?{...report,validationLoss:report.validationLoss==null?null:Number(report.validationLoss),testLoss:report.testLoss==null?null:Number(report.testLoss)}:null;
   return status();
