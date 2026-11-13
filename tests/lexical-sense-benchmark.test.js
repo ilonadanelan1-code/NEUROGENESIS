@@ -342,6 +342,9 @@ const report = {
     validationPairs: validationPairs.length,
     knownTestPairs: knownTestPairs.length,
     unseenTestPairs: unseenTestPairs.length,
+    seedRuns: seeds.length,
+    pooledKnownPairObservations: knownTestPairs.length * seeds.length,
+    pooledUnseenPairObservations: unseenTestPairs.length * seeds.length,
     normalizedSentenceLeakage: crossPartitionOverlap,
     duplicateSentenceExclusions,
     sentenceSplitPolicy: "stratified by sense within training lemmas; unseen lemmas held out completely"
@@ -364,12 +367,12 @@ const report = {
       contextualBestEpoch: run.classifierTraining.contextualBestEpoch
     },
     knownLemma: {
-      baseline: summarize(run.knownPredictions.map(row => ({ label: row.label, probability: row.baselineProbability })), run.knownPredictions.length),
-      contextual: summarize(run.knownPredictions.map(row => ({ label: row.label, probability: row.contextualProbability })), run.knownPredictions.length)
+      baseline: summarize(run.knownPredictions.map(row => ({ label: row.label, probability: row.baselineProbability })), "probability", run.knownPredictions.length),
+      contextual: summarize(run.knownPredictions.map(row => ({ label: row.label, probability: row.contextualProbability })), "probability", run.knownPredictions.length)
     },
     unseenLemma: {
-      baseline: summarize(run.unseenPredictions.map(row => ({ label: row.label, probability: row.baselineProbability })), run.unseenPredictions.length),
-      contextual: summarize(run.unseenPredictions.map(row => ({ label: row.label, probability: row.contextualProbability })), run.unseenPredictions.length)
+      baseline: summarize(run.unseenPredictions.map(row => ({ label: row.label, probability: row.baselineProbability })), "probability", run.unseenPredictions.length),
+      contextual: summarize(run.unseenPredictions.map(row => ({ label: row.label, probability: row.contextualProbability })), "probability", run.unseenPredictions.length)
     }
   })),
   aggregateAcrossSeeds: {
@@ -420,6 +423,20 @@ console.log("NEUROGENESIS lexical-sense error counts: " + JSON.stringify({
   unseenFalseSplits: allRuns.reduce((sum, run) => sum + run.unseenPredictions.filter(row => row.label === 1 && row.contextualProbability != null && row.contextualProbability < .5).length, 0)
 }));
 assert.ok(report.split.normalizedSentenceLeakage === 0);
+assert.equal(report.seeds.length, seeds.length);
+for (const seedReport of report.seeds) {
+  for (const [splitName, expectedPairs] of [
+    ["knownLemma", knownTestPairs.length],
+    ["unseenLemma", unseenTestPairs.length]
+  ]) {
+    for (const modelName of ["baseline", "contextual"]) {
+      const metrics = seedReport[splitName][modelName];
+      assert.equal(metrics.count, expectedPairs, splitName + " per-seed denominator must match unique pairs");
+      assert.equal(metrics.covered, expectedPairs, splitName + " per-seed coverage must be reported");
+      assert.ok(Number.isFinite(metrics.accuracy), splitName + " per-seed accuracy must not be null");
+    }
+  }
+}
 assert.ok(report.aggregateAcrossSeeds.knownLemma.contextual.coverage >= .9);
 assert.ok(report.aggregateAcrossSeeds.unseenLemma.contextual.coverage >= .9);
 assert.ok(Number.isFinite(report.aggregateAcrossSeeds.knownLemma.contextual.macroF1));
