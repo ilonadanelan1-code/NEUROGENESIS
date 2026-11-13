@@ -179,10 +179,13 @@ function create(options={}){
    if(relation>0)relationCandidates.push({from:left,to:right,fromToken:data.tokens[left],toToken:data.tokens[right],relation:RELATIONS[relation],confidence:distribution[relation],probabilities:Object.fromEntries(RELATIONS.map((name,i)=>[name,distribution[i]]))});
   }
   relationCandidates.sort((a,b)=>b.confidence-a.confidence);
-  const edges=relationCandidates.filter(edge=>edge.confidence>=.34).slice(0,16);
-  // Preserve the full historical candidate edge list while exposing a conservative
-  // role-consistent subset for callers that prefer precision over recall.
-  const trustedEdges=relationCandidates.filter(edge=>{
+  // Keep all public edge views on the same bounded candidate pool. The legacy
+  // thresholded edge list remains unchanged because its top 16 candidates are
+  // always contained in this sorted top-24 slice.
+  const publicRelationCandidates=relationCandidates.slice(0,24);
+  const edges=publicRelationCandidates.filter(edge=>edge.confidence>=.34).slice(0,16);
+  // Conservative role-consistent subset for callers that prefer precision over recall.
+  const trustedEdges=publicRelationCandidates.filter(edge=>{
    const expected=RELATION_ROLE_REQUIREMENTS[edge.relation];
    return edge.confidence>=.34&&expected&&
     roles[edge.from]?.role===expected[0]&&roles[edge.to]?.role===expected[1];
@@ -203,7 +206,7 @@ function create(options={}){
   }
   for(let i=0;i<phraseVector.length;i++)phraseVector[i]/=6;
   return{schema:SCHEMA,trained:trainingSteps>0,tokens:data.tokens,roles,nodes,edges,trustedEdges,
-   relationCandidates:relationCandidates.slice(0,24),
+   relationCandidates:publicRelationCandidates,
    phraseVector,roleVectors,weakFrame:{kind:data.frame.kind||"unknown",subject:normaliseFrameText(data.frame.subject||""),predicate:normaliseFrameText(data.frame.predicate||""),object:normaliseFrameText(data.frame.object||""),
     relation:normaliseFrameText(data.frame.relation||""),polarity:data.frame.polarity||"unknown",modality:data.frame.modality||"unknown",confidence:Number(data.frame.confidence)||0},
    supervision:"weak_semantic_parser_labels",training:lastTraining?{...lastTraining}:null};
