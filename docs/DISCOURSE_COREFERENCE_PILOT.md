@@ -155,3 +155,9 @@ Expected controlled outcome: the 8-message baseline links 0/6 distant targets an
 ### Remaining limitations
 
 The window is capped at 24 because that is the existing context-manager limit; the resolver does not search beyond retained thread history. If two equally plausible antecedents are close in score it abstains; when two distinct real-world entities share a known lemma but never co-occur in a message, the current identity cluster can still conflate them. Lexical morphology remains finite. Relative clauses, multiword aliases, synonyms, event references, split antecedents and richer causal/event chains need separate diagnostics. A licensed gold corpus and document-level evaluation (LEA, MUC, B³ and CEAF) remain necessary before enabling the experiment by default.
+
+## Coordinated entity groups (experimental extension)
+
+The semantic core now recognizes an explicit noun coordination such as «Иван и Пётр» as a plural entity group only when every member head is present in the supported noun morphology or proper-name inventory. Known inflected members are canonicalized independently, so «Система и сервер» and «систему и серверу» can share one group identity. A pronoun «они» may resolve to that group; two equally plausible groups remain ambiguous. Disjunction («или»), arbitrary word pairs, unknown member heads, same-proposition collisions and different member sets are not merged. This is a narrow lexicon-backed diagnostic, not general Russian coordination parsing.
+
+A dedicated test covers group number agreement, per-member morphology canonicalization, ambiguous competing groups, and collision guards. These cases remain experimental and do not enable the discourse feature by default or write to long-term memory.

@@ -46,6 +46,8 @@ jobs:
         run: node tests/discourse-coreference.test.js
       - name: Run morphology-aware identity diagnostic
         run: node tests/discourse-coreference-identity.test.js
+      - name: Test coordinated entity-group resolution
+        run: node tests/discourse-coreference-groups.test.js
       - name: Run 24-message distant-reference diagnostic
         run: node tests/discourse-coreference-window.test.js
       - name: Run semantic-query integration test
