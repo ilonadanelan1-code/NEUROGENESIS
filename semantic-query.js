@@ -78,7 +78,8 @@ function buildCompositionHint(originalText,analysis){
 }
 function local(input,context={},knowledge=null){
  const originalText=String(input==null?"":input).slice(0,MAX_QUERY),query=clean(input),active=context&&context.activeThread||null,id=active&&active.id||"";
- const recent=Array.isArray(context&&context.recentMessages)?context.recentMessages.filter(r=>r&&r.threadId===id).slice(-8):[];
+ const history=Array.isArray(context&&context.threadHistory)?context.threadHistory:context&&context.recentMessages;
+ const recent=Array.isArray(history)?history.filter(r=>r&&r.threadId===id).slice(-8):[];
  const resolution=context&&context.resolution||null,normalized=normalise(query);
  const contextFocus=context&&context.focus||resolution&&resolution.context&&resolution.context.focus||null;
  const detectedDiscourseMention=DISCOURSE_COREFERENCE&&typeof DISCOURSE_COREFERENCE.detectMention==="function"?DISCOURSE_COREFERENCE.detectMention(query):null;
