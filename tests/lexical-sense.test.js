@@ -27,7 +27,7 @@ assert.ok(training.examples > 0 && contextual.status().trained);
 assert.equal(training.evaluationIsolated, true);
 const target = (text, lemma = "ключ") => {
   const tokens = contextual.tokenize(text);
-  const index = tokens.findIndex(token => token === "ключ");
+  const index = tokens.findIndex(token => token === "ключ" || token.startsWith("ключ"));
   assert.ok(index >= 0, "target word must be present: " + text);
   return { text, targetIndex: index, targetForm: tokens[index], lemma };
 };
