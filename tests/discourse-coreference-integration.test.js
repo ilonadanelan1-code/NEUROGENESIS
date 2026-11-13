@@ -5,7 +5,7 @@ const vm=require("node:vm");
 const memorySource=fs.readFileSync("memory.js","utf8");
 const window={};
 const sandbox={window,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
-for(const file of ["semantic-core.js","discourse-coreference.js","semantic-query.js"]){
+for(const file of ["semantic-core.js","discourse-coreference.js","discourse-event-reference.js","semantic-query.js"]){
  vm.runInNewContext(fs.readFileSync(file,"utf8"),sandbox,{filename:file});
 }
 const planner=window.NGSemanticQuery;
@@ -23,14 +23,20 @@ const context={
  ]}}
 };
 window.NG_DISCOURSE_COREFERENCE_EXPERIMENT=false;
+window.NG_DISCOURSE_EVENT_REFERENCE_EXPERIMENT=false;
 const advisory=planner.local("А что он сделал?",context,null);
 assert.equal(advisory.discourseResolution,null,
  "the cross-turn resolver must not run or add context when its experiment flag is disabled");
 assert.equal(advisory.semanticFrame.discourseEntityResolution,undefined);
 assert.equal(advisory.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),false,
  "the experimental resolver must not alter retrieval while its feature flag is disabled");
+const disabledEventPlan=planner.local("Из-за этого обработка остановилась.",context,null);
+assert.equal(disabledEventPlan.contextRelation,"new_topic",
+ "event-reference language must not change topic classification while its opt-in flag is disabled");
+assert.equal(disabledEventPlan.discourseEventResolution,null);
 
 window.NG_DISCOURSE_COREFERENCE_EXPERIMENT=true;
+window.NG_DISCOURSE_EVENT_REFERENCE_EXPERIMENT=true;
 const enabled=planner.local("А что он сделал?",context,null);
 assert.ok(enabled.discourseResolution,"the opt-in local semantic planner should expose the bounded cross-turn resolution");
 assert.equal(enabled.discourseResolution.schema,"NG_DISCOURSE_COREFERENCE_V1");
@@ -39,6 +45,47 @@ assert.ok(enabled.semanticFrame.discourseEntityResolution,
  "the resolution and its provenance should remain attached to the local semantic frame");
 assert.equal(enabled.semanticFrame.discourseEntityResolution.provenance.memoryEffect,"none");
 assert.equal(enabled.discourseResolution.status,"resolved");
+
+const eventEnabled=planner.local("Из-за этого обработка остановилась.",context,null);
+assert.equal(eventEnabled.contextRelation,"follow_up",
+ "event-reference cues must be treated as a continuation of the active topic");
+assert.equal(eventEnabled.discourseEventResolution.status,"resolved");
+assert.equal(eventEnabled.discourseEventResolution.antecedent.id,"M1");
+assert.equal(eventEnabled.discourseEventResolution.provenance.memoryEffect,"none");
+assert.equal(eventEnabled.discourseEventResolution.provenance.usage,"advisory_only");
+assert.ok(eventEnabled.semanticFrame.discourseEventResolution,
+ "event candidate and provenance should be attached to the local semantic frame");
+assert.notEqual(eventEnabled.semanticFrame.proposition.subject,"Система",
+ "an event candidate must not rewrite the current proposition subject");
+
+const eventAmbiguousHistory=[
+ {id:"E1",threadId:"T1",role:"user",text:"Система получает сигнал."},
+ {id:"E2",threadId:"T1",role:"user",text:"Модуль активирует процесс."}
+];
+const eventAmbiguous=planner.local("Из-за этого возник сбой.",{
+ ...context,recentMessages:eventAmbiguousHistory,threadHistory:eventAmbiguousHistory
+},null);
+assert.equal(eventAmbiguous.discourseEventResolution.status,"ambiguous");
+assert.equal(eventAmbiguous.discourseEventResolution.antecedent,null,
+ "two plausible event antecedents must not be silently selected");
+
+const distantEventHistory=[{id:"OLD",threadId:"T1",role:"user",text:"Система получает сигнал."},
+ ...Array.from({length:23},(_,index)=>({id:"A"+index,threadId:"T1",role:"assistant",text:"Ответ без нового пользовательского события."}))];
+const distantEvent=planner.local("Из-за этого всё остановилось.",{
+ ...context,recentMessages:distantEventHistory,threadHistory:distantEventHistory
+},null);
+assert.equal(distantEvent.discourseEventResolution.status,"resolved",
+ "the resolver should see the bounded 24-message active-thread history");
+assert.equal(distantEvent.discourseEventResolution.antecedent.id,"OLD");
+assert.equal(distantEvent.discourseEventResolution.antecedent.turnDistance,24);
+
+const expiredEventHistory=[{id:"TOO_OLD",threadId:"T1",role:"user",text:"Система получает сигнал."},
+ ...Array.from({length:24},(_,index)=>({id:"B"+index,threadId:"T1",role:"assistant",text:"Ответ без нового пользовательского события."}))];
+const expiredEvent=planner.local("Из-за этого всё остановилось.",{
+ ...context,recentMessages:expiredEventHistory,threadHistory:expiredEventHistory
+},null);
+assert.equal(expiredEvent.discourseEventResolution.status,"unresolved",
+ "events outside the 24-message active-thread window must not leak into resolution");
 
 const resumedThreadContext={
  ...context,
@@ -99,6 +146,20 @@ const modelPlan={
   discourse:{relation:"follow_up"}
  }
 };
+const eventModelPlan={
+ source:"model",contextRelation:"follow_up",canonicalQuestion:eventEnabled.canonicalQuestion,
+ searchQueries:["Из-за этого обработка остановилась."],
+ semanticFrame:{schema:"NG_SEMANTIC_FRAME_V1",
+  subject:{text:"обработка",certainty:"model_candidate"},
+  proposition:{subject:"обработка",predicate:"остановилась",object:null}}
+};
+const mergedEventModelPlan=planner.mergeLocalDiscourseResolution(eventModelPlan,eventEnabled);
+assert.equal(mergedEventModelPlan.semanticFrame.subject.text,"обработка",
+ "event-reference advisory must not overwrite the model-backed subject");
+assert.equal(mergedEventModelPlan.semanticFrame.proposition.subject,"обработка");
+assert.equal(mergedEventModelPlan.discourseEventResolution.status,"resolved");
+assert.deepEqual(Array.from(mergedEventModelPlan.searchQueries),eventModelPlan.searchQueries,
+ "event-reference provenance must not inject retrieval hints before independent model confirmation");
 const unchangedModelPlan=planner.mergeLocalDiscourseResolution(modelPlan,advisory);
 assert.equal(unchangedModelPlan.semanticFrame.subject.text,"он",
  "when the experiment flag is disabled, the model-backed semantic plan must remain unchanged");
