@@ -255,6 +255,29 @@ const restoredIndexStatus=restoredRetrievalModel.retrievalIndexStatus();
 assert.equal(restoredIndexStatus.built,true,
  "restored checkpoints must rebuild the derived retrieval index without persisting duplicate index data");
 assert.equal(restoredIndexStatus.exampleCount,restoredRetrievalModel.status().trainingContextExamples);
+const defaultCapacityModel=api.create({dimension:12,windowSize:2,heads:3,seed:83});
+assert.equal(defaultCapacityModel.status().vocabularyCapacity,1024,
+ "the default checkpoint capacity must remain backward-compatible");
+assert.equal(defaultCapacityModel.status().vocabularySaturated,false);
+const expandedCapacityModel=api.create({
+ dimension:12,windowSize:2,heads:3,seed:83,vocabularyCapacity:2048
+});
+assert.equal(expandedCapacityModel.status().vocabularyCapacity,2048);
+const expandedCapacityState=expandedCapacityModel.exportState();
+assert.equal(expandedCapacityState.vocabularyCapacity,2048,
+ "checkpoint export must persist the configured vocabulary capacity");
+const expandedCapacityRestored=api.fromState(expandedCapacityState);
+assert.equal(expandedCapacityRestored.status().vocabularyCapacity,2048,
+ "checkpoint import must restore the configured vocabulary capacity");
+assert.equal(expandedCapacityRestored.status().vocabularySize,expandedCapacityModel.status().vocabularySize);
+assert.throws(()=>defaultCapacityModel.loadState(expandedCapacityState),
+ /dimensions, heads, blocks or vocabulary are invalid/u,
+ "a smaller-capacity model must reject a checkpoint that requires a larger vocabulary");
+const legacyCapacityState=model.exportState();
+delete legacyCapacityState.vocabularyCapacity;
+const legacyCapacityRestored=api.fromState(legacyCapacityState);
+assert.equal(legacyCapacityRestored.status().vocabularyCapacity,1024,
+ "older v5 checkpoints without an explicit capacity must retain the historical default");
 const stemFast=stemRetrievalModel.predictMasked("системы получает сигнал",1).retrievalCandidate;
 const stemReference=stemRetrievalModel.predictMasked("системы получает сигнал",1,{useLegacyScan:true}).retrievalCandidate;
 assert.deepEqual(stemFast,stemReference,
