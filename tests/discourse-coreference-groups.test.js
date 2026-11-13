@@ -58,6 +58,16 @@ assert.equal(resolved.status,"resolved","они should link to the explicit coor
 assert.equal(resolved.antecedent.number,"plural");
 assert.equal(resolved.antecedent.text,"система и сервер");
 
+const nameGroupRows=discourse.extractCandidates([
+  message("G6","AMBIGUOUS_NAME_GROUP",{subject:"Саша и Женя",object:null})
+],testCore);
+assert.equal(nameGroupRows.length,1);
+assert.equal(nameGroupRows[0].gender,"plural",
+  "single-name gender ambiguity must not erase a verified plural group feature");
+assert.equal(nameGroupRows[0].number,"plural");
+assert.equal(discourse.resolveMention("Они ушли.",nameGroupRows,{topicId:"T1"}).status,"resolved",
+  "a group containing gender-ambiguous names can still be plural without guessing either person's gender");
+
 const ambiguous=discourse.resolveMention("Они вернулись.",[
   {id:"group-a",text:"Система и сервер",gender:"plural",number:"plural",featureSource:"semantic_core",
     syntacticRole:"subject",semanticRole:"agent",turnDistance:1,topicId:"T1"},

@@ -119,8 +119,9 @@
 
   function morphologyIdentity(value, features) {
     if (!features) return null;
-    const head = normalise(value).split(" ").pop() || "";
-    if (AMBIGUOUS_A_NAMES.has(head) || MASCULINE_A_NAMES.has(head)) return null;
+    const words = normalise(value).split(" ").filter(Boolean);
+    const head = words[words.length - 1] || "";
+    if (words.length === 1 && (AMBIGUOUS_A_NAMES.has(head) || MASCULINE_A_NAMES.has(head))) return null;
     const gender = ["masculine","feminine","neuter","plural"].includes(features.gender)
       ? features.gender : "unknown";
     const number = ["singular","plural"].includes(features.number) ? features.number : "unknown";
@@ -139,9 +140,10 @@
   }
 
   function candidateFeatures(candidate) {
-    const head = normalise(candidate && candidate.text).split(" ").pop() || "";
-    if (AMBIGUOUS_A_NAMES.has(head)) return { gender:"unknown", number:"singular" };
-    if (MASCULINE_A_NAMES.has(head)) return { gender:"masculine", number:"singular" };
+    const words = normalise(candidate && candidate.text).split(" ").filter(Boolean);
+    const head = words[words.length - 1] || "";
+    if (words.length === 1 && AMBIGUOUS_A_NAMES.has(head)) return { gender:"unknown", number:"singular" };
+    if (words.length === 1 && MASCULINE_A_NAMES.has(head)) return { gender:"masculine", number:"singular" };
     const inferred = inferFeatures(candidate && candidate.text);
     const semanticFeaturesAreAuthoritative = candidate && candidate.featureSource === "semantic_core";
     let gender = candidate && ["masculine","feminine","neuter","plural"].includes(candidate.gender)
@@ -296,14 +298,16 @@
           if (!key || COMMON_FUNCTION.has(key) || PRONOUNS[key] || key.split(" ").some(token=>COMMON_FUNCTION.has(token))) return;
           const parserFeatures = semanticMorphology(text,syntacticRole,grammaticalCase,core);
           const identity = morphologyIdentity(text,parserFeatures);
-          const nameHead = normalise(text).split(" ").pop() || "";
+          const nameWords = normalise(text).split(" ").filter(Boolean);
+          const nameHead = nameWords[nameWords.length - 1] || "";
+          const singleName = nameWords.length === 1;
           const inferred = parserFeatures
             ? {
-                gender:AMBIGUOUS_A_NAMES.has(nameHead) ? "unknown"
-                  : MASCULINE_A_NAMES.has(nameHead) ? "masculine"
+                gender:singleName && AMBIGUOUS_A_NAMES.has(nameHead) ? "unknown"
+                  : singleName && MASCULINE_A_NAMES.has(nameHead) ? "masculine"
                   : ["masculine","feminine","neuter","plural"].includes(parserFeatures.gender)
                     ? parserFeatures.gender : "unknown",
-                number:AMBIGUOUS_A_NAMES.has(nameHead) || MASCULINE_A_NAMES.has(nameHead) ? "singular"
+                number:singleName && (AMBIGUOUS_A_NAMES.has(nameHead) || MASCULINE_A_NAMES.has(nameHead)) ? "singular"
                   : ["singular","plural"].includes(parserFeatures.number)
                     ? parserFeatures.number : "unknown"
               }
