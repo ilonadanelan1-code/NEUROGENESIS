@@ -70,6 +70,20 @@ jobs:
         run: |
           node --check tests/ud-russian-gsd-benchmark.test.js
           node tests/ud-russian-gsd-benchmark.test.js
+      - name: Download pinned UD Russian-GSD corpus for predictor capacity experiment
+        run: |
+          mkdir -p /tmp/ud-russian-gsd
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+      - name: Run external UD Russian-GSD predictor capacity benchmark
+        run: |
+          node tests/ud-russian-gsd-benchmark.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
       - name: Run 24-message distant-reference diagnostic
         run: node tests/discourse-coreference-window.test.js
       - name: Run semantic-query integration test
