@@ -21,6 +21,14 @@ assert.equal(discourse.detectMention("Его книга сломалась."), n
   "a possessive determiner must not be treated as a standalone antecedent reference");
 assert.equal(discourse.detectMention("Я видел его вчера.").token, "его",
   "an object pronoun before an adverb must remain detectable");
+assert.equal(discourse.detectMention("Его нашли вчера.").token, "его",
+  "a common past-tense verb after an object pronoun must not be mistaken for a possessive noun");
+assert.equal(discourse.detectMention("Их обнаружили утром.").token, "их",
+  "plural object pronouns before finite verbs must remain detectable");
+assert.equal(discourse.detectMention("Его новую книгу нашли вчера."), null,
+  "a possessive pronoun followed by a noun phrase must remain outside anaphora resolution");
+assert.equal(discourse.detectMention("О нём говорили позже.").grammaticalCase, "prepositional",
+  "the common prepositional form нём must be recognized");
 assert.equal(discourse.detectMention("Это произошло позже."), null,
   "event demonstratives are outside this person/entity pilot and must not be forced into an entity link");
 
