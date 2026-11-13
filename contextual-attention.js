@@ -639,7 +639,7 @@ function vocabularySelectionReport(selection,strategy){
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
   if(state.dimension!==dimension||state.windowSize!==windowSize||(state.vocabularyLimit!=null&&Math.floor(finite(state.vocabularyLimit,DEFAULT_VOCABULARY_LIMIT))!==vocabularyLimit)||state.heads!==heads||state.transformerBlocks!==blockCount||!Array.isArray(state.vocabulary)||state.vocabulary.length>vocabularyLimit||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
-   throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
+   throw new TypeError("Contextual model dimensions, heads, blocks, vocabulary limit or vocabulary are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
   const validVector=(values,length)=>Array.isArray(values)&&values.length===length&&values.every(value=>Number.isFinite(Number(value)));
   const count=state.vocabulary.length,vocabularySet=new Set(state.vocabulary),storedContextExamples=state.trainingContextExamples??[],
