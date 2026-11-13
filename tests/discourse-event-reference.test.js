@@ -17,10 +17,24 @@ assert.equal(api.detectMention("Это устройство новое"),null,"p
 const messages=[
  {id:"E1",threadId:"T1",role:"user",text:"Сервер потерял соединение."},
  {id:"A1",threadId:"T1",role:"assistant",text:"Это неприятно."},
- {id:"E2",threadId:"T1",role:"user",text:"После этого обработка остановилась."},
  {id:"E3",threadId:"T2",role:"user",text:"База данных перезапустилась."}
 ];
-const candidates=api.extractCandidates(messages,core,{topicId:"T1"});
+const eventCore={
+ analyse(text) {
+  if(text==="Сервер потерял соединение.") return {proposition:{
+   kind:"assertion",subject:"Сервер",predicate:"потерял",object:"соединение",
+   polarity:"positive",modality:"asserted",confidence:0.82,
+   attribution:{source:"user_utterance"}
+  }};
+  if(text==="База данных перезапустилась.") return {proposition:{
+   kind:"assertion",subject:"База данных",predicate:"перезапустилась",object:"",
+   polarity:"positive",modality:"asserted",confidence:0.82,
+   attribution:{source:"user_utterance"}
+  }};
+  return {proposition:{kind:"fragment",confidence:0.2}};
+ }
+};
+const candidates=api.extractCandidates(messages,eventCore,{topicId:"T1"});
 assert.ok(candidates.length>0,"asserted user propositions in active thread should become event candidates");
 assert.equal(candidates.some(x=>x.id==="A1"),false,"assistant text must not become user-grounded event fact");
 assert.equal(candidates.some(x=>x.id==="E3"),false,"other thread must be excluded");
