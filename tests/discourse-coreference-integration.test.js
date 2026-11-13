@@ -50,7 +50,7 @@ const eventEnabled=planner.local("Из-за этого обработка ост
 assert.equal(eventEnabled.contextRelation,"follow_up",
  "event-reference cues must be treated as a continuation of the active topic");
 assert.equal(eventEnabled.discourseEventResolution.status,"resolved");
-assert.equal(eventEnabled.discourseEventResolution.antecedent.id,"M1");
+assert.equal(eventEnabled.discourseEventResolution.antecedent.id,"M1-p1");
 assert.equal(eventEnabled.discourseEventResolution.provenance.memoryEffect,"none");
 assert.equal(eventEnabled.discourseEventResolution.provenance.usage,"advisory_only");
 assert.ok(eventEnabled.semanticFrame.discourseEventResolution,
