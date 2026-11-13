@@ -94,6 +94,8 @@ function splitCorpus(texts,seed=902){
   test:rowsFrom(trainCount+validationCount,entries.length),uniqueRows:entries.length,duplicateRows:rows.length-entries.length,seed:safeSeed};
 }
 function create(options={}){
+ const vocabularyCapacity=Math.max(MAX_VOCABULARY,
+  Math.min(8192,Math.floor(finite(options.vocabularyCapacity,MAX_VOCABULARY))));
  const dimension=Math.max(4,Math.min(48,Math.floor(finite(options.dimension,12))));
  const requestedHeads=Math.max(1,Math.min(6,Math.floor(finite(options.heads,3))));
  const heads=dimension%requestedHeads===0?requestedHeads:
@@ -123,7 +125,7 @@ function create(options={}){
   const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
   if(!token||!/[\p{L}\p{N}]/u.test(token))return-1;
   if(indices.has(token))return indices.get(token);
-  if(vocabulary.length>=MAX_VOCABULARY)return-1;
+  if(vocabulary.length>=vocabularyCapacity)return-1;
   const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);stemIndexCache=null;
   embeddings.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));
   outputWeights.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));outputBias.push(0);
@@ -600,7 +602,8 @@ function create(options={}){
    knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,morphologyCoveredTokenCount,
    morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,
    contextMorphologyBackoffCount,positions};}
- function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
+ function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,vocabularyCapacity,
+  vocabularySaturated:vocabulary.length>=vocabularyCapacity,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trainingContextExamples:trainingContextExamples.length,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice()),copyBlock=block=>({
@@ -608,12 +611,17 @@ function create(options={}){
    norm1Gamma:block.norm1Gamma.slice(),norm1Beta:block.norm1Beta.slice(),norm2Gamma:block.norm2Gamma.slice(),norm2Beta:block.norm2Beta.slice(),
    feedForward1:copy(block.feedForward1),feedForward1Bias:block.feedForward1Bias.slice(),feedForward2:copy(block.feedForward2),feedForward2Bias:block.feedForward2Bias.slice()
   });
-  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
+  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,
+   vocabularyCapacity,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
    trainingContextExamples:trainingContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({...item}))}))};
  }
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
-  if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||!Array.isArray(state.vocabulary)||state.vocabulary.length>MAX_VOCABULARY||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
+  const storedCapacity=state.vocabularyCapacity==null?MAX_VOCABULARY:
+   Math.max(MAX_VOCABULARY,Math.min(8192,Math.floor(finite(state.vocabularyCapacity,MAX_VOCABULARY))));
+  if(state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||
+   storedCapacity>vocabularyCapacity||!Array.isArray(state.vocabulary)||state.vocabulary.length>vocabularyCapacity||
+   !Array.isArray(state.blocks)||state.blocks.length!==blockCount)
    throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
   const validMatrix=(rows,rowCount,colCount)=>Array.isArray(rows)&&rows.length===rowCount&&rows.every(row=>Array.isArray(row)&&row.length===colCount&&row.every(value=>Number.isFinite(Number(value))));
   const validVector=(values,length)=>Array.isArray(values)&&values.length===length&&values.every(value=>Number.isFinite(Number(value)));
@@ -650,7 +658,10 @@ function create(options={}){
  const initialCheckpoint=exportState();
  return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,retrievalIndexStatus,retrieveContextCandidate,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
-function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks});model.loadState(state);return model;}
+function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({
+ dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks,
+ vocabularyCapacity:state.vocabularyCapacity==null?MAX_VOCABULARY:state.vocabularyCapacity
+});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
 root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 })();
