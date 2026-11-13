@@ -1,4 +1,5 @@
 "use strict";
+// Regression guard: Russian Unicode word boundaries must not rely on ASCII \\b.
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const vm=require("node:vm");
