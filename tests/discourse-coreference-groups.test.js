@@ -51,7 +51,8 @@ assert.equal(candidates.length,1,"matching inflected members should create one g
 assert.equal(candidates[0].gender,"plural");
 assert.equal(candidates[0].number,"plural");
 assert.equal(candidates[0].identityBasis,"morphological_lemma");
-assert.deepEqual(candidates[0].surfaceForms.sort(),["Система и сервер","систему и серверу"].sort());
+assert.equal([...candidates[0].surfaceForms].sort().join("|"),
+  ["Система и сервер","систему и серверу"].sort().join("|"));
 const resolved=discourse.resolveMention("Они снова заработали.",candidates,{topicId:"T1"});
 assert.equal(resolved.status,"resolved","они should link to the explicit coordinated group");
 assert.equal(resolved.antecedent.number,"plural");
