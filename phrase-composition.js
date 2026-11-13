@@ -2,6 +2,11 @@
 "use strict";
 const SCHEMA="NG_PHRASE_COMPOSITION_V1",ROLES=["other","subject","predicate","object"],
  RELATIONS=["none","subject_to_predicate","predicate_to_object","subject_to_object"],MAX_SENTENCES=160,MAX_TOKENS=48;
+const RELATION_ROLE_REQUIREMENTS={
+ subject_to_predicate:["subject","predicate"],
+ predicate_to_object:["predicate","object"],
+ subject_to_object:["subject","object"]
+};
 function normaliseFrameText(value){return String(value==null?"":value).normalize("NFKC").toLowerCase().replace(/ё/gu,"е").replace(/\s+/gu," ").trim();}
 
 const clean=(value,limit=500)=>String(value==null?"":value).replace(/\s+/gu," ").trim().slice(0,limit);
@@ -174,7 +179,15 @@ function create(options={}){
    if(relation>0)relationCandidates.push({from:left,to:right,fromToken:data.tokens[left],toToken:data.tokens[right],relation:RELATIONS[relation],confidence:distribution[relation],probabilities:Object.fromEntries(RELATIONS.map((name,i)=>[name,distribution[i]]))});
   }
   relationCandidates.sort((a,b)=>b.confidence-a.confidence);
-  const edges=relationCandidates.filter(edge=>edge.confidence>=.34).slice(0,16),nodes=[];
+  const edges=relationCandidates.filter(edge=>edge.confidence>=.34).slice(0,16);
+  // Preserve the full historical candidate edge list while exposing a conservative
+  // role-consistent subset for callers that prefer precision over recall.
+  const trustedEdges=relationCandidates.filter(edge=>{
+   const expected=RELATION_ROLE_REQUIREMENTS[edge.relation];
+   return edge.confidence>=.34&&expected&&
+    roles[edge.from]?.role===expected[0]&&roles[edge.to]?.role===expected[1];
+  }).slice(0,16);
+  const nodes=[];
   for(let i=0;i<roles.length;i++){
    const item=roles[i];if(item.roleId===0||item.confidence<.30)continue;
    const previous=nodes[nodes.length-1];
@@ -189,7 +202,8 @@ function create(options={}){
    if(selected.length)for(let i=0;i<featureSize;i++)phraseVector[i]+=vector[i]*weights[role];
   }
   for(let i=0;i<phraseVector.length;i++)phraseVector[i]/=6;
-  return{schema:SCHEMA,trained:trainingSteps>0,tokens:data.tokens,roles,nodes,edges,relationCandidates:relationCandidates.slice(0,24),
+  return{schema:SCHEMA,trained:trainingSteps>0,tokens:data.tokens,roles,nodes,edges,trustedEdges,
+   relationCandidates:relationCandidates.slice(0,24),
    phraseVector,roleVectors,weakFrame:{kind:data.frame.kind||"unknown",subject:normaliseFrameText(data.frame.subject||""),predicate:normaliseFrameText(data.frame.predicate||""),object:normaliseFrameText(data.frame.object||""),
     relation:normaliseFrameText(data.frame.relation||""),polarity:data.frame.polarity||"unknown",modality:data.frame.modality||"unknown",confidence:Number(data.frame.confidence)||0},
    supervision:"weak_semantic_parser_labels",training:lastTraining?{...lastTraining}:null};
