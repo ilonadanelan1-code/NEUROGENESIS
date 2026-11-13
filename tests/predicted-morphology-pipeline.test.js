@@ -321,12 +321,14 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
   const joint={targets:0,correct:0};
   let evidenceTotal=0,evidenceRows=0;
   for(const row of rows) {
-    if(!row.form||!row.lemma||!row.upos||!/[\\p{L}\\p{N}]/u.test(row.form)) continue;
+    if(!row.form||!row.lemma||!row.upos||!/[\p{L}\p{N}]/u.test(row.form)) continue;
     if(outputVocabulary.has(row.form)) continue;
     const selected=selectUposWithMorphologyEvidence(
       row.features,uposHead,conditionedTraining,globalHeads,lambda
     );
     if(!selected.label) continue;
+    if(lambda===0) assert.equal(selected.label,selected.baseLabel,
+      "zero morphology-evidence weight must exactly preserve the base UPOS prediction");
     const predictedFeats=predictPosConditionedFeats(
       row.features,selected.label,conditionedTraining.heads,globalHeads
     );
@@ -347,7 +349,7 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
   const precision=all.precisionAmongGenerated||0;
   const qualityF1=precision+recall?2*precision*recall/(precision+recall):0;
   return {
-    metrics,targets:metrics.all.targets,
+    metrics,targets:metrics.all.targets,upos,featsExact,joint,
     uposAccuracy:ratio(upos.correct,upos.targets),
     trackedFeatsExactAccuracy:ratio(featsExact.correct,featsExact.targets),
     jointTagsAccuracy:ratio(joint.correct,joint.targets),
@@ -472,6 +474,9 @@ const aggregate={
   goldUposPredFeats:emptyMetrics(),predictedUposGoldFeats:emptyMetrics(),
   goldUposConditionedFeats:emptyMetrics(),predictedUposConditionedFeats:emptyMetrics(),
   jointUposEvidenceReranked:emptyMetrics(),
+  jointUposEvidenceRerankedUPOS:{targets:0,correct:0},
+  jointUposEvidenceRerankedFeatsExact:{targets:0,correct:0},
+  jointUposEvidenceRerankedJointTags:{targets:0,correct:0},
   upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},
   goldUposFeatsExact:{targets:0,correct:0},predictedUposFeatsExact:{targets:0,correct:0},
   joint:{targets:0,correct:0},
@@ -553,6 +558,9 @@ for(const seed of seeds) {
   );
   assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on internal OOV validation targets");
   mergeMetrics(aggregate.jointUposEvidenceReranked,rerankedTest.metrics);
+  mergeCounter(aggregate.jointUposEvidenceRerankedUPOS,rerankedTest.upos);
+  mergeCounter(aggregate.jointUposEvidenceRerankedFeatsExact,rerankedTest.featsExact);
+  mergeCounter(aggregate.jointUposEvidenceRerankedJointTags,rerankedTest.joint);
   for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats","goldUposConditionedFeats","predictedUposConditionedFeats"])
     mergeMetrics(aggregate[key],evaluation[key]);
   for(const key of ["upos","featsExact","goldUposFeatsExact","predictedUposFeatsExact","joint"])
@@ -649,6 +657,9 @@ const report={
     trackedFeatsExact:summariseTokens(aggregate.featsExact),
     goldUposConditionedFeatsExact:summariseTokens(aggregate.goldUposFeatsExact),
     predictedUposConditionedFeatsExact:summariseTokens(aggregate.predictedUposFeatsExact),
+    jointPosEvidenceUPOS:summariseTokens(aggregate.jointUposEvidenceRerankedUPOS),
+    jointPosEvidenceTrackedFeatsExact:summariseTokens(aggregate.jointUposEvidenceRerankedFeatsExact),
+    jointPosEvidenceJointTags:summariseTokens(aggregate.jointUposEvidenceRerankedJointTags),
     jointTags:summariseTokens(aggregate.joint)
   },
   perAttribute:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
