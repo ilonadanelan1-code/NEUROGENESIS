@@ -63,7 +63,13 @@ const cases = [
     candidates:[make("old-petr","Пётр","masculine","singular","subject","agent",1,"T2")]},
   {id:"same-topic-filter",query:"Он ответил.",gold:"same-thread-petr",category:"topic_switch",
     candidates:[make("other-thread-petr","Пётр","masculine","singular","subject","agent",1,"T2"),
-      make("same-thread-petr","Пётр","masculine","singular","object","theme",3,"T1")]}
+      make("same-thread-petr","Пётр","masculine","singular","object","theme",3,"T1")]},
+  {id:"negation-preserves-reference",query:"Он не вернулся.",gold:"petr",category:"negation",
+    candidates:[make("near-anna","Анна","feminine","singular","subject","agent",1),
+      make("petr","Пётр","masculine","singular","subject","agent",3)]},
+  {id:"causal-discourse-subject",query:"Поэтому он вызвал врача.",gold:"older-agent",category:"causal",
+    candidates:[make("near-object","Пётр","masculine","singular","object","theme",1),
+      make("older-agent","Иван","masculine","singular","subject","agent",2)]}
 ];
 
 function compatible(mention,candidate){
@@ -122,7 +128,7 @@ for(const category of [...new Set(cases.map(row=>row.category))]){
     experimentLinks:selected.filter(item=>experiment[item.index]!==null).length
   };
 }
-assert.equal(cases.length,24);
+assert.equal(cases.length,26);
 assert.ok(cases.some(row=>row.category==="long_distance"));
 assert.ok(cases.some(row=>row.category==="ambiguous"));
 assert.ok(cases.some(row=>row.category==="topic_switch"));
