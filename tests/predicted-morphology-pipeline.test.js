@@ -10,19 +10,29 @@ const importer = require("../scripts/ud-russian-gsd.js");
 
 const trainPath = process.argv[2];
 const testPath = process.argv[3];
+const requestedTrainLimit = Number(process.argv[4] || 320);
 if (!trainPath && !testPath) {
   console.log("NEUROGENESIS predicted morphology pipeline fixtures: passed; external corpus files not supplied.");
   process.exit(0);
 }
 assert.ok(trainPath && testPath, "supply both pinned UD train and test CoNLL-U files");
-const prepared = importer.prepareCorpus(
-  fs.readFileSync(trainPath, "utf8"),
-  fs.readFileSync(testPath, "utf8"),
-  {trainLimit:320,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40}
-);
+assert.ok(Number.isSafeInteger(requestedTrainLimit) && requestedTrainLimit >= 320 && requestedTrainLimit <= 1280,
+  "training-size experiment must use an integer from 320 to 1280 sentences");
+const trainContent = fs.readFileSync(trainPath, "utf8");
+const testContent = fs.readFileSync(testPath, "utf8");
+const preparationOptions = {trainLimit:requestedTrainLimit,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40};
+const prepared = importer.prepareCorpus(trainContent,testContent,preparationOptions);
 assert.equal(prepared.stats.normalizedSampleTrainTestOverlaps,0);
-assert.equal(prepared.trainingRecords.length,320);
+assert.equal(prepared.trainingRecords.length,requestedTrainLimit,
+  "the requested decontaminated training sample must be available");
 assert.equal(prepared.testRecords.length,240);
+if (requestedTrainLimit > 320) {
+  const baselineSample = importer.prepareCorpus(trainContent,testContent,
+    {...preparationOptions,trainLimit:320});
+  assert.deepEqual(prepared.trainingRecords.slice(0,320).map(row=>row.normalized),
+    baselineSample.trainingRecords.map(row=>row.normalized),
+    "larger training samples must strictly extend the same deterministic 320-sentence baseline");
+}
 
 const window = {};
 const sandbox = {window,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
@@ -835,13 +845,13 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.127",
+  version:"0.58.128",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:320,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
