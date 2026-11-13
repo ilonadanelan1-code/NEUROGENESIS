@@ -36,6 +36,22 @@ assert.equal(uniqueMale.status,"resolved");
 assert.equal(uniqueMale.antecedent.text,"Пётр");
 assert.equal(uniqueMale.provenance.memoryEffect,"none");
 
+const negated = discourse.resolveMention("Он не вернулся.",[
+  candidate("petr","Пётр","masculine","singular","subject","agent",3),
+  candidate("anna","Анна","feminine","singular","subject","agent",1)
+],{topicId:"T1"});
+assert.equal(negated.status,"resolved");
+assert.equal(negated.antecedent.id,"petr",
+  "negation changes proposition polarity, not the identity constraints of a personal pronoun");
+
+const causal = discourse.resolveMention("Поэтому он вызвал врача.",[
+  candidate("near-object","Пётр","masculine","singular","object","theme",1),
+  candidate("older-agent","Иван","masculine","singular","subject","agent",2)
+],{topicId:"T1"});
+assert.equal(causal.status,"resolved");
+assert.equal(causal.antecedent.id,"older-agent",
+  "causal connective must not make the nearest object an automatic antecedent");
+
 const dativeRecipient = discourse.resolveMention("Ему передали ключ.",[
   candidate("ivan-agent","Иван","masculine","singular","subject","agent",1),
   candidate("petr-recipient","Пётр","masculine","singular","object","recipient",2)
