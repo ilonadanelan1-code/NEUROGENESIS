@@ -72,14 +72,14 @@ assert.ok(prediction.baselineSameSenseProbability >= 0 && prediction.baselineSam
 assert.equal(prediction.contextualAvailable, true);
 const maskedA = contextual.score("Ключ открыл тяжелую дверь", 0);
 const maskedB = contextual.score("Замок открыл тяжелую дверь", 0);
-assert.deepEqual(maskedA.contextualVector, maskedB.contextualVector,
+assert.equal(JSON.stringify(maskedA.contextualVector), JSON.stringify(maskedB.contextualVector),
   "the target surface must not leak into the masked contextual vector");
-assert.notDeepEqual(maskedA.tokenVector, maskedB.tokenVector,
+assert.notEqual(JSON.stringify(maskedA.tokenVector), JSON.stringify(maskedB.tokenVector),
   "the target identity is retained separately from its context representation");
 const state = lexical.exportState();
 const restored = Lexical.create();
 assert.equal(restored.loadState(state).trained, true);
-assert.deepEqual(restored.predictPair(validationPairs[0], contextual), prediction,
+assert.equal(JSON.stringify(restored.predictPair(validationPairs[0], contextual)), JSON.stringify(prediction),
   "lexical-sense classifier state must reproduce predictions");
 const malformed = lexical.exportState();
 malformed.contextualClassifier.weights.pop();
