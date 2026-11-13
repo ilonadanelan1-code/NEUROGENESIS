@@ -152,6 +152,39 @@ if (!trainPath && !testPath) {
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
     strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    strictLemmaCandidateCount: 0,
+    strictLemmaCovered: 0,
+    strictLemmaCorrect: 0,
+    strictLemmaAmbiguous: 0,
+    strictLemmaUnmapped: 0,
+    inversionLemmaCandidateCount: 0,
+    inversionLemmaCovered: 0,
+    inversionLemmaCorrect: 0,
+    inversionLemmaAmbiguous: 0,
+    inversionLemmaUnmapped: 0,
+    sampleStrictLemmaCandidateCount: 0,
+    sampleStrictLemmaCovered: 0,
+    sampleStrictLemmaCorrect: 0,
+    sampleStrictLemmaAmbiguous: 0,
+    sampleStrictLemmaUnmapped: 0,
+    sampleInversionLemmaCandidateCount: 0,
+    sampleInversionLemmaCovered: 0,
+    sampleInversionLemmaCorrect: 0,
+    sampleInversionLemmaAmbiguous: 0,
+    sampleInversionLemmaUnmapped: 0,
+    inverseFrequencyLemmaCandidateCount: 0,
+    inverseFrequencyLemmaCovered: 0,
+    inverseFrequencyLemmaCorrect: 0,
+    inverseFrequencyLemmaAmbiguous: 0,
+    inverseFrequencyLemmaUnmapped: 0,
+    inverseFrequencyInversionLemmaCandidateCount: 0,
+    inverseFrequencyInversionLemmaCovered: 0,
+    inverseFrequencyInversionLemmaCorrect: 0,
+    inverseFrequencyInversionLemmaAmbiguous: 0,
+    inverseFrequencyInversionLemmaUnmapped: 0,
+    lemmaTargets: 0,
+    lemmaUnannotated: 0,
+    inverseSampleLemmaTargets: 0,
     inverseSampleTargets: 0, sampleStrictCovered: 0, sampleStrictCorrect: 0,
     sampleInversionCovered: 0, sampleInversionCorrect: 0,
     inverseFrequencyCovered: 0, inverseFrequencyCorrect: 0,
@@ -162,6 +195,27 @@ if (!trainPath && !testPath) {
     for (const key of Object.keys(target)) target[key] += source[key] || 0;
   };
   const ratio = (numerator, denominator) => denominator ? numerator / denominator : null;
+  const normalizeLemma = value => Attention.tokenize(value || "").join(" ");
+  const annotationTokensFor = record => record.tokens.flatMap(token => {
+    const forms = Attention.tokenize(token.form);
+    const lemma = normalizeLemma(token.lemma);
+    return forms.map(form => ({form,lemma:lemma || null}));
+  });
+  const measureLemmaCandidate = (candidate,goldLemma,metrics,prefix,lemmaBySurface) => {
+    if (!candidate || !goldLemma) return;
+    metrics[prefix + "CandidateCount"]++;
+    const lemmas = lemmaBySurface.get(normalizeLemma(candidate.token));
+    if (!lemmas || !lemmas.size) {
+      metrics[prefix + "Unmapped"]++;
+      return;
+    }
+    if (lemmas.size !== 1) {
+      metrics[prefix + "Ambiguous"]++;
+      return;
+    }
+    metrics[prefix + "Covered"]++;
+    if (lemmas.has(goldLemma)) metrics[prefix + "Correct"]++;
+  };
 
   for (const seed of seeds) {
     const model = Attention.create({
@@ -190,6 +244,46 @@ if (!trainPath && !testPath) {
       }
     }
 
+    // Candidate surface forms are mapped to UD lemmas using only the model's
+    // actual training partition, never validation or independent-test annotations.
+    const trainingSentenceKeys = new Set(trainingSplit.train.map(row => Attention.tokenize(row).join(" ")));
+    const trainingLemmaBySurface = new Map();
+    let trainingLemmaSentenceCount = 0;
+    let trainingLemmaAlignmentSkipped = 0;
+    for (const record of prepared.trainingRecords) {
+      const sentenceKey = Attention.tokenize(record.text).join(" ");
+      if (!trainingSentenceKeys.has(sentenceKey)) continue;
+      const annotated = annotationTokensFor(record);
+      if (annotated.length !== sentenceKey.split(" ").filter(Boolean).length ||
+          annotated.map(row => row.form).join(" ") !== sentenceKey) {
+        trainingLemmaAlignmentSkipped++;
+        continue;
+      }
+      trainingLemmaSentenceCount++;
+      for (const row of annotated) {
+        if (!row.lemma) continue;
+        if (!trainingLemmaBySurface.has(row.form)) trainingLemmaBySurface.set(row.form,new Set());
+        trainingLemmaBySurface.get(row.form).add(row.lemma);
+      }
+    }
+    assert.ok(trainingLemmaSentenceCount >= Math.floor(trainingSplit.train.length * 0.9),
+      "at least 90% of training sentences must align with UD lemma annotations");
+
+    const testLemmaBySentence = new Map();
+    let testLemmaAlignmentSkipped = 0;
+    for (const record of prepared.testRecords) {
+      const sentenceKey = Attention.tokenize(record.text).join(" ");
+      const annotated = annotationTokensFor(record);
+      if (annotated.length !== sentenceKey.split(" ").filter(Boolean).length ||
+          annotated.map(row => row.form).join(" ") !== sentenceKey) {
+        testLemmaAlignmentSkipped++;
+        continue;
+      }
+      testLemmaBySentence.set(sentenceKey,annotated);
+    }
+    assert.ok(testLemmaBySentence.size >= Math.floor(prepared.testTexts.length * 0.95),
+      "at least 95% of independent test sentences must align with UD lemma annotations");
+
     const pluralCandidateBaseCounts = new Map();
     for (const base of model.exportState().vocabulary) {
       const surface = Attention.russianNounPlural(base);
@@ -203,6 +297,39 @@ if (!trainPath && !testPath) {
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
       strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+      strictLemmaCandidateCount: 0,
+      strictLemmaCovered: 0,
+      strictLemmaCorrect: 0,
+      strictLemmaAmbiguous: 0,
+      strictLemmaUnmapped: 0,
+      inversionLemmaCandidateCount: 0,
+      inversionLemmaCovered: 0,
+      inversionLemmaCorrect: 0,
+      inversionLemmaAmbiguous: 0,
+      inversionLemmaUnmapped: 0,
+      sampleStrictLemmaCandidateCount: 0,
+      sampleStrictLemmaCovered: 0,
+      sampleStrictLemmaCorrect: 0,
+      sampleStrictLemmaAmbiguous: 0,
+      sampleStrictLemmaUnmapped: 0,
+      sampleInversionLemmaCandidateCount: 0,
+      sampleInversionLemmaCovered: 0,
+      sampleInversionLemmaCorrect: 0,
+      sampleInversionLemmaAmbiguous: 0,
+      sampleInversionLemmaUnmapped: 0,
+      inverseFrequencyLemmaCandidateCount: 0,
+      inverseFrequencyLemmaCovered: 0,
+      inverseFrequencyLemmaCorrect: 0,
+      inverseFrequencyLemmaAmbiguous: 0,
+      inverseFrequencyLemmaUnmapped: 0,
+      inverseFrequencyInversionLemmaCandidateCount: 0,
+      inverseFrequencyInversionLemmaCovered: 0,
+      inverseFrequencyInversionLemmaCorrect: 0,
+      inverseFrequencyInversionLemmaAmbiguous: 0,
+      inverseFrequencyInversionLemmaUnmapped: 0,
+      lemmaTargets: 0,
+      lemmaUnannotated: 0,
+      inverseSampleLemmaTargets: 0,
       inverseSampleTargets: 0, sampleStrictCovered: 0, sampleStrictCorrect: 0,
       sampleInversionCovered: 0, sampleInversionCorrect: 0,
       inverseFrequencyCovered: 0, inverseFrequencyCorrect: 0,
@@ -211,6 +338,7 @@ if (!trainPath && !testPath) {
     };
     for (const sentence of prepared.testTexts) {
       const tokens = Attention.tokenize(sentence);
+      const goldLemmaRows = testLemmaBySentence.get(tokens.join(" ")) || null;
       for (let index = 0; index < tokens.length; index++) {
         metrics.total++;
         const score = model.score(sentence, index);
@@ -234,6 +362,9 @@ if (!trainPath && !testPath) {
         }
         if (score.targetKnown) continue;
         metrics.oov++;
+        const goldLemma = goldLemmaRows?.[index]?.lemma || null;
+        if (goldLemma) metrics.lemmaTargets++;
+        else metrics.lemmaUnannotated++;
         const strictPrediction = model.predictMasked(sentence, index);
         if (strictPrediction?.morphologyHint?.number === "plural") {
           metrics.oovPluralHintTargets++;
@@ -277,6 +408,8 @@ if (!trainPath && !testPath) {
           if (strictPrediction.retrievalPrediction.surface === tokens[index]) metrics.strictSurfaceCorrect++;
         }
         const inversionCandidate = inversionPrediction?.retrievalCandidate;
+        measureLemmaCandidate(strictCandidate,goldLemma,metrics,"strictLemma",trainingLemmaBySurface);
+        measureLemmaCandidate(inversionCandidate,goldLemma,metrics,"inversionLemma",trainingLemmaBySurface);
         if (inversionCandidate) {
           metrics.inversionCovered++;
           if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) {
@@ -284,6 +417,9 @@ if (!trainPath && !testPath) {
           }
         }
         if (inverseSample) {
+          if (goldLemma) metrics.inverseSampleLemmaTargets++;
+          measureLemmaCandidate(strictCandidate,goldLemma,metrics,"sampleStrictLemma",trainingLemmaBySurface);
+          measureLemmaCandidate(inversionCandidate,goldLemma,metrics,"sampleInversionLemma",trainingLemmaBySurface);
           if (strictCandidate) {
             metrics.sampleStrictCovered++;
             if (Attention.russianStem(strictCandidate.token) === Attention.russianStem(tokens[index])) {
@@ -297,6 +433,7 @@ if (!trainPath && !testPath) {
             }
           }
           const inverseCandidate = inverseFrequencyPrediction?.retrievalCandidate;
+          measureLemmaCandidate(inverseCandidate,goldLemma,metrics,"inverseFrequencyLemma",trainingLemmaBySurface);
           if (inverseCandidate) {
             metrics.inverseFrequencyCovered++;
             if (Attention.russianStem(inverseCandidate.token) === Attention.russianStem(tokens[index])) {
@@ -304,6 +441,7 @@ if (!trainPath && !testPath) {
             }
           }
           const inverseInversionCandidate = inverseFrequencyInversionPrediction?.retrievalCandidate;
+          measureLemmaCandidate(inverseInversionCandidate,goldLemma,metrics,"inverseFrequencyInversionLemma",trainingLemmaBySurface);
           if (inverseInversionCandidate) {
             metrics.inverseFrequencyInversionCovered++;
             if (Attention.russianStem(inverseInversionCandidate.token) === Attention.russianStem(tokens[index])) {
@@ -364,17 +502,28 @@ if (!trainPath && !testPath) {
           coverage: ratio(metrics.inversionCovered, metrics.oov)
         },
         lemmaLevelContextRetrieval: {
+          goldAnnotatedOovTargets:metrics.lemmaTargets,
+          unannotatedOovTargets:metrics.lemmaUnannotated,
+          trainingLemmaSurfaces:trainingLemmaBySurface.size,
+          alignedTrainingSentences:trainingLemmaSentenceCount,
+          skippedTrainingSentenceAlignments:trainingLemmaAlignmentSkipped,
+          alignedIndependentTestSentences:testLemmaBySentence.size,
+          skippedIndependentTestSentenceAlignments:testLemmaAlignmentSkipped,
           strict: {
+            candidateCount:metrics.strictLemmaCandidateCount,
             correct:metrics.strictLemmaCorrect,covered:metrics.strictLemmaCovered,
             ambiguousCandidateForms:metrics.strictLemmaAmbiguous,
+            unmappedCandidateForms:metrics.strictLemmaUnmapped,
             precision:ratio(metrics.strictLemmaCorrect,metrics.strictLemmaCovered),
-            coverage:ratio(metrics.strictLemmaCovered,metrics.oov)
+            coverage:ratio(metrics.strictLemmaCovered,metrics.lemmaTargets)
           },
           orderInvariant: {
+            candidateCount:metrics.inversionLemmaCandidateCount,
             correct:metrics.inversionLemmaCorrect,covered:metrics.inversionLemmaCovered,
             ambiguousCandidateForms:metrics.inversionLemmaAmbiguous,
+            unmappedCandidateForms:metrics.inversionLemmaUnmapped,
             precision:ratio(metrics.inversionLemmaCorrect,metrics.inversionLemmaCovered),
-            coverage:ratio(metrics.inversionLemmaCovered,metrics.oov)
+            coverage:ratio(metrics.inversionLemmaCovered,metrics.lemmaTargets)
           }
         },
         inverseFrequencyRetrievalSameSample: {
@@ -400,26 +549,39 @@ if (!trainPath && !testPath) {
             precision: ratio(metrics.inverseFrequencyInversionCorrect, metrics.inverseFrequencyInversionCovered),
             coverage: ratio(metrics.inverseFrequencyInversionCovered, metrics.inverseSampleTargets)
           },
+          lemmaGoldAnnotatedSampleTargets:metrics.inverseSampleLemmaTargets,
           lemmaLevelUniformStrict:{
+            candidateCount:metrics.sampleStrictLemmaCandidateCount,
             correct:metrics.sampleStrictLemmaCorrect,covered:metrics.sampleStrictLemmaCovered,
+            ambiguousCandidateForms:metrics.sampleStrictLemmaAmbiguous,
+            unmappedCandidateForms:metrics.sampleStrictLemmaUnmapped,
             precision:ratio(metrics.sampleStrictLemmaCorrect,metrics.sampleStrictLemmaCovered),
-            coverage:ratio(metrics.sampleStrictLemmaCovered,metrics.inverseSampleTargets)
+            coverage:ratio(metrics.sampleStrictLemmaCovered,metrics.inverseSampleLemmaTargets)
           },
           lemmaLevelInverseStrict:{
+            candidateCount:metrics.inverseFrequencyLemmaCandidateCount,
             correct:metrics.inverseFrequencyLemmaCorrect,covered:metrics.inverseFrequencyLemmaCovered,
+            ambiguousCandidateForms:metrics.inverseFrequencyLemmaAmbiguous,
+            unmappedCandidateForms:metrics.inverseFrequencyLemmaUnmapped,
             precision:ratio(metrics.inverseFrequencyLemmaCorrect,metrics.inverseFrequencyLemmaCovered),
-            coverage:ratio(metrics.inverseFrequencyLemmaCovered,metrics.inverseSampleTargets)
+            coverage:ratio(metrics.inverseFrequencyLemmaCovered,metrics.inverseSampleLemmaTargets)
           },
           lemmaLevelUniformOrderInvariant:{
+            candidateCount:metrics.sampleInversionLemmaCandidateCount,
             correct:metrics.sampleInversionLemmaCorrect,covered:metrics.sampleInversionLemmaCovered,
+            ambiguousCandidateForms:metrics.sampleInversionLemmaAmbiguous,
+            unmappedCandidateForms:metrics.sampleInversionLemmaUnmapped,
             precision:ratio(metrics.sampleInversionLemmaCorrect,metrics.sampleInversionLemmaCovered),
-            coverage:ratio(metrics.sampleInversionLemmaCovered,metrics.inverseSampleTargets)
+            coverage:ratio(metrics.sampleInversionLemmaCovered,metrics.inverseSampleLemmaTargets)
           },
           lemmaLevelInverseOrderInvariant:{
+            candidateCount:metrics.inverseFrequencyInversionLemmaCandidateCount,
             correct:metrics.inverseFrequencyInversionLemmaCorrect,
             covered:metrics.inverseFrequencyInversionLemmaCovered,
+            ambiguousCandidateForms:metrics.inverseFrequencyInversionLemmaAmbiguous,
+            unmappedCandidateForms:metrics.inverseFrequencyInversionLemmaUnmapped,
             precision:ratio(metrics.inverseFrequencyInversionLemmaCorrect,metrics.inverseFrequencyInversionLemmaCovered),
-            coverage:ratio(metrics.inverseFrequencyInversionLemmaCovered,metrics.inverseSampleTargets)
+            coverage:ratio(metrics.inverseFrequencyInversionLemmaCovered,metrics.inverseSampleLemmaTargets)
           }
         },
         strictRetrievalSurface: {
@@ -572,17 +734,23 @@ if (!trainPath && !testPath) {
           coverage: ratio(aggregate.inversionCovered, aggregate.oov)
         },
         lemmaLevelContextRetrieval: {
+          goldAnnotatedOovTargets:aggregate.lemmaTargets,
+          unannotatedOovTargets:aggregate.lemmaUnannotated,
           strict: {
+            candidateCount:aggregate.strictLemmaCandidateCount,
             correct:aggregate.strictLemmaCorrect,covered:aggregate.strictLemmaCovered,
             ambiguousCandidateForms:aggregate.strictLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.strictLemmaUnmapped,
             precision:ratio(aggregate.strictLemmaCorrect,aggregate.strictLemmaCovered),
-            coverage:ratio(aggregate.strictLemmaCovered,aggregate.oov)
+            coverage:ratio(aggregate.strictLemmaCovered,aggregate.lemmaTargets)
           },
           orderInvariant: {
+            candidateCount:aggregate.inversionLemmaCandidateCount,
             correct:aggregate.inversionLemmaCorrect,covered:aggregate.inversionLemmaCovered,
             ambiguousCandidateForms:aggregate.inversionLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.inversionLemmaUnmapped,
             precision:ratio(aggregate.inversionLemmaCorrect,aggregate.inversionLemmaCovered),
-            coverage:ratio(aggregate.inversionLemmaCovered,aggregate.oov)
+            coverage:ratio(aggregate.inversionLemmaCovered,aggregate.lemmaTargets)
           }
         },
         inverseFrequencyRetrievalSameSample: {
@@ -608,26 +776,39 @@ if (!trainPath && !testPath) {
             precision: ratio(aggregate.inverseFrequencyInversionCorrect, aggregate.inverseFrequencyInversionCovered),
             coverage: ratio(aggregate.inverseFrequencyInversionCovered, aggregate.inverseSampleTargets)
           },
+          lemmaGoldAnnotatedSampleTargets:aggregate.inverseSampleLemmaTargets,
           lemmaLevelUniformStrict:{
+            candidateCount:aggregate.sampleStrictLemmaCandidateCount,
             correct:aggregate.sampleStrictLemmaCorrect,covered:aggregate.sampleStrictLemmaCovered,
+            ambiguousCandidateForms:aggregate.sampleStrictLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.sampleStrictLemmaUnmapped,
             precision:ratio(aggregate.sampleStrictLemmaCorrect,aggregate.sampleStrictLemmaCovered),
-            coverage:ratio(aggregate.sampleStrictLemmaCovered,aggregate.inverseSampleTargets)
+            coverage:ratio(aggregate.sampleStrictLemmaCovered,aggregate.inverseSampleLemmaTargets)
           },
           lemmaLevelInverseStrict:{
+            candidateCount:aggregate.inverseFrequencyLemmaCandidateCount,
             correct:aggregate.inverseFrequencyLemmaCorrect,covered:aggregate.inverseFrequencyLemmaCovered,
+            ambiguousCandidateForms:aggregate.inverseFrequencyLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.inverseFrequencyLemmaUnmapped,
             precision:ratio(aggregate.inverseFrequencyLemmaCorrect,aggregate.inverseFrequencyLemmaCovered),
-            coverage:ratio(aggregate.inverseFrequencyLemmaCovered,aggregate.inverseSampleTargets)
+            coverage:ratio(aggregate.inverseFrequencyLemmaCovered,aggregate.inverseSampleLemmaTargets)
           },
           lemmaLevelUniformOrderInvariant:{
+            candidateCount:aggregate.sampleInversionLemmaCandidateCount,
             correct:aggregate.sampleInversionLemmaCorrect,covered:aggregate.sampleInversionLemmaCovered,
+            ambiguousCandidateForms:aggregate.sampleInversionLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.sampleInversionLemmaUnmapped,
             precision:ratio(aggregate.sampleInversionLemmaCorrect,aggregate.sampleInversionLemmaCovered),
-            coverage:ratio(aggregate.sampleInversionLemmaCovered,aggregate.inverseSampleTargets)
+            coverage:ratio(aggregate.sampleInversionLemmaCovered,aggregate.inverseSampleLemmaTargets)
           },
           lemmaLevelInverseOrderInvariant:{
+            candidateCount:aggregate.inverseFrequencyInversionLemmaCandidateCount,
             correct:aggregate.inverseFrequencyInversionLemmaCorrect,
             covered:aggregate.inverseFrequencyInversionLemmaCovered,
+            ambiguousCandidateForms:aggregate.inverseFrequencyInversionLemmaAmbiguous,
+            unmappedCandidateForms:aggregate.inverseFrequencyInversionLemmaUnmapped,
             precision:ratio(aggregate.inverseFrequencyInversionLemmaCorrect,aggregate.inverseFrequencyInversionLemmaCovered),
-            coverage:ratio(aggregate.inverseFrequencyInversionLemmaCovered,aggregate.inverseSampleTargets)
+            coverage:ratio(aggregate.inverseFrequencyInversionLemmaCovered,aggregate.inverseSampleLemmaTargets)
           }
         },
         strictRetrievalSurface: {
