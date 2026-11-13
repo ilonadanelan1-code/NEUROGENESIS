@@ -176,11 +176,12 @@ function summarize(rows, key, total = rows.length) {
     coverage: total ? covered.length / total : 0
   };
 }
-function aggregateRuns(runs, key, pairKey) {
-  const rows = runs.flatMap(run => run[pairKey].map(row => ({
-    label: row.label, probability: row[key], lemma: row.lemma
+function aggregateRuns(runs, key, pairKey, pairedOnly = false) {
+  const allRows = runs.flatMap(run => run[pairKey].map(row => ({
+    label: row.label, probability: row[key], contextualProbability: row.contextualProbability, lemma: row.lemma
   })));
-  return summarize(rows, "probability", rows.length);
+  const rows = pairedOnly ? allRows.filter(row => row.contextualProbability != null) : allRows;
+  return summarize(rows, "probability", allRows.length);
 }
 function byLemmaBucket(runs, key, pairKey, lemmaSet) {
   const rows = runs.flatMap(run => run[pairKey]
@@ -289,8 +290,8 @@ const knownBaseline = aggregateRuns(allRuns, "baselineProbability", "knownPredic
 const knownContextual = aggregateRuns(allRuns, "contextualProbability", "knownPredictions");
 const unseenBaseline = aggregateRuns(allRuns, "baselineProbability", "unseenPredictions");
 const unseenContextual = aggregateRuns(allRuns, "contextualProbability", "unseenPredictions");
-const knownBaselinePaired = aggregateRuns(allRuns, "baselineProbability", "knownPredictions");
-const unseenBaselinePaired = aggregateRuns(allRuns, "baselineProbability", "unseenPredictions");
+const knownBaselinePaired = aggregateRuns(allRuns, "baselineProbability", "knownPredictions", true);
+const unseenBaselinePaired = aggregateRuns(allRuns, "baselineProbability", "unseenPredictions", true);
 
 const frequencyCounts = [...cleanTrainRows].map(([lemma, rows]) => ({ lemma, count: rows.length }))
   .sort((a, b) => a.count - b.count || a.lemma.localeCompare(b.lemma));
@@ -393,6 +394,8 @@ const report = {
     unseenLemma: errorExamples(firstRun.unseenPredictions, unseenTestPairs)
   }
 };
+fs.mkdirSync("benchmark-reports", { recursive: true });
+fs.writeFileSync("benchmark-reports/lexical-sense-context-v1.json", JSON.stringify(report, null, 2) + "\n");
 console.log("NEUROGENESIS 0.58.121 contextual lexical-sense benchmark: " + JSON.stringify(report));
 console.log("NEUROGENESIS lexical-sense error counts: " + JSON.stringify({
   knownFalseMerges: allRuns.reduce((sum, run) => sum + run.knownPredictions.filter(row => row.label === 0 && row.contextualProbability != null && row.contextualProbability >= .5).length, 0),
