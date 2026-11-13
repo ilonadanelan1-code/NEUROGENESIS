@@ -425,6 +425,154 @@ if (!trainPath && !testPath) {
     });
   }
 
+  // Repeat the order-only intervention with three independent shuffle streams
+  // per fixed model/split seed to separate a robust effect from one lucky permutation.
+  const shuffleRobustness = {
+    repeatsPerModelSeed: 3,
+    aggregate: {
+      targets: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      frequencyBuckets: createFrequencyBuckets()
+    },
+    perSeed: []
+  };
+  for (const seed of seeds) {
+    const fixed = seedReports.find(row => row.modelSeed === seed.model);
+    assert.ok(fixed, "each shuffle repeat must have a paired fixed-order seed report");
+    const proposedShuffleSeeds = [
+      (seed.model ^ 0x5f3759df) >>> 0,
+      (seed.model ^ 0x9e3779b9) >>> 0,
+      (seed.model ^ 0x243f6a88) >>> 0
+    ];
+    assert.equal(new Set(proposedShuffleSeeds).size, proposedShuffleSeeds.length,
+      "independent repeat streams must use distinct shuffle seeds");
+    const repeats = [];
+    for (const shuffleSeed of proposedShuffleSeeds) {
+      const model = Attention.create({
+        dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model
+      });
+      const training = model.train(prepared.trainingTexts, {
+        epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split,
+        shuffleExamples: true, shuffleSeed
+      });
+      assert.equal(training.trainRows, fixed.split.trainRows,
+        "shuffle repeats must use the exact fixed-order training partition");
+      assert.equal(training.validationRows, fixed.split.validationRows);
+      assert.equal(training.testRows, fixed.split.testRows);
+      const split = model.splitCorpus(prepared.trainingTexts, seed.split);
+      assert.equal(split.train.length, training.trainRows);
+      const tokenFrequency = new Map();
+      for (const row of split.train) {
+        for (const token of Attention.tokenize(row)) {
+          tokenFrequency.set(token, (tokenFrequency.get(token) || 0) + 1);
+        }
+      }
+      const metrics = {
+        total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+        frequencyBuckets: createFrequencyBuckets()
+      };
+      for (const sentence of prepared.testTexts) {
+        const tokens = Attention.tokenize(sentence);
+        for (let index = 0; index < tokens.length; index++) {
+          metrics.total++;
+          const score = model.score(sentence, index);
+          if (!score) continue;
+          if (score.targetKnown) {
+            metrics.known++;
+            const frequency = tokenFrequency.get(tokens[index]) || 0;
+            assert.ok(frequency > 0,
+              "all covered targets must occur in the paired training partition");
+            const band = frequency === 1 ? "1" : frequency <= 4 ? "2-4" :
+              frequency <= 9 ? "5-9" : "10+";
+            metrics.frequencyBuckets[band].targets++;
+            if (score.predictions[0]?.token === tokens[index]) {
+              metrics.exact++;
+              metrics.frequencyBuckets[band].correct++;
+            }
+          }
+          if (score.morphologyKnown) {
+            metrics.morphologyCovered++;
+            if (score.morphologyCorrect) metrics.morphologyCorrect++;
+          }
+        }
+      }
+      for (const key of ["total", "known", "exact", "morphologyCovered", "morphologyCorrect"]) {
+        shuffleRobustness.aggregate[key] += metrics[key];
+      }
+      mergeFrequencyBuckets(shuffleRobustness.aggregate.frequencyBuckets, metrics.frequencyBuckets);
+      repeats.push({
+        shuffleSeed,
+        targets: metrics.total,
+        knownTargets: metrics.known,
+        exactKnownCorrect: metrics.exact,
+        exactKnownAccuracy: ratio(metrics.exact, metrics.known),
+        allTargetAccuracy: ratio(metrics.exact, metrics.total),
+        morphology: {
+          correct: metrics.morphologyCorrect,
+          covered: metrics.morphologyCovered,
+          accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered)
+        }
+      });
+    }
+    const meanKnownAccuracy = repeats.reduce((sum, row) => sum + row.exactKnownAccuracy, 0) / repeats.length;
+    const meanAllTargetAccuracy = repeats.reduce((sum, row) => sum + row.allTargetAccuracy, 0) / repeats.length;
+    shuffleRobustness.perSeed.push({
+      modelSeed: seed.model,
+      splitSeed: seed.split,
+      fixedOrderKnownAccuracy: fixed.metrics.exactKnownTargetAccuracy,
+      fixedOrderAllTargetAccuracy: fixed.metrics.allTargetExactAccuracy,
+      repeats,
+      meanKnownAccuracy,
+      meanAllTargetAccuracy,
+      meanKnownDeltaPercentagePoints: (meanKnownAccuracy - fixed.metrics.exactKnownTargetAccuracy) * 100,
+      meanAllTargetDeltaPercentagePoints: (meanAllTargetAccuracy - fixed.metrics.allTargetExactAccuracy) * 100,
+      positiveKnownRepeats: repeats.filter(row =>
+        row.exactKnownAccuracy > fixed.metrics.exactKnownTargetAccuracy).length
+    });
+  }
+  const fixedKnownTargets = shuffleRobustness.perSeed.reduce((sum, row) =>
+    sum + Math.round(seedReports.find(item => item.modelSeed === row.modelSeed).metrics.targets *
+      seedReports.find(item => item.modelSeed === row.modelSeed).metrics.knownTargetCoverage), 0) *
+    shuffleRobustness.repeatsPerModelSeed;
+  const fixedKnownCorrect = shuffleRobustness.perSeed.reduce((sum, row) => {
+    const metric = seedReports.find(item => item.modelSeed === row.modelSeed).metrics;
+    const knownTargets = Math.round(metric.targets * metric.knownTargetCoverage);
+    return sum + Math.round(metric.exactKnownTargetAccuracy * knownTargets);
+  }, 0) * shuffleRobustness.repeatsPerModelSeed;
+  const fixedAllTargets = shuffleRobustness.perSeed.reduce((sum, row) =>
+    sum + seedReports.find(item => item.modelSeed === row.modelSeed).metrics.targets, 0) *
+    shuffleRobustness.repeatsPerModelSeed;
+  const fixedAllCorrect = shuffleRobustness.perSeed.reduce((sum, row) => {
+    const metric = seedReports.find(item => item.modelSeed === row.modelSeed).metrics;
+    return sum + Math.round(metric.allTargetExactAccuracy * metric.targets);
+  }, 0) * shuffleRobustness.repeatsPerModelSeed;
+  shuffleRobustness.fixedOrderBaseline = {
+    knownTargets: fixedKnownTargets,
+    exactKnownCorrect: fixedKnownCorrect,
+    exactKnownAccuracy: ratio(fixedKnownCorrect, fixedKnownTargets),
+    allTargets: fixedAllTargets,
+    exactCorrect: fixedAllCorrect,
+    allTargetAccuracy: ratio(fixedAllCorrect, fixedAllTargets)
+  };
+  shuffleRobustness.shuffled = {
+    targets: shuffleRobustness.aggregate.total,
+    knownTargets: shuffleRobustness.aggregate.known,
+    exactKnownCorrect: shuffleRobustness.aggregate.exact,
+    exactKnownAccuracy: ratio(shuffleRobustness.aggregate.exact, shuffleRobustness.aggregate.known),
+    allTargetAccuracy: ratio(shuffleRobustness.aggregate.exact, shuffleRobustness.aggregate.total),
+    meanKnownDeltaPercentagePoints:
+      (ratio(shuffleRobustness.aggregate.exact, shuffleRobustness.aggregate.known) -
+       shuffleRobustness.fixedOrderBaseline.exactKnownAccuracy) * 100,
+    meanAllTargetDeltaPercentagePoints:
+      (ratio(shuffleRobustness.aggregate.exact, shuffleRobustness.aggregate.total) -
+       shuffleRobustness.fixedOrderBaseline.allTargetAccuracy) * 100,
+    morphology: {
+      correct: shuffleRobustness.aggregate.morphologyCorrect,
+      covered: shuffleRobustness.aggregate.morphologyCovered,
+      accuracy: ratio(shuffleRobustness.aggregate.morphologyCorrect,
+        shuffleRobustness.aggregate.morphologyCovered)
+    },
+    frequencyBuckets: summarizeFrequencyBuckets(shuffleRobustness.aggregate.frequencyBuckets)
+  };
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
     version: "0.58.111",
@@ -503,6 +651,7 @@ if (!trainPath && !testPath) {
       },
       pairedSeeds: shuffledSeedReports
     },
+    shuffleRobustness,
     leakageChecks: {
       exactNormalizedTrainTestSentences: 0,
       sourceOverlapSentencesExcludedFromTrain: prepared.stats.normalizedTrainTestOverlapsExcluded,
