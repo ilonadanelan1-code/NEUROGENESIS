@@ -484,8 +484,8 @@ function summariseTokens(value) {
   return {...value,accuracy:ratio(value.correct,value.targets)};
 }
 const report={
-  benchmark:"NEUROGENESIS predicted UPOS + FEATS to inverse morphology lemma pipeline",
-  version:"0.58.123",
+  benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
+  version:"0.58.124",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -493,7 +493,7 @@ const report={
   protocol:{
     seeds,trainSentences:320,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
     trackedFeatures:attributes,
-    featurePrediction:"one contextual classifier per attribute; NONE is an explicit class",
+    featurePrediction:"baseline: one contextual classifier per attribute; follow-up: contextual classifiers per UPOS and attribute, single-class constant heads, global fallback for sparse groups; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
     inverseLemmaRules:"surface suffix to lemma suffix, conditioned on predicted UPOS and exact tracked FEATS",
     maximumSuffixLength:5,ruleSupport:"distinct training lemmas",
@@ -508,10 +508,10 @@ const report={
     predictedUposConditionedFeatsExact:summariseTokens(aggregate.predictedUposFeatsExact),
     jointTags:summariseTokens(aggregate.joint)
   },
-  perAttribute:{
-    global:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
-    goldUposConditioned:Object.fromEntries(Object.entries(aggregate.perAttributeGoldUpos).map(([key,value])=>[key,summariseTokens(value)])),
-    predictedUposConditioned:Object.fromEntries(Object.entries(aggregate.perAttributePredictedUpos).map(([key,value])=>[key,summariseTokens(value)]))
+  perAttribute:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
+  perAttributeConditioned:{
+    goldUpos:Object.fromEntries(Object.entries(aggregate.perAttributeGoldUpos).map(([key,value])=>[key,summariseTokens(value)])),
+    predictedUpos:Object.fromEntries(Object.entries(aggregate.perAttributePredictedUpos).map(([key,value])=>[key,summariseTokens(value)]))
   },
   lemma:{
     predictedBoth:summariseMetrics(aggregate.predictedBoth),
