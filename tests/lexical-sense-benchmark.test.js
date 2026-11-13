@@ -396,7 +396,7 @@ const report = {
 };
 fs.mkdirSync("benchmark-reports", { recursive: true });
 fs.writeFileSync("benchmark-reports/lexical-sense-context-v1.json", JSON.stringify(report, null, 2) + "\n");
-console.log("NEUROGENESIS 0.58.121 contextual lexical-sense benchmark: " + JSON.stringify(report));
+console.log("NEUROGENESIS contextual lexical-sense benchmark: " + JSON.stringify(report));
 console.log("NEUROGENESIS lexical-sense error counts: " + JSON.stringify({
   knownFalseMerges: allRuns.reduce((sum, run) => sum + run.knownPredictions.filter(row => row.label === 0 && row.contextualProbability != null && row.contextualProbability >= .5).length, 0),
   knownFalseSplits: allRuns.reduce((sum, run) => sum + run.knownPredictions.filter(row => row.label === 1 && row.contextualProbability != null && row.contextualProbability < .5).length, 0),
