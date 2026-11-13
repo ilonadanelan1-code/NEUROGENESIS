@@ -2,7 +2,8 @@
 "use strict";
 const SCHEMA = "NG_LEXICAL_SENSE_V1";
 const BASE_FEATURE_NAMES = Object.freeze([
-  "context_jaccard", "context_tfidf_cosine", "left_context_jaccard", "right_context_jaccard",
+  "stem_context_jaccard", "stem_context_tfidf_cosine", "surface_context_jaccard", "surface_context_tfidf_cosine",
+  "left_stem_jaccard", "right_stem_jaccard", "left_surface_jaccard", "right_surface_jaccard",
   "same_lemma", "same_surface", "same_stem", "same_number", "number_known",
   "number_conflict", "target_suffix_similarity", "same_left_neighbor",
   "same_right_neighbor", "target_length_similarity"
@@ -31,9 +32,13 @@ function commonSuffixSimilarity(left, right) {
   while (shared < limit && a[a.length - 1 - shared] === b[b.length - 1 - shared]) shared++;
   return shared / Math.max(1, Math.max(a.length, b.length));
 }
-function numberHint(surface, model) {
-  const verb = model && typeof model.russianVerbNumber === "function" ? model.russianVerbNumber(surface) : null;
-  if (verb === "singular" || verb === "plural") return verb;
+function numberHint(surface, model, pos) {
+  const tag = String(pos || "").toUpperCase();
+  if (tag === "VERB" || tag === "AUX") {
+    const verb = model && typeof model.russianVerbNumber === "function" ? model.russianVerbNumber(surface) : null;
+    return verb === "singular" || verb === "plural" ? verb : null;
+  }
+  if (tag && tag !== "NOUN" && tag !== "PROPN") return null;
   const stem = model && typeof model.russianStem === "function" ? model.russianStem(surface) : normalise(surface);
   const plural = model && typeof model.russianNounPlural === "function" ? model.russianNounPlural(stem) : null;
   return plural && normalise(plural) === normalise(surface) ? "plural" : null;
@@ -55,14 +60,17 @@ function resolveExample(example, model) {
   if (!surface || normalise(tokens[targetIndex]) !== surface) return null;
   const stem = tokenStem(surface, model);
   const lemma = normalise(example.lemma || stem);
-  const left = tokens.slice(0, targetIndex).map(token => tokenStem(token, model)).filter(Boolean);
-  const right = tokens.slice(targetIndex + 1).map(token => tokenStem(token, model)).filter(Boolean);
+  const leftSurface = tokens.slice(0, targetIndex).map(normalise).filter(Boolean);
+  const rightSurface = tokens.slice(targetIndex + 1).map(normalise).filter(Boolean);
+  const left = leftSurface.map(token => tokenStem(token, model)).filter(Boolean);
+  const right = rightSurface.map(token => tokenStem(token, model)).filter(Boolean);
   const context = left.concat(right);
   return {
-    text, tokens, targetIndex, surface, stem, lemma, left, right, context,
+    text, tokens, targetIndex, surface, stem, lemma, pos: String(example.pos || "").toUpperCase(),
+    left, right, leftSurface, rightSurface, context, surfaceContext: leftSurface.concat(rightSurface),
     leftNeighbor: left.length ? left[left.length - 1] : "",
     rightNeighbor: right.length ? right[0] : "",
-    number: numberHint(surface, model)
+    number: numberHint(surface, model, example.pos)
   };
 }
 function documentKey(example) {
@@ -73,7 +81,9 @@ function buildIdf(pairs, model) {
   for (const pair of pairs || []) {
     for (const example of [pair && pair.left, pair && pair.right]) {
       const resolved = resolveExample(example, model);
-      if (resolved) documents.set(documentKey(resolved), new Set(resolved.context));
+      if (resolved) documents.set(documentKey(resolved), new Set(
+        resolved.context.map(token => "l:" + token).concat(resolved.surfaceContext.map(token => "s:" + token))
+      ));
     }
   }
   const frequency = new Map();
@@ -116,15 +126,22 @@ function vectorFeatures(left, right) {
   return result;
 }
 function baseFeatures(left, right, idf) {
-  const leftTfidf = tfidfVector(left.context, idf), rightTfidf = tfidfVector(right.context, idf);
+  const leftStemTfidf = tfidfVector(left.context.map(token => "l:" + token), idf);
+  const rightStemTfidf = tfidfVector(right.context.map(token => "l:" + token), idf);
+  const leftSurfaceTfidf = tfidfVector(left.surfaceContext.map(token => "s:" + token), idf);
+  const rightSurfaceTfidf = tfidfVector(right.surfaceContext.map(token => "s:" + token), idf);
   const sameNumberKnown = !!left.number && !!right.number;
   const lengthSimilarity = 1 - Math.abs(left.surface.length - right.surface.length) /
     Math.max(1, Math.max(left.surface.length, right.surface.length));
   return [
     jaccard(left.context, right.context),
-    sparseCosine(leftTfidf, rightTfidf),
+    sparseCosine(leftStemTfidf, rightStemTfidf),
+    jaccard(left.surfaceContext, right.surfaceContext),
+    sparseCosine(leftSurfaceTfidf, rightSurfaceTfidf),
     jaccard(left.left, right.left),
     jaccard(left.right, right.right),
+    jaccard(left.leftSurface, right.leftSurface),
+    jaccard(left.rightSurface, right.rightSurface),
     Number(left.lemma === right.lemma),
     Number(left.surface === right.surface),
     Number(left.stem === right.stem),
