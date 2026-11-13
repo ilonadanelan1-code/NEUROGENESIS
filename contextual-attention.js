@@ -167,6 +167,25 @@ function create(options={}){
   trainingContextExamples.push({target:vocabulary[targetIndex],context:lexicalContext.map(item=>({...item,stem:russianStem(item.token)}))});
   contextRetrievalIndex=null;
  }
+ function trainingTokenFrequencies(rows){
+ const frequencies=new Map();let tokenCount=0;
+ for(const row of rows)for(const token of tokenize(row)){frequencies.set(token,(frequencies.get(token)||0)+1);tokenCount++;}
+ return{frequencies,tokenCount};
+}
+function prepareVocabulary(rows,strategy){
+ const counted=trainingTokenFrequencies(rows),ranked=Array.from(counted.frequencies.entries())
+  .sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:a[0]>b[0]?1:0));
+ if(strategy==="frequency")for(const [token] of ranked.slice(0,MAX_VOCABULARY))addToken(token);
+ return{...counted,ranked};
+}
+function vocabularySelectionReport(selection,strategy){
+ const selected=vocabulary.filter(token=>selection.frequencies.has(token));
+ const selectedTokenCount=selected.reduce((sum,token)=>sum+selection.frequencies.get(token),0);
+ const totalTypes=selection.frequencies.size,totalTokens=selection.tokenCount;
+ return{strategy,candidateTypes:totalTypes,selectedTypes:selected.length,omittedTypes:Math.max(0,totalTypes-selected.length),
+  tokenCoverage:totalTokens?selectedTokenCount/totalTokens:0,selectedTokenCount,totalTrainingTokens:totalTokens,
+  cutoffFrequency:selected.length?Math.min(...selected.map(token=>selection.frequencies.get(token))):0};
+}
  function collectExamples(rows,expand){
   const examples=[];
   for(const row of rows.slice(0,320)){
@@ -442,8 +461,11 @@ function create(options={}){
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,320);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
   const split=splitCorpus(rows,trainOptions.splitSeed);
+  const vocabularyStrategy=trainOptions.vocabularyStrategy==null?"first_seen":String(trainOptions.vocabularyStrategy);
+  if(!["first_seen","frequency"].includes(vocabularyStrategy))throw new RangeError("Unsupported vocabulary selection strategy.");
   loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
   let trainRows=split.train,validationRows=split.validation,testRows=split.test;
+  let vocabularySelection=prepareVocabulary(trainRows,vocabularyStrategy);
   let trainExamples=collectExamples(trainRows,true);
   let validationExamples=collectExamples(validationRows,false),testExamples=collectExamples(testRows,false);
   let evaluationMode="held_out_sentences",splitFallback=false;
@@ -452,6 +474,7 @@ function create(options={}){
    // Train on the complete corpus, but explicitly report that no held-out score exists.
    loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
    trainRows=rows;validationRows=[];testRows=[];
+   vocabularySelection=prepareVocabulary(trainRows,vocabularyStrategy);
    trainExamples=collectExamples(trainRows,true);validationExamples=[];testExamples=[];
    evaluationMode="train_only_insufficient_validation";splitFallback=true;
   }
@@ -505,7 +528,8 @@ function create(options={}){
    validationCoverage:validationExamples.length?validationExamples.length/Math.max(1,rowsForTargets(validationRows)):null,
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
-   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
+   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,vocabularyStrategy,
+   vocabularySelection:vocabularySelectionReport(vocabularySelection,vocabularyStrategy),transformerBlocks:blockCount,
    shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
    trainingContextExamples:trainingContextExamples.length};

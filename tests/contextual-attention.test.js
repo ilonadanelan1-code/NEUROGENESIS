@@ -56,6 +56,37 @@ assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
 assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
 assert.equal(model.status().transformerBlocks,2,"the encoder must stack two independent transformer blocks");
 assert.equal(initialState.blocks.length,2);assert.equal(model.exportState().blocks.length,2);
+const frequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const frequencyReport=frequencyModel.train(corpus,{
+ epochs:90,learningRate:.025,splitSeed:902,patience:24,vocabularyStrategy:"frequency"
+});
+assert.equal(frequencyReport.vocabularyStrategy,"frequency");
+assert.equal(frequencyReport.vocabularySelection.strategy,"frequency");
+assert.equal(frequencyReport.vocabularySelection.selectedTypes,frequencyReport.vocabularySize);
+const frequencySplit=frequencyModel.splitCorpus(corpus,902);
+const frequencyCounts=new Map();
+for(const row of frequencySplit.train)for(const token of api.tokenize(row))
+ frequencyCounts.set(token,(frequencyCounts.get(token)||0)+1);
+assert.equal(frequencyReport.vocabularySelection.candidateTypes,frequencyCounts.size,
+ "frequency vocabulary candidates must come only from the training partition");
+const expectedFrequencyVocabulary=Array.from(frequencyCounts.entries())
+ .sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:a[0]>b[0]?1:0))
+ .slice(0,1024).map(row=>row[0]);
+assert.deepEqual(Array.from(frequencyModel.exportState().vocabulary),expectedFrequencyVocabulary,
+ "frequency vocabulary must be ranked by training frequency with a lexical tie-break");
+const repeatedFrequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+repeatedFrequencyModel.train(corpus,{
+ epochs:90,learningRate:.025,splitSeed:902,patience:24,vocabularyStrategy:"frequency"
+});
+assert.deepEqual(Array.from(repeatedFrequencyModel.exportState().vocabulary),
+ Array.from(frequencyModel.exportState().vocabulary),
+ "frequency selection must be deterministic for the same corpus and split seed");
+const defaultStrategyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const defaultStrategyReport=defaultStrategyModel.train(corpus,{epochs:3,learningRate:.025,splitSeed:902,patience:2});
+assert.equal(defaultStrategyReport.vocabularyStrategy,"first_seen",
+ "existing training calls must preserve first-seen vocabulary behavior by default");
+assert.equal(defaultStrategyReport.vocabularySelection.strategy,"first_seen");
+
 const attention=model.score("нейрон получает сигнал",1);
 assert.ok(attention&&attention.attention.length>=2);
 assert.equal(attention.heads.length,3,"three separately parameterized attention heads must be exposed");
