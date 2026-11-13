@@ -300,7 +300,8 @@ function selectUposWithMorphologyEvidence(features,uposHead,conditionedTraining,
       evidenceAttributes++;
     }
     const evidence=evidenceAttributes?evidenceTotal/evidenceAttributes:0;
-    const score=Math.log(probability)+Math.max(0,Number(lambda)||0)*evidence;
+    const candidateWeight=typeof lambda==="number"?lambda:(lambda&&lambda[tag]);
+    const score=Math.log(probability)+Math.max(0,Number(candidateWeight)||0)*evidence;
     if(score>bestScore+1e-12) {
       bestScore=score;
       bestLabel=tag;
@@ -313,6 +314,10 @@ function selectUposWithMorphologyEvidence(features,uposHead,conditionedTraining,
     label:bestLabel,baseLabel:base.label,confidence:bestConfidence,
     evidence:bestEvidence,evidenceAttributes:bestEvidenceAttributes,score:bestScore
   };
+}
+function lambdaIsZero(lambda) {
+  if(typeof lambda==="number") return lambda===0;
+  return Object.values(lambda||{}).every(value=>Number(value)===0);
 }
 function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambda) {
   const metrics=emptyMetrics();
@@ -327,7 +332,7 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
       row.features,uposHead,conditionedTraining,globalHeads,lambda
     );
     if(!selected.label) continue;
-    if(lambda===0) assert.equal(selected.label,selected.baseLabel,
+    if(lambdaIsZero(lambda)) assert.equal(selected.label,selected.baseLabel,
       "zero morphology-evidence weight must exactly preserve the base UPOS prediction");
     const predictedFeats=predictPosConditionedFeats(
       row.features,selected.label,conditionedTraining.heads,globalHeads
@@ -394,6 +399,95 @@ function tuneJointPosEvidenceLambda(validationRows,outputVocabulary,uposHead,con
     unconstrainedValidation:unconstrained,
     admissibleCandidateCount:admissible.length,
     usedBaselineFallback:admissible.length===0
+  };
+}
+
+
+function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,globalTuning) {
+  const candidates=[0,0.125,0.25,0.5,0.75,1,1.5,2,3,4,6,8,12];
+  const minimumTargets=30;
+  const maximumUposAccuracyDrop=0.05;
+  const globalLambda=globalTuning.constrainedLambda;
+  const tags=Object.keys(conditionedTraining.summary.upos).sort();
+  const lambdaByUpos=Object.fromEntries(tags.map(tag=>[tag,globalLambda]));
+  const rank=(a,b)=>b.qualityF1-a.qualityF1 ||
+    b.exactRecall-a.exactRecall ||
+    b.precision-a.precision ||
+    Math.abs(a.lambda-globalLambda)-Math.abs(b.lambda-globalLambda) ||
+    a.lambda-b.lambda;
+  const byUpos=Object.create(null);
+
+  for(const tag of tags) {
+    const rows=validationRows.filter(row=>row.upos===tag);
+    const targets=rows.filter(row=>row.form&&row.lemma&&/[\\p{L}\\p{N}]/u.test(row.form)&&
+      !outputVocabulary.has(row.form)).length;
+    if(targets<minimumTargets) {
+      byUpos[tag]={targets,selectedLambda:globalLambda,localCandidateLambda:globalLambda,
+        baselineUposAccuracy:null,selectedUposAccuracy:null,baselineF1:null,selectedF1:null,
+        admissibleCandidateCount:0,fallback:true,reason:"insufficient_validation_targets"};
+      continue;
+    }
+
+    const baseline=evaluateJointPosEvidence(
+      rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,0
+    );
+    const reference=evaluateJointPosEvidence(
+      rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambdaByUpos
+    );
+    const results=candidates.map(lambda=>{
+      const trial={...lambdaByUpos,[tag]:lambda};
+      const evaluation=evaluateJointPosEvidence(
+        rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,trial
+      );
+      return {lambda,targets:evaluation.targets,uposAccuracy:evaluation.uposAccuracy,
+        precision:evaluation.precision,exactRecall:evaluation.exactRecall,qualityF1:evaluation.qualityF1};
+    });
+    const admissible=results.filter(row=>row.uposAccuracy!=null&&baseline.uposAccuracy!=null&&
+      row.uposAccuracy>=baseline.uposAccuracy-maximumUposAccuracyDrop-1e-12);
+    const best=(admissible.length?admissible:[results.find(row=>row.lambda===0)]).slice().sort(rank)[0];
+    const improves=best.qualityF1>=reference.qualityF1+0.005;
+    const chosen=improves?best.lambda:globalLambda;
+    lambdaByUpos[tag]=chosen;
+    const selected=results.find(row=>row.lambda===chosen);
+    byUpos[tag]={
+      targets,selectedLambda:chosen,localCandidateLambda:best.lambda,
+      baselineUposAccuracy:baseline.uposAccuracy,
+      selectedUposAccuracy:selected?selected.uposAccuracy:null,
+      baselineF1:reference.qualityF1,selectedF1:selected?selected.qualityF1:null,
+      admissibleCandidateCount:admissible.length,fallback:!improves,
+      reason:improves?null:"no_validation_f1_gain_of_at_least_0.005",
+      candidates:results
+    };
+  }
+
+  const globalBaseline=evaluateJointPosEvidence(
+    validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,0
+  );
+  const allowed=globalBaseline.uposAccuracy-maximumUposAccuracyDrop;
+  let finalEvaluation=evaluateJointPosEvidence(
+    validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambdaByUpos
+  );
+  let shrinkageScale=1;
+  if(finalEvaluation.uposAccuracy<allowed-1e-12) {
+    for(const scale of [0.75,0.5,0.25,0]) {
+      const shrunk=Object.fromEntries(tags.map(tag=>[
+        tag,globalLambda+(lambdaByUpos[tag]-globalLambda)*scale
+      ]));
+      const evaluation=evaluateJointPosEvidence(
+        validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,shrunk
+      );
+      lambdaByUpos=shrunk;
+      finalEvaluation=evaluation;
+      shrinkageScale=scale;
+      if(evaluation.uposAccuracy>=allowed-1e-12) break;
+    }
+  }
+  assert.ok(finalEvaluation.uposAccuracy>=allowed-1e-12,
+    "POS-specific calibration must preserve the global validation UPOS guardrail");
+  return {
+    lambdaByUpos,globalLambda,minimumTargets,maximumUposAccuracyDrop,
+    globalBaselineValidationUposAccuracy:globalBaseline.uposAccuracy,
+    validation:finalEvaluation,shrinkageScale,byUpos
   };
 }
 
@@ -498,6 +592,10 @@ const aggregate={
   jointUposEvidenceConstrainedUPOS:{targets:0,correct:0},
   jointUposEvidenceConstrainedFeatsExact:{targets:0,correct:0},
   jointUposEvidenceConstrainedJointTags:{targets:0,correct:0},
+  jointUposEvidencePosSpecific:emptyMetrics(),
+  jointUposEvidencePosSpecificUPOS:{targets:0,correct:0},
+  jointUposEvidencePosSpecificFeatsExact:{targets:0,correct:0},
+  jointUposEvidencePosSpecificJointTags:{targets:0,correct:0},
   upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},
   goldUposFeatsExact:{targets:0,correct:0},predictedUposFeatsExact:{targets:0,correct:0},
   joint:{targets:0,correct:0},
@@ -585,10 +683,25 @@ for(const seed of seeds) {
     testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     rerankingTuning.unconstrainedLambda
   );
+  const posSpecificTuning=tunePosSpecificJointPosEvidenceLambda(
+    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    rerankingTuning
+  );
+  const posSpecificValidation=posSpecificTuning.validation;
+  const posSpecificTest=evaluateJointPosEvidence(
+    testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    posSpecificTuning.lambdaByUpos
+  );
   assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on internal OOV validation targets");
   assert.ok(rerankedValidation.uposAccuracy>=rerankingTuning.baselineValidationUposAccuracy-
     rerankingTuning.maximumUposAccuracyDrop-1e-12,
     "constrained lambda must respect the validation UPOS accuracy guardrail");
+  assert.ok(posSpecificValidation.targets>0,"POS-specific calibration must tune on validation OOV targets");
+  assert.ok(posSpecificValidation.uposAccuracy>=posSpecificTuning.globalBaselineValidationUposAccuracy-
+    posSpecificTuning.maximumUposAccuracyDrop-1e-12,
+    "POS-specific calibration must respect the global validation UPOS guardrail");
+  assert.equal(posSpecificTest.targets,evaluation.predictedUposConditionedFeats.all.targets,
+    "POS-specific calibration must score the same independent OOV test targets");
   assert.equal(rerankedTest.targets,evaluation.predictedUposConditionedFeats.all.targets,
     "constrained reranking must score the same independent OOV targets as the raw UPOS route");
   mergeMetrics(aggregate.jointUposEvidenceReranked,unconstrainedTest.metrics);
@@ -599,6 +712,10 @@ for(const seed of seeds) {
   mergeCounter(aggregate.jointUposEvidenceConstrainedUPOS,rerankedTest.upos);
   mergeCounter(aggregate.jointUposEvidenceConstrainedFeatsExact,rerankedTest.featsExact);
   mergeCounter(aggregate.jointUposEvidenceConstrainedJointTags,rerankedTest.joint);
+  mergeMetrics(aggregate.jointUposEvidencePosSpecific,posSpecificTest.metrics);
+  mergeCounter(aggregate.jointUposEvidencePosSpecificUPOS,posSpecificTest.upos);
+  mergeCounter(aggregate.jointUposEvidencePosSpecificFeatsExact,posSpecificTest.featsExact);
+  mergeCounter(aggregate.jointUposEvidencePosSpecificJointTags,posSpecificTest.joint);
   for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats","goldUposConditionedFeats","predictedUposConditionedFeats"])
     mergeMetrics(aggregate[key],evaluation[key]);
   for(const key of ["upos","featsExact","goldUposFeatsExact","predictedUposFeatsExact","joint"])
@@ -642,6 +759,26 @@ for(const seed of seeds) {
     lemma:Object.fromEntries(["oracle","goldUposPredFeats","predictedUposGoldFeats","predictedBoth"].map(key=>[
       key,Object.fromEntries(Object.entries(evaluation[key]).map(([slice,value])=>[slice,summariseSlice(value)]))
     ])),
+    posSpecificJointPosEvidence:{
+      globalFallbackLambda:posSpecificTuning.globalLambda,
+      minimumValidationTargets:posSpecificTuning.minimumTargets,
+      maximumGlobalUposAccuracyDrop:posSpecificTuning.maximumUposAccuracyDrop,
+      baselineValidationUposAccuracy:posSpecificTuning.globalBaselineValidationUposAccuracy,
+      validationUposAccuracy:posSpecificValidation.uposAccuracy,
+      validationLemmaF1:posSpecificValidation.qualityF1,
+      shrinkageScale:posSpecificTuning.shrinkageScale,
+      lambdaByUpos:posSpecificTuning.lambdaByUpos,
+      byUpos:posSpecificTuning.byUpos,
+      independentTest:{
+        targets:posSpecificTest.targets,uposAccuracy:posSpecificTest.uposAccuracy,
+        trackedFeatsExactAccuracy:posSpecificTest.trackedFeatsExactAccuracy,
+        jointTagsAccuracy:posSpecificTest.jointTagsAccuracy,
+        precision:posSpecificTest.precision,exactRecall:posSpecificTest.exactRecall,
+        qualityF1:posSpecificTest.qualityF1,
+        meanMorphologyEvidence:posSpecificTest.meanMorphologyEvidence,
+        lemma:summariseMetrics(posSpecificTest.metrics)
+      }
+    },
     jointPosEvidenceReranking:{
       selectedLambda:rerankingTuning.constrainedLambda,
       unconstrainedLambda:rerankingTuning.unconstrainedLambda,
@@ -695,7 +832,7 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.126",
+  version:"0.58.127",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -703,7 +840,7 @@ const report={
   protocol:{
     seeds,trainSentences:320,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
     trackedFeatures:attributes,
-    featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; candidate UPOS is reranked by conditional feature confidence; compare unconstrained lambda selection with a guardrailed lambda that keeps validation UPOS accuracy within 5 percentage points of lambda=0; constant and fallback heads are excluded from morphology evidence; NONE is explicit",
+    featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
     inverseLemmaRules:"surface suffix to lemma suffix, conditioned on predicted UPOS and exact tracked FEATS",
     maximumSuffixLength:5,ruleSupport:"distinct training lemmas",
@@ -722,6 +859,9 @@ const report={
     constrainedJointPosEvidenceUPOS:summariseTokens(aggregate.jointUposEvidenceConstrainedUPOS),
     constrainedJointPosEvidenceTrackedFeatsExact:summariseTokens(aggregate.jointUposEvidenceConstrainedFeatsExact),
     constrainedJointPosEvidenceJointTags:summariseTokens(aggregate.jointUposEvidenceConstrainedJointTags),
+    posSpecificJointPosEvidenceUPOS:summariseTokens(aggregate.jointUposEvidencePosSpecificUPOS),
+    posSpecificJointPosEvidenceTrackedFeatsExact:summariseTokens(aggregate.jointUposEvidencePosSpecificFeatsExact),
+    posSpecificJointPosEvidenceJointTags:summariseTokens(aggregate.jointUposEvidencePosSpecificJointTags),
     jointTags:summariseTokens(aggregate.joint)
   },
   perAttribute:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
@@ -737,6 +877,7 @@ const report={
     predictedUposConditionedFeats:summariseMetrics(aggregate.predictedUposConditionedFeats),
     jointUposEvidenceUnconstrained:summariseMetrics(aggregate.jointUposEvidenceReranked),
     jointUposEvidenceConstrained:summariseMetrics(aggregate.jointUposEvidenceConstrained),
+    jointUposEvidencePosSpecific:summariseMetrics(aggregate.jointUposEvidencePosSpecific),
     oracleGoldTags:summariseMetrics(aggregate.oracle)
   },
   seeds:seedReports
@@ -746,4 +887,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.126 constrained UPOS-evidence morphology pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.127 POS-specific UPOS-evidence calibration pipeline: "+JSON.stringify(report));
