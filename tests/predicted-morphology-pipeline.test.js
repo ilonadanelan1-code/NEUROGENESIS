@@ -1,5 +1,8 @@
 "use strict";
 
+// Follow-up benchmark: compare global FEATS heads with UPOS-routed heads.
+// Gold-UPOS routing is diagnostic only; predicted-UPOS routing is end-to-end.
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
