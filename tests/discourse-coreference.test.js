@@ -19,6 +19,8 @@ assert.equal(discourse.detectMention("Модуль работает с ним.")
 assert.equal(discourse.detectMention("Пользователь передал файл ей.").grammaticalCase, "dative_or_prepositional");
 assert.equal(discourse.detectMention("Его книга сломалась."), null,
   "a possessive determiner must not be treated as a standalone antecedent reference");
+assert.equal(discourse.detectMention("Я видел его вчера.").token, "его",
+  "an object pronoun before an adverb must remain detectable");
 assert.equal(discourse.detectMention("Это произошло позже."), null,
   "event demonstratives are outside this person/entity pilot and must not be forced into an entity link");
 
