@@ -188,7 +188,7 @@
     const topicId = clean(options.topicId, 80);
     const candidates = (Array.isArray(candidatesInput) ? candidatesInput : [])
       .filter(candidate => candidate && typeof candidate.text === "string" && clean(candidate.text,180))
-      .filter(candidate => !topicId || !candidate.topicId || candidate.topicId === topicId)
+      .filter(candidate => !topicId || candidate.topicId === topicId)
       .filter(candidate => compatible(mention,candidate))
       .map(candidate => ({...candidate,...scoreCandidate(mention,candidate)}))
       .sort((a,b)=>b.score-a.score);
@@ -300,8 +300,12 @@
   function resolveFromHistory(query, messages, core, options = {}) {
     const mention = detectMention(query);
     if (!mention) return resolveMention(null,[],options);
-    const rows = extractCandidates(messages,core);
-    return resolveMention(mention,rows,options);
+    const topicId = clean(options.topicId,80);
+    const scopedMessages = topicId
+      ? (Array.isArray(messages) ? messages.filter(message => message && clean(message.threadId,80) === topicId) : [])
+      : messages;
+    const rows = extractCandidates(scopedMessages,core);
+    return resolveMention(mention,rows,{...options,topicId});
   }
 
   window.NGDiscourseCoreference = Object.freeze({
