@@ -397,9 +397,12 @@ function create(options={}){
    }
   }return{inputGradients:dInput,gradients:g};
  }
- function trainExample(example,learningRate){
-  const pass=forward(example.context),loss=-Math.log(Math.max(1e-12,pass.probabilities[example.target]||0));
-  const dLogits=pass.probabilities.slice();dLogits[example.target]-=1;
+ function trainExample(example,learningRate,exampleWeight=1){
+  const pass=forward(example.context);
+  const sampleWeight=Math.max(.25,Math.min(4,finite(exampleWeight,1)));
+  const loss=-Math.log(Math.max(1e-12,pass.probabilities[example.target]||0))*sampleWeight;
+  const dLogits=pass.probabilities.map(value=>value*sampleWeight);
+  dLogits[example.target]-=sampleWeight;
   const dOutputWeights=outputWeights.map((row,i)=>row.map((_,col)=>dLogits[i]*pass.pooled[col]));
   const dOutputBias=dLogits.slice(),dPooled=transposeMultiply(outputWeights,dLogits);
   let rowGradients=pass.finalRows.map(()=>dPooled.map(v=>v/pass.finalRows.length));const blockGradients=Array(blockCount);
@@ -459,6 +462,42 @@ function create(options={}){
   const epochs=Math.max(1,Math.min(240,Math.floor(finite(trainOptions.epochs,40))));
   const learningRate=Math.max(.0001,Math.min(.2,finite(trainOptions.learningRate,.025)));
   const patience=Math.max(2,Math.min(60,Math.floor(finite(trainOptions.patience,Math.max(6,Math.min(30,epochs*.25))))));
+  const requestedClassWeighting=String(trainOptions.classWeighting||"none");
+  const classWeighting=["none","sqrt_inverse","inverse_capped"].includes(requestedClassWeighting)
+   ?requestedClassWeighting:"none";
+  const minClassWeight=Math.max(.5,Math.min(1,finite(trainOptions.minClassWeight,.75)));
+  const maxClassWeight=Math.max(1,Math.min(3,finite(trainOptions.maxClassWeight,2.5)));
+  const targetCounts=zeros(vocabulary.length);
+  for(const example of trainExamples)targetCounts[example.target]++;
+  const supportedCounts=targetCounts.filter(count=>count>0);
+  const meanTargetCount=trainExamples.length/Math.max(1,supportedCounts.length);
+  const rawTargetWeights=targetCounts.map(count=>{
+   if(!count||classWeighting==="none")return 1;
+   return classWeighting==="sqrt_inverse"
+    ?Math.sqrt(meanTargetCount/count):meanTargetCount/count;
+  });
+  const weightedMean=scale=>targetCounts.reduce((sum,count,index)=>
+   sum+count*Math.max(minClassWeight,Math.min(maxClassWeight,rawTargetWeights[index]*scale)),0)/trainExamples.length;
+  let weightScale=1;
+  if(classWeighting!=="none"){
+   let low=0,high=32;
+   for(let iteration=0;iteration<64;iteration++){
+    const middle=(low+high)/2;
+    if(weightedMean(middle)<1)low=middle;else high=middle;
+   }
+   weightScale=(low+high)/2;
+  }
+  const targetClassWeights=rawTargetWeights.map((weight,index)=>
+   targetCounts[index]?Math.max(minClassWeight,Math.min(maxClassWeight,weight*weightScale)):1);
+  const targetWeightByFrequency=Object.create(null);
+  for(let index=0;index<targetCounts.length;index++){
+   const count=targetCounts[index];if(!count)continue;
+   const bucket=count===1?"1":count<=4?"2-4":count<=9?"5-9":"10+";
+   const row=targetWeightByFrequency[bucket]||(targetWeightByFrequency[bucket]={classes:0,examples:0,meanWeight:0});
+   row.classes++;row.examples+=count;row.meanWeight+=targetClassWeights[index]*count;
+  }
+  for(const row of Object.values(targetWeightByFrequency))row.meanWeight/=row.examples;
+  const actualMeanTargetWeight=weightedMean(weightScale);
   const shuffleExamples=trainOptions.shuffleExamples===true;
   const shuffleSeed=Math.floor(finite(trainOptions.shuffleSeed,split.seed^0x9e3779b9))>>>0;
   const shuffleRandom=makeRandom(shuffleSeed);
@@ -471,7 +510,7 @@ function create(options={}){
      const item=order[index];order[index]=order[swapIndex];order[swapIndex]=item;
     }
    }
-   for(const example of order)trainExample(example,learningRate);
+   for(const example of order)trainExample(example,learningRate,targetClassWeights[example.target]||1);
    trainingSteps+=trainExamples.length;
   };
   const initialTrain=evaluateExamples(trainExamples);
@@ -508,7 +547,11 @@ function create(options={}){
    lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,transformerBlocks:blockCount,
    shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
-   trainingContextExamples:trainingContextExamples.length};
+   trainingContextExamples:trainingContextExamples.length,classWeighting,
+   minClassWeight:classWeighting==="none"?1:minClassWeight,
+   maxClassWeight:classWeighting==="none"?1:maxClassWeight,
+   meanTargetClassWeight:actualMeanTargetWeight,
+   targetWeightByFrequency};
   return{...lastTraining};
  }
  function rowsForTargets(rows){
