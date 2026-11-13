@@ -153,8 +153,8 @@ function local(input,context={},knowledge=null){
  }
  const discourseSearchHint=discourseExperimentEnabled&&discourseResolution&&discourseResolution.status==="resolved"&&
   discourseResolution.antecedent?clean(discourseResolution.antecedent.text+" "+query,300):"";
- const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
-  contextualQuery?clean(query+" "+contextualQuery,300):"",discourseSearchHint].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
+ const search=[...new Set([canonical,query,discourseSearchHint,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
+  contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
   contextualAnalysis,contextualHints,phraseComposition,compositionHint,discourseResolution};
