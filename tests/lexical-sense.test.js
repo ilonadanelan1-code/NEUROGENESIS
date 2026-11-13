@@ -29,7 +29,7 @@ const target = (text, lemma = "ключ") => {
   const tokens = contextual.tokenize(text);
   const index = tokens.findIndex(token => token === "ключ" || token.startsWith("ключ"));
   assert.ok(index >= 0, "target word must be present: " + text);
-  return { text, targetIndex: index, targetForm: tokens[index], lemma };
+  return { text, targetIndex: index, targetForm: tokens[index], lemma, pos: "NOUN" };
 };
 const trainPairs = [
   { left: target("Ключ открыл тяжелую дверь"), right: target("Старый ключ лежал рядом с дверью"), label: 1, lemma: "ключ" },
