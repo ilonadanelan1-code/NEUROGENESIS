@@ -4,6 +4,13 @@
 
 This experiment extends the existing `semantic-core.js`; it does not create a second semantic core. The current pipeline already extracts bounded propositions, builds semantic arguments, handles some passive/oblique complements, validates provenance, and links propositions across sentences. `phrase-composition.js` is a separate weakly supervised token-role/edge learner (subject, predicate, object, other); it learns from semantic-core labels and reports training-only accuracy, not independent SRL quality.
 
+## Runtime integration audit
+
+- There is no standalone morphology module in `main`. `contextual-attention.js` exposes a bounded `morphologyCandidates` fallback based on Russian stemming; it is not a full analyzer for case, number, gender, agreement, or verb valency. `semantic-core.js` separately uses finite suffix/lexicon heuristics for case and passive complements.
+- `phrase-composition.js` learns only coarse token labels (`subject`, `predicate`, `object`, `other`) and pairwise relations from semantic-core weak labels. It does not yet learn PropBank/FrameNet-style roles or nested event edges, so this pilot adds the explicit frame in the existing core and leaves phrase-composition unchanged.
+- `semantic-query.js` uses composition output as a retrieval hint/tie-breaker, not as a verified source of semantic facts.
+- `dialog-context.js` owns pending questions and topic continuity. This experiment does not modify dialogue state; it makes the sentence-level proposition more structured for later discourse integration.
+
 The audit found a concrete gap: common past forms such as `открыла` were absent from the bounded predicate inventory; controlled infinitival complements of `попросить`, `заставить`, `разрешить`, and `приказать` had no nested event representation; and a passive instrumental proper name such as `Анной` could be lost by the fixed instrumental-tail inventory.
 
 ## Implemented narrow extension
