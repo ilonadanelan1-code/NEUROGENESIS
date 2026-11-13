@@ -273,6 +273,111 @@ function predictPosConditionedFeats(features,upos,conditionedHeads,globalHeads) 
   return result;
 }
 
+
+function selectUposWithMorphologyEvidence(features,uposHead,conditionedTraining,globalHeads,lambda) {
+  const base=uposHead.predict(features);
+  if(!base||!base.label) return {label:null,baseLabel:null,confidence:0,evidence:0,evidenceAttributes:0};
+  const candidates=Array.isArray(base.probabilities)&&base.probabilities.length
+    ?base.probabilities:[{label:base.label,probability:1}];
+  let bestLabel=base.label,bestScore=Math.log(Math.max(1e-12,base.confidence||1));
+  let bestEvidence=0,bestEvidenceAttributes=0,bestConfidence=base.confidence||1;
+  for(const candidate of candidates) {
+    const tag=candidate.label;
+    const probability=Math.max(1e-12,Number(candidate.probability)||0);
+    const meta=conditionedTraining.summary.byUpos[tag]||Object.create(null);
+    const heads=conditionedTraining.heads[tag]||Object.create(null);
+    let evidenceTotal=0,evidenceAttributes=0;
+    for(const attribute of attributes) {
+      if(!meta[attribute]||meta[attribute].method!=="trained") continue;
+      const head=heads[attribute];
+      const prediction=head&&head.predict(features);
+      const probabilities=prediction&&prediction.probabilities;
+      if(!Array.isArray(probabilities)||!probabilities.length) continue;
+      const maximum=Math.max(...probabilities.map(row=>Number(row.probability)||0));
+      if(!(maximum>0)) continue;
+      // Lift over a uniform class baseline; constants and global fallbacks are not evidence.
+      evidenceTotal+=Math.log(Math.max(1e-12,maximum*probabilities.length));
+      evidenceAttributes++;
+    }
+    const evidence=evidenceAttributes?evidenceTotal/evidenceAttributes:0;
+    const score=Math.log(probability)+Math.max(0,Number(lambda)||0)*evidence;
+    if(score>bestScore+1e-12) {
+      bestScore=score;
+      bestLabel=tag;
+      bestEvidence=evidence;
+      bestEvidenceAttributes=evidenceAttributes;
+      bestConfidence=probability;
+    }
+  }
+  return {
+    label:bestLabel,baseLabel:base.label,confidence:bestConfidence,
+    evidence:bestEvidence,evidenceAttributes:bestEvidenceAttributes,score:bestScore
+  };
+}
+function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambda) {
+  const metrics=emptyMetrics();
+  const upos={targets:0,correct:0};
+  const featsExact={targets:0,correct:0};
+  const joint={targets:0,correct:0};
+  let evidenceTotal=0,evidenceRows=0;
+  for(const row of rows) {
+    if(!row.form||!row.lemma||!row.upos||!/[\\p{L}\\p{N}]/u.test(row.form)) continue;
+    if(outputVocabulary.has(row.form)) continue;
+    const selected=selectUposWithMorphologyEvidence(
+      row.features,uposHead,conditionedTraining,globalHeads,lambda
+    );
+    if(!selected.label) continue;
+    const predictedFeats=predictPosConditionedFeats(
+      row.features,selected.label,conditionedTraining.heads,globalHeads
+    );
+    const goldFeats=trackedFeatures(row.feats);
+    const sameUpos=selected.label===row.upos;
+    const sameFeats=featureSignature(predictedFeats)===featureSignature(goldFeats);
+    upos.targets++;if(sameUpos)upos.correct++;
+    featsExact.targets++;if(sameFeats)featsExact.correct++;
+    joint.targets++;if(sameUpos&&sameFeats)joint.correct++;
+    evidenceTotal+=selected.evidence;evidenceRows++;
+    const prediction=predictLemma(row.form,selected.label,predictedFeats,ruleBank.bank);
+    const group=trainLemmas.has(row.lemma)?"knownLemma":"unseenLemma";
+    updateSlice(metrics.all,prediction,row.lemma);
+    updateSlice(metrics[group],prediction,row.lemma);
+  }
+  const all=summariseSlice(metrics.all);
+  const recall=all.exactRecallAcrossTargets||0;
+  const precision=all.precisionAmongGenerated||0;
+  const qualityF1=precision+recall?2*precision*recall/(precision+recall):0;
+  return {
+    metrics,targets:metrics.all.targets,
+    uposAccuracy:ratio(upos.correct,upos.targets),
+    trackedFeatsExactAccuracy:ratio(featsExact.correct,featsExact.targets),
+    jointTagsAccuracy:ratio(joint.correct,joint.targets),
+    precision,exactRecall:recall,qualityF1,
+    meanMorphologyEvidence:evidenceRows?evidenceTotal/evidenceRows:null
+  };
+}
+function tuneJointPosEvidenceLambda(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas) {
+  const candidates=[0,0.125,0.25,0.5,0.75,1,1.5,2,3,4,6,8,12];
+  const results=candidates.map(lambda=>{
+    const evaluation=evaluateJointPosEvidence(
+      validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambda
+    );
+    return {
+      lambda,targets:evaluation.targets,
+      uposAccuracy:evaluation.uposAccuracy,
+      trackedFeatsExactAccuracy:evaluation.trackedFeatsExactAccuracy,
+      precision:evaluation.precision,exactRecall:evaluation.exactRecall,
+      qualityF1:evaluation.qualityF1,meanMorphologyEvidence:evaluation.meanMorphologyEvidence
+    };
+  });
+  const chosen=results.slice().sort((a,b)=>
+    b.qualityF1-a.qualityF1 ||
+    b.exactRecall-a.exactRecall ||
+    b.precision-a.precision ||
+    a.lambda-b.lambda
+  )[0];
+  return {lambda:chosen.lambda,results,selectedValidation:chosen};
+}
+
 function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
   const predictedBoth=emptyMetrics(),oracle=emptyMetrics();
   const goldUposPredFeats=emptyMetrics(),predictedUposGoldFeats=emptyMetrics();
@@ -366,6 +471,7 @@ const aggregate={
   predictedBoth:emptyMetrics(),oracle:emptyMetrics(),
   goldUposPredFeats:emptyMetrics(),predictedUposGoldFeats:emptyMetrics(),
   goldUposConditionedFeats:emptyMetrics(),predictedUposConditionedFeats:emptyMetrics(),
+  jointUposEvidenceReranked:emptyMetrics(),
   upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},
   goldUposFeatsExact:{targets:0,correct:0},predictedUposFeatsExact:{targets:0,correct:0},
   joint:{targets:0,correct:0},
@@ -434,6 +540,19 @@ for(const seed of seeds) {
   const evaluation=evaluatePipeline(
     testRows,outputVocabulary,uposSelected.head,featHeads,conditionedTraining.heads,ruleBank,trainLemmas
   );
+  const rerankingTuning=tuneJointPosEvidenceLambda(
+    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas
+  );
+  const rerankedValidation=evaluateJointPosEvidence(
+    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    rerankingTuning.lambda
+  );
+  const rerankedTest=evaluateJointPosEvidence(
+    testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    rerankingTuning.lambda
+  );
+  assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on internal OOV validation targets");
+  mergeMetrics(aggregate.jointUposEvidenceReranked,rerankedTest.metrics);
   for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats","goldUposConditionedFeats","predictedUposConditionedFeats"])
     mergeMetrics(aggregate[key],evaluation[key]);
   for(const key of ["upos","featsExact","goldUposFeatsExact","predictedUposFeatsExact","joint"])
@@ -477,6 +596,27 @@ for(const seed of seeds) {
     lemma:Object.fromEntries(["oracle","goldUposPredFeats","predictedUposGoldFeats","predictedBoth"].map(key=>[
       key,Object.fromEntries(Object.entries(evaluation[key]).map(([slice,value])=>[slice,summariseSlice(value)]))
     ])),
+    jointPosEvidenceReranking:{
+      selectedLambda:rerankingTuning.lambda,
+      selectionObjective:"internal validation exact-lemma F1; ties prefer recall, then precision, then smaller lambda",
+      validationTuning:rerankingTuning.results,
+      validation:{
+        targets:rerankedValidation.targets,uposAccuracy:rerankedValidation.uposAccuracy,
+        trackedFeatsExactAccuracy:rerankedValidation.trackedFeatsExactAccuracy,
+        precision:rerankedValidation.precision,exactRecall:rerankedValidation.exactRecall,
+        qualityF1:rerankedValidation.qualityF1,
+        lemma:summariseMetrics(rerankedValidation.metrics)
+      },
+      independentTest:{
+        targets:rerankedTest.targets,uposAccuracy:rerankedTest.uposAccuracy,
+        trackedFeatsExactAccuracy:rerankedTest.trackedFeatsExactAccuracy,
+        jointTagsAccuracy:rerankedTest.jointTagsAccuracy,
+        precision:rerankedTest.precision,exactRecall:rerankedTest.exactRecall,
+        qualityF1:rerankedTest.qualityF1,
+        meanMorphologyEvidence:rerankedTest.meanMorphologyEvidence,
+        lemma:summariseMetrics(rerankedTest.metrics)
+      }
+    },
     diagnosticExamples:evaluation.diagnostics
   });
 }
@@ -488,7 +628,7 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.124",
+  version:"0.58.125",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -496,7 +636,7 @@ const report={
   protocol:{
     seeds,trainSentences:320,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
     trackedFeatures:attributes,
-    featurePrediction:"baseline: one contextual classifier per attribute; follow-up: contextual classifiers per UPOS and attribute, single-class constant heads, global fallback for sparse groups; NONE is explicit",
+    featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; candidate UPOS is reranked by conditional feature confidence with lambda selected on internal OOV validation exact-lemma F1; constant and fallback heads are excluded from morphology evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
     inverseLemmaRules:"surface suffix to lemma suffix, conditioned on predicted UPOS and exact tracked FEATS",
     maximumSuffixLength:5,ruleSupport:"distinct training lemmas",
@@ -522,6 +662,7 @@ const report={
     predictedUposGoldFeats:summariseMetrics(aggregate.predictedUposGoldFeats),
     goldUposConditionedFeats:summariseMetrics(aggregate.goldUposConditionedFeats),
     predictedUposConditionedFeats:summariseMetrics(aggregate.predictedUposConditionedFeats),
+    jointUposEvidenceReranked:summariseMetrics(aggregate.jointUposEvidenceReranked),
     oracleGoldTags:summariseMetrics(aggregate.oracle)
   },
   seeds:seedReports
@@ -531,4 +672,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.123 predicted morphology pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.125 joint UPOS-evidence morphology pipeline: "+JSON.stringify(report));
