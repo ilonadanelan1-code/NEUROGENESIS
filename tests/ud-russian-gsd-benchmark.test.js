@@ -147,7 +147,7 @@ if (!trainPath && !testPath) {
   const aggregateFrequencyBuckets = createFrequencyBuckets();
   const aggregate = {
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-    oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+    oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -158,6 +158,14 @@ if (!trainPath && !testPath) {
     for (const key of Object.keys(target)) target[key] += source[key] || 0;
   };
   const ratio = (numerator, denominator) => denominator ? numerator / denominator : null;
+  const isOovEvaluationSample = (sentence, tokenIndex) => {
+    const source = String(sentence) + "\\u0000" + String(tokenIndex);
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index++) {
+      hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
+    }
+    return (hash >>> 0) % 4 === 0;
+  };
 
   for (const seed of seeds) {
     const model = Attention.create({
@@ -194,7 +202,7 @@ if (!trainPath && !testPath) {
     const metrics = {
       frequencyBuckets: createFrequencyBuckets(),
       total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-      oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+      oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -226,6 +234,8 @@ if (!trainPath && !testPath) {
         }
         if (score.targetKnown) continue;
         metrics.oov++;
+        if (!isOovEvaluationSample(sentence, index)) continue;
+        metrics.evaluatedOov++;
         const strictPrediction = model.predictMasked(sentence, index);
         if (strictPrediction?.morphologyHint?.number === "plural") {
           metrics.oovPluralHintTargets++;
@@ -313,24 +323,28 @@ if (!trainPath && !testPath) {
         },
         oovGeneration: {
           correct: metrics.generatedCorrect, covered: metrics.generatedCovered,
-          oovTargets: metrics.oov, accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
-          coverage: ratio(metrics.generatedCovered, metrics.oov),
-          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.oov)
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
+          accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
+          coverage: ratio(metrics.generatedCovered, metrics.evaluatedOov),
+          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.evaluatedOov)
         },
         contextRetrievalStrict: {
-          correct: metrics.strictCorrect, covered: metrics.strictCovered, oovTargets: metrics.oov,
+          correct: metrics.strictCorrect, covered: metrics.strictCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.strictCorrect, metrics.strictCovered),
-          coverage: ratio(metrics.strictCovered, metrics.oov)
+          coverage: ratio(metrics.strictCovered, metrics.evaluatedOov)
         },
         contextRetrievalOrderInvariant: {
-          correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
+          correct: metrics.inversionCorrect, covered: metrics.inversionCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
-          coverage: ratio(metrics.inversionCovered, metrics.oov)
+          coverage: ratio(metrics.inversionCovered, metrics.evaluatedOov)
         },
         contextRetrievalInverseFrequency: {
-          correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+          correct: metrics.idfCorrect, covered: metrics.idfCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.idfCorrect, metrics.idfCovered),
-          coverage: ratio(metrics.idfCovered, metrics.oov)
+          coverage: ratio(metrics.idfCovered, metrics.evaluatedOov)
         },
         strictRetrievalSurface: {
           correct: metrics.strictSurfaceCorrect, covered: metrics.strictSurfaceCovered,
@@ -442,7 +456,7 @@ if (!trainPath && !testPath) {
 
   const frequencyAggregate = {
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-    oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+    oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -490,7 +504,7 @@ if (!trainPath && !testPath) {
     const metrics = {
       frequencyBuckets: createFrequencyBuckets(),
       total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-      oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+      oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -522,6 +536,8 @@ if (!trainPath && !testPath) {
         }
         if (score.targetKnown) continue;
         metrics.oov++;
+        if (!isOovEvaluationSample(sentence, index)) continue;
+        metrics.evaluatedOov++;
         const strictPrediction = model.predictMasked(sentence, index);
         if (strictPrediction?.morphologyHint?.number === "plural") {
           metrics.oovPluralHintTargets++;
@@ -588,25 +604,29 @@ if (!trainPath && !testPath) {
           coverage: ratio(metrics.morphologyCovered, metrics.total)
         },
         oovGeneration: {
-          correct: metrics.generatedCorrect, covered: metrics.generatedCovered, oovTargets: metrics.oov,
+          correct: metrics.generatedCorrect, covered: metrics.generatedCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
-          coverage: ratio(metrics.generatedCovered, metrics.oov),
-          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.oov)
+          coverage: ratio(metrics.generatedCovered, metrics.evaluatedOov),
+          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.evaluatedOov)
         },
         contextRetrievalStrict: {
-          correct: metrics.strictCorrect, covered: metrics.strictCovered, oovTargets: metrics.oov,
+          correct: metrics.strictCorrect, covered: metrics.strictCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.strictCorrect, metrics.strictCovered),
-          coverage: ratio(metrics.strictCovered, metrics.oov)
+          coverage: ratio(metrics.strictCovered, metrics.evaluatedOov)
         },
         contextRetrievalOrderInvariant: {
-          correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
+          correct: metrics.inversionCorrect, covered: metrics.inversionCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
-          coverage: ratio(metrics.inversionCovered, metrics.oov)
+          coverage: ratio(metrics.inversionCovered, metrics.evaluatedOov)
         },
         contextRetrievalInverseFrequency: {
-          correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+          correct: metrics.idfCorrect, covered: metrics.idfCovered,
+          oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
           precision: ratio(metrics.idfCorrect, metrics.idfCovered),
-          coverage: ratio(metrics.idfCovered, metrics.oov)
+          coverage: ratio(metrics.idfCovered, metrics.evaluatedOov)
         }
       }
     });
@@ -623,25 +643,29 @@ if (!trainPath && !testPath) {
       coverage: ratio(metrics.morphologyCovered, metrics.total)
     },
     oovGeneration: {
-      correct: metrics.generatedCorrect, covered: metrics.generatedCovered, oovTargets: metrics.oov,
+      correct: metrics.generatedCorrect, covered: metrics.generatedCovered,
+      oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
       accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
-      coverage: ratio(metrics.generatedCovered, metrics.oov),
-      candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.oov)
+      coverage: ratio(metrics.generatedCovered, metrics.evaluatedOov),
+      candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.evaluatedOov)
     },
     contextRetrievalStrict: {
-      correct: metrics.strictCorrect, covered: metrics.strictCovered, oovTargets: metrics.oov,
+      correct: metrics.strictCorrect, covered: metrics.strictCovered,
+      oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
       precision: ratio(metrics.strictCorrect, metrics.strictCovered),
-      coverage: ratio(metrics.strictCovered, metrics.oov)
+      coverage: ratio(metrics.strictCovered, metrics.evaluatedOov)
     },
     contextRetrievalOrderInvariant: {
-      correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
+      correct: metrics.inversionCorrect, covered: metrics.inversionCovered,
+      oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
       precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
-      coverage: ratio(metrics.inversionCovered, metrics.oov)
+      coverage: ratio(metrics.inversionCovered, metrics.evaluatedOov)
     },
     contextRetrievalInverseFrequency: {
-      correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+      correct: metrics.idfCorrect, covered: metrics.idfCovered,
+      oovTargets: metrics.oov, evaluatedTargets: metrics.evaluatedOov,
       precision: ratio(metrics.idfCorrect, metrics.idfCovered),
-      coverage: ratio(metrics.idfCovered, metrics.oov)
+      coverage: ratio(metrics.idfCovered, metrics.evaluatedOov)
     }
   });
   const frequencyMetrics = {...metricSummary(frequencyAggregate),
@@ -654,6 +678,9 @@ if (!trainPath && !testPath) {
     experiment: "inverse document frequency weighted scoring",
     sameModelsSeedsCorpusSplitsAndTraining: true,
     onlyChangedVariable: "retrieval candidate scoring",
+    evaluationSampling: "deterministic one-in-four OOV target positions; identical selector across control and experiment",
+    sampledOovTargets: baselineMetrics.contextRetrievalStrict.evaluatedTargets,
+    totalOovTargets: baselineMetrics.contextRetrievalStrict.oovTargets,
     controlMetrics: baselineMetrics.contextRetrievalStrict,
     experimentMetrics: baselineMetrics.contextRetrievalInverseFrequency,
     deltasPercentagePoints: {
@@ -693,24 +720,28 @@ if (!trainPath && !testPath) {
         },
         oovGeneration: {
           correct: aggregate.generatedCorrect, covered: aggregate.generatedCovered,
-          oovTargets: aggregate.oov, accuracy: ratio(aggregate.generatedCorrect, aggregate.generatedCovered),
-          coverage: ratio(aggregate.generatedCovered, aggregate.oov),
-          candidateRecallAt8: ratio(aggregate.generatedCandidateHits, aggregate.oov)
+          oovTargets: aggregate.oov, evaluatedTargets: aggregate.evaluatedOov,
+          accuracy: ratio(aggregate.generatedCorrect, aggregate.generatedCovered),
+          coverage: ratio(aggregate.generatedCovered, aggregate.evaluatedOov),
+          candidateRecallAt8: ratio(aggregate.generatedCandidateHits, aggregate.evaluatedOov)
         },
         contextRetrievalStrict: {
-          correct: aggregate.strictCorrect, covered: aggregate.strictCovered, oovTargets: aggregate.oov,
+          correct: aggregate.strictCorrect, covered: aggregate.strictCovered,
+          oovTargets: aggregate.oov, evaluatedTargets: aggregate.evaluatedOov,
           precision: ratio(aggregate.strictCorrect, aggregate.strictCovered),
-          coverage: ratio(aggregate.strictCovered, aggregate.oov)
+          coverage: ratio(aggregate.strictCovered, aggregate.evaluatedOov)
         },
         contextRetrievalOrderInvariant: {
-          correct: aggregate.inversionCorrect, covered: aggregate.inversionCovered, oovTargets: aggregate.oov,
+          correct: aggregate.inversionCorrect, covered: aggregate.inversionCovered,
+          oovTargets: aggregate.oov, evaluatedTargets: aggregate.evaluatedOov,
           precision: ratio(aggregate.inversionCorrect, aggregate.inversionCovered),
-          coverage: ratio(aggregate.inversionCovered, aggregate.oov)
+          coverage: ratio(aggregate.inversionCovered, aggregate.evaluatedOov)
         },
         contextRetrievalInverseFrequency: {
-          correct: aggregate.idfCorrect, covered: aggregate.idfCovered, oovTargets: aggregate.oov,
+          correct: aggregate.idfCorrect, covered: aggregate.idfCovered,
+          oovTargets: aggregate.oov, evaluatedTargets: aggregate.evaluatedOov,
           precision: ratio(aggregate.idfCorrect, aggregate.idfCovered),
-          coverage: ratio(aggregate.idfCovered, aggregate.oov)
+          coverage: ratio(aggregate.idfCovered, aggregate.evaluatedOov)
         },
         strictRetrievalSurface: {
           correct: aggregate.strictSurfaceCorrect, covered: aggregate.strictSurfaceCovered,
