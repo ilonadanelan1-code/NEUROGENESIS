@@ -426,7 +426,6 @@ if (!trainPath && !testPath) {
   }
 
   const frequencyAggregate = {
-    frequencyBuckets: createFrequencyBuckets(),
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
     oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
@@ -434,6 +433,7 @@ if (!trainPath && !testPath) {
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
     strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
   };
+  const frequencyAggregateBuckets = createFrequencyBuckets();
   const frequencySeedReports = [];
   for (const seed of seeds) {
     const model = Attention.create({
@@ -545,7 +545,7 @@ if (!trainPath && !testPath) {
     assert.equal(metrics.oovPluralHintTargets,
       metrics.oovPluralKnownBaseTargets + metrics.oovPluralNoKnownBaseTargets);
     add(frequencyAggregate, metrics);
-    mergeFrequencyBuckets(frequencyAggregate.frequencyBuckets, metrics.frequencyBuckets);
+    mergeFrequencyBuckets(frequencyAggregateBuckets, metrics.frequencyBuckets);
     frequencySeedReports.push({
       modelSeed: seed.model, splitSeed: seed.split,
       training: {
@@ -611,7 +611,8 @@ if (!trainPath && !testPath) {
       coverage: ratio(metrics.inversionCovered, metrics.oov)
     }
   });
-  const frequencyMetrics = metricSummary(frequencyAggregate);
+  const frequencyMetrics = {...metricSummary(frequencyAggregate),
+    frequencyBuckets: summarizeFrequencyBuckets(frequencyAggregateBuckets)};
   const baselineMetrics = metricSummary(aggregate);
   const percentagePointDelta = (current, previous) =>
     current == null || previous == null ? null : (current - previous) * 100;
