@@ -3,13 +3,13 @@
   const SCHEMA = "NG_DISCOURSE_EVENT_REFERENCE_V1";
   const MAX_MESSAGES = 24;
   const clean = (value, limit=300) => String(value == null ? "" : value)
-    .replace(/\\s+/gu," ").trim().slice(0,limit);
+    .replace(/\s+/gu," ").trim().slice(0,limit);
   const normalise = value => clean(value,300).normalize("NFKC").toLowerCase()
-    .replace(/ё/gu,"е").replace(/[^\\p{L}\\p{N}]+/gu," ").trim();
+    .replace(/ё/gu,"е").replace(/[^\p{L}\p{N}]+/gu," ").trim();
   const EVENT_CUES = Object.freeze([
-    {pattern:/^(?:из-за этого|вследствие этого|поэтому|в результате этого)\\b/iu, relation:"cause_or_result"},
-    {pattern:/^(?:после этого|затем|вслед за этим|тогда)\\b/iu, relation:"sequence"},
-    {pattern:/^это\\s+(?:привело|вызвало|спровоцировало|остановило|запустило|изменило|повредило|нарушило|позволило|помешало)\\b/iu, relation:"event_subject"}
+    {pattern:/^(?:из-за этого|вследствие этого|поэтому|в результате этого)\b/iu, relation:"cause_or_result"},
+    {pattern:/^(?:после этого|затем|вслед за этим|тогда)\b/iu, relation:"sequence"},
+    {pattern:/^это\s+(?:привело|вызвало|спровоцировало|остановило|запустило|изменило|повредило|нарушило|позволило|помешало)\b/iu, relation:"event_subject"}
   ]);
   function detectMention(value) {
     const text=clean(value,500);
