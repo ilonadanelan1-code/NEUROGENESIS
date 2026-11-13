@@ -42,7 +42,7 @@ assert.equal(candidates.some(x=>x.id==="O1"),false,"user opinions must not becom
 
 const resolved=api.resolveFromHistory("Из-за этого обработка остановилась",messages,core,{topicId:"T1"});
 assert.equal(resolved.status,"resolved");
-assert.equal(resolved.antecedent.id,"E1");
+assert.equal(resolved.antecedent.id,"E1-p1");
 assert.equal(resolved.antecedent.subject,"Система");
 assert.equal(resolved.provenance.memoryEffect,"none");
 assert.equal(resolved.provenance.usage,"advisory_only");
