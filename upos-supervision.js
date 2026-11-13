@@ -224,18 +224,19 @@
       bias = Array.from({length: labels.length}, () => 0);
       const labelIndexes = new Map(labels.map((label, index) => [label, index]));
       const requestedWeighting = trainOptions.classWeighting;
-      const classWeighting = requestedWeighting === "sqrt_inverse" ||
-        requestedWeighting === "sqrt_inverse_capped" ? requestedWeighting : "none";
+      const classWeighting = [
+        "sqrt_inverse","sqrt_inverse_capped","sqrt_inverse_tempered"
+      ].includes(requestedWeighting) ? requestedWeighting : "none";
       const classWeights = new Map(labels.map(label => [label, 1]));
       if (classWeighting !== "none") {
-        const rawWeights = labels.map(label =>
+        const inverseSqrtWeights = labels.map(label =>
           Math.sqrt(rows.length / (labels.length * Math.max(1, labelCounts[label] || 0))));
         if (classWeighting === "sqrt_inverse_capped") {
           const minWeight = Math.max(0.5, Math.min(1, finite(trainOptions.minClassWeight, 0.75)));
           const maxWeight = Math.max(1, Math.min(2.5, finite(trainOptions.maxClassWeight, 1.5)));
           const weightedMean = scale => labels.reduce((sum, label, index) =>
             sum + (labelCounts[label] || 0) *
-              Math.max(minWeight, Math.min(maxWeight, rawWeights[index] * scale)), 0) / rows.length;
+              Math.max(minWeight, Math.min(maxWeight, inverseSqrtWeights[index] * scale)), 0) / rows.length;
           let low = 0, high = 32;
           for (let iteration = 0; iteration < 64; iteration++) {
             const middle = (low + high) / 2;
@@ -244,8 +245,13 @@
           }
           const scale = (low + high) / 2;
           labels.forEach((label, index) => classWeights.set(label,
-            Math.max(minWeight, Math.min(maxWeight, rawWeights[index] * scale))));
+            Math.max(minWeight, Math.min(maxWeight, inverseSqrtWeights[index] * scale))));
         } else {
+          // Temper the inverse-square-root prior by taking its square root:
+          // this is an inverse-fourth-root count prior, normalized to mean sample weight 1.
+          const rawWeights = classWeighting === "sqrt_inverse_tempered"
+            ? inverseSqrtWeights.map(value => Math.sqrt(value))
+            : inverseSqrtWeights;
           const weightedMass = labels.reduce((sum, label, index) =>
             sum + (labelCounts[label] || 0) * rawWeights[index], 0);
           const normalizer = weightedMass > 0 ? rows.length / weightedMass : 1;
