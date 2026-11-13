@@ -104,6 +104,22 @@ const topicGuard = discourse.resolveMention("Он ответил.",[
 assert.equal(topicGuard.status,"unresolved",
   "an entity from another topic must never be linked by this bounded resolver");
 
+const missingTopicGuard = discourse.resolveMention("Он ответил.",[
+  candidate("untagged","Пётр","masculine","singular","subject","agent",1,{topicId:""})
+],{topicId:"T1"});
+assert.equal(missingTopicGuard.status,"unresolved",
+  "when an active topic is specified, candidates without an explicit matching topic ID must be rejected");
+
+const mixedThreadHistory = [
+  {id:"T1-old",threadId:"T1",role:"user",text:"Система получает сигнал."},
+  ...Array.from({length:9},(_,index)=>({id:"T2-"+index,threadId:"T2",role:"user",text:"Анна обсуждает новую тему "+index+"."}))
+];
+const scopedHistory = discourse.resolveFromHistory("Он работает.",mixedThreadHistory,core,{topicId:"T1"});
+assert.ok(scopedHistory.candidates.some(row=>row.text==="сигнал"),
+  "messages from other threads must be filtered before the bounded eight-message window is applied");
+assert.ok(scopedHistory.candidates.every(row=>row.id.startsWith("d0-")),
+  "candidate extraction must never include a different thread when a topic ID is supplied");
+
 const noTopicGuard = discourse.resolveMention("Он ответил.",[
   candidate("same-topic","Пётр","masculine","singular","subject","agent",4,{topicId:"T1"})
 ],{topicId:"T1"});
