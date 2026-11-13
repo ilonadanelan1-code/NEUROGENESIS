@@ -281,6 +281,12 @@ jobs:
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
+      - name: Benchmark OOV morphology suffix-rule generation
+        run: |
+          node tests/ud-morphology-suffix-decoder.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
       - name: Run regression tests
         run: |
           node tests/experience-quality.test.js
