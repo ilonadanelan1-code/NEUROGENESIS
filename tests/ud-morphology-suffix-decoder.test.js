@@ -5,8 +5,12 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const importer = require("../scripts/ud-russian-gsd.js");
 
+function normalizeToken(value) {
+  return String(value || "").normalize("NFKC").toLowerCase().replace(/ё/gu,"е").slice(0,48);
+}
+
 function normalize(value, tokenize) {
-  return tokenize(value || "").join(" ");
+  return tokenize(value || "").map(normalizeToken).join(" ");
 }
 
 function featureSignature(feats) {
@@ -16,7 +20,7 @@ function featureSignature(feats) {
 
 function annotationRows(record, tokenize) {
   return record.tokens.flatMap(token => {
-    const formParts = tokenize(token.form);
+    const formParts = tokenize(token.form).map(normalizeToken);
     const lemma = normalize(token.lemma, tokenize);
     return formParts.map(form => ({
       form,
@@ -28,7 +32,7 @@ function annotationRows(record, tokenize) {
 }
 
 function alignedRecord(record, tokenize) {
-  const sentenceTokens = tokenize(record.text);
+  const sentenceTokens = tokenize(record.text).map(normalizeToken);
   const rows = annotationRows(record, tokenize);
   if (rows.length !== sentenceTokens.length ||
       rows.map(row => row.form).join(" ") !== sentenceTokens.join(" ")) {
@@ -267,7 +271,8 @@ if (!trainPath && !testPath) {
     const trainTokenFrequency = new Map();
     const outputVocabulary = new Set();
     for (const sentence of split.train) {
-      for (const token of Attention.tokenize(sentence)) {
+      for (const rawToken of Attention.tokenize(sentence)) {
+        const token = normalizeToken(rawToken);
         trainTokenFrequency.set(token,(trainTokenFrequency.get(token)||0)+1);
         if (outputVocabulary.size < 1024) outputVocabulary.add(token);
       }
@@ -278,7 +283,7 @@ if (!trainPath && !testPath) {
     let totalTestTokens = 0;
     let goldAnnotatedTokens = 0;
     for (const sentence of prepared.testTexts) {
-      const tokens = Attention.tokenize(sentence);
+      const tokens = Attention.tokenize(sentence).map(normalizeToken);
       const rows = testRowsBySentence.get(tokens.join(" "));
       assert.ok(rows,"independent test sentence lost its UD annotation alignment");
       assert.equal(rows.length,tokens.length);
