@@ -60,4 +60,33 @@ assert.equal(dativeFollowUp.contextRelation,"follow_up",
 assert.ok(dativeFollowUp.discourseResolution);
 assert.equal(dativeFollowUp.discourseResolution.mention.token,"ему");
 
+const modelPlan={
+ source:"model",contextRelation:"follow_up",canonicalQuestion:"А что он сделал?",
+ searchQueries:["А что он сделал?"],
+ semanticFrame:{
+  schema:"NG_SEMANTIC_FRAME_V1",
+  subject:{text:"он",certainty:"model_candidate"},
+  proposition:{subject:"он",predicate:"сделал",object:null},
+  entities:[{text:"он",role:"subject"}],
+  discourse:{relation:"follow_up"}
+ }
+};
+const mergedModelPlan=planner.mergeLocalDiscourseResolution(modelPlan,enabled);
+assert.equal(mergedModelPlan.semanticFrame.subject.text,"сигнал",
+ "a resolved local cross-turn candidate must be merged into the model-backed plan when both planners agree it is a follow-up");
+assert.equal(mergedModelPlan.semanticFrame.proposition.subject,"сигнал");
+assert.equal(mergedModelPlan.semanticFrame.proposition.crossTurnReference.status,"resolved");
+assert.ok(mergedModelPlan.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),
+ "the model-backed retrieval plan must retain the local antecedent hint");
+const conflictingModelPlan=planner.mergeLocalDiscourseResolution(
+ {...modelPlan,contextRelation:"new_topic"},enabled);
+assert.equal(conflictingModelPlan.semanticFrame.subject.text,"он",
+ "the local resolver must not override a model plan that classifies the message as a new topic");
+assert.equal(conflictingModelPlan.discourseResolution.status,"resolved",
+ "the local candidate may remain visible as provenance without being applied");
+
+const memorySource=fs.readFileSync("memory.js","utf8");
+assert.match(memorySource,/mergeLocalDiscourseResolution\(interpreted,\s*localPlan\)/,
+ "the production LLM interpretation path must explicitly merge opt-in local discourse provenance");
+
 console.log("NEUROGENESIS discourse coreference semantic-query integration tests passed.");
