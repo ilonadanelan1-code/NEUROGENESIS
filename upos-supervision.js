@@ -223,20 +223,39 @@
         Array.from({length: featureDimension}, () => (random() * 2 - 1) * 0.015));
       bias = Array.from({length: labels.length}, () => 0);
       const labelIndexes = new Map(labels.map((label, index) => [label, index]));
-      const classWeighting = trainOptions.classWeighting === "sqrt_inverse" ? "sqrt_inverse" : "none";
+      const requestedWeighting = trainOptions.classWeighting;
+      const classWeighting = requestedWeighting === "sqrt_inverse" ||
+        requestedWeighting === "sqrt_inverse_capped" ? requestedWeighting : "none";
       const classWeights = new Map(labels.map(label => [label, 1]));
-      if (classWeighting === "sqrt_inverse") {
+      if (classWeighting !== "none") {
         const rawWeights = labels.map(label =>
           Math.sqrt(rows.length / (labels.length * Math.max(1, labelCounts[label] || 0))));
-        const weightedMass = labels.reduce((sum, label, index) =>
-          sum + (labelCounts[label] || 0) * rawWeights[index], 0);
-        const normalizer = weightedMass > 0 ? rows.length / weightedMass : 1;
-        labels.forEach((label, index) => classWeights.set(label, rawWeights[index] * normalizer));
+        if (classWeighting === "sqrt_inverse_capped") {
+          const minWeight = Math.max(0.5, Math.min(1, finite(trainOptions.minClassWeight, 0.75)));
+          const maxWeight = Math.max(1, Math.min(2.5, finite(trainOptions.maxClassWeight, 1.5)));
+          const weightedMean = scale => labels.reduce((sum, label, index) =>
+            sum + (labelCounts[label] || 0) *
+              Math.max(minWeight, Math.min(maxWeight, rawWeights[index] * scale)), 0) / rows.length;
+          let low = 0, high = 32;
+          for (let iteration = 0; iteration < 64; iteration++) {
+            const middle = (low + high) / 2;
+            if (weightedMean(middle) < 1) low = middle;
+            else high = middle;
+          }
+          const scale = (low + high) / 2;
+          labels.forEach((label, index) => classWeights.set(label,
+            Math.max(minWeight, Math.min(maxWeight, rawWeights[index] * scale))));
+        } else {
+          const weightedMass = labels.reduce((sum, label, index) =>
+            sum + (labelCounts[label] || 0) * rawWeights[index], 0);
+          const normalizer = weightedMass > 0 ? rows.length / weightedMass : 1;
+          labels.forEach((label, index) => classWeights.set(label, rawWeights[index] * normalizer));
+        }
       }
       const classWeightReport = Object.fromEntries(labels.map(label => [label, classWeights.get(label)]));
       const requestedSelectionMetric = trainOptions.selectionMetric;
       const selectionMetric = requestedSelectionMetric === "loss" ? "loss" :
-        (requestedSelectionMetric === "macro_f1" || classWeighting === "sqrt_inverse" ? "macro_f1" : "loss");
+        (requestedSelectionMetric === "macro_f1" || classWeighting !== "none" ? "macro_f1" : "loss");
       const validationScore = report => selectionMetric === "macro_f1" ? report.macroF1 : report.loss;
       const learningRate = Math.max(0.0001, Math.min(0.2, finite(trainOptions.learningRate, 0.035)));
       const epochs = Math.max(1, Math.min(200, Math.floor(finite(trainOptions.epochs, 80))));
