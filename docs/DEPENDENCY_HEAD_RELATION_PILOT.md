@@ -35,7 +35,7 @@ Two paired relation-head variants are trained with the same encoder, examples, s
 - Unweighted DEPREL loss.
 - Square-root inverse-frequency DEPREL weighting, with weights derived only from supervised training rows and normalized to mean sample weight 1.
 
-The attachment checkpoint is selected only by validation UAS and training stops only from that UAS curve. The relation checkpoint is selected separately by validation oracle-head relation macro-F1. This prevents relation class weighting from changing the number of attachment updates or the selected attachment epoch. The two variants must produce identical HEAD predictions; the experiment changes only the DEPREL loss weighting. LAS remains an independently reported combined metric.
+The attachment checkpoint is selected only by validation UAS and training stops only from that UAS curve. The relation checkpoint is selected separately by validation oracle-head relation macro-F1. This prevents relation class weighting from changing the number of attachment updates or the selected attachment epoch. The two variants must produce identical per-dependent HEAD predictions on validation and every independent-test lemma slice; CI compares exact predicted HEAD ids, not only aggregate correct counts. The experiment changes only the DEPREL loss weighting. LAS remains an independently reported combined metric.
 
 The attachment objective is unweighted and receives identical examples in both variants. CI asserts that the paired variants return identical attachment counts on the independent test; only relation-loss class weighting may change.
 
