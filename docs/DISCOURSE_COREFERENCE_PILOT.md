@@ -60,6 +60,24 @@ The benchmark compares:
 
 Metrics are exact accuracy, link precision/recall/F1, coverage, false-link rate and correct-abstention rate, with slices by diagnostic category. These figures measure only this curated diagnostic set; they must not be presented as corpus-level Russian coreference performance.
 
+## Diagnostic results (24 hand-authored cases)
+
+The first complete benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training; later commits changed only query-hint ordering and possessive-pronoun detection, not the scoring or benchmark cases.
+
+| Metric | Nearest-compatible baseline | Experimental ranker | Change |
+|---|---:|---:|---:|
+| Exact decision accuracy | 14/24 = 58.33% | 20/24 = 83.33% | +25.00 pp |
+| Link precision | 8/18 = 44.44% | 14/14 = 100.00% | +55.56 pp |
+| Link recall | 8/18 = 44.44% | 14/18 = 77.78% | +33.33 pp |
+| Link F1 | 44.44% | 87.50% | +43.06 pp |
+| Coverage | 18/24 = 75.00% | 14/24 = 58.33% | −16.67 pp |
+| False-link rate | 10/18 = 55.56% | 0/14 = 0.00% | −55.56 pp |
+| Correct abstention | 6/6 = 100% | 6/6 = 100% | 0 pp |
+
+The ranker deliberately makes fewer links. It removes all false links in this diagnostic set at the cost of lower coverage. Category results: agreement 4/4 for both; semantic-role cases 0/8 baseline vs 6/8 experiment; long-distance 2/3 for both; explicit topic return 1/2 for both; ambiguous 3/3 correct abstentions for both; unresolved 2/2 for both; topic-switch boundary 2/2 exact decisions for both. The small long-distance and topic-return slices show no measured improvement and are too small for generalization claims.
+
+There is no unseen-lemma score: the set is hand-authored, has no corpus split and is not a generalization benchmark. No corpus-level or statistical claim follows from these numbers.
+
 ## Runtime boundary and limitations
 
 - Candidate extraction inherits the existing rule parser's errors and cannot discover mentions the parser misses.
