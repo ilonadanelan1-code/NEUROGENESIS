@@ -188,7 +188,7 @@ const fixtureTraining = [
 const fixtureBank = createRuleBank(fixtureTraining);
 const fixturePrediction = predictBySuffixRule({
   form:"президента",lemma:"президент",upos:"NOUN",feats:fixtureFeatures
-},fixtureBank);
+},fixtureBank.bank);
 assert.equal(fixturePrediction.token,"президента",
   "a suffix rule learned from other lemmas must generate a held-out inflection");
 assert.equal(fixturePrediction.reason,"cross_lemma_suffix_rule");
@@ -198,7 +198,7 @@ const sameLemmaOnlyBank = createRuleBank([
 ]);
 const noSelfLeakPrediction = predictBySuffixRule({
   form:"студента",lemma:"студент",upos:"NOUN",feats:fixtureFeatures
-},sameLemmaOnlyBank);
+},sameLemmaOnlyBank.bank);
 assert.equal(noSelfLeakPrediction.token,null,
   "a target lemma's own training forms must not count as cross-lemma rule support");
 
