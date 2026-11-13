@@ -371,13 +371,30 @@ function tuneJointPosEvidenceLambda(validationRows,outputVocabulary,uposHead,con
       qualityF1:evaluation.qualityF1,meanMorphologyEvidence:evaluation.meanMorphologyEvidence
     };
   });
-  const chosen=results.slice().sort((a,b)=>
-    b.qualityF1-a.qualityF1 ||
+  const rank=(a,b)=>b.qualityF1-a.qualityF1 ||
     b.exactRecall-a.exactRecall ||
     b.precision-a.precision ||
-    a.lambda-b.lambda
-  )[0];
-  return {lambda:chosen.lambda,results,selectedValidation:chosen};
+    a.lambda-b.lambda;
+  const unconstrained=results.slice().sort(rank)[0];
+  const baseline=results.find(row=>row.lambda===0);
+  const maximumUposAccuracyDrop=0.05;
+  const admissible=results.filter(row=>
+    row.uposAccuracy!=null&&baseline.uposAccuracy!=null&&
+    row.uposAccuracy>=baseline.uposAccuracy-maximumUposAccuracyDrop-1e-12
+  );
+  const constrained=(admissible.length?admissible:[baseline]).slice().sort(rank)[0];
+  return {
+    lambda:constrained.lambda,
+    constrainedLambda:constrained.lambda,
+    unconstrainedLambda:unconstrained.lambda,
+    maximumUposAccuracyDrop,
+    baselineValidationUposAccuracy:baseline.uposAccuracy,
+    results,
+    selectedValidation:constrained,
+    unconstrainedValidation:unconstrained,
+    admissibleCandidateCount:admissible.length,
+    usedBaselineFallback:admissible.length===0
+  };
 }
 
 function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
@@ -477,6 +494,10 @@ const aggregate={
   jointUposEvidenceRerankedUPOS:{targets:0,correct:0},
   jointUposEvidenceRerankedFeatsExact:{targets:0,correct:0},
   jointUposEvidenceRerankedJointTags:{targets:0,correct:0},
+  jointUposEvidenceConstrained:emptyMetrics(),
+  jointUposEvidenceConstrainedUPOS:{targets:0,correct:0},
+  jointUposEvidenceConstrainedFeatsExact:{targets:0,correct:0},
+  jointUposEvidenceConstrainedJointTags:{targets:0,correct:0},
   upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},
   goldUposFeatsExact:{targets:0,correct:0},predictedUposFeatsExact:{targets:0,correct:0},
   joint:{targets:0,correct:0},
@@ -550,17 +571,34 @@ for(const seed of seeds) {
   );
   const rerankedValidation=evaluateJointPosEvidence(
     validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
-    rerankingTuning.lambda
+    rerankingTuning.constrainedLambda
   );
   const rerankedTest=evaluateJointPosEvidence(
     testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
-    rerankingTuning.lambda
+    rerankingTuning.constrainedLambda
+  );
+  const unconstrainedValidation=evaluateJointPosEvidence(
+    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    rerankingTuning.unconstrainedLambda
+  );
+  const unconstrainedTest=evaluateJointPosEvidence(
+    testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    rerankingTuning.unconstrainedLambda
   );
   assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on internal OOV validation targets");
-  mergeMetrics(aggregate.jointUposEvidenceReranked,rerankedTest.metrics);
-  mergeCounter(aggregate.jointUposEvidenceRerankedUPOS,rerankedTest.upos);
-  mergeCounter(aggregate.jointUposEvidenceRerankedFeatsExact,rerankedTest.featsExact);
-  mergeCounter(aggregate.jointUposEvidenceRerankedJointTags,rerankedTest.joint);
+  assert.ok(rerankedValidation.uposAccuracy>=rerankingTuning.baselineValidationUposAccuracy-
+    rerankingTuning.maximumUposAccuracyDrop-1e-12,
+    "constrained lambda must respect the validation UPOS accuracy guardrail");
+  assert.equal(rerankedTest.targets,evaluation.predictedUposConditionedFeats.all.targets,
+    "constrained reranking must score the same independent OOV targets as the raw UPOS route");
+  mergeMetrics(aggregate.jointUposEvidenceReranked,unconstrainedTest.metrics);
+  mergeCounter(aggregate.jointUposEvidenceRerankedUPOS,unconstrainedTest.upos);
+  mergeCounter(aggregate.jointUposEvidenceRerankedFeatsExact,unconstrainedTest.featsExact);
+  mergeCounter(aggregate.jointUposEvidenceRerankedJointTags,unconstrainedTest.joint);
+  mergeMetrics(aggregate.jointUposEvidenceConstrained,rerankedTest.metrics);
+  mergeCounter(aggregate.jointUposEvidenceConstrainedUPOS,rerankedTest.upos);
+  mergeCounter(aggregate.jointUposEvidenceConstrainedFeatsExact,rerankedTest.featsExact);
+  mergeCounter(aggregate.jointUposEvidenceConstrainedJointTags,rerankedTest.joint);
   for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats","goldUposConditionedFeats","predictedUposConditionedFeats"])
     mergeMetrics(aggregate[key],evaluation[key]);
   for(const key of ["upos","featsExact","goldUposFeatsExact","predictedUposFeatsExact","joint"])
@@ -605,9 +643,30 @@ for(const seed of seeds) {
       key,Object.fromEntries(Object.entries(evaluation[key]).map(([slice,value])=>[slice,summariseSlice(value)]))
     ])),
     jointPosEvidenceReranking:{
-      selectedLambda:rerankingTuning.lambda,
-      selectionObjective:"internal validation exact-lemma F1; ties prefer recall, then precision, then smaller lambda",
+      selectedLambda:rerankingTuning.constrainedLambda,
+      unconstrainedLambda:rerankingTuning.unconstrainedLambda,
+      maximumUposAccuracyDrop:rerankingTuning.maximumUposAccuracyDrop,
+      baselineValidationUposAccuracy:rerankingTuning.baselineValidationUposAccuracy,
+      admissibleCandidateCount:rerankingTuning.admissibleCandidateCount,
+      usedBaselineFallback:rerankingTuning.usedBaselineFallback,
+      selectionObjective:"maximize exact-lemma F1 subject to validation UPOS accuracy no more than 5 percentage points below lambda=0; ties prefer recall, precision, then smaller lambda",
       validationTuning:rerankingTuning.results,
+      unconstrainedValidation:{
+        targets:unconstrainedValidation.targets,uposAccuracy:unconstrainedValidation.uposAccuracy,
+        trackedFeatsExactAccuracy:unconstrainedValidation.trackedFeatsExactAccuracy,
+        precision:unconstrainedValidation.precision,exactRecall:unconstrainedValidation.exactRecall,
+        qualityF1:unconstrainedValidation.qualityF1,
+        lemma:summariseMetrics(unconstrainedValidation.metrics)
+      },
+      unconstrainedIndependentTest:{
+        targets:unconstrainedTest.targets,uposAccuracy:unconstrainedTest.uposAccuracy,
+        trackedFeatsExactAccuracy:unconstrainedTest.trackedFeatsExactAccuracy,
+        jointTagsAccuracy:unconstrainedTest.jointTagsAccuracy,
+        precision:unconstrainedTest.precision,exactRecall:unconstrainedTest.exactRecall,
+        qualityF1:unconstrainedTest.qualityF1,
+        meanMorphologyEvidence:unconstrainedTest.meanMorphologyEvidence,
+        lemma:summariseMetrics(unconstrainedTest.metrics)
+      },
       validation:{
         targets:rerankedValidation.targets,uposAccuracy:rerankedValidation.uposAccuracy,
         trackedFeatsExactAccuracy:rerankedValidation.trackedFeatsExactAccuracy,
@@ -636,7 +695,7 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.125",
+  version:"0.58.126",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -644,7 +703,7 @@ const report={
   protocol:{
     seeds,trainSentences:320,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
     trackedFeatures:attributes,
-    featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; candidate UPOS is reranked by conditional feature confidence with lambda selected on internal OOV validation exact-lemma F1; constant and fallback heads are excluded from morphology evidence; NONE is explicit",
+    featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; candidate UPOS is reranked by conditional feature confidence; compare unconstrained lambda selection with a guardrailed lambda that keeps validation UPOS accuracy within 5 percentage points of lambda=0; constant and fallback heads are excluded from morphology evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
     inverseLemmaRules:"surface suffix to lemma suffix, conditioned on predicted UPOS and exact tracked FEATS",
     maximumSuffixLength:5,ruleSupport:"distinct training lemmas",
@@ -660,6 +719,9 @@ const report={
     jointPosEvidenceUPOS:summariseTokens(aggregate.jointUposEvidenceRerankedUPOS),
     jointPosEvidenceTrackedFeatsExact:summariseTokens(aggregate.jointUposEvidenceRerankedFeatsExact),
     jointPosEvidenceJointTags:summariseTokens(aggregate.jointUposEvidenceRerankedJointTags),
+    constrainedJointPosEvidenceUPOS:summariseTokens(aggregate.jointUposEvidenceConstrainedUPOS),
+    constrainedJointPosEvidenceTrackedFeatsExact:summariseTokens(aggregate.jointUposEvidenceConstrainedFeatsExact),
+    constrainedJointPosEvidenceJointTags:summariseTokens(aggregate.jointUposEvidenceConstrainedJointTags),
     jointTags:summariseTokens(aggregate.joint)
   },
   perAttribute:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
@@ -673,7 +735,8 @@ const report={
     predictedUposGoldFeats:summariseMetrics(aggregate.predictedUposGoldFeats),
     goldUposConditionedFeats:summariseMetrics(aggregate.goldUposConditionedFeats),
     predictedUposConditionedFeats:summariseMetrics(aggregate.predictedUposConditionedFeats),
-    jointUposEvidenceReranked:summariseMetrics(aggregate.jointUposEvidenceReranked),
+    jointUposEvidenceUnconstrained:summariseMetrics(aggregate.jointUposEvidenceReranked),
+    jointUposEvidenceConstrained:summariseMetrics(aggregate.jointUposEvidenceConstrained),
     oracleGoldTags:summariseMetrics(aggregate.oracle)
   },
   seeds:seedReports
@@ -683,4 +746,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.125 joint UPOS-evidence morphology pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.126 constrained UPOS-evidence morphology pipeline: "+JSON.stringify(report));
