@@ -648,6 +648,11 @@ const aggregate={
 };
 const seedReports=[];
 const vocabularyLimit=1024;
+const outputVocabulary=new Set(oovReference.trainingTexts.flatMap(sentence=>
+  importer.tokenizeText(sentence).map(norm)
+));
+assert.ok(outputVocabulary.size>=vocabularyLimit,
+  "the fixed OOV reference vocabulary must contain at least the legacy 1024-form capacity");
 
 for(const seed of seeds) {
   const contextual=Attention.create({
@@ -700,14 +705,8 @@ for(const seed of seeds) {
   }
 
   const conditionedTraining=fitPosConditionedFeats(trainRows,validationRows,featHeads,seed.model);
-  // Define OOV targets once from the full 960-sentence reference sample.
-  // Both the 320- and 960-sentence models are scored on this same strict-OOV set.
-  const outputVocabulary=new Set();
-  for(const sentence of oovReference.trainingTexts) {
-    for(const token of contextual.tokenize(sentence)) outputVocabulary.add(norm(token));
-  }
-  assert.ok(outputVocabulary.size>=vocabularyLimit,
-    "the fixed OOV reference vocabulary must contain at least the legacy 1024-form capacity");
+  // Shared OOV targets come from the fixed 960-sentence reference sample above.
+  // Every seed and both training sizes use exactly this same lexical exclusion set.
   const trainLemmas=new Set(trainRows.map(row=>row.lemma).filter(Boolean));
   const ruleBank=createRuleBank(trainRows);
   const evaluation=evaluatePipeline(
@@ -884,7 +883,7 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.129",
+  version:"0.58.130",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -939,4 +938,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.129 paired training-scale OOV-calibrated pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.130 paired training-scale OOV-calibrated pipeline: "+JSON.stringify(report));
