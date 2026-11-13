@@ -44,6 +44,26 @@ assert.deepEqual(oovReference.trainingRecords.slice(0,320).map(row=>row.normaliz
     .trainingRecords.map(row=>row.normalized),
   "both training sizes must share the exact same first 320 sentences");
 
+// Reserve a fixed OOV validation set outside the common 960-sentence reference.
+// It is never used to fit the contextual encoder, UPOS heads, FEATS heads or rule bank.
+const allTestKeys=new Set(importer.uniqueRecords(importer.parseConllu(testContent)).map(row=>row.normalized));
+const commonReferenceKeys=new Set(oovReference.trainingRecords.map(row=>row.normalized));
+const eligibleTrainingPool=importer.uniqueRecords(importer.parseConllu(trainContent)).filter(row=>
+  !allTestKeys.has(row.normalized)&&row.tokenCount>=preparationOptions.minimumTokens&&
+  row.tokenCount<=preparationOptions.maximumTokens
+);
+const oovValidationPool=eligibleTrainingPool.filter(row=>!commonReferenceKeys.has(row.normalized));
+assert.ok(oovValidationPool.length>=240,
+  "the decontaminated training corpus must provide 240 reserved sentences outside the common 960-sentence reference");
+const oovValidationRecords=importer.deterministicSample(
+  oovValidationPool,240,preparationOptions.seed^0x6c8e9cf5
+);
+const oovValidationKeys=new Set(oovValidationRecords.map(row=>row.normalized));
+assert.equal(oovValidationRecords.length,240);
+assert.equal(oovValidationKeys.size,240,"reserved OOV validation sentences must be unique");
+assert.ok(oovValidationRecords.every(row=>!commonReferenceKeys.has(row.normalized)&&!allTestKeys.has(row.normalized)),
+  "reserved OOV validation sentences must be disjoint from the common reference and the full test corpus");
+
 const window = {};
 const sandbox = {window,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
 for (const file of ["contextual-attention.js","upos-supervision.js","feats-supervision.js"]) {
@@ -641,16 +661,21 @@ for(const seed of seeds) {
   const split=contextual.splitCorpus(prepared.trainingTexts,seed.split);
   assert.equal(split.train.length,contextualTraining.trainRows);
   assert.equal(split.validation.length,contextualTraining.validationRows);
+  assert.equal(split.uniqueRows,prepared.trainingRecords.length,
+    "the contextual encoder must consume the complete requested 320- or 960-sentence sample");
   const trainExtracted=alignedTokenRows(recordsFor(split.train,recordMap),contextual);
   const validationExtracted=alignedTokenRows(recordsFor(split.validation,recordMap),contextual);
+  const oovValidationExtracted=alignedTokenRows(oovValidationRecords,contextual);
   const testExtracted=alignedTokenRows(prepared.testRecords,contextual);
-  for(const [name,result] of [["train",trainExtracted],["validation",validationExtracted],["independentTest",testExtracted]]) {
+  for(const [name,result] of [["train",trainExtracted],["validation",validationExtracted],
+    ["oovValidation",oovValidationExtracted],["independentTest",testExtracted]]) {
     assert.equal(result.stats.skippedSentences,0,name+" sentence annotations must align completely");
   }
   const trainRows=trainExtracted.rows.filter(row=>row.upos&&row.lemma);
   const validationRows=validationExtracted.rows.filter(row=>row.upos&&row.lemma);
+  const oovValidationRows=oovValidationExtracted.rows.filter(row=>row.upos&&row.lemma);
   const testRows=testExtracted.rows.filter(row=>row.upos&&row.lemma);
-  assert.ok(trainRows.length&&validationRows.length&&testRows.length);
+  assert.ok(trainRows.length&&validationRows.length&&oovValidationRows.length&&testRows.length);
 
   const uposSelected=chooseHead(
     Upos,
@@ -689,10 +714,10 @@ for(const seed of seeds) {
     testRows,outputVocabulary,uposSelected.head,featHeads,conditionedTraining.heads,ruleBank,trainLemmas
   );
   const rerankingTuning=tuneJointPosEvidenceLambda(
-    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas
+    oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas
   );
   const rerankedValidation=evaluateJointPosEvidence(
-    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     rerankingTuning.constrainedLambda
   );
   const rerankedTest=evaluateJointPosEvidence(
@@ -700,7 +725,7 @@ for(const seed of seeds) {
     rerankingTuning.constrainedLambda
   );
   const unconstrainedValidation=evaluateJointPosEvidence(
-    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     rerankingTuning.unconstrainedLambda
   );
   const unconstrainedTest=evaluateJointPosEvidence(
@@ -708,7 +733,7 @@ for(const seed of seeds) {
     rerankingTuning.unconstrainedLambda
   );
   const posSpecificTuning=tunePosSpecificJointPosEvidenceLambda(
-    validationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     rerankingTuning
   );
   const posSpecificValidation=posSpecificTuning.validation;
@@ -716,11 +741,11 @@ for(const seed of seeds) {
     testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     posSpecificTuning.lambdaByUpos
   );
-  assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on internal OOV validation targets");
+  assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on reserved external OOV validation targets");
   assert.ok(rerankedValidation.uposAccuracy>=rerankingTuning.baselineValidationUposAccuracy-
     rerankingTuning.maximumUposAccuracyDrop-1e-12,
     "constrained lambda must respect the validation UPOS accuracy guardrail");
-  assert.ok(posSpecificValidation.targets>0,"POS-specific calibration must tune on validation OOV targets");
+  assert.ok(posSpecificValidation.targets>0,"POS-specific calibration must tune on reserved external OOV validation targets");
   assert.ok(posSpecificValidation.uposAccuracy>=posSpecificTuning.globalBaselineValidationUposAccuracy-
     posSpecificTuning.maximumUposAccuracyDrop-1e-12,
     "POS-specific calibration must respect the global validation UPOS guardrail");
@@ -859,13 +884,13 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.128",
+  version:"0.58.129",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,independentTestSentences:240,contextualModelVocabularyCapacity:vocabularyLimit,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,contextualModelVocabularyCapacity:vocabularyLimit,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
@@ -914,4 +939,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.127 POS-specific UPOS-evidence calibration pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.129 paired training-scale OOV-calibrated pipeline: "+JSON.stringify(report));
