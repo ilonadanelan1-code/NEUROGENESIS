@@ -38,7 +38,11 @@ const seeds = [
 ];
 const variants = {
   unweighted:{classWeighting:"none",selectionMetric:"macro_f1"},
-  sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"}
+  sqrtInverse:{classWeighting:"sqrt_inverse",selectionMetric:"macro_f1"},
+  sqrtInverseCapped:{
+    classWeighting:"sqrt_inverse_capped",minClassWeight:0.75,maxClassWeight:1.5,
+    selectionMetric:"macro_f1"
+  }
 };
 assert.equal(new Set(Object.values(variants).map(row=>row.selectionMetric)).size,1,
   "FEATS weighting variants must use the same validation checkpoint-selection metric");
