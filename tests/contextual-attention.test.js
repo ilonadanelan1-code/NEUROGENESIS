@@ -114,9 +114,9 @@ assert.equal(weightedReport.classWeighting,"inverse_capped");
 assert.ok(Math.abs(weightedReport.meanTargetClassWeight-1)<1e-9,
  "target weights must be normalized to mean one over training examples");
 assert.ok(weightedReport.targetWeightByFrequency["1"].meanWeight>
- weightedReport.targetWeightByFrequency["10+"].meanWeight,
- "single-example target classes must receive higher weight than frequent classes");
-assert.ok(weightedReport.targetWeightByFrequency["10+"].meanWeight>0);
+ weightedReport.targetWeightByFrequency["2-4"].meanWeight,
+ "single-example target classes must receive higher weight than 2-4-example classes");
+assert.ok(weightedReport.targetWeightByFrequency["2-4"].meanWeight>0);
 const secondModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
 const secondReport=secondModel.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
 assert.ok(secondReport.trainingSteps>0&&secondModel.status().trained);
