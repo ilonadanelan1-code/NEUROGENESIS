@@ -27,6 +27,8 @@
     "им": { genders:["plural"], number:"plural", grammaticalCase:"dative_or_instrumental" },
     "ними": { genders:["plural"], number:"plural", grammaticalCase:"instrumental" },
     "ним": { genders:["masculine","neuter"], number:"singular", grammaticalCase:"instrumental" },
+    "нем": { genders:["masculine","neuter"], number:"singular", grammaticalCase:"prepositional" },
+    "нём": { genders:["masculine","neuter"], number:"singular", grammaticalCase:"prepositional" },
     "нею": { genders:["feminine"], number:"singular", grammaticalCase:"instrumental" },
     "ею": { genders:["feminine"], number:"singular", grammaticalCase:"instrumental" }
   });
@@ -38,7 +40,7 @@
     "миша","леша","паша","женя","валера","юра","фома","саша"]);
   const COMMON_FUNCTION = new Set(["это","этот","эта","эти","тот","та","те","такой","такая",
     "такое","такие","который","которая","которое","которые","я","ты","вы","мы","он","она",
-    "оно","они","его","ее","её","их","ему","ей","им","ним","ней","ними","нею","ею"]);
+    "оно","они","его","ее","её","их","ему","ей","им","ним","нем","нём","ней","ними","нею","ею"]);
 
   function detectMention(value) {
     const text = clean(value, 500);
@@ -53,7 +55,7 @@
       // "его/её/их + noun" is usually possessive, not a standalone anaphoric argument.
       const possessiveNextLooksNominal = /(?:а|я|о|е|ё|ы|и|у|ю|ом|ем|ой|ей|ого|его|ому|ему|ую|ый|ий|ая|ое|ые|ых|ыми|ами|ями|ь)$/iu.test(next);
       const nextIsAdverb = /^(?:вчера|сегодня|завтра|потом|сейчас|тогда|позже|недавно|уже|ещ[её]|снова|здесь|там|рядом|быстро|медленно|сразу)$/iu.test(next);
-      const nextLooksVerb = /^(?:видел|видела|видели|знаю|знает|знают|встретил|встретила|встретили|помнит|помнят|обнаружил|обнаружила|обнаружили|получил|получила|получили|сказал|сказала|сказали|сделал|сделала|сделали|работает|работают|активируется|активируются|пришёл|пришла|пришли|ушёл|ушла|ушли|был|была|были|стал|стала|стали)$/iu.test(next);
+      const nextLooksVerb = /^(?:видел|видела|видели|знаю|знает|знают|встретил|встретила|встретили|помнит|помнят|обнаружил|обнаружила|обнаружили|получил|получила|получили|сказал|сказала|сказали|сделал|сделала|сделали|работает|работают|активируется|активируются|пришёл|пришла|пришли|ушёл|ушла|ушли|был|была|были|стал|стала|стали|нашли|ударили|собрали|пригласили|запустили|включили|закрыли|открыли|увидели|слышали|позвали|проверили|обсудили|выбрали|связали|отправили|оставили|передали|сохранили|записали|удалили|потеряли|показали|говорили|объяснили)$/iu.test(next);
       if (["его","ее","её","их"].includes(word) && possessiveNextLooksNominal &&
           !nextIsAdverb && !nextLooksVerb) return null;
       const prepositional = PREPOSITIONS.has(previous) ? previous : "";
