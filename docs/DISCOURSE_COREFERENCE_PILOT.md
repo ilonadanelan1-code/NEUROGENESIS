@@ -71,7 +71,7 @@ The benchmark compares:
 - a nearest-compatible-mention baseline (recency, with ties abstaining); this is a simple comparator, not a claim that the existing application already performs cross-turn entity linking;
 - the experimental agreement + case/role + salience + recency ranker with score/margin abstention.
 
-The 24 benchmark cases provide explicit candidate records, so these metrics evaluate ranking and abstention given candidate mentions. Candidate extraction from real active-thread messages is covered separately by unit/integration tests; parser candidate recall is not measured by the 24-case score. Coverage is the fraction of diagnostic queries linked by the ranker, not end-to-end mention-detection coverage. Metrics are exact accuracy, link precision/recall/F1, coverage, false-link rate and correct-abstention rate, with slices by diagnostic category. These figures measure only this curated diagnostic set; they must not be presented as corpus-level Russian coreference performance.
+The 26 benchmark cases provide explicit candidate records, so these metrics evaluate ranking and abstention given candidate mentions. Candidate extraction from real active-thread messages is covered separately by unit/integration tests; parser candidate recall is not measured by the 26-case score. Coverage is the fraction of diagnostic queries linked by the ranker, not end-to-end mention-detection coverage. Metrics are exact accuracy, link precision/recall/F1, coverage, false-link rate and correct-abstention rate, with slices by diagnostic category. These figures measure only this curated diagnostic set; they must not be presented as corpus-level Russian coreference performance.
 
 ## Diagnostic results (26 hand-authored cases)
 
