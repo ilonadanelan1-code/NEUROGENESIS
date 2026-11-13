@@ -72,7 +72,7 @@ function parseWordFile(file, model) {
     const targetIndex = model.tokenize(before).length;
     if (targetTokens.length !== 1 || tokens[targetIndex] !== targetTokens[0]) continue;
     rows.push({
-      lemma, sense: label, text, targetIndex, targetForm: targetTokens[0],
+      lemma, sense: label, text, targetIndex, targetForm: targetTokens[0], pos: "NOUN",
       normalizedSentence: tokens.join(" ")
     });
   }
