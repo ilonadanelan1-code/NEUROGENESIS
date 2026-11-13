@@ -430,7 +430,7 @@ if (!trainPath && !testPath) {
   const shuffleRobustness = {
     repeatsPerModelSeed: 3,
     aggregate: {
-      targets: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
       frequencyBuckets: createFrequencyBuckets()
     },
     perSeed: []
@@ -495,6 +495,11 @@ if (!trainPath && !testPath) {
           }
         }
       }
+      assert.equal(metrics.total, fixed.metrics.targets,
+        "each shuffle repeat must evaluate the exact same independent target count");
+      assert.equal(metrics.known,
+        Math.round(fixed.metrics.targets * fixed.metrics.knownTargetCoverage),
+        "each shuffle repeat must preserve target vocabulary coverage");
       for (const key of ["total", "known", "exact", "morphologyCovered", "morphologyCorrect"]) {
         shuffleRobustness.aggregate[key] += metrics[key];
       }
