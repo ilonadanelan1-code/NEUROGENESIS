@@ -26,7 +26,9 @@ This pilot tests one narrow fix: build a bounded candidate set from the existing
 5. **RuCoCo-2023 shared task.** The organizer repository documents a JSON format with character-offset mention spans grouped into entity chains, separate includes for split antecedents, and LEA scoring. Its README reports about one million train/dev words. The GitHub repository exposes train.zip, test_public.zip and test_private.zip, but neither the repository metadata nor README identifies a dataset license. The older annotation-materials repository also has no GitHub license metadata. Public download is not the same as a verified reuse/redistribution license; this pilot therefore does not download, copy, train on, or redistribute RuCoCo data.  
    https://github.com/dialogue-evaluation/RuCoCo-2023  
    https://github.com/vdobrovolskii/rucoco  
-   Competition page: https://dialogue-conf.org/evaluation/rucoco-2023/
+   Competition page: https://codalab.lisn.upsaclay.fr/competitions/10273  
+   RusConTextBench: https://huggingface.co/datasets/askatasuna/RusConTextBench  
+   Ru-RSTreebank: https://rstreebank.ru/
 
 6. **Russian lightweight baseline.** Chistova & Smirnov (2023), “Light Coreference Resolution for Russian with Hierarchical Discourse Features,” is relevant because it adds discourse structure to Russian coreference. Its reported RuCoCo shared-task setting is more appropriate than simply importing an English-only resolver, but the published model is still a learned system and cannot be assumed to transfer to this project's parser without its data and dependencies.  
    https://arxiv.org/abs/2306.01465
@@ -65,7 +67,7 @@ The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFE
 
 ## Data and evaluation
 
-RuCoCo is not used because its dataset reuse license could not be verified from the official repository metadata/readme. The added 26-case contrast set is hand-authored and explicitly diagnostic, not a representative corpus. It covers agreement, semantic-role/case conflicts, long-distance candidates, topic boundaries, ambiguity and missing antecedents. It is not used for training and has no train/test split.
+RuCoCo is not used in this pilot. The original `vdobrovolskii/rucoco` repository links to downloadable releases, but its GitHub license metadata is null and it contains work materials rather than a clear dataset licence statement. The `dialogue-evaluation/RuCoCo-2023` README displays a CC-BY-NC-4.0 badge and provides train/dev plus public/private test archives, but the repository API has no recognized license metadata and the repository has no standalone LICENSE file; the badge scope over annotations versus underlying news text is not explicit enough for this project to redistribute or rely on without clarification. The related RusConTextBench card lists 500 anaphora and 300 noun-phrase coreference examples sourced from RuCoCo, plus 2,738 discourse-relation examples from RuDABank and Russian DISRPT, but its Hugging Face dataset viewer currently fails schema conversion and the card does not surface a dataset license. Ru-RSTreebank is a relevant discourse resource (333 texts, about 328,000 tokens) for rhetorical relations, but it is not a gold entity-coreference corpus and its landing page does not identify a reuse license. The historic RuCor download site was not accessible during this audit, so its current availability and terms could not be verified. None of these resources is copied into this PR. The added 26-case contrast set is hand-authored and explicitly diagnostic, not a representative corpus. It covers agreement, semantic-role/case conflicts, long-distance candidates, topic boundaries, ambiguity and missing antecedents. It is not used for training and has no train/test split.
 
 The benchmark compares:
 - a nearest-compatible-mention baseline (recency, with ties abstaining); this is a simple comparator, not a claim that the existing application already performs cross-turn entity linking;
@@ -75,7 +77,7 @@ The 26 benchmark cases provide explicit candidate records, so these metrics eval
 
 ## Diagnostic results (26 hand-authored cases)
 
-The complete 26-case benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training. It includes contrast cases for negation and causal connectives; later commits after this run changed only a unit-test assertion and documentation.
+The complete 26-case benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training. It includes contrast cases for negation and causal connectives. Subsequent commits expanded the semantic-query integration to recognize all supported personal-pronoun forms (including dative and prepositional/instrumental forms); the diagnostic benchmark and its scoring logic were unchanged.
 
 | Metric | Nearest-compatible baseline | Experimental ranker | Change |
 |---|---:|---:|---:|
