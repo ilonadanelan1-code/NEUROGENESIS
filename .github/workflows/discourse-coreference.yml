@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - experiment/night-discourse-coreference-2026-11-13-c9
     paths:
       - "discourse-coreference.js"
       - "semantic-core.js"
@@ -15,6 +16,7 @@ on:
   push:
     branches:
       - experiment/night-discourse-coreference-2026-11-13-c9
+      - experiment/event-reference-2026-11-13
     paths:
       - "discourse-coreference.js"
       - "semantic-core.js"
