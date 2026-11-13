@@ -63,7 +63,7 @@ discourse-coreference.js is a bounded, rule-scored antecedent ranker. It reuses 
 
 The resolver returns resolved, ambiguous, unresolved or not_applicable, along with candidate scores, reason codes, confidence and provenance. It refuses to choose when the score or top-candidate margin is insufficient. A topic ID filter prevents linking to an entity from another thread.
 
-The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFERENCE_EXPERIMENT === true; default runtime behavior remains unchanged. Resolutions are labeled context_candidate, not verified facts. The module explicitly reports memoryEffect: "none" and never writes to long-term memory. Repeated identical surface forms are grouped only within the bounded active-thread window; this is not persistent real-world identity resolution and can conflate homonyms.
+The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFERENCE_EXPERIMENT === true; default runtime behavior remains unchanged. When the LLM-backed query planner succeeds, `memory.js` merges the local link into the model plan only if both planners classify the message as `follow_up` and the local ranker resolves one antecedent. Otherwise the model plan is not semantically overwritten; local ambiguity/unresolved provenance can remain visible. Resolutions are labeled `context_candidate`, not verified facts. The module explicitly reports `memoryEffect: "none"` and never writes to long-term memory. Repeated identical surface forms are grouped only within the bounded active-thread window; this is not persistent real-world identity resolution and can conflate homonyms.
 
 ## Data and evaluation
 
