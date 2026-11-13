@@ -41,6 +41,9 @@ const variants = {
   sqrtInverseCapped: {
     classWeighting:"sqrt_inverse_capped",minClassWeight:0.75,maxClassWeight:1.5,
     selectionMetric:"macro_f1"
+  },
+  sqrtInverseTempered: {
+    classWeighting:"sqrt_inverse_tempered",selectionMetric:"macro_f1"
   }
 };
 assert.equal(new Set(Object.values(variants).map(row=>row.selectionMetric)).size,1,
