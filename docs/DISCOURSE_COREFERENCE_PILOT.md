@@ -130,3 +130,28 @@ The expected diagnostic outcome is 6/6 supported cross-turn pairs merged and 6/6
 ### Remaining limitations
 
 The canonicalization lexicon is finite and manually maintained. It does not cover arbitrary Russian inflections, adjective agreement, multiword aliases, coreference across synonyms, split antecedents or event references. The same-message collision guard does not detect two distinct same-lemma entities introduced in separate messages. Ambiguous forms remain unresolved by design. A licensed gold corpus and independent document-level evaluation (including LEA, MUC, B³ and CEAF) are still required before enabling the feature by default.
+
+
+## Follow-up experiment: 24-message thread window and explicit abstention
+
+### Audited limitation
+
+The production context builder already provides up to 24 messages from the selected thread (memory.js calls DIALOG_CONTEXT.history(..., 24)), while the initial discourse resolver truncated that supplied history to eight messages. As a result, the resolver discarded up to sixteen messages of available active-thread context before candidate extraction. Increasing the window without a safety test could also reintroduce old, competing antecedents.
+
+A second morphology safety issue was found during integration: semantic-core's general noun-ending heuristic can label unisex names such as «Саша» or «Женя» as feminine, while the discourse module already maintains an ambiguity list and specific masculine-name exceptions. The new integration had to preserve those local exceptions rather than blindly trusting the generic noun heuristic.
+
+### Engineering change
+
+The resolver now inspects up to 24 messages, matching the maximum thread history supplied by memory.js. The same thread filter is applied before extraction, so messages from another topic cannot enter the candidate set. Unknown gender or number is no longer treated as neutral evidence for a personal-pronoun link: a candidate with unknown morphology remains visible in extraction diagnostics but is excluded from automatic resolution. The local ambiguity list for «Саша» / «Женя» and masculine diminutive exceptions take precedence over generic suffix morphology.
+
+The experiment remains opt-in, thread-local and non-persistent. Extending the lookback does not alter the selected thread or promote a candidate to durable memory.
+
+### Paired distant-reference diagnostic
+
+tests/discourse-coreference-window.test.js loads an eight-message baseline and the 24-message experimental resolver from the same source, then runs the same 12 hand-authored cases. Six cases place one supported antecedent at distances 23–24 and fill the newer turns with incompatible entities; six cases present two equally plausible distant antecedents and require abstention. Additional checks cover ambiguous names («Саша», «Женя») and the known masculine exception «Петя».
+
+Expected controlled outcome: the 8-message baseline links 0/6 distant targets and correctly abstains on 6/6 ambiguous cases (6/12 exact decisions). The 24-message resolver links 6/6 distant targets, abstains on 6/6 ambiguous pairs, and makes 0/6 false links (12/12 exact decisions, +50.00 percentage points). Link precision and recall on the six positive pairs are 6/6 and 6/6; coverage rises from 0/12 to 6/12. Baseline false-link rate is undefined because it makes no links (0/0); experimental false-link rate is 0/6. The set is a small constructed diagnostic, not a representative corpus or evidence of general long-range coreference quality.
+
+### Remaining limitations
+
+The window is capped at 24 because that is the existing context-manager limit; the resolver does not search beyond retained thread history. If two equally plausible antecedents are close in score it abstains; when two distinct real-world entities share a known lemma but never co-occur in a message, the current identity cluster can still conflate them. Lexical morphology remains finite. Relative clauses, multiword aliases, synonyms, event references, split antecedents and richer causal/event chains need separate diagnostics. A licensed gold corpus and document-level evaluation (LEA, MUC, B³ and CEAF) remain necessary before enabling the experiment by default.

@@ -2,7 +2,7 @@
   "use strict";
 
   const SCHEMA = "NG_DISCOURSE_COREFERENCE_V1";
-  const MAX_MESSAGES = 8;
+  const MAX_MESSAGES = 24;
   const MAX_CANDIDATES = 64;
   const clean = (value, limit = 240) => String(value == null ? "" : value)
     .replace(/\s+/gu, " ").trim().slice(0, limit);
@@ -119,6 +119,8 @@
 
   function morphologyIdentity(value, features) {
     if (!features) return null;
+    const head = normalise(value).split(" ").pop() || "";
+    if (AMBIGUOUS_A_NAMES.has(head) || MASCULINE_A_NAMES.has(head)) return null;
     const gender = ["masculine","feminine","neuter","plural"].includes(features.gender)
       ? features.gender : "unknown";
     const number = ["singular","plural"].includes(features.number) ? features.number : "unknown";
@@ -137,6 +139,9 @@
   }
 
   function candidateFeatures(candidate) {
+    const head = normalise(candidate && candidate.text).split(" ").pop() || "";
+    if (AMBIGUOUS_A_NAMES.has(head)) return { gender:"unknown", number:"singular" };
+    if (MASCULINE_A_NAMES.has(head)) return { gender:"masculine", number:"singular" };
     const inferred = inferFeatures(candidate && candidate.text);
     const semanticFeaturesAreAuthoritative = candidate && candidate.featureSource === "semantic_core";
     let gender = candidate && ["masculine","feminine","neuter","plural"].includes(candidate.gender)
@@ -152,9 +157,11 @@
 
   function compatible(mention, candidate) {
     const features = candidateFeatures(candidate);
-    if (features.gender !== "unknown" && !mention.genders.includes(features.gender)) return false;
-    if (features.number !== "unknown" && features.number !== mention.number) return false;
-    return true;
+    // Unknown gender or number is not positive evidence for a gendered/numbered
+    // personal pronoun. Keep the candidate visible in diagnostics, but abstain.
+    if (features.gender === "unknown" || features.number === "unknown") return false;
+    if (!mention.genders.includes(features.gender)) return false;
+    return features.number === mention.number;
   }
 
   function scoreCandidate(mention, candidate) {
@@ -289,12 +296,16 @@
           if (!key || COMMON_FUNCTION.has(key) || PRONOUNS[key] || key.split(" ").some(token=>COMMON_FUNCTION.has(token))) return;
           const parserFeatures = semanticMorphology(text,syntacticRole,grammaticalCase,core);
           const identity = morphologyIdentity(text,parserFeatures);
+          const nameHead = normalise(text).split(" ").pop() || "";
           const inferred = parserFeatures
             ? {
-                gender:["masculine","feminine","neuter","plural"].includes(parserFeatures.gender)
-                  ? parserFeatures.gender : "unknown",
-                number:["singular","plural"].includes(parserFeatures.number)
-                  ? parserFeatures.number : "unknown"
+                gender:AMBIGUOUS_A_NAMES.has(nameHead) ? "unknown"
+                  : MASCULINE_A_NAMES.has(nameHead) ? "masculine"
+                  : ["masculine","feminine","neuter","plural"].includes(parserFeatures.gender)
+                    ? parserFeatures.gender : "unknown",
+                number:AMBIGUOUS_A_NAMES.has(nameHead) || MASCULINE_A_NAMES.has(nameHead) ? "singular"
+                  : ["singular","plural"].includes(parserFeatures.number)
+                    ? parserFeatures.number : "unknown"
               }
             : inferFeatures(text);
           const argumentRole = clean(semanticRole,32)||syntacticRole;
