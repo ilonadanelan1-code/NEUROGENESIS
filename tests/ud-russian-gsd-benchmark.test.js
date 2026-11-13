@@ -147,7 +147,7 @@ if (!trainPath && !testPath) {
   const aggregateFrequencyBuckets = createFrequencyBuckets();
   const aggregate = {
     total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-    oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+    oov: 0, oovSeenInTraining: 0, oovNotSeenInTraining: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -202,7 +202,7 @@ if (!trainPath && !testPath) {
     const metrics = {
       frequencyBuckets: createFrequencyBuckets(),
       total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
-      oov: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+      oov: 0, oovSeenInTraining: 0, oovNotSeenInTraining: 0, evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
@@ -234,6 +234,8 @@ if (!trainPath && !testPath) {
         }
         if (score.targetKnown) continue;
         metrics.oov++;
+        if (trainingTokenFrequency.has(tokens[index])) metrics.oovSeenInTraining++;
+        else metrics.oovNotSeenInTraining++;
         if (!isOovEvaluationSample(sentence, index)) continue;
         metrics.evaluatedOov++;
         const strictPrediction = model.predictMasked(sentence, index);
@@ -693,9 +695,168 @@ if (!trainPath && !testPath) {
     }
   };
 
+  const vocabularyCapacityAggregate = {
+    total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+    oov: 0, oovSeenInTraining: 0, oovNotSeenInTraining: 0,
+    evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0
+  };
+  const vocabularyCapacitySeedReports = [];
+  for (const seed of seeds) {
+    const model = Attention.create({
+      dimension: 12, windowSize: 4, heads: 3, blocks: 2,
+      seed: seed.model, vocabularyLimit: 4096
+    });
+    const training = model.train(prepared.trainingTexts, {
+      epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split
+    });
+    const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
+    assert.equal(trainingSplit.train.length, training.trainRows,
+      "expanded-capacity diagnostics must use the exact same training partition");
+    const trainingTokenFrequency = new Map();
+    for (const row of trainingSplit.train) {
+      for (const token of Attention.tokenize(row)) {
+        trainingTokenFrequency.set(token, (trainingTokenFrequency.get(token) || 0) + 1);
+      }
+    }
+    const vocabulary = new Set(model.exportState().vocabulary);
+    assert.equal(training.vocabularyLimit, 4096);
+    assert.equal(training.vocabularySize, trainingTokenFrequency.size,
+      "the 4,096-capacity arm must retain every type from its exact training partition");
+    assert.ok(Array.from(vocabulary).every(token => trainingTokenFrequency.has(token)),
+      "expanded vocabulary must not include validation- or test-only tokens");
+    const metrics = {
+      total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      oov: 0, oovSeenInTraining: 0, oovNotSeenInTraining: 0,
+      evaluatedOov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0
+    };
+    for (const sentence of prepared.testTexts) {
+      const tokens = Attention.tokenize(sentence);
+      for (let index = 0; index < tokens.length; index++) {
+        metrics.total++;
+        const score = model.score(sentence, index);
+        if (!score) continue;
+        if (score.targetKnown) {
+          metrics.known++;
+          if (score.predictions[0]?.token === tokens[index]) metrics.exact++;
+        } else {
+          metrics.oov++;
+          if (trainingTokenFrequency.has(tokens[index])) metrics.oovSeenInTraining++;
+          else metrics.oovNotSeenInTraining++;
+          if (!isOovEvaluationSample(sentence, index)) continue;
+          metrics.evaluatedOov++;
+          const prediction = model.predictMasked(sentence, index);
+          if (prediction?.generatedPrediction) {
+            metrics.generatedCovered++;
+            if (prediction.generatedPrediction.surface === tokens[index]) metrics.generatedCorrect++;
+          }
+          if (prediction?.generatedCandidates?.some(row => row.surface === tokens[index])) {
+            metrics.generatedCandidateHits++;
+          }
+        }
+        if (score.morphologyKnown) {
+          metrics.morphologyCovered++;
+          if (score.morphologyCorrect) metrics.morphologyCorrect++;
+        }
+      }
+    }
+    for (const key of Object.keys(vocabularyCapacityAggregate)) {
+      vocabularyCapacityAggregate[key] += metrics[key] || 0;
+    }
+    vocabularyCapacitySeedReports.push({
+      modelSeed: seed.model,
+      splitSeed: seed.split,
+      training: {
+        trainRows: training.trainRows,
+        vocabularySize: training.vocabularySize,
+        vocabularyLimit: training.vocabularyLimit,
+        trainingTypes: training.vocabularySelection.candidateTypes,
+        trainingContextExamples: model.status().trainingContextExamples,
+        epochs: training.epochs,
+        sameModelAndSplitSeedsAsControl: true
+      },
+      metrics: {
+        targets: metrics.total,
+        knownTargetCoverage: ratio(metrics.known, metrics.total),
+        exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+        allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
+        morphology: {
+          correct: metrics.morphologyCorrect,
+          covered: metrics.morphologyCovered,
+          accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered),
+          coverage: ratio(metrics.morphologyCovered, metrics.total)
+        },
+        oovVocabularyDiagnostics: {
+          total: metrics.oov,
+          seenInTrainingButExcludedByCapacity: metrics.oovSeenInTraining,
+          notSeenInTraining: metrics.oovNotSeenInTraining
+        },
+        oovGeneration: {
+          correct: metrics.generatedCorrect,
+          covered: metrics.generatedCovered,
+          evaluatedTargets: metrics.evaluatedOov,
+          accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
+          coverage: ratio(metrics.generatedCovered, metrics.evaluatedOov),
+          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.evaluatedOov)
+        }
+      }
+    });
+  }
+  const vocabularyCapacityMetrics = {
+    targets: vocabularyCapacityAggregate.total,
+    knownTargetCoverage: ratio(vocabularyCapacityAggregate.known, vocabularyCapacityAggregate.total),
+    exactKnownTargetAccuracy: ratio(vocabularyCapacityAggregate.exact, vocabularyCapacityAggregate.known),
+    allTargetExactAccuracy: ratio(vocabularyCapacityAggregate.exact, vocabularyCapacityAggregate.total),
+    morphology: {
+      correct: vocabularyCapacityAggregate.morphologyCorrect,
+      covered: vocabularyCapacityAggregate.morphologyCovered,
+      accuracy: ratio(vocabularyCapacityAggregate.morphologyCorrect, vocabularyCapacityAggregate.morphologyCovered),
+      coverage: ratio(vocabularyCapacityAggregate.morphologyCovered, vocabularyCapacityAggregate.total)
+    },
+    oovVocabularyDiagnostics: {
+      total: vocabularyCapacityAggregate.oov,
+      seenInTrainingButExcludedByCapacity: vocabularyCapacityAggregate.oovSeenInTraining,
+      notSeenInTraining: vocabularyCapacityAggregate.oovNotSeenInTraining,
+      seenInTrainingShareOfOov: ratio(vocabularyCapacityAggregate.oovSeenInTraining, vocabularyCapacityAggregate.oov)
+    },
+    oovGeneration: {
+      correct: vocabularyCapacityAggregate.generatedCorrect,
+      covered: vocabularyCapacityAggregate.generatedCovered,
+      evaluatedTargets: vocabularyCapacityAggregate.evaluatedOov,
+      accuracy: ratio(vocabularyCapacityAggregate.generatedCorrect, vocabularyCapacityAggregate.generatedCovered),
+      coverage: ratio(vocabularyCapacityAggregate.generatedCovered, vocabularyCapacityAggregate.evaluatedOov),
+      candidateRecallAt8: ratio(vocabularyCapacityAggregate.generatedCandidateHits, vocabularyCapacityAggregate.evaluatedOov)
+    }
+  };
+  const vocabularyCapacityExperiment = {
+    control: {
+      vocabularyLimit: 1024,
+      metrics: baselineMetrics,
+      oovVocabularyDiagnostics: {
+        total: aggregate.oov,
+        seenInTrainingButExcludedByCapacity: aggregate.oovSeenInTraining,
+        notSeenInTraining: aggregate.oovNotSeenInTraining,
+        seenInTrainingShareOfOov: ratio(aggregate.oovSeenInTraining, aggregate.oov)
+      }
+    },
+    experiment: {vocabularyLimit: 4096, metrics: vocabularyCapacityMetrics},
+    sameModelSeedsCorpusSplitHyperparametersAndDefaultStrategy: true,
+    onlyChangedVariable: "maximum retained vocabulary capacity",
+    deltasPercentagePoints: {
+      knownTargetCoverage: percentagePointDelta(vocabularyCapacityMetrics.knownTargetCoverage, baselineMetrics.knownTargetCoverage),
+      exactKnownTargetAccuracy: percentagePointDelta(vocabularyCapacityMetrics.exactKnownTargetAccuracy, baselineMetrics.exactKnownTargetAccuracy),
+      allTargetExactAccuracy: percentagePointDelta(vocabularyCapacityMetrics.allTargetExactAccuracy, baselineMetrics.allTargetExactAccuracy),
+      morphologyAccuracy: percentagePointDelta(vocabularyCapacityMetrics.morphology.accuracy, baselineMetrics.morphology.accuracy),
+      morphologyCoverage: percentagePointDelta(vocabularyCapacityMetrics.morphology.coverage, baselineMetrics.morphology.coverage),
+      oovGenerationAccuracy: percentagePointDelta(vocabularyCapacityMetrics.oovGeneration.accuracy, baselineMetrics.oovGeneration.accuracy),
+      oovGenerationCoverage: percentagePointDelta(vocabularyCapacityMetrics.oovGeneration.coverage, baselineMetrics.oovGeneration.coverage),
+      oovGenerationCandidateRecallAt8: percentagePointDelta(vocabularyCapacityMetrics.oovGeneration.candidateRecallAt8, baselineMetrics.oovGeneration.candidateRecallAt8)
+    },
+    seeds: vocabularyCapacitySeedReports
+  };
+
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
-    version: "0.58.111",
+    version: "0.58.112",
     source: {
       treebank: "UD_Russian-GSD",
       release: "r2.18",
@@ -748,6 +909,11 @@ if (!trainPath && !testPath) {
           accuracy: ratio(aggregate.strictSurfaceCorrect, aggregate.strictSurfaceCovered)
         },
         contextMorphologyBackoffUses: aggregate.contextBackoffs,
+        oovVocabularyDiagnostics: {
+          seenInTrainingButExcludedByCapacity: aggregate.oovSeenInTraining,
+          notSeenInTraining: aggregate.oovNotSeenInTraining,
+          seenInTrainingShareOfOov: ratio(aggregate.oovSeenInTraining, aggregate.oov)
+        },
         oovMorphologyDiagnostics: {
           pluralHintTargets: aggregate.oovPluralHintTargets,
           knownBaseCandidateTargets: aggregate.oovPluralKnownBaseTargets,
@@ -760,6 +926,7 @@ if (!trainPath && !testPath) {
       }
     },
     contextRetrievalScoringExperiment,
+    vocabularyCapacityExperiment,
     seeds: seedReports,
     vocabularySelectionExperiment: {
       control: {strategy: "first_seen", metrics: baselineMetrics},
