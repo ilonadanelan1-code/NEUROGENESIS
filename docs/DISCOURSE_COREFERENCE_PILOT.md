@@ -53,7 +53,7 @@ This pilot tests one narrow fix: build a bounded candidate set from the existing
 
 ## Engineering decision
 
-discourse-coreference.js is a bounded, rule-scored antecedent ranker. It reuses NGSemanticCore.analyse() to obtain existing subject/object and semantic argument candidates from the last eight messages in the active thread. It scores:
+discourse-coreference.js is a bounded, rule-scored antecedent ranker. It reuses NGSemanticCore.analyse() to obtain existing subject/object and semantic argument candidates from the last eight messages in the active thread. The query context supplies up to 24 messages from that thread (rather than relying only on the globally last eight messages), so a recent exchange in another thread does not erase the active thread's bounded antecedent window. It scores:
 
 - gender and number agreement (hard incompatibilities are excluded);
 - pronoun case and semantic argument compatibility (e.g. dative → recipient/beneficiary; instrumental → instrument/agent);
