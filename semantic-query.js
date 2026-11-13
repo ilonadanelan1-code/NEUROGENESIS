@@ -108,21 +108,9 @@ function local(input,context={},knowledge=null){
   typeof DISCOURSE_COREFERENCE.resolveFromHistory==="function"
   ?DISCOURSE_COREFERENCE.resolveFromHistory(query,recent,CORE,{topicId:id}):null;
  if(frame&&discourseResolution&&discourseResolution.status!=="not_applicable"){
+  // Keep the local antecedent as advisory provenance. Only the model-plan merge
+  // below may apply it, and only when both planners agree this is a follow-up.
   frame.discourseEntityResolution=discourseResolution;
-  if(discourseExperimentEnabled&&discourseResolution.status==="resolved"&&discourseResolution.antecedent){
-   const antecedent=discourseResolution.antecedent;
-   const mentionRole=discourseResolution.mention&&discourseResolution.mention.syntacticRole==="subject"?"subject":"object";
-   if(mentionRole==="subject")frame.subject={text:antecedent.text,certainty:"context_candidate"};
-   if(frame.proposition&&CORE&&typeof CORE.validateProposition==="function"){
-    const updated=CORE.validateProposition({...frame.proposition,[mentionRole]:antecedent.text},frame.proposition);
-    updated.crossTurnReference=discourseResolution;
-    frame.proposition=updated;
-   }
-   const entities=Array.isArray(frame.entities)?frame.entities:[];
-   frame.entities=[{text:antecedent.text,role:mentionRole,certainty:"context_candidate"},
-    ...entities.filter(item=>normalise(item&&item.text,knowledge)!==normalise(antecedent.text,knowledge))].slice(0,8);
-   frame.discourse={...(frame.discourse||{}),resolvedFrom:antecedent.text};
-  }
  }
  const expanded=[...synonymExpansion(canonical,knowledge),...synonymExpansion(query,knowledge)];
  const contextualModel=window.NGContextualAttention&&typeof window.NGContextualAttention.analyse==="function"?window.NGContextualAttention:null;
@@ -158,8 +146,7 @@ function local(input,context={},knowledge=null){
   frame.propositionChain.sourceText=originalText;
   frame.propositionChain.advisorySignals=advisorySignals;
  }
- const discourseSearchHint=discourseExperimentEnabled&&discourseResolution&&discourseResolution.status==="resolved"&&
-  discourseResolution.antecedent?clean(discourseResolution.antecedent.text+" "+query,300):"";
+ const discourseSearchHint="";
  const search=[...new Set([canonical,query,discourseSearchHint,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
@@ -180,10 +167,8 @@ function mergeLocalDiscourseResolution(interpreted, localPlan) {
     local.contextRelation!=="follow_up"||plan.contextRelation!=="follow_up")return annotated;
  const antecedent=resolution.antecedent;
  const role=resolution.mention&&resolution.mention.syntacticRole==="subject"?"subject":"object";
- const localFrame=local.semanticFrame&&typeof local.semanticFrame==="object"?local.semanticFrame:{};
- const localProposition=localFrame.proposition&&typeof localFrame.proposition==="object"?localFrame.proposition:{};
  const modelProposition=sourceFrame.proposition&&typeof sourceFrame.proposition==="object"?sourceFrame.proposition:{};
- const proposition={...modelProposition,[role]:localProposition[role]||antecedent.text,crossTurnReference:resolution};
+ const proposition={...modelProposition,[role]:antecedent.text,crossTurnReference:resolution};
  const entities=Array.isArray(sourceFrame.entities)?sourceFrame.entities.slice():[];
  if(!entities.some(item=>normalise(item&&item.text)===normalise(antecedent.text))){
   entities.unshift({text:antecedent.text,role,certainty:"context_candidate"});
