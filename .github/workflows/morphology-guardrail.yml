@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - experiment/upos-evidence-guardrail-2026-11-14
+      - experiment/upos-pos-specific-calibration-2026-11-14
   workflow_dispatch:
 
 permissions:
@@ -47,7 +48,7 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Benchmark constrained UPOS evidence on independent UD Russian-GSD
+      - name: Benchmark POS-specific UPOS evidence calibration on independent UD Russian-GSD
         run: |
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
