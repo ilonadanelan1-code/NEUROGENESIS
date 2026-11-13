@@ -2,6 +2,7 @@
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const vm=require("node:vm");
+const memorySource=fs.readFileSync("memory.js","utf8");
 const window={};
 const sandbox={window,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
 for(const file of ["semantic-core.js","discourse-coreference.js","semantic-query.js"]){
@@ -103,7 +104,6 @@ assert.equal(conflictingModelPlan.semanticFrame.subject.text,"он",
 assert.equal(conflictingModelPlan.discourseResolution.status,"resolved",
  "the local candidate may remain visible as provenance without being applied");
 
-const memorySource=fs.readFileSync("memory.js","utf8");
 assert.match(memorySource,/mergeLocalDiscourseResolution\(interpreted,\s*localPlan\)/,
  "the production LLM interpretation path must explicitly merge opt-in local discourse provenance");
 
