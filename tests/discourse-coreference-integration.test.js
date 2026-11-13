@@ -38,6 +38,20 @@ assert.ok(enabled.semanticFrame.discourseEntityResolution,
  "the resolution and its provenance should remain attached to the local semantic frame");
 assert.equal(enabled.semanticFrame.discourseEntityResolution.provenance.memoryEffect,"none");
 assert.equal(enabled.discourseResolution.status,"resolved");
+
+const resumedThreadContext={
+ ...context,
+ recentMessages:[{threadId:"T2",role:"user",text:"Новая тема не должна перехватить старую."}],
+ threadHistory:context.recentMessages
+};
+const resumedThreadPlan=planner.local("Он снова ответил.",resumedThreadContext,null);
+assert.equal(resumedThreadPlan.contextRelation,"follow_up");
+assert.equal(resumedThreadPlan.discourseResolution.status,"resolved");
+assert.equal(resumedThreadPlan.discourseResolution.antecedent.text,"сигнал",
+ "the resolver must use active-thread history even when globally recent messages belong to another topic");
+
+assert.match(memorySource,/DIALOG_CONTEXT\.history\(dialogContext,\s*report\.activeThread\.id,\s*24\)/,
+ "the production context builder must provide bounded per-thread history, not only the globally recent eight messages");
 assert.ok(enabled.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),
  "an explicitly enabled high-confidence link may add a retrieval hint");
 assert.equal(enabled.semanticFrame.subject.text,"сигнал",
