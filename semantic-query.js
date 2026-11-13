@@ -81,9 +81,10 @@ function local(input,context={},knowledge=null){
  const recent=Array.isArray(context&&context.recentMessages)?context.recentMessages.filter(r=>r&&r.threadId===id).slice(-8):[];
  const resolution=context&&context.resolution||null,normalized=normalise(query);
  const contextFocus=context&&context.focus||resolution&&resolution.context&&resolution.context.focus||null;
- const referential=/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
+ const detectedDiscourseMention=DISCOURSE_COREFERENCE&&typeof DISCOURSE_COREFERENCE.detectMention==="function"?DISCOURSE_COREFERENCE.detectMention(query):null;
+ const referential=!!detectedDiscourseMention||/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
  const interrogative=/^(?:(?:а|и|ну|так|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|есть\s+ли)(?=\s|$)/iu.test(query)||/[?？]\s*$/u.test(query);
- const words=tokens(query,knowledge),hasPronoun=/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
+ const words=tokens(query,knowledge),hasPronoun=!!detectedDiscourseMention||/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
  const definitionQuestion=/^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|где\s+находится|как\s+называется)\b/iu.test(query);
  const namedObject=/\bу\s+(?!него|неё|нее|них)\p{L}/iu.test(query)&&words.length>=1;
  const colloquialFollowUp=/^(?:а|и|ну|так|но)\s+(?:почему|зачем|как|сколько|кольк[\p{L}]*|что|где)\b/iu.test(query);
