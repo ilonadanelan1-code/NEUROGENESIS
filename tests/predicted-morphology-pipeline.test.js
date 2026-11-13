@@ -219,11 +219,66 @@ function mergeCounter(target,source) {
 }
 function ratio(n,d){return d?n/d:null;}
 
-function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,ruleBank,trainLemmas) {
+
+function constantFeatureHead(label) {
+  return Object.freeze({predict(){return {label,confidence:1,probabilities:[{label,probability:1}]};}});
+}
+function fitPosConditionedFeats(trainRows,validationRows,globalHeads,seed) {
+  const heads=Object.create(null),byUpos=Object.create(null);
+  const summary={minimumTrainingExamples:24,minimumSupportedValidationExamples:6,trainedHeads:0,constantHeads:0,globalFallbackHeads:0,upos:{}};
+  const tags=[...new Set(trainRows.map(row=>row.upos).filter(Boolean))].sort();
+  for(const tag of tags) {
+    heads[tag]=Object.create(null);byUpos[tag]=Object.create(null);
+    const trainForPos=trainRows.filter(row=>row.upos===tag),validationForPos=validationRows.filter(row=>row.upos===tag);
+    for(const attribute of attributes) {
+      const trainExamples=headRows(trainForPos,row=>cleanFeatureValue(row.feats[attribute]));
+      const validationExamples=headRows(validationForPos,row=>cleanFeatureValue(row.feats[attribute]));
+      const labels=[...new Set(trainExamples.map(row=>row.label))].sort();
+      if(trainExamples.length>=summary.minimumTrainingExamples&&labels.length===1) {
+        heads[tag][attribute]=constantFeatureHead(labels[0]);
+        byUpos[tag][attribute]={method:"constant",trainingExamples:trainExamples.length,validationExamples:validationExamples.length,classes:labels};
+        summary.constantHeads++;
+      } else {
+        const knownLabels=new Set(labels),supportedValidation=validationExamples.filter(row=>knownLabels.has(row.label));
+        if(trainExamples.length>=summary.minimumTrainingExamples&&labels.length>=2&&supportedValidation.length>=summary.minimumSupportedValidationExamples) {
+          const seedOffset=[...(tag+":"+attribute)].reduce((sum,char)=>sum+char.charCodeAt(0),0);
+          const selected=chooseHead(Feats,trainExamples,supportedValidation,(seed+seedOffset*101)>>>0,{epochs:55,learningRate:0.03,patience:9});
+          heads[tag][attribute]=selected.head;
+          byUpos[tag][attribute]={method:"trained",trainingExamples:trainExamples.length,validationExamples:supportedValidation.length,classes:labels,selectedWeighting:selected.selected,validationMacroF1:selected.validationMacroF1};
+          summary.trainedHeads++;
+        } else {
+          heads[tag][attribute]=globalHeads[attribute].head;
+          byUpos[tag][attribute]={method:"global_fallback",trainingExamples:trainExamples.length,validationExamples:validationExamples.length,classes:labels};
+          summary.globalFallbackHeads++;
+        }
+      }
+    }
+    summary.upos[tag]={trainingTokens:trainForPos.length,validationTokens:validationForPos.length,
+      trained:Object.values(byUpos[tag]).filter(row=>row.method==="trained").length,
+      constant:Object.values(byUpos[tag]).filter(row=>row.method==="constant").length,
+      globalFallback:Object.values(byUpos[tag]).filter(row=>row.method==="global_fallback").length};
+  }
+  return {heads,summary:{...summary,byUpos}};
+}
+function predictPosConditionedFeats(features,upos,conditionedHeads,globalHeads) {
+  const selected=conditionedHeads[upos]||Object.create(null),result=Object.create(null);
+  for(const attribute of attributes) {
+    const head=selected[attribute]||globalHeads[attribute].head,prediction=head.predict(features);
+    const value=prediction&&prediction.label||noFeature;
+    if(value!==noFeature)result[attribute]=value;
+  }
+  return result;
+}
+
+function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
   const predictedBoth=emptyMetrics(),oracle=emptyMetrics();
   const goldUposPredFeats=emptyMetrics(),predictedUposGoldFeats=emptyMetrics();
+  const goldUposConditionedFeats=emptyMetrics(),predictedUposConditionedFeats=emptyMetrics();
   const upos={targets:0,correct:0},featsExact={targets:0,correct:0},joint={targets:0,correct:0};
+  const goldUposFeatsExact={targets:0,correct:0},predictedUposFeatsExact={targets:0,correct:0};
   const perAttribute=Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]));
+  const perAttributeGoldUpos=Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]));
+  const perAttributePredictedUpos=Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]));
   const diagnostics=[];
   for(const row of testRows) {
     if(!row.form||!row.lemma||!row.upos||!/[\p{L}\p{N}]/u.test(row.form)) continue;
@@ -239,16 +294,31 @@ function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,ruleBank,
       if(value===cleanFeatureValue(row.feats[attribute])) perAttribute[attribute].correct++;
     }
     const goldFeats=trackedFeatures(row.feats);
+    const goldPosFeats=predictPosConditionedFeats(row.features,row.upos,conditionedHeads,featHeads);
+    const predictedPosFeats=predictPosConditionedFeats(row.features,predictedUpos,conditionedHeads,featHeads);
     const sameFeats=featureSignature(predictedFeats)===featureSignature(goldFeats);
+    const sameGoldPosFeats=featureSignature(goldPosFeats)===featureSignature(goldFeats);
+    const samePredictedPosFeats=featureSignature(predictedPosFeats)===featureSignature(goldFeats);
     const sameUpos=predictedUpos===row.upos;
     upos.targets++;if(sameUpos)upos.correct++;
     featsExact.targets++;if(sameFeats)featsExact.correct++;
+    goldUposFeatsExact.targets++;if(sameGoldPosFeats)goldUposFeatsExact.correct++;
+    predictedUposFeatsExact.targets++;if(samePredictedPosFeats)predictedUposFeatsExact.correct++;
     joint.targets++;if(sameUpos&&sameFeats)joint.correct++;
+    for(const attribute of attributes) {
+      const goldValue=cleanFeatureValue(row.feats[attribute]);
+      perAttributeGoldUpos[attribute].targets++;
+      if(cleanFeatureValue(goldPosFeats[attribute])===goldValue)perAttributeGoldUpos[attribute].correct++;
+      perAttributePredictedUpos[attribute].targets++;
+      if(cleanFeatureValue(predictedPosFeats[attribute])===goldValue)perAttributePredictedUpos[attribute].correct++;
+    }
     const group=trainLemmas.has(row.lemma)?"knownLemma":"unseenLemma";
     const predictions={
       oracle:predictLemma(row.form,row.upos,goldFeats,ruleBank.bank),
       goldUposPredFeats:predictLemma(row.form,row.upos,predictedFeats,ruleBank.bank),
       predictedUposGoldFeats:predictLemma(row.form,predictedUpos,goldFeats,ruleBank.bank),
+      goldUposConditionedFeats:predictLemma(row.form,row.upos,goldPosFeats,ruleBank.bank),
+      predictedUposConditionedFeats:predictLemma(row.form,predictedUpos,predictedPosFeats,ruleBank.bank),
       predictedBoth:predictLemma(row.form,predictedUpos,predictedFeats,ruleBank.bank)
     };
     updateSlice(oracle.all,predictions.oracle,row.lemma);
@@ -257,6 +327,10 @@ function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,ruleBank,
     updateSlice(goldUposPredFeats[group],predictions.goldUposPredFeats,row.lemma);
     updateSlice(predictedUposGoldFeats.all,predictions.predictedUposGoldFeats,row.lemma);
     updateSlice(predictedUposGoldFeats[group],predictions.predictedUposGoldFeats,row.lemma);
+    updateSlice(goldUposConditionedFeats.all,predictions.goldUposConditionedFeats,row.lemma);
+    updateSlice(goldUposConditionedFeats[group],predictions.goldUposConditionedFeats,row.lemma);
+    updateSlice(predictedUposConditionedFeats.all,predictions.predictedUposConditionedFeats,row.lemma);
+    updateSlice(predictedUposConditionedFeats[group],predictions.predictedUposConditionedFeats,row.lemma);
     updateSlice(predictedBoth.all,predictions.predictedBoth,row.lemma);
     updateSlice(predictedBoth[group],predictions.predictedBoth,row.lemma);
     if(diagnostics.length<12) diagnostics.push({
@@ -268,7 +342,9 @@ function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,ruleBank,
   }
   return {
     predictedBoth,oracle,goldUposPredFeats,predictedUposGoldFeats,
-    upos,featsExact,joint,perAttribute,diagnostics
+    goldUposConditionedFeats,predictedUposConditionedFeats,
+    upos,featsExact,goldUposFeatsExact,predictedUposFeatsExact,joint,
+    perAttribute,perAttributeGoldUpos,perAttributePredictedUpos,diagnostics
   };
 }
 
@@ -286,8 +362,13 @@ const recordMap=new Map(prepared.trainingRecords.map(row=>[row.normalized,row]))
 const aggregate={
   predictedBoth:emptyMetrics(),oracle:emptyMetrics(),
   goldUposPredFeats:emptyMetrics(),predictedUposGoldFeats:emptyMetrics(),
-  upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},joint:{targets:0,correct:0},
-  perAttribute:Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]))
+  goldUposConditionedFeats:emptyMetrics(),predictedUposConditionedFeats:emptyMetrics(),
+  upos:{targets:0,correct:0},featsExact:{targets:0,correct:0},
+  goldUposFeatsExact:{targets:0,correct:0},predictedUposFeatsExact:{targets:0,correct:0},
+  joint:{targets:0,correct:0},
+  perAttribute:Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}])),
+  perAttributeGoldUpos:Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}])),
+  perAttributePredictedUpos:Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]))
 };
 const seedReports=[];
 const vocabularyLimit=1024;
@@ -337,6 +418,7 @@ for(const seed of seeds) {
     };
   }
 
+  const conditionedTraining=fitPosConditionedFeats(trainRows,validationRows,featHeads,seed.model);
   const outputVocabulary=new Set();
   for(const sentence of split.train) {
     for(const token of contextual.tokenize(sentence)) {
@@ -347,12 +429,17 @@ for(const seed of seeds) {
   const trainLemmas=new Set(trainRows.map(row=>row.lemma).filter(Boolean));
   const ruleBank=createRuleBank(trainRows);
   const evaluation=evaluatePipeline(
-    testRows,outputVocabulary,uposSelected.head,featHeads,ruleBank,trainLemmas
+    testRows,outputVocabulary,uposSelected.head,featHeads,conditionedTraining.heads,ruleBank,trainLemmas
   );
-  for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats"])
+  for(const key of ["predictedBoth","oracle","goldUposPredFeats","predictedUposGoldFeats","goldUposConditionedFeats","predictedUposConditionedFeats"])
     mergeMetrics(aggregate[key],evaluation[key]);
-  for(const key of ["upos","featsExact","joint"]) mergeCounter(aggregate[key],evaluation[key]);
-  for(const attribute of attributes) mergeCounter(aggregate.perAttribute[attribute],evaluation.perAttribute[attribute]);
+  for(const key of ["upos","featsExact","goldUposFeatsExact","predictedUposFeatsExact","joint"])
+    mergeCounter(aggregate[key],evaluation[key]);
+  for(const attribute of attributes) {
+    mergeCounter(aggregate.perAttribute[attribute],evaluation.perAttribute[attribute]);
+    mergeCounter(aggregate.perAttributeGoldUpos[attribute],evaluation.perAttributeGoldUpos[attribute]);
+    mergeCounter(aggregate.perAttributePredictedUpos[attribute],evaluation.perAttributePredictedUpos[attribute]);
+  }
 
   seedReports.push({
     modelSeed:seed.model,splitSeed:seed.split,
@@ -369,7 +456,8 @@ for(const seed of seeds) {
     heads:{
       upos:{selectedWeighting:uposSelected.selected,
         validationMacroF1:uposSelected.validationMacroF1,candidates:uposSelected.reports},
-      feats:featSelection
+      feats:featSelection,
+      posConditionedFeats:conditionedTraining.summary
     },
     inverseLemmaRuleBank:{
       eligibleTrainingExamples:ruleBank.eligible,
@@ -416,13 +504,21 @@ const report={
   tokenPrediction:{
     upos:summariseTokens(aggregate.upos),
     trackedFeatsExact:summariseTokens(aggregate.featsExact),
+    goldUposConditionedFeatsExact:summariseTokens(aggregate.goldUposFeatsExact),
+    predictedUposConditionedFeatsExact:summariseTokens(aggregate.predictedUposFeatsExact),
     jointTags:summariseTokens(aggregate.joint)
   },
-  perAttribute:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
+  perAttribute:{
+    global:Object.fromEntries(Object.entries(aggregate.perAttribute).map(([key,value])=>[key,summariseTokens(value)])),
+    goldUposConditioned:Object.fromEntries(Object.entries(aggregate.perAttributeGoldUpos).map(([key,value])=>[key,summariseTokens(value)])),
+    predictedUposConditioned:Object.fromEntries(Object.entries(aggregate.perAttributePredictedUpos).map(([key,value])=>[key,summariseTokens(value)]))
+  },
   lemma:{
     predictedBoth:summariseMetrics(aggregate.predictedBoth),
     goldUposPredFeats:summariseMetrics(aggregate.goldUposPredFeats),
     predictedUposGoldFeats:summariseMetrics(aggregate.predictedUposGoldFeats),
+    goldUposConditionedFeats:summariseMetrics(aggregate.goldUposConditionedFeats),
+    predictedUposConditionedFeats:summariseMetrics(aggregate.predictedUposConditionedFeats),
     oracleGoldTags:summariseMetrics(aggregate.oracle)
   },
   seeds:seedReports
