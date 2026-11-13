@@ -300,7 +300,6 @@ const summary = {
     minimumClassExamples,
     sameContextualEncoderAndRowsForAllVariants:true,
     perAttributeWeightingSelection:"highest validation macro-F1 among unweighted, sqrt_inverse, and sqrt_inverse_capped; ties prefer unweighted",
-    sameContextualEncoderAndRowsForBothVariants:true,
     checkpointSelectionMetricByVariant:Object.fromEntries(
       Object.entries(variants).map(([name,configuration])=>[name,configuration.selectionMetric])
     ),
