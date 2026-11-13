@@ -454,10 +454,10 @@ if (!trainPath && !testPath) {
         epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split,
         shuffleExamples: true, shuffleSeed
       });
-      assert.equal(training.trainRows, fixed.split.trainRows,
+      assert.equal(training.trainRows, fixed.training.trainRows,
         "shuffle repeats must use the exact fixed-order training partition");
-      assert.equal(training.validationRows, fixed.split.validationRows);
-      assert.equal(training.testRows, fixed.split.testRows);
+      assert.equal(training.validationRows, fixed.training.validationRows);
+      assert.equal(training.testRows, fixed.training.internalTestRows);
       const split = model.splitCorpus(prepared.trainingTexts, seed.split);
       assert.equal(split.train.length, training.trainRows);
       const tokenFrequency = new Map();
