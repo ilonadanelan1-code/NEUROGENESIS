@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -301,6 +303,7 @@ jobs:
           node tests/contextual-attention-retrieval-benchmark.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
+          node tests/semantic-role-pilot.test.mjs
           node tests/proposition-chain-regression.test.js
           node tests/semantic-retrieval.test.js
           node tests/dialogue-llm-integration.test.js
@@ -327,6 +330,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download WebAssembly runtime
         uses: actions/download-artifact@v4
