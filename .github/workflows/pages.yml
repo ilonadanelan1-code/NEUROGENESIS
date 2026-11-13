@@ -48,6 +48,8 @@ jobs:
           node --check semantic-query.js
           node --check contextual-attention.js
           node --check lexical-sense.js
+          node --check tests/lexical-sense.test.js
+          node --check tests/lexical-sense-benchmark.test.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
@@ -77,6 +79,9 @@ jobs:
           node --check memory.js
           node --check first-experiment.js
           node --input-type=module --check < server/llm-worker.js
+
+      - name: Test contextual lexical-sense module
+        run: node tests/lexical-sense.test.js
 
       - name: Test collision-aware neuron layout
         run: node tests/neuron-layout.test.mjs
