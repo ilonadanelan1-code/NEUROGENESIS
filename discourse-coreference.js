@@ -37,7 +37,8 @@
   const FEMININE_SOFT_SIGN = new Set(["дверь","память","сеть","модель","площадь","ночь","мышь",
     "вещь","любовь","связь","роль","цепь","часть","жизнь","мысль","тень","цель","новость"]);
   const MASCULINE_A_NAMES = new Set(["петя","илья","никита","дима","коля","ваня","сережа",
-    "миша","леша","паша","женя","валера","юра","фома","саша"]);
+    "миша","леша","паша","валера","юра","фома"]);
+  const AMBIGUOUS_A_NAMES = new Set(["женя","саша"]);
   const COMMON_FUNCTION = new Set(["это","этот","эта","эти","тот","та","те","такой","такая",
     "такое","такие","который","которая","которое","которые","я","ты","вы","мы","он","она",
     "оно","они","его","ее","её","их","ему","ей","им","ним","нем","нём","ней","ними","нею","ею"]);
@@ -95,6 +96,7 @@
       // unless a caller supplied an explicit number.
       return { gender:"unknown", number:"unknown" };
     }
+    if (AMBIGUOUS_A_NAMES.has(head)) return { gender:"unknown", number:"singular" };
     if (/[оеё]$/u.test(head)) return { gender:"neuter", number:"singular" };
     if (MASCULINE_A_NAMES.has(head)) return { gender:"masculine", number:"singular" };
     if (/[ая]$/u.test(head)) return { gender:"feminine", number:"singular" };
