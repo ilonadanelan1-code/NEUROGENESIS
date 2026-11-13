@@ -80,10 +80,10 @@ const cases = [
 
 function canonical(p) {
   const value=p&&typeof p==="object"?p:{};
-  const args=Array.isArray(value.arguments)?value.arguments.map(r=>[r.role,normalize(r.text),r.grammaticalCase]):[];
-  const embedded=Array.isArray(value.embeddedPropositions)?value.embeddedPropositions.map(r=>({
+  const args=Array.isArray(value.arguments)?Array.from(value.arguments,r=>[r.role,normalize(r.text),r.grammaticalCase]):[];
+  const embedded=Array.isArray(value.embeddedPropositions)?Array.from(value.embeddedPropositions,r=>({
     relation:r.relation,subject:normalize(r.subject),predicate:normalize(r.predicate),object:normalize(r.object),
-    arguments:Array.isArray(r.arguments)?r.arguments.map(a=>[a.role,normalize(a.text),a.grammaticalCase]):[],
+    arguments:Array.isArray(r.arguments)?Array.from(r.arguments,a=>[a.role,normalize(a.text),a.grammaticalCase]):[],
     assertionStatus:r.assertionStatus
   })):[];
   return {kind:value.kind||"fragment",subject:value.subject==null?null:normalize(value.subject),
@@ -143,7 +143,7 @@ const forged=current.validateProposition({
     subject:"Подмена",predicate:"уничтожить",object:"данные",controllerRole:"addressee",
     controllerCase:"accusative",confidence:1}]
 },{kind:"assertion",subject:"Анна",predicate:"попросила",object:"Бориса"});
-assert.deepEqual(forged.embeddedPropositions,[],"model-supplied nested events must not bypass local extraction");
+assert.equal(forged.embeddedPropositions.length,0,"model-supplied nested events must not bypass local extraction");
 
 console.log("NEUROGENESIS semantic-role pilot: "+JSON.stringify({
   protocol:{baselineCommit:BASELINE_SHA,cases:cases.length,
