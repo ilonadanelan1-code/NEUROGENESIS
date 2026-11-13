@@ -71,6 +71,10 @@ const modelPlan={
   discourse:{relation:"follow_up"}
  }
 };
+const unchangedModelPlan=planner.mergeLocalDiscourseResolution(modelPlan,advisory);
+assert.equal(unchangedModelPlan.semanticFrame.subject.text,"он",
+ "when the experiment flag is disabled, the model-backed semantic plan must remain unchanged");
+assert.equal(unchangedModelPlan.discourseResolution,undefined);
 const mergedModelPlan=planner.mergeLocalDiscourseResolution(modelPlan,enabled);
 assert.equal(mergedModelPlan.semanticFrame.subject.text,"сигнал",
  "a resolved local cross-turn candidate must be merged into the model-backed plan when both planners agree it is a follow-up");
