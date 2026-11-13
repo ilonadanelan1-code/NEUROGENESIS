@@ -123,6 +123,9 @@ function evaluate(core, selected) {
     roles:{truePositive:tp,falsePositive:fp,falseNegative:fn,gold:goldCount,precision,recall,microF1:f1}};
 }
 const baselineMetrics=evaluate(baseline,cases),experimentMetrics=evaluate(current,cases);
+const ordinaryFrame=current.analyse("Анна открыла дверь.",{contextRelation:"new_topic"},null).proposition;
+assert.equal(Object.hasOwn(ordinaryFrame,"embeddedPropositions"),false,
+  "ordinary propositions must preserve their pre-pilot output shape");
 const knownMatrix=evaluate(current,cases.filter(x=>x.group==="known_matrix"));
 const heldOut=evaluate(current,cases.filter(x=>x.group==="held_out_infinitive"));
 const abstention=cases.find(x=>x.group==="abstention");

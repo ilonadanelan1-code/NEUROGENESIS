@@ -1772,7 +1772,7 @@
       predicate: validatedPredicate || null,
       object: validatedObject || null,
       arguments: argumentsFrame,
-      embeddedPropositions,
+      ...(embeddedPropositions.length ? { embeddedPropositions } : {}),
       relation: part(source.relation || base.relation, 64) || null,
       polarity,
       polarityScope,
