@@ -170,7 +170,7 @@ function deterministicSample(rows, limit, seed) {
 }
 
 function prepareCorpus(trainContent, testContent, options = {}) {
-  const trainLimit = Math.min(320, Math.max(1, Math.floor(Number(options.trainLimit) || 320)));
+  const trainLimit = Math.min(1280, Math.max(1, Math.floor(Number(options.trainLimit) || 320)));
   const testLimit = Math.min(400, Math.max(1, Math.floor(Number(options.testLimit) || 240)));
   const seed = Math.floor(Number(options.seed) || 20261112);
   const minimumTokens = Math.max(3, Math.floor(Number(options.minimumTokens) || 4));
