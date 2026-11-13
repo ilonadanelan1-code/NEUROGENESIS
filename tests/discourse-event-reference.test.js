@@ -33,7 +33,7 @@ const messages=[
 ];
 const candidates=api.extractCandidates(messages,core,{topicId:"T1"});
 assert.equal(candidates.length,1,"only the asserted user proposition should become a candidate");
-assert.equal(candidates[0].id,"E1");
+assert.equal(candidates[0].id,"E1-p1");
 assert.equal(candidates.some(x=>x.id==="A1"),false,"assistant text must not become a user-grounded event");
 assert.equal(candidates.some(x=>x.id==="E3"),false,"another topic must be excluded");
 assert.equal(candidates.some(x=>x.id==="R1"),false,"reported content must not become an asserted event");
