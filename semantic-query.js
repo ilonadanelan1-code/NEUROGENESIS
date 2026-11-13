@@ -108,12 +108,16 @@ function local(input,context={},knowledge=null){
   frame.discourseEntityResolution=discourseResolution;
   if(discourseExperimentEnabled&&discourseResolution.status==="resolved"&&discourseResolution.antecedent){
    const antecedent=discourseResolution.antecedent;
-   if(discourseResolution.mention&&discourseResolution.mention.syntacticRole==="subject"){
-    frame.subject={text:antecedent.text,certainty:"context_candidate"};
+   const mentionRole=discourseResolution.mention&&discourseResolution.mention.syntacticRole==="subject"?"subject":"object";
+   if(mentionRole==="subject")frame.subject={text:antecedent.text,certainty:"context_candidate"};
+   if(frame.proposition&&CORE&&typeof CORE.validateProposition==="function"){
+    const updated=CORE.validateProposition({...frame.proposition,[mentionRole]:antecedent.text},frame.proposition);
+    updated.crossTurnReference=discourseResolution;
+    frame.proposition=updated;
    }
    const entities=Array.isArray(frame.entities)?frame.entities:[];
-   frame.entities=[{text:antecedent.text,role:discourseResolution.mention.syntacticRole||"object",
-    certainty:"context_candidate"},...entities.filter(item=>normalise(item&&item.text,knowledge)!==normalise(antecedent.text,knowledge))].slice(0,8);
+   frame.entities=[{text:antecedent.text,role:mentionRole,certainty:"context_candidate"},
+    ...entities.filter(item=>normalise(item&&item.text,knowledge)!==normalise(antecedent.text,knowledge))].slice(0,8);
    frame.discourse={...(frame.discourse||{}),resolvedFrom:antecedent.text};
   }
  }
