@@ -151,7 +151,12 @@ if (!trainPath && !testPath) {
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-    strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+    strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    inverseSampleTargets: 0, sampleStrictCovered: 0, sampleStrictCorrect: 0,
+    sampleInversionCovered: 0, sampleInversionCorrect: 0,
+    inverseFrequencyCovered: 0, inverseFrequencyCorrect: 0,
+    inverseFrequencyInversionCovered: 0, inverseFrequencyInversionCorrect: 0,
+    contextBackoffs: 0
   };
   const add = (target, source) => {
     for (const key of Object.keys(target)) target[key] += source[key] || 0;
@@ -197,7 +202,12 @@ if (!trainPath && !testPath) {
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-      strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+      strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+      inverseSampleTargets: 0, sampleStrictCovered: 0, sampleStrictCorrect: 0,
+      sampleInversionCovered: 0, sampleInversionCorrect: 0,
+      inverseFrequencyCovered: 0, inverseFrequencyCorrect: 0,
+      inverseFrequencyInversionCovered: 0, inverseFrequencyInversionCorrect: 0,
+      contextBackoffs: 0
     };
     for (const sentence of prepared.testTexts) {
       const tokens = Attention.tokenize(sentence);
@@ -239,6 +249,14 @@ if (!trainPath && !testPath) {
           }
         }
         const inversionPrediction = model.predictMasked(sentence, index, {allowOrderInversion: true});
+        // Deterministic 1-in-4 OOV slice: compare inverse-frequency retrieval on the
+        // exact same target positions as the existing uniform-scoring baselines.
+        const inverseSample = metrics.oov % 4 === 0;
+        const inverseFrequencyPrediction = inverseSample
+          ? model.predictMasked(sentence, index, {scoring:"inverse_frequency"}) : null;
+        const inverseFrequencyInversionPrediction = inverseSample
+          ? model.predictMasked(sentence, index, {scoring:"inverse_frequency",allowOrderInversion:true}) : null;
+        if (inverseSample) metrics.inverseSampleTargets++;
         const generated = strictPrediction?.generatedPrediction;
         if (generated) {
           metrics.generatedCovered++;
@@ -263,6 +281,34 @@ if (!trainPath && !testPath) {
           metrics.inversionCovered++;
           if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) {
             metrics.inversionCorrect++;
+          }
+        }
+        if (inverseSample) {
+          if (strictCandidate) {
+            metrics.sampleStrictCovered++;
+            if (Attention.russianStem(strictCandidate.token) === Attention.russianStem(tokens[index])) {
+              metrics.sampleStrictCorrect++;
+            }
+          }
+          if (inversionCandidate) {
+            metrics.sampleInversionCovered++;
+            if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) {
+              metrics.sampleInversionCorrect++;
+            }
+          }
+          const inverseCandidate = inverseFrequencyPrediction?.retrievalCandidate;
+          if (inverseCandidate) {
+            metrics.inverseFrequencyCovered++;
+            if (Attention.russianStem(inverseCandidate.token) === Attention.russianStem(tokens[index])) {
+              metrics.inverseFrequencyCorrect++;
+            }
+          }
+          const inverseInversionCandidate = inverseFrequencyInversionPrediction?.retrievalCandidate;
+          if (inverseInversionCandidate) {
+            metrics.inverseFrequencyInversionCovered++;
+            if (Attention.russianStem(inverseInversionCandidate.token) === Attention.russianStem(tokens[index])) {
+              metrics.inverseFrequencyInversionCorrect++;
+            }
           }
         }
       }
@@ -316,6 +362,30 @@ if (!trainPath && !testPath) {
           correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
           coverage: ratio(metrics.inversionCovered, metrics.oov)
+        },
+        inverseFrequencyRetrievalSameSample: {
+          sampledOovTargets: metrics.inverseSampleTargets,
+          uniformStrict: {
+            correct: metrics.sampleStrictCorrect, covered: metrics.sampleStrictCovered,
+            precision: ratio(metrics.sampleStrictCorrect, metrics.sampleStrictCovered),
+            coverage: ratio(metrics.sampleStrictCovered, metrics.inverseSampleTargets)
+          },
+          inverseFrequencyStrict: {
+            correct: metrics.inverseFrequencyCorrect, covered: metrics.inverseFrequencyCovered,
+            precision: ratio(metrics.inverseFrequencyCorrect, metrics.inverseFrequencyCovered),
+            coverage: ratio(metrics.inverseFrequencyCovered, metrics.inverseSampleTargets)
+          },
+          uniformOrderInvariant: {
+            correct: metrics.sampleInversionCorrect, covered: metrics.sampleInversionCovered,
+            precision: ratio(metrics.sampleInversionCorrect, metrics.sampleInversionCovered),
+            coverage: ratio(metrics.sampleInversionCovered, metrics.inverseSampleTargets)
+          },
+          inverseFrequencyOrderInvariant: {
+            correct: metrics.inverseFrequencyInversionCorrect,
+            covered: metrics.inverseFrequencyInversionCovered,
+            precision: ratio(metrics.inverseFrequencyInversionCorrect, metrics.inverseFrequencyInversionCovered),
+            coverage: ratio(metrics.inverseFrequencyInversionCovered, metrics.inverseSampleTargets)
+          }
         },
         strictRetrievalSurface: {
           correct: metrics.strictSurfaceCorrect, covered: metrics.strictSurfaceCovered,
@@ -466,6 +536,30 @@ if (!trainPath && !testPath) {
           precision: ratio(aggregate.inversionCorrect, aggregate.inversionCovered),
           coverage: ratio(aggregate.inversionCovered, aggregate.oov)
         },
+        inverseFrequencyRetrievalSameSample: {
+          sampledOovTargets: aggregate.inverseSampleTargets,
+          uniformStrict: {
+            correct: aggregate.sampleStrictCorrect, covered: aggregate.sampleStrictCovered,
+            precision: ratio(aggregate.sampleStrictCorrect, aggregate.sampleStrictCovered),
+            coverage: ratio(aggregate.sampleStrictCovered, aggregate.inverseSampleTargets)
+          },
+          inverseFrequencyStrict: {
+            correct: aggregate.inverseFrequencyCorrect, covered: aggregate.inverseFrequencyCovered,
+            precision: ratio(aggregate.inverseFrequencyCorrect, aggregate.inverseFrequencyCovered),
+            coverage: ratio(aggregate.inverseFrequencyCovered, aggregate.inverseSampleTargets)
+          },
+          uniformOrderInvariant: {
+            correct: aggregate.sampleInversionCorrect, covered: aggregate.sampleInversionCovered,
+            precision: ratio(aggregate.sampleInversionCorrect, aggregate.sampleInversionCovered),
+            coverage: ratio(aggregate.sampleInversionCovered, aggregate.inverseSampleTargets)
+          },
+          inverseFrequencyOrderInvariant: {
+            correct: aggregate.inverseFrequencyInversionCorrect,
+            covered: aggregate.inverseFrequencyInversionCovered,
+            precision: ratio(aggregate.inverseFrequencyInversionCorrect, aggregate.inverseFrequencyInversionCovered),
+            coverage: ratio(aggregate.inverseFrequencyInversionCovered, aggregate.inverseSampleTargets)
+          }
+        },
         strictRetrievalSurface: {
           correct: aggregate.strictSurfaceCorrect, covered: aggregate.strictSurfaceCovered,
           accuracy: ratio(aggregate.strictSurfaceCorrect, aggregate.strictSurfaceCovered)
@@ -508,6 +602,11 @@ if (!trainPath && !testPath) {
       sourceOverlapSentencesExcludedFromTrain: prepared.stats.normalizedTrainTestOverlapsExcluded,
       sampledOverlapSentences: prepared.stats.normalizedSampleTrainTestOverlaps
     }
+  };
+  summary.trainingContextRetrievalExperiment = {
+    onlyChangedVariable: "uniform versus inverse-frequency candidate scoring",
+    evaluation: "same deterministic one-in-four OOV target slice for all four retrieval modes",
+    orderInversionSeparatelyControlled: true
   };
   console.log("NEUROGENESIS 0.58.111 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
   console.log("External corpus benchmark is separate from the frozen 49-sentence language benchmark.");
