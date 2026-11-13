@@ -1,0 +1,84 @@
+name: Focused morphology guardrail benchmark
+
+on:
+  push:
+    branches:
+      - experiment/upos-evidence-guardrail-2026-11-14
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neurogenesis-morphology-guardrail-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  morphology:
+    name: Validate UPOS evidence guardrail
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check morphology benchmark syntax
+        run: |
+          node --check contextual-attention.js
+          node --check upos-supervision.js
+          node --check feats-supervision.js
+          node --check tests/predicted-morphology-pipeline.test.js
+
+      - name: Test UD annotation importer and deterministic splits
+        run: node tests/ud-russian-gsd-benchmark.test.js
+
+      - name: Download pinned UD Russian-GSD corpus
+        run: |
+          mkdir -p /tmp/ud-russian-gsd
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
+      - name: Benchmark constrained UPOS evidence on independent UD Russian-GSD
+        run: |
+          node tests/predicted-morphology-pipeline.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
+      - name: Run focused cognitive and storage regressions
+        run: |
+          node tests/experience-quality.test.js
+          node tests/activation.test.js
+          node tests/knowledge.test.js
+          node tests/memory-migration.test.js
+          node tests/goals.test.js
+          node tests/observation-engine.test.js
+          node tests/knowledge-graph.test.js
+          node tests/research-pipeline-integration.test.js
+          node tests/reasoning-audit.test.js
+          node tests/discriminating-observations.test.js
+          node tests/hypothesis-lifecycle.test.js
+          node tests/dialog-context.test.js
+          node tests/semantic-query.test.js
+          node tests/contextual-attention.test.js
+          node tests/contextual-attention-retrieval-benchmark.test.js
+          node tests/phrase-composition.test.js
+          node tests/semantic-understanding.test.js
+          node tests/proposition-chain-regression.test.js
+          node tests/semantic-retrieval.test.js
+          node tests/dialogue-llm-integration.test.js
+          node tests/dialog-manager.test.js
+          node tests/llm-config-setup.test.js
+          node tests/llm-bridge.test.js
+          node tests/llm-worker.test.js
+          node tests/memory-navigation.test.js
+          node tests/backup-import-transaction.test.js
+          node tests/storage-transaction.test.js
