@@ -268,7 +268,7 @@ const seeds = [
 ];
 const allRuns = [];
 for (const seed of seeds) {
-  const contextual = Attention.create({ dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model });
+  const contextual = Attention.create({ dimension: 12, windowSize: 8, heads: 3, blocks: 2, seed: seed.model });
   const encoderTraining = contextual.train(encoderTexts, {
     epochs: 14, learningRate: .025, splitSeed: seed.split, patience: 6,
     shuffleExamples: true, shuffleSeed: seed.model ^ seed.split
