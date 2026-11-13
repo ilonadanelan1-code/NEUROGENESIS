@@ -1659,11 +1659,13 @@
     return result.slice(0, 7);
   }
 
-  function validateEmbeddedPropositions(raw) {
+  function validateEmbeddedPropositions(raw, parentPredicate, parentObject) {
     const allowedRelations = new Set([
       "request_content", "causative_content", "permission_content", "command_content"
     ]);
     const rows = Array.isArray(raw) ? raw.slice(0, 3) : [];
+    const parent = CONTROLLED_MATRIX_PREDICATES[normalise(parentPredicate)];
+    if (!parent) return [];
     return rows.map(item => {
       if (!item || typeof item !== "object" || item.schema !== "NG_EMBEDDED_PROPOSITION_V1" ||
           !allowedRelations.has(item.relation)) return null;
@@ -1671,7 +1673,9 @@
       const object = clean(item.object, 220);
       const controllerRole = ["addressee", "causee"].includes(item.controllerRole) ? item.controllerRole : "";
       const controllerCase = ["accusative", "dative"].includes(item.controllerCase) ? item.controllerCase : "";
-      if (!subject || !predicate || !object || !controllerRole || !controllerCase) return null;
+      if (!subject || !predicate || !object || !controllerRole || !controllerCase ||
+          item.relation !== parent.relation || controllerRole !== parent.controllerRole ||
+          controllerCase !== parent.controllerCase || normalise(subject) !== normalise(parentObject)) return null;
       const confidence = Number(item.confidence);
       return {
         schema: "NG_EMBEDDED_PROPOSITION_V1",
@@ -1760,7 +1764,7 @@
       validatedPredicate === part(base.predicate, 100) &&
       validatedObject === part(base.object, 220);
     const embeddedPropositions = localFrameMatches
-      ? validateEmbeddedPropositions(base.embeddedPropositions) : [];
+      ? validateEmbeddedPropositions(base.embeddedPropositions, validatedPredicate, validatedObject) : [];
     return {
       schema: "NG_PROPOSITION_FRAME_V1",
       kind,

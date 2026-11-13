@@ -144,6 +144,14 @@ const forged=current.validateProposition({
     controllerCase:"accusative",confidence:1}]
 },{kind:"assertion",subject:"Анна",predicate:"попросила",object:"Бориса"});
 assert.equal(forged.embeddedPropositions.length,0,"model-supplied nested events must not bypass local extraction");
+const forgedFallback=current.validateProposition({},{
+  kind:"assertion",subject:"Анна",predicate:"попросила",object:"Бориса",
+  embeddedPropositions:[{schema:"NG_EMBEDDED_PROPOSITION_V1",relation:"request_content",
+    subject:"Подмена",predicate:"уничтожить",object:"данные",controllerRole:"addressee",
+    controllerCase:"accusative",confidence:1}]
+});
+assert.equal(forgedFallback.embeddedPropositions.length,0,
+  "a fallback frame cannot attach an embedded event to a different controller");
 
 console.log("NEUROGENESIS semantic-role pilot: "+JSON.stringify({
   protocol:{baselineCommit:BASELINE_SHA,cases:cases.length,
