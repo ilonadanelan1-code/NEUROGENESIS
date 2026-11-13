@@ -183,12 +183,39 @@ const relationThresholdSweep = {
   withAugmentation: makeThresholdBuckets(),
   withoutAugmentation: makeThresholdBuckets()
 };
+const roleGatedRelationThresholdSweep = {
+  withAugmentation: makeThresholdBuckets(),
+  withoutAugmentation: makeThresholdBuckets()
+};
+const relationRolePairs = {
+  subject_to_predicate:["subject","predicate"],
+  predicate_to_object:["predicate","object"],
+  subject_to_object:["subject","object"]
+};
 function accumulateThresholdSweep(buckets, result, expectedEdges) {
   const candidates = Array.isArray(result.relationCandidates)
     ? result.relationCandidates : result.edges;
   for (const threshold of relationThresholds) {
     const predicted = new Set(candidates.filter(edge => edge.confidence >= threshold).slice(0, 16)
       .map(edge => [edge.from, edge.to, edge.relation].join(":")));
+    const bucket = buckets[threshold.toFixed(2)];
+    for (const edge of expectedEdges) {
+      if (predicted.has(edge)) bucket.tp++;
+      else bucket.fn++;
+    }
+    for (const edge of predicted) if (!expectedEdges.has(edge)) bucket.fp++;
+  }
+}
+function accumulateRoleGatedThresholdSweep(buckets, result, expectedEdges) {
+  const candidates = Array.isArray(result.relationCandidates)
+    ? result.relationCandidates : result.edges;
+  for (const threshold of relationThresholds) {
+    const predicted = new Set(candidates.filter(edge => {
+      const required = relationRolePairs[edge.relation];
+      return required && edge.confidence >= threshold &&
+        result.roles[edge.from]?.role === required[0] &&
+        result.roles[edge.to]?.role === required[1];
+    }).slice(0, 16).map(edge => [edge.from, edge.to, edge.relation].join(":")));
     const bucket = buckets[threshold.toFixed(2)];
     for (const edge of expectedEdges) {
       if (predicted.has(edge)) bucket.tp++;
@@ -524,6 +551,12 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
     accumulateThresholdSweep(
       relationThresholdSweep.withoutAugmentation, resultWithoutAugmentation, expectedEdges
     );
+    accumulateRoleGatedThresholdSweep(
+      roleGatedRelationThresholdSweep.withAugmentation, result, expectedEdges
+    );
+    accumulateRoleGatedThresholdSweep(
+      roleGatedRelationThresholdSweep.withoutAugmentation, resultWithoutAugmentation, expectedEdges
+    );
 
     if (seedIndex === 0 && testCase.group === "short") {
       if (!baselineShort) baselineShort = { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 };
@@ -727,13 +760,21 @@ const phraseTotalWithoutAugmentation = Object.values(phraseGroupsWithoutAugmenta
   fp: sum.fp + group.fp,
   fn: sum.fn + group.fn
 }), { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 });
+const summarizeThresholdBuckets = buckets => Object.fromEntries(
+  Object.entries(buckets).map(([threshold, counts]) => [threshold, {
+    ...counts,
+    precision: ratio(counts.tp, counts.tp + counts.fp),
+    recall: ratio(counts.tp, counts.tp + counts.fn)
+  }])
+);
 const relationThresholdSummary = Object.fromEntries(
   Object.entries(relationThresholdSweep).map(([variant, buckets]) => [variant,
-    Object.fromEntries(Object.entries(buckets).map(([threshold, counts]) => [threshold, {
-      ...counts,
-      precision: ratio(counts.tp, counts.tp + counts.fp),
-      recall: ratio(counts.tp, counts.tp + counts.fn)
-    }]))
+    summarizeThresholdBuckets(buckets)
+  ])
+);
+const roleGatedRelationThresholdSummary = Object.fromEntries(
+  Object.entries(roleGatedRelationThresholdSweep).map(([variant, buckets]) => [variant,
+    summarizeThresholdBuckets(buckets)
   ])
 );
 const internalValidation = seedReports.reduce((sum, row) => ({
@@ -856,6 +897,14 @@ assert.deepEqual(
   {tp:phraseTotalWithoutAugmentation.tp,fp:phraseTotalWithoutAugmentation.fp,fn:phraseTotalWithoutAugmentation.fn},
   "0.34 threshold reproduction must match the control edge output"
 );
+for (const variant of ["withAugmentation","withoutAugmentation"]) {
+  for (const threshold of relationThresholds) {
+    const rows = roleGatedRelationThresholdSweep[variant][threshold.toFixed(2)];
+    assert.equal(rows.tp + rows.fn, phraseTotal.roleTotal > 0 ? 3 * 49 : 0,
+      "role-gated relation scoring must preserve the fixed three-edge-per-role-case denominator");
+    assert.ok(rows.tp >= 0 && rows.fp >= 0 && rows.fn >= 0);
+  }
+}
 assert.equal(maskTotal.total, baseline05893.maskedTokens.total,
   "legacy knowledge-token metric must retain the 0.58.93 denominator");
 assert.equal(surfaceMaskTotal.total,seedReports.length*cases.reduce((sum,row)=>sum+Attention.tokenize(row.text).length,0),
@@ -990,7 +1039,9 @@ const summary = {
     },
     wordOrderWithAugmentation: phraseOutput.word_order || null,
     wordOrderWithoutAugmentation: phraseOutputWithoutAugmentation.word_order || null,
-    relationThresholdSweep: relationThresholdSummary
+    relationThresholdSweep: relationThresholdSummary,
+    roleGatedRelationThresholdSweep: roleGatedRelationThresholdSummary,
+    roleGateDefinition: "emit an edge only when predicted source and target phrase roles match the edge relation"
   },
   historicalSixSentenceBaseline: {
     ...baselineShort,
