@@ -374,9 +374,10 @@
     const morphologyBuckets = new Map();
     for (const group of surfaceGroups) {
       if (group._morphologyInvalid || !group._morphologyIdentity) continue;
-      const bucket = morphologyBuckets.get(group._morphologyKey) || [];
+      const bucketKey = group.topicId + "|" + group._morphologyKey;
+      const bucket = morphologyBuckets.get(bucketKey) || [];
       bucket.push(group);
-      morphologyBuckets.set(group._morphologyKey,bucket);
+      morphologyBuckets.set(bucketKey,bucket);
     }
 
     // Merge distinct inflections only when the same lemma is never represented
