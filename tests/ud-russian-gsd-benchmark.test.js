@@ -152,6 +152,15 @@ if (!trainPath && !testPath) {
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
     strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    paradigmGoldAnnotatedOovTargets: 0,
+    paradigmSurfaceSeenInTraining: 0,
+    paradigmSurfaceUnseenInTraining: 0,
+    paradigmLemmaSeenInTraining: 0,
+    paradigmLemmaPosSeenInTraining: 0,
+    paradigmSignatureSeenInTraining: 0,
+    paradigmExactSurfaceSeenInSignature: 0,
+    paradigmNovelSurfaceWithSeenSignature: 0,
+    paradigmMissingLemmaOrPos: 0,
     strictLemmaCandidateCount: 0,
     strictLemmaCovered: 0,
     strictLemmaCorrect: 0,
@@ -199,8 +208,14 @@ if (!trainPath && !testPath) {
   const annotationTokensFor = record => record.tokens.flatMap(token => {
     const forms = Attention.tokenize(token.form);
     const lemma = normalizeLemma(token.lemma);
-    return forms.map(form => ({form,lemma:lemma || null}));
+    return forms.map(form => ({
+      form,lemma:lemma || null,upos:token.upos || null,feats:{...(token.feats || {})}
+    }));
   });
+  const featureSignature = row => Object.keys(row.feats || {}).sort()
+    .map(key => key + "=" + row.feats[key]).join("|") || "_";
+  const paradigmKeyFor = row => row?.lemma && row?.upos
+    ? JSON.stringify([row.lemma,row.upos,featureSignature(row)]) : null;
   const measureLemmaCandidate = (candidate,goldLemma,metrics,prefix,lemmaBySurface) => {
     if (!candidate || !goldLemma) return;
     metrics[prefix + "CandidateCount"]++;
@@ -248,6 +263,9 @@ if (!trainPath && !testPath) {
     // actual training partition, never validation or independent-test annotations.
     const trainingSentenceKeys = new Set(trainingSplit.train.map(row => Attention.tokenize(row).join(" ")));
     const trainingLemmaBySurface = new Map();
+    const trainingLemmaSet = new Set();
+    const trainingLemmaPosSet = new Set();
+    const trainingParadigmForms = new Map();
     let trainingLemmaSentenceCount = 0;
     let trainingLemmaAlignmentSkipped = 0;
     for (const record of prepared.trainingRecords) {
@@ -264,6 +282,13 @@ if (!trainPath && !testPath) {
         if (!row.lemma) continue;
         if (!trainingLemmaBySurface.has(row.form)) trainingLemmaBySurface.set(row.form,new Set());
         trainingLemmaBySurface.get(row.form).add(row.lemma);
+        trainingLemmaSet.add(row.lemma);
+        if (row.upos) trainingLemmaPosSet.add(JSON.stringify([row.lemma,row.upos]));
+        const key = paradigmKeyFor(row);
+        if (key) {
+          if (!trainingParadigmForms.has(key)) trainingParadigmForms.set(key,new Set());
+          trainingParadigmForms.get(key).add(row.form);
+        }
       }
     }
     assert.ok(trainingLemmaSentenceCount >= Math.floor(trainingSplit.train.length * 0.9),
@@ -297,6 +322,15 @@ if (!trainPath && !testPath) {
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
       strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+      paradigmGoldAnnotatedOovTargets: 0,
+      paradigmSurfaceSeenInTraining: 0,
+      paradigmSurfaceUnseenInTraining: 0,
+      paradigmLemmaSeenInTraining: 0,
+      paradigmLemmaPosSeenInTraining: 0,
+      paradigmSignatureSeenInTraining: 0,
+      paradigmExactSurfaceSeenInSignature: 0,
+      paradigmNovelSurfaceWithSeenSignature: 0,
+      paradigmMissingLemmaOrPos: 0,
       strictLemmaCandidateCount: 0,
       strictLemmaCovered: 0,
       strictLemmaCorrect: 0,
@@ -362,9 +396,34 @@ if (!trainPath && !testPath) {
         }
         if (score.targetKnown) continue;
         metrics.oov++;
-        const goldLemma = goldLemmaRows?.[index]?.lemma || null;
+        const goldAnnotation = goldLemmaRows?.[index] || null;
+        const goldLemma = goldAnnotation?.lemma || null;
         if (goldLemma) metrics.lemmaTargets++;
         else metrics.lemmaUnannotated++;
+        if (goldLemma && goldAnnotation?.upos) {
+          metrics.paradigmGoldAnnotatedOovTargets++;
+          if ((trainingTokenFrequency.get(tokens[index]) || 0) > 0) {
+            metrics.paradigmSurfaceSeenInTraining++;
+          } else {
+            metrics.paradigmSurfaceUnseenInTraining++;
+          }
+          if (trainingLemmaSet.has(goldLemma)) metrics.paradigmLemmaSeenInTraining++;
+          if (trainingLemmaPosSet.has(JSON.stringify([goldLemma,goldAnnotation.upos]))) {
+            metrics.paradigmLemmaPosSeenInTraining++;
+          }
+          const goldParadigmKey = paradigmKeyFor(goldAnnotation);
+          const availableForms = goldParadigmKey ? trainingParadigmForms.get(goldParadigmKey) : null;
+          if (availableForms?.size) {
+            metrics.paradigmSignatureSeenInTraining++;
+            if (availableForms.has(goldAnnotation.form)) {
+              metrics.paradigmExactSurfaceSeenInSignature++;
+            } else {
+              metrics.paradigmNovelSurfaceWithSeenSignature++;
+            }
+          } else {
+            metrics.paradigmMissingLemmaOrPos++;
+          }
+        }
         const strictPrediction = model.predictMasked(sentence, index);
         if (strictPrediction?.morphologyHint?.number === "plural") {
           metrics.oovPluralHintTargets++;
@@ -500,6 +559,18 @@ if (!trainPath && !testPath) {
           correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
           coverage: ratio(metrics.inversionCovered, metrics.oov)
+        },
+        morphologyParadigmOracle: {
+          goldAnnotatedOovTargets:metrics.paradigmGoldAnnotatedOovTargets,
+          surfaceSeenInTraining:metrics.paradigmSurfaceSeenInTraining,
+          surfaceUnseenInTraining:metrics.paradigmSurfaceUnseenInTraining,
+          lemmaSeenInTraining:metrics.paradigmLemmaSeenInTraining,
+          lemmaAndUposSeenInTraining:metrics.paradigmLemmaPosSeenInTraining,
+          exactLemmaUpostFeatsSignatureSeen:metrics.paradigmSignatureSeenInTraining,
+          exactSurfaceSeenUnderSignature:metrics.paradigmExactSurfaceSeenInSignature,
+          unseenSurfaceWithKnownSignature:metrics.paradigmNovelSurfaceWithSeenSignature,
+          missingLemmaOrUpostFeatsSignature:metrics.paradigmMissingLemmaOrPos,
+          denominatorDescription:"annotated OOV targets; diagnostic uses held-out gold lemma, UPOS and FEATS only to estimate an oracle ceiling, never to produce a prediction"
         },
         lemmaLevelContextRetrieval: {
           goldAnnotatedOovTargets:metrics.lemmaTargets,
@@ -733,6 +804,20 @@ if (!trainPath && !testPath) {
           precision: ratio(aggregate.inversionCorrect, aggregate.inversionCovered),
           coverage: ratio(aggregate.inversionCovered, aggregate.oov)
         },
+        morphologyParadigmOracle: {
+          goldAnnotatedOovTargets:aggregate.paradigmGoldAnnotatedOovTargets,
+          surfaceSeenInTraining:aggregate.paradigmSurfaceSeenInTraining,
+          surfaceUnseenInTraining:aggregate.paradigmSurfaceUnseenInTraining,
+          lemmaSeenInTraining:aggregate.paradigmLemmaSeenInTraining,
+          lemmaAndUpOsSeenInTraining:aggregate.paradigmLemmaPosSeenInTraining,
+          exactLemmaUpostFeatsSignatureSeen:aggregate.paradigmSignatureSeenInTraining,
+          exactSurfaceSeenUnderSignature:aggregate.paradigmExactSurfaceSeenInSignature,
+          unseenSurfaceWithKnownSignature:aggregate.paradigmNovelSurfaceWithSeenSignature,
+          missingLemmaOrUpostFeatsSignature:aggregate.paradigmMissingLemmaOrPos,
+          exactSurfaceRate:ratio(aggregate.paradigmExactSurfaceSeenInSignature,aggregate.paradigmGoldAnnotatedOovTargets),
+          knownSignatureRate:ratio(aggregate.paradigmSignatureSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+          denominatorDescription:"annotated OOV targets; diagnostic uses held-out gold lemma, UPOS and FEATS only to estimate an oracle ceiling, never to produce a prediction"
+        },
         lemmaLevelContextRetrieval: {
           goldAnnotatedOovTargets:aggregate.lemmaTargets,
           unannotatedOovTargets:aggregate.lemmaUnannotated,
@@ -856,6 +941,7 @@ if (!trainPath && !testPath) {
   };
   summary.trainingContextRetrievalExperiment = {
     onlyChangedVariable: "uniform versus inverse-frequency candidate scoring",
+    morphologyParadigmOracle: "upper-bound diagnostic only; training paradigm inventory is built from the model's exact training partition; held-out gold lemma/UPOS/FEATS are used only to score availability and never enter candidate generation",
     evaluation: "same deterministic one-in-four OOV target slice for all four retrieval modes",
     lemmaEvaluation: "candidate surface forms mapped to UD gold lemmas from training split only; held-out gold lemma used only for scoring",
     orderInversionSeparatelyControlled: true
