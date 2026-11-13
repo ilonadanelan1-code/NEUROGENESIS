@@ -424,7 +424,7 @@
     "хранит", "хранят", "принимает", "принимают",
     "передает", "передаёт", "передают", "отправляет", "отправляют",
     "запускает", "запускают", "создает", "создаёт", "создают",
-    "открывает", "открывают", "использует", "используют",
+    "открывает", "открывают", "открыл", "открыла", "открыло", "открыли", "использует", "используют",
     "работает", "работают", "поддерживает", "поддерживают",
     "меняет", "меняют", "защищает", "защищают",
     "изучает", "изучают", "делает", "делают",
@@ -486,6 +486,15 @@
     };
   }
 
+  function extractObjectFirstProposition(value) {
+    const text = clean(value, 800).replace(/[?!.…]+$/u, "").trim();
+    const match = text.match(/^(.+?)\s+(открыл|открыла|открыло|открыли|сохранил|сохранила|сохранили|проверил|проверила|проверили)\s+([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+)?)$/u);
+    if (!match) return null;
+    const subject = clean(match[3], 120), object = clean(match[1], 180);
+    if (!subject || !object || !/^[А-ЯЁ]/u.test(subject)) return null;
+    return { subject, predicate: clean(match[2], 80), object, confidence: 0.68 };
+  }
+
   function extractProposition(value, intent = "conversation", slots = {}) {
     const original = clean(value, 800);
     const text = original.replace(/[?!.…]+$/u, "").trim();
@@ -495,6 +504,7 @@
       kind: "fragment", subject: "", predicate: "", object: "",
       relation: "", polarity: polarityScope.polarity, polarityScope, modality: "unknown",
       temporal, attribution: { speaker: "user", source: "user_utterance", reportedBy: "" },
+      embeddedPropositions: [],
       confidence: 0.28
     };
     if (!text) return base;
@@ -563,6 +573,46 @@
       .replace(/^не\s+(?=(?:все|вся|всё|каждый|каждая|каждое|каждые|каждого|каждой|каждому|каждую)(?:\s|$))/iu, "")
       .replace(/(^|\s)не\s+всегда\s+/u, "$1")
       .replace(/(^|\s)всегда\s+не\s+/u, "$1");
+
+    const controlled = extractControlledInfinitive(propositionText);
+    if (controlled) {
+      const modality = explicitPossible ? "possible" : "asserted";
+      return {
+        ...base,
+        kind: conditional ? "conditional" : opinion ? "opinion" : modality === "possible" ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(controlled.subject),
+        predicate: controlled.predicate,
+        object: controlled.controller,
+        relation: "predicate",
+        // Negation immediately before the infinitive belongs to the embedded
+        // event, not to the matrix speech act ("asked" vs "asked not to").
+        polarity: controlled.matrixNegated ? "negative" : "positive",
+        polarityScope: controlled.matrixNegated
+          ? { scope: "predicate", quantifier: "unspecified", effect: "negative" }
+          : { scope: "none", quantifier: "unspecified", effect: "none" },
+        modality: conditional ? "conditional" : opinion ? "opinion" : modality,
+        embeddedPropositions: [controlled.embedded],
+        confidence: 0.78,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
+
+    const objectFirst = extractObjectFirstProposition(propositionText);
+    if (objectFirst) {
+      return {
+        ...base,
+        kind: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "hypothesis" : "assertion",
+        subject: cleanQuantifiedSubject(objectFirst.subject),
+        predicate: objectFirst.predicate,
+        object: objectFirst.object,
+        relation: "predicate",
+        polarity: polarityScope.polarity,
+        polarityScope,
+        modality: conditional ? "conditional" : opinion ? "opinion" : explicitPossible ? "possible" : "asserted",
+        confidence: objectFirst.confidence,
+        attribution: opinion ? { speaker: "user", source: "user_opinion", reportedBy: "user" } : base.attribution
+      };
+    }
 
     const passive = propositionText.match(/^(.+?)\s+(?:(?:был|была|было|были)\s+)?(передан|передана|передано|переданы|отправлен|отправлена|отправлено|отправлены|сообщен|сообщён|сообщена|сообщено|сообщены|получен|получена|получено|получены|принят|принята|принято|приняты|открыт|открыта|открыто|открыты|создан|создана|создано|созданы|сохранен|сохранён|сохранена|сохранено|сохранены|обнаружен|обнаружена|обнаружено|обнаружены|обработан|обработана|обработано|обработаны|запущен|запущена|запущено|запущены|выбран|выбрана|выбрано|выбраны|измерен|измерена|измерено|измерены|проверен|проверена|проверено|проверены|активирован|активирована|активировано|активированы|защищен|защищён|защищена|защищено|защищены|изменен|изменён|изменена|изменено|изменены)(?:\s+(.+))?$/iu);
     if (passive && PASSIVE_PREDICATES.has(normalise(passive[2]))) {
@@ -653,7 +703,7 @@
       };
     }
 
-    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|обнаруживает|обнаруживают|фиксирует|фиксируют|регистрирует|регистрируют|делает|делают|обнаружить|получить|сохранить|активировать|запустить|измерить|сохраняет|сохраняют|выбирает|выбирают|проверяет|проверяют|измеряет|измеряют|обрабатывает|обрабатывают|активирует|активируют|хранит|хранят|изучает|изучают|меняет|меняют|защищает|защищают|открывает|открывают|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|усиливается|усиливаются|ослабевает|ослабевают|обрабатывается|обрабатываются|изменяется|изменяются|сохраняется|сохраняются|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
+    match = propositionText.match(/^(.+?)\s+(?:(может|могут|должен|должна|должны|обязан|обязана)\s+)?(не\s+)?(имеет|имеют|содержит|содержат|включает|включают|находится|находятся|расположен|расположена|расположено|расположены|активируется|активируются|работает|работают|работал|работала|работало|работали|существует|существуют|состоит|состоят|является|являются|обладает|обладают|поддерживает|поддерживают|использует|используют|получает|получают|получил|получила|получило|получили|обнаруживает|обнаруживают|фиксирует|фиксируют|регистрирует|регистрируют|делает|делают|обнаружить|получить|сохранить|активировать|запустить|измерить|сохраняет|сохраняют|выбирает|выбирают|проверяет|проверяют|измеряет|измеряют|обрабатывает|обрабатывают|активирует|активируют|хранит|хранят|изучает|изучают|меняет|меняют|защищает|защищают|открывает|открывают|открыл|открыла|открыло|открыли|принимает|принимают|передаёт|передает|передают|отправляет|отправляют|запускает|запускают|создаёт|создает|создают|усиливается|усиливаются|ослабевает|ослабевают|обрабатывается|обрабатываются|изменяется|изменяются|сохраняется|сохраняются|живу|живёт|живет|живут|был|была|было|были|станет|станут)(?:\s+(.+))?$/iu);
     if (match) {
       const modal = clean(match[2], 40);
       const predicate = clean(match[4], 80);
@@ -1204,6 +1254,85 @@
     "обусловливает", "обусловливают", "приводит", "приводят"
   ]);
 
+  const CONTROLLED_MATRIX_PREDICATES = Object.freeze({
+    попросил: { relation: "request_content", controllerRole: "addressee", controllerCase: "accusative" },
+    попросила: { relation: "request_content", controllerRole: "addressee", controllerCase: "accusative" },
+    попросили: { relation: "request_content", controllerRole: "addressee", controllerCase: "accusative" },
+    попросит: { relation: "request_content", controllerRole: "addressee", controllerCase: "accusative" },
+    попросят: { relation: "request_content", controllerRole: "addressee", controllerCase: "accusative" },
+    заставил: { relation: "causative_content", controllerRole: "causee", controllerCase: "accusative" },
+    заставила: { relation: "causative_content", controllerRole: "causee", controllerCase: "accusative" },
+    заставили: { relation: "causative_content", controllerRole: "causee", controllerCase: "accusative" },
+    заставит: { relation: "causative_content", controllerRole: "causee", controllerCase: "accusative" },
+    заставят: { relation: "causative_content", controllerRole: "causee", controllerCase: "accusative" },
+    разрешил: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    разрешила: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    разрешили: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    разрешит: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    разрешат: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    позволил: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    позволила: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    позволили: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    позволит: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    позволят: { relation: "permission_content", controllerRole: "addressee", controllerCase: "dative" },
+    приказал: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    приказала: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    приказали: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    прикажет: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    прикажут: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    велел: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    велела: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    велели: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    велит: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
+    велят: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" }
+  });
+  const CONTROLLED_INTERVENING_ADVERBS = new Set([
+    "быстро", "медленно", "сразу", "немедленно", "аккуратно", "осторожно",
+    "тихо", "громко", "неожиданно", "вчера", "сегодня", "завтра",
+    "сначала", "потом", "снова", "опять", "никогда", "всегда",
+    "вежливо", "специально", "временно", "совместно", "постепенно",
+    "самостоятельно", "поочередно", "поочерёдно"
+  ]);
+  function extractControlledInfinitive(value) {
+    const text = clean(value, 800).replace(/[?!.…]+$/u, "").trim();
+    const forms = Object.keys(CONTROLLED_MATRIX_PREDICATES).sort((left, right) => right.length - left.length);
+    const expression = new RegExp(
+      "^(.+?)\\s+(не\\s+)?(" + forms.join("|") + ")\\s+(.+?)\\s+(не\\s+)?([\\p{L}]+(?:ть|ти|чь))\\s+(.+)$",
+      "iu"
+    );
+    const match = text.match(expression);
+    if (!match) return null;
+    const configuration = CONTROLLED_MATRIX_PREDICATES[normalise(match[3])];
+    const subject = clean(match[1], 180), controller = clean(match[4], 180);
+    const predicate = clean(match[6], 80), object = clean(match[7], 220);
+    if (!configuration || !subject || !controller || !predicate || !object) return null;
+    const controllerWords = controller.split(/\\s+/u).map(normalise);
+    const objectWords = object.split(/\\s+/u).map(normalise);
+    const hasCoordination = phrase => /(?:^|\\s)(?:и|или|либо)(?:\\s|$)/iu.test(phrase);
+    const looksInfinitive = word => /^[\\p{L}]+(?:ть|ти|чь)$/u.test(word);
+    // Do not absorb adverbs, prepositional adjuncts, another predicate, or a
+    // coordinated participant into a single controller/object span.
+    if (hasCoordination(subject) || hasCoordination(controller) || hasCoordination(object) ||
+        controllerWords.some(word => CONTROLLED_INTERVENING_ADVERBS.has(word) ||
+          GRAMMATICAL_FUNCTION_WORDS.has(word) || Object.hasOwn(CONTROLLED_MATRIX_PREDICATES, word) ||
+          looksInfinitive(word)) ||
+        objectWords.some(looksInfinitive)) return null;
+    const matrixNegated = !!match[2], embeddedNegated = !!match[5];
+    return {
+      subject, predicate: clean(match[3], 80), controller,
+      matrixNegated, embeddedNegated,
+      embedded: {
+        schema: "NG_EMBEDDED_PROPOSITION_V1",
+        relation: configuration.relation,
+        subject: controller, predicate, object,
+        polarity: embeddedNegated ? "negative" : "positive",
+        controllerRole: configuration.controllerRole,
+        controllerCase: configuration.controllerCase,
+        confidence: 0.76
+      }
+    };
+  }
+
   function semanticPhraseCase(value, marker = "", predicate = "") {
     const text = clean(value, 180).toLowerCase().replace(/ё/gu, "е");
     const last = text.split(/\s+/u).filter(Boolean).pop() || "";
@@ -1335,16 +1464,21 @@
     const last = normalise(source[source.length - 1]);
     const dative = DATIVE_FEMININE_FORMS.has(last) || DATIVE_MASCULINE_FORMS.has(last) ||
       DATIVE_NEUTER_FORMS.has(last) || ["системам", "модулям", "нейронам", "данным"].includes(last);
+    const surfaceLast = source[source.length - 1] || "";
     const instrumental = INSTRUMENTAL_FEMININE_FORMS.has(last) ||
-      INSTRUMENTAL_MASCULINE_FORMS.has(last) || INSTRUMENTAL_NEUTER_FORMS.has(last);
+      INSTRUMENTAL_MASCULINE_FORMS.has(last) || INSTRUMENTAL_NEUTER_FORMS.has(last) ||
+      /(?:ом|ем|ой|ей|ью|ами|ями)$/u.test(last);
     if (!dative && !instrumental) return null;
     const adjectiveBefore = source.length > 1 &&
       /(?:ого|его|ому|ему|ой|ей|ым|им|ую|юю|ыми|ими)$/iu.test(normalise(source[source.length - 2]));
     const take = adjectiveBefore ? 2 : 1;
     const phrase = source.slice(-take).join(" ");
+    const capitalizedName = /^[А-ЯЁ][а-яё-]+$/u.test(surfaceLast);
+    const passiveAgent = PASSIVE_PREDICATES.has(normalise(predicate)) &&
+      (PASSIVE_AGENT_FORMS.has(last) || capitalizedName);
     const role = dative
       ? TRANSFER_PREDICATES.has(normalise(predicate)) ? "recipient" : "indirect_object"
-      : PASSIVE_PREDICATES.has(normalise(predicate)) && PASSIVE_AGENT_FORMS.has(last) ? "agent" : "instrument";
+      : passiveAgent ? "agent" : "instrument";
     return {
       remaining: source.slice(0, -take),
       complement: {
@@ -1472,9 +1606,12 @@
     return complements.slice(0, 5);
   }
 
-  function buildSemanticArguments(subject, predicate, object) {
+  function buildSemanticArguments(subject, predicate, object, options = {}) {
     const actor = clean(subject, 180), verb = normalise(predicate);
     if (!actor || !verb) return [];
+    const actorCase = ["nominative", "accusative", "dative", "instrumental"].includes(options.actorCase)
+      ? options.actorCase : "nominative";
+    const actorRule = clean(options.actorRule, 80) || "bounded_verb_valency";
     const result = [];
     const add = (role, value, marker, grammaticalCase, confidence, rule) => {
       const text = clean(value, 180);
@@ -1486,6 +1623,13 @@
         provenance: { source: "semantic_core_rule", rule }
       });
     };
+    const controlled = CONTROLLED_MATRIX_PREDICATES[verb];
+    if (controlled) {
+      add("agent", actor, null, actorCase, 0.8, actorRule);
+      add(controlled.controllerRole, object, null, controlled.controllerCase, 0.76,
+        "controlled_matrix_object");
+      return result.slice(0, 7);
+    }
     if (PASSIVE_PREDICATES.has(verb)) {
       const passiveThemeRole = PASSIVE_TRANSFER_PREDICATES.has(verb) ? "theme" : "patient";
       add(passiveThemeRole, actor, null, "nominative", 0.82, "passive_surface_subject");
@@ -1511,7 +1655,7 @@
     }
     const subjectRole = RECEIVING_PREDICATES.has(verb) ? "recipient"
       : CAUSATIVE_PREDICATES.has(verb) ? "cause" : "agent";
-    add(subjectRole, actor, null, "nominative", 0.8, "bounded_verb_valency");
+    add(subjectRole, actor, null, actorCase, 0.8, actorRule);
     const nestedSubjectLocation = actor.match(/^(.*?)\s+(в|во|на|при|под|над|около|возле|между|рядом\s+с)\s+(.+)$/iu);
     if (nestedSubjectLocation && nestedSubjectLocation[1] && nestedSubjectLocation[3]) {
       const phrase = clean(nestedSubjectLocation[3], 120);
@@ -1537,6 +1681,43 @@
     for (const complement of split.complements) add(complement.role, complement.text, complement.marker,
       complement.grammaticalCase, complement.confidence, complement.rule);
     return result.slice(0, 7);
+  }
+
+  function validateEmbeddedPropositions(raw, parentPredicate, parentObject) {
+    const allowedRelations = new Set([
+      "request_content", "causative_content", "permission_content", "command_content"
+    ]);
+    const rows = Array.isArray(raw) ? raw.slice(0, 3) : [];
+    const parent = CONTROLLED_MATRIX_PREDICATES[normalise(parentPredicate)];
+    if (!parent) return [];
+    return rows.map(item => {
+      if (!item || typeof item !== "object" || item.schema !== "NG_EMBEDDED_PROPOSITION_V1" ||
+          !allowedRelations.has(item.relation)) return null;
+      const subject = clean(item.subject, 180), predicate = clean(item.predicate, 80);
+      const object = clean(item.object, 220);
+      const controllerRole = ["addressee", "causee"].includes(item.controllerRole) ? item.controllerRole : "";
+      const controllerCase = ["accusative", "dative"].includes(item.controllerCase) ? item.controllerCase : "";
+      if (!subject || !predicate || !object || !controllerRole || !controllerCase ||
+          item.relation !== parent.relation || controllerRole !== parent.controllerRole ||
+          controllerCase !== parent.controllerCase || normalise(subject) !== normalise(parentObject)) return null;
+      const confidence = Number(item.confidence);
+      return {
+        schema: "NG_EMBEDDED_PROPOSITION_V1",
+        relation: item.relation,
+        subject, predicate, object,
+        polarity: item.polarity === "negative" ? "negative" : "positive",
+        arguments: buildSemanticArguments(subject, predicate, object, {
+          actorCase: controllerCase, actorRule: "matrix_object_control"
+        }),
+        controller: {
+          role: "controlled_agent", text: subject, parentRole: controllerRole,
+          grammaticalCase: controllerCase,
+          provenance: { source: "semantic_core_rule", rule: "matrix_object_control" }
+        },
+        assertionStatus: "not_independently_asserted",
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.68
+      };
+    }).filter(Boolean);
   }
 
   function validateProposition(raw, fallback = {}) {
@@ -1566,16 +1747,25 @@
       : null;
     const basePolarityScope = validScope(base.polarityScope);
     const sourcePolarityScope = validScope(source.polarityScope);
-    const preserveLocalPolarityScope = !!basePolarityScope && basePolarityScope.scope !== "none" &&
-      Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
-    const polarityScope = preserveLocalPolarityScope ? basePolarityScope
+    const controlledBase = Array.isArray(base.embeddedPropositions) &&
+      base.embeddedPropositions.some(item => item && item.schema === "NG_EMBEDDED_PROPOSITION_V1");
+    const preserveControlledPolarity = controlledBase &&
+      part(source.subject || base.subject, 180) === part(base.subject, 180) &&
+      part(source.predicate || base.predicate, 100) === part(base.predicate, 100) &&
+      part(source.object || base.object, 220) === part(base.object, 220);
+    const preserveLocalPolarityScope = preserveControlledPolarity ||
+      (!!basePolarityScope && basePolarityScope.scope !== "none" &&
+        Number.isFinite(baseConfidence) && baseConfidence >= 0.58);
+    const polarityScope = preserveControlledPolarity ? basePolarityScope
+      : preserveLocalPolarityScope ? basePolarityScope
       : sourcePolarityScope || basePolarityScope ||
         { scope: "none", quantifier: "unspecified", effect: "none" };
     const preserveNegativePolarity = basePolarity === "negative" &&
       Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
     const preserveScopedPolarity = preserveLocalPolarityScope &&
       ["negative", "mixed", "unknown"].includes(basePolarity);
-    const polarity = preserveScopedPolarity ? basePolarity
+    const polarity = preserveControlledPolarity ? basePolarity || "positive"
+      : preserveScopedPolarity ? basePolarity
       : preserveNegativePolarity ? "negative" : sourcePolarity || basePolarity || "unknown";
     const validModalities = ["asserted", "possible", "necessary", "conditional", "opinion",
       "reported", "quoted", "interrogative", "directive", "unknown"];
@@ -1604,6 +1794,11 @@
     const validatedPredicate = part(source.predicate || base.predicate, 100);
     const validatedObject = part(source.object || base.object, 220);
     const argumentsFrame = buildSemanticArguments(validatedSubject, validatedPredicate, validatedObject);
+    const localFrameMatches = validatedSubject === part(base.subject, 180) &&
+      validatedPredicate === part(base.predicate, 100) &&
+      validatedObject === part(base.object, 220);
+    const embeddedPropositions = localFrameMatches
+      ? validateEmbeddedPropositions(base.embeddedPropositions, validatedPredicate, validatedObject) : [];
     return {
       schema: "NG_PROPOSITION_FRAME_V1",
       kind,
@@ -1611,6 +1806,7 @@
       predicate: validatedPredicate || null,
       object: validatedObject || null,
       arguments: argumentsFrame,
+      ...(embeddedPropositions.length ? { embeddedPropositions } : {}),
       relation: part(source.relation || base.relation, 64) || null,
       polarity,
       polarityScope,
