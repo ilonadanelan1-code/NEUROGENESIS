@@ -34,6 +34,16 @@ if (requestedTrainLimit > 320) {
     "larger training samples must strictly extend the same deterministic 320-sentence baseline");
 }
 
+const oovReference = importer.prepareCorpus(trainContent,testContent,
+  {...preparationOptions,trainLimit:960});
+assert.equal(oovReference.trainingRecords.length,960,
+  "the fixed common-OOV reference sample must contain 960 decontaminated sentences");
+assert.equal(oovReference.stats.normalizedSampleTrainTestOverlaps,0);
+assert.deepEqual(oovReference.trainingRecords.slice(0,320).map(row=>row.normalized),
+  importer.prepareCorpus(trainContent,testContent,{...preparationOptions,trainLimit:320})
+    .trainingRecords.map(row=>row.normalized),
+  "both training sizes must share the exact same first 320 sentences");
+
 const window = {};
 const sandbox = {window,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
 for (const file of ["contextual-attention.js","upos-supervision.js","feats-supervision.js"]) {
@@ -665,13 +675,14 @@ for(const seed of seeds) {
   }
 
   const conditionedTraining=fitPosConditionedFeats(trainRows,validationRows,featHeads,seed.model);
+  // Define OOV targets once from the full 960-sentence reference sample.
+  // Both the 320- and 960-sentence models are scored on this same strict-OOV set.
   const outputVocabulary=new Set();
-  for(const sentence of split.train) {
-    for(const token of contextual.tokenize(sentence)) {
-      if(outputVocabulary.size<vocabularyLimit) outputVocabulary.add(norm(token));
-    }
+  for(const sentence of oovReference.trainingTexts) {
+    for(const token of contextual.tokenize(sentence)) outputVocabulary.add(norm(token));
   }
-  assert.equal(outputVocabulary.size,vocabularyLimit);
+  assert.ok(outputVocabulary.size>=vocabularyLimit,
+    "the fixed OOV reference vocabulary must contain at least the legacy 1024-form capacity");
   const trainLemmas=new Set(trainRows.map(row=>row.lemma).filter(Boolean));
   const ruleBank=createRuleBank(trainRows);
   const evaluation=evaluatePipeline(
@@ -762,7 +773,10 @@ for(const seed of seeds) {
       skippedTrainingExamples:ruleBank.skipped,
       distinctRuleKeys:ruleBank.keys
     },
-    outputVocabulary:{capacity:vocabularyLimit,size:outputVocabulary.size},
+    outputVocabulary:{
+      referenceTrainingSentences:960,knownForms:outputVocabulary.size,
+      definition:"all lexical forms from the fixed 960-sentence decontaminated reference sample; shared by every training-size run"
+    },
     oovTargets:evaluation.predictedBoth.all.targets,
     tokenMetrics:{
       uposAccuracy:ratio(evaluation.upos.correct,evaluation.upos.targets),
@@ -851,7 +865,7 @@ const report={
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,independentTestSentences:240,outputVocabularyCapacity:vocabularyLimit,
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,independentTestSentences:240,contextualModelVocabularyCapacity:vocabularyLimit,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
