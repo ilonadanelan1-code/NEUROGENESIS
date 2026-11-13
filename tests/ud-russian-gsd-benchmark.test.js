@@ -363,6 +363,20 @@ if (!trainPath && !testPath) {
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
           coverage: ratio(metrics.inversionCovered, metrics.oov)
         },
+        lemmaLevelContextRetrieval: {
+          strict: {
+            correct:metrics.strictLemmaCorrect,covered:metrics.strictLemmaCovered,
+            ambiguousCandidateForms:metrics.strictLemmaAmbiguous,
+            precision:ratio(metrics.strictLemmaCorrect,metrics.strictLemmaCovered),
+            coverage:ratio(metrics.strictLemmaCovered,metrics.oov)
+          },
+          orderInvariant: {
+            correct:metrics.inversionLemmaCorrect,covered:metrics.inversionLemmaCovered,
+            ambiguousCandidateForms:metrics.inversionLemmaAmbiguous,
+            precision:ratio(metrics.inversionLemmaCorrect,metrics.inversionLemmaCovered),
+            coverage:ratio(metrics.inversionLemmaCovered,metrics.oov)
+          }
+        },
         inverseFrequencyRetrievalSameSample: {
           sampledOovTargets: metrics.inverseSampleTargets,
           uniformStrict: {
@@ -385,6 +399,27 @@ if (!trainPath && !testPath) {
             covered: metrics.inverseFrequencyInversionCovered,
             precision: ratio(metrics.inverseFrequencyInversionCorrect, metrics.inverseFrequencyInversionCovered),
             coverage: ratio(metrics.inverseFrequencyInversionCovered, metrics.inverseSampleTargets)
+          },
+          lemmaLevelUniformStrict:{
+            correct:metrics.sampleStrictLemmaCorrect,covered:metrics.sampleStrictLemmaCovered,
+            precision:ratio(metrics.sampleStrictLemmaCorrect,metrics.sampleStrictLemmaCovered),
+            coverage:ratio(metrics.sampleStrictLemmaCovered,metrics.inverseSampleTargets)
+          },
+          lemmaLevelInverseStrict:{
+            correct:metrics.inverseFrequencyLemmaCorrect,covered:metrics.inverseFrequencyLemmaCovered,
+            precision:ratio(metrics.inverseFrequencyLemmaCorrect,metrics.inverseFrequencyLemmaCovered),
+            coverage:ratio(metrics.inverseFrequencyLemmaCovered,metrics.inverseSampleTargets)
+          },
+          lemmaLevelUniformOrderInvariant:{
+            correct:metrics.sampleInversionLemmaCorrect,covered:metrics.sampleInversionLemmaCovered,
+            precision:ratio(metrics.sampleInversionLemmaCorrect,metrics.sampleInversionLemmaCovered),
+            coverage:ratio(metrics.sampleInversionLemmaCovered,metrics.inverseSampleTargets)
+          },
+          lemmaLevelInverseOrderInvariant:{
+            correct:metrics.inverseFrequencyInversionLemmaCorrect,
+            covered:metrics.inverseFrequencyInversionLemmaCovered,
+            precision:ratio(metrics.inverseFrequencyInversionLemmaCorrect,metrics.inverseFrequencyInversionLemmaCovered),
+            coverage:ratio(metrics.inverseFrequencyInversionLemmaCovered,metrics.inverseSampleTargets)
           }
         },
         strictRetrievalSurface: {
@@ -536,6 +571,20 @@ if (!trainPath && !testPath) {
           precision: ratio(aggregate.inversionCorrect, aggregate.inversionCovered),
           coverage: ratio(aggregate.inversionCovered, aggregate.oov)
         },
+        lemmaLevelContextRetrieval: {
+          strict: {
+            correct:aggregate.strictLemmaCorrect,covered:aggregate.strictLemmaCovered,
+            ambiguousCandidateForms:aggregate.strictLemmaAmbiguous,
+            precision:ratio(aggregate.strictLemmaCorrect,aggregate.strictLemmaCovered),
+            coverage:ratio(aggregate.strictLemmaCovered,aggregate.oov)
+          },
+          orderInvariant: {
+            correct:aggregate.inversionLemmaCorrect,covered:aggregate.inversionLemmaCovered,
+            ambiguousCandidateForms:aggregate.inversionLemmaAmbiguous,
+            precision:ratio(aggregate.inversionLemmaCorrect,aggregate.inversionLemmaCovered),
+            coverage:ratio(aggregate.inversionLemmaCovered,aggregate.oov)
+          }
+        },
         inverseFrequencyRetrievalSameSample: {
           sampledOovTargets: aggregate.inverseSampleTargets,
           uniformStrict: {
@@ -558,6 +607,27 @@ if (!trainPath && !testPath) {
             covered: aggregate.inverseFrequencyInversionCovered,
             precision: ratio(aggregate.inverseFrequencyInversionCorrect, aggregate.inverseFrequencyInversionCovered),
             coverage: ratio(aggregate.inverseFrequencyInversionCovered, aggregate.inverseSampleTargets)
+          },
+          lemmaLevelUniformStrict:{
+            correct:aggregate.sampleStrictLemmaCorrect,covered:aggregate.sampleStrictLemmaCovered,
+            precision:ratio(aggregate.sampleStrictLemmaCorrect,aggregate.sampleStrictLemmaCovered),
+            coverage:ratio(aggregate.sampleStrictLemmaCovered,aggregate.inverseSampleTargets)
+          },
+          lemmaLevelInverseStrict:{
+            correct:aggregate.inverseFrequencyLemmaCorrect,covered:aggregate.inverseFrequencyLemmaCovered,
+            precision:ratio(aggregate.inverseFrequencyLemmaCorrect,aggregate.inverseFrequencyLemmaCovered),
+            coverage:ratio(aggregate.inverseFrequencyLemmaCovered,aggregate.inverseSampleTargets)
+          },
+          lemmaLevelUniformOrderInvariant:{
+            correct:aggregate.sampleInversionLemmaCorrect,covered:aggregate.sampleInversionLemmaCovered,
+            precision:ratio(aggregate.sampleInversionLemmaCorrect,aggregate.sampleInversionLemmaCovered),
+            coverage:ratio(aggregate.sampleInversionLemmaCovered,aggregate.inverseSampleTargets)
+          },
+          lemmaLevelInverseOrderInvariant:{
+            correct:aggregate.inverseFrequencyInversionLemmaCorrect,
+            covered:aggregate.inverseFrequencyInversionLemmaCovered,
+            precision:ratio(aggregate.inverseFrequencyInversionLemmaCorrect,aggregate.inverseFrequencyInversionLemmaCovered),
+            coverage:ratio(aggregate.inverseFrequencyInversionLemmaCovered,aggregate.inverseSampleTargets)
           }
         },
         strictRetrievalSurface: {
@@ -606,6 +676,7 @@ if (!trainPath && !testPath) {
   summary.trainingContextRetrievalExperiment = {
     onlyChangedVariable: "uniform versus inverse-frequency candidate scoring",
     evaluation: "same deterministic one-in-four OOV target slice for all four retrieval modes",
+    lemmaEvaluation: "candidate surface forms mapped to UD gold lemmas from training split only; held-out gold lemma used only for scoring",
     orderInversionSeparatelyControlled: true
   };
   console.log("NEUROGENESIS 0.58.111 UD_Russian-GSD benchmark: " + JSON.stringify(summary));
