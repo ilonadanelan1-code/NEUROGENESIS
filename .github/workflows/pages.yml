@@ -315,6 +315,16 @@ jobs:
           node tests/backup-import-transaction.test.js
           node tests/storage-transaction.test.js
 
+      - name: Download pinned RuSRL semantic-role data
+        run: |
+          curl --fail --location --retry 3 \
+            "https://huggingface.co/datasets/IsaNLP/RuSRL/resolve/56080b4b6f77c39b0a57147b1025feaabd1d843e/rusrl.jsonl?download=true" \
+            --output /tmp/rusrl.jsonl
+          test -s /tmp/rusrl.jsonl
+
+      - name: Run external RuSRL semantic-role benchmark
+        run: node tests/semantic-role-rusrl-benchmark.mjs /tmp/rusrl.jsonl
+
   deploy:
     name: Deploy GitHub Pages
     if: github.event_name != 'pull_request'
