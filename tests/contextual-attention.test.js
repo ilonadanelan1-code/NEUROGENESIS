@@ -71,7 +71,7 @@ assert.equal(frequencyReport.vocabularySelection.candidateTypes,frequencyCounts.
  "frequency vocabulary candidates must come only from the training partition");
 const expectedFrequencyVocabulary=Array.from(frequencyCounts.entries())
  .sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:a[0]>b[0]?1:0))
- .slice(0,1024).map(row=>row[0]);
+ .slice(0,frequencyReport.vocabularyLimit).map(row=>row[0]);
 assert.deepEqual(Array.from(frequencyModel.exportState().vocabulary),expectedFrequencyVocabulary,
  "frequency vocabulary must be ranked by training frequency with a lexical tie-break");
 const repeatedFrequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
@@ -86,6 +86,35 @@ const defaultStrategyReport=defaultStrategyModel.train(corpus,{epochs:3,learning
 assert.equal(defaultStrategyReport.vocabularyStrategy,"first_seen",
  "existing training calls must preserve first-seen vocabulary behavior by default");
 assert.equal(defaultStrategyReport.vocabularySelection.strategy,"first_seen");
+assert.equal(defaultStrategyReport.vocabularyLimit,1024,"the established 1,024-word default must remain unchanged");
+assert.equal(defaultStrategyModel.status().vocabularyLimit,1024);
+assert.equal(api.maxVocabulary,4096);
+assert.equal(api.create({vocabularyLimit:9000}).status().vocabularyLimit,4096,
+ "the configurable capacity must remain within the validated hard ceiling");
+
+const syntheticRows=Array.from({length:40},(_,rowIndex)=>
+ Array.from({length:45},(_,tokenIndex)=>"термин"+(rowIndex*45+tokenIndex+1)).join(" "));
+const expandedVocabularyModel=api.create({
+ dimension:4,windowSize:2,heads:1,blocks:1,seed:404,vocabularyLimit:2048
+});
+const expandedVocabularyReport=expandedVocabularyModel.train(syntheticRows,{
+ epochs:1,learningRate:.005,patience:2,splitSeed:903
+});
+assert.equal(expandedVocabularyReport.vocabularyLimit,2048);
+assert.ok(expandedVocabularyReport.vocabularySize>1024,
+ "an opt-in larger vocabulary must retain training types beyond the previous 1,024-word ceiling");
+assert.equal(expandedVocabularyReport.vocabularySize,expandedVocabularyReport.vocabularySelection.candidateTypes,
+ "when capacity is sufficient, every lexical type from the training partition must be retained");
+assert.equal(expandedVocabularyModel.status().vocabularyLimit,2048);
+const expandedState=expandedVocabularyModel.exportState();
+assert.equal(expandedState.vocabularyLimit,2048);
+const restoredExpandedModel=api.fromState(expandedState);
+assert.equal(restoredExpandedModel.status().vocabularyLimit,2048);
+assert.deepEqual(restoredExpandedModel.exportState(),expandedState,
+ "model export and restore must preserve the selected vocabulary capacity");
+assert.throws(()=>api.create({dimension:4,windowSize:2,heads:1,blocks:1}).loadState(expandedState),
+ /dimensions, heads, blocks, vocabulary limit or vocabulary are invalid/u,
+ "a trained model must not be loaded into an incompatible vocabulary-capacity configuration");
 
 const attention=model.score("нейрон получает сигнал",1);
 assert.ok(attention&&attention.attention.length>=2);
