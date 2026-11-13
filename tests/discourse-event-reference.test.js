@@ -54,8 +54,8 @@ assert.equal(multiSentenceEvents.length,2,
  "both asserted propositions in one user message must be retained as separate events");
 assert.equal(new Set(multiSentenceEvents.map(row=>row.id)).size,2,
  "separate propositions from one message must have distinct stable event identifiers");
-assert.ok(multiSentenceEvents.every(row=>row.id.startsWith("MULTI-p")),
- "event identifiers must retain the source message id and proposition identity");
+assert.deepEqual(Array.from(multiSentenceEvents.map(row=>row.id)),["MULTI-p1","MULTI-p2"],
+ "multi-sentence events must have exact, stable message-plus-proposition identifiers");
 
 const competingMessages=[
  {id:"E1",threadId:"T1",role:"user",text:"Система получает сигнал."},

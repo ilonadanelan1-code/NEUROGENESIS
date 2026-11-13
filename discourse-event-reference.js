@@ -45,7 +45,7 @@
         const signature=normalise([subject,predicate,object].filter(Boolean).join(" "));
         if(!signature)continue;
         const messageId=clean(message.id,56);
-        const propositionId=clean(row.id,12)||String(propositionIndex+1);
+        const propositionId=clean(row.id,12).replace(/^p/u,"")||String(propositionIndex+1);
         rows.push({
           id:messageId?clean(messageId+"-p"+propositionId,80):"event-"+index+"-p"+(propositionIndex+1),
           text:clean(row.text,260),subject,predicate,object,kind:p.kind,
