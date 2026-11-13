@@ -49,6 +49,12 @@ assert.ok(Number.isFinite(report.testLoss));
 assert.equal(report.evaluationIsolated,true,"held-out evaluation must use a fresh initialization and disjoint rows");
 assert.equal(model.status().trainingSteps,report.trainingSteps,"the step counter must describe the selected checkpoint");
 assert.ok(report.attemptedTrainingSteps>=report.trainingSteps);
+assert.equal(report.classWeighting,"none",
+ "default contextual training must preserve its original unweighted loss");
+assert.equal(report.meanTargetClassWeight,1,
+ "the default target weighting must be exactly neutral");
+assert.ok(Object.values(report.targetWeightByFrequency).every(row=>row.meanWeight===1),
+ "every target-frequency bucket must remain unweighted by default");
 assert.equal(report.shuffleExamples,false,"fixed-order training remains the default control");
 assert.equal(report.shuffleSeed,null);
 assert.ok(report.finalLoss<report.initialLoss,"multi-head masked-token loss must decrease after training");
@@ -99,6 +105,18 @@ const repeatReport=model.train(corpus,{epochs:90,learningRate:.025,splitSeed:902
 assert.deepEqual(model.exportState(),firstRunState,"an isolated training run must restart from the same initial weights and random token initialization");
 assert.equal(repeatReport.validationLoss,report.validationLoss,"repeated deterministic splits must reproduce validation metrics");
 assert.equal(repeatReport.testLoss,report.testLoss,"test evaluation must be reproducible");
+const weightedModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const weightedReport=weightedModel.train(corpus,{
+ epochs:30,learningRate:.025,splitSeed:902,patience:10,
+ classWeighting:"inverse_capped",minClassWeight:.75,maxClassWeight:2.5
+});
+assert.equal(weightedReport.classWeighting,"inverse_capped");
+assert.ok(Math.abs(weightedReport.meanTargetClassWeight-1)<1e-9,
+ "target weights must be normalized to mean one over training examples");
+assert.ok(weightedReport.targetWeightByFrequency["1"].meanWeight>
+ weightedReport.targetWeightByFrequency["10+"].meanWeight,
+ "single-example target classes must receive higher weight than frequent classes");
+assert.ok(weightedReport.targetWeightByFrequency["10+"].meanWeight>0);
 const secondModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
 const secondReport=secondModel.train(corpus,{epochs:90,learningRate:.025,splitSeed:902,patience:24});
 assert.ok(secondReport.trainingSteps>0&&secondModel.status().trained);
