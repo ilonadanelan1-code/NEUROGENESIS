@@ -58,7 +58,7 @@ for(const seed of seeds){
    "all weighting variants must select checkpoints on held-out validation sentences");
   assert.ok(Number.isFinite(training.validationLoss),
    "the checkpoint selector must report an unweighted validation loss");
-  assert.equal(training.meanTargetClassWeight,1,
+  assert.ok(Math.abs(training.meanTargetClassWeight-1)<1e-9,
    "weighted training examples must average to one so effective learning rate is comparable");
   const split=model.splitCorpus(prepared.trainingTexts,seed.split);
   assert.equal(split.train.length,training.trainRows);
