@@ -62,6 +62,20 @@ const cases = [
     embedded:[{relation:"request_content",subject:"Бориса",predicate:"открыть",object:"дверь",
      arguments:[["agent","Бориса","accusative"],["patient","дверь","accusative"]],
      assertionStatus:"not_independently_asserted"}]}},
+  {id:"request_embedded_negated",text:"Анна попросила Бориса не открывать дверь.",group:"known_matrix",
+   expected:{kind:"assertion",subject:"Анна",predicate:"попросила",object:"Бориса",polarity:"positive",
+    arguments:[["agent","Анна","nominative"],["addressee","Бориса","accusative"]],
+    embedded:[{relation:"request_content",subject:"Бориса",predicate:"открывать",object:"дверь",
+     polarity:"negative",
+     arguments:[["agent","Бориса","accusative"],["patient","дверь","accusative"]],
+     assertionStatus:"not_independently_asserted"}]}},
+  {id:"request_both_scopes_negated",text:"Анна не попросила Бориса не открывать дверь.",group:"known_matrix",
+   expected:{kind:"assertion",subject:"Анна",predicate:"попросила",object:"Бориса",polarity:"negative",
+    arguments:[["agent","Анна","nominative"],["addressee","Бориса","accusative"]],
+    embedded:[{relation:"request_content",subject:"Бориса",predicate:"открывать",object:"дверь",
+     polarity:"negative",
+     arguments:[["agent","Бориса","accusative"],["patient","дверь","accusative"]],
+     assertionStatus:"not_independently_asserted"}]}},
   {id:"held_out_explain",text:"Ольга попросила Игоря объяснить задачу.",group:"held_out_infinitive",
    expected:{kind:"assertion",subject:"Ольга",predicate:"попросила",object:"Игоря",polarity:"positive",
     arguments:[["agent","Ольга","nominative"],["addressee","Игоря","accusative"]],
@@ -75,6 +89,10 @@ const cases = [
      arguments:[["agent","оператору","dative"],["patient","систему","accusative"]],
      assertionStatus:"not_independently_asserted"}]}},
   {id:"unsupported_matrix_abstention",text:"Анна убедила Бориса открыть дверь.",group:"abstention",
+   expected:{kind:"fragment",subject:null,predicate:null,object:null,polarity:"positive",arguments:[],embedded:[]}},
+  {id:"unsupported_coordinated_controller",text:"Анна попросила Бориса и Ольгу открыть дверь.",group:"abstention",
+   expected:{kind:"fragment",subject:null,predicate:null,object:null,polarity:"positive",arguments:[],embedded:[]}},
+  {id:"unsupported_intervening_adverb",text:"Анна попросила Бориса быстро открыть дверь.",group:"abstention",
    expected:{kind:"fragment",subject:null,predicate:null,object:null,polarity:"positive",arguments:[],embedded:[]}}
 ];
 
@@ -83,6 +101,7 @@ function canonical(p) {
   const args=Array.isArray(value.arguments)?Array.from(value.arguments,r=>[r.role,normalize(r.text),r.grammaticalCase]):[];
   const embedded=Array.isArray(value.embeddedPropositions)?Array.from(value.embeddedPropositions,r=>({
     relation:r.relation,subject:normalize(r.subject),predicate:normalize(r.predicate),object:normalize(r.object),
+    polarity:r.polarity||"positive",
     arguments:Array.isArray(r.arguments)?Array.from(r.arguments,a=>[a.role,normalize(a.text),a.grammaticalCase]):[],
     assertionStatus:r.assertionStatus
   })):[];
@@ -95,7 +114,8 @@ function expectedCanonical(e) {
     predicate:e.predicate==null?null:normalize(e.predicate),object:e.object==null?null:normalize(e.object),
     polarity:e.polarity,arguments:e.arguments.map(r=>[r[0],normalize(r[1]),r[2]]),
     embedded:e.embedded.map(r=>({relation:r.relation,subject:normalize(r.subject),predicate:normalize(r.predicate),
-      object:normalize(r.object),arguments:r.arguments.map(a=>[a[0],normalize(a[1]),a[2]]),
+      object:normalize(r.object),polarity:r.polarity||"positive",
+      arguments:r.arguments.map(a=>[a[0],normalize(a[1]),a[2]]),
       assertionStatus:r.assertionStatus}))};
 }
 function evaluate(core, selected) {
@@ -139,6 +159,18 @@ assert.equal(experimentMetrics.frameCoverage.covered,experimentMetrics.frameCove
 assert.equal(heldOut.exactStructure.correct,2,"held-out infinitive forms must compose with the controller pattern");
 assert.deepEqual(abstentionPrediction.arguments,[],"unsupported matrix predicates must not receive invented roles");
 assert.deepEqual(abstentionPrediction.embedded,[],"unsupported matrix predicates must not receive an invented embedded event");
+for(const item of cases.filter(x=>x.group==="abstention")) {
+  const prediction=canonical(current.analyse(item.text,{contextRelation:"new_topic"},null).proposition);
+  assert.equal(prediction.kind,"fragment","unsupported constructions must remain unresolved");
+  assert.deepEqual(prediction.arguments,[],"unsupported constructions must not receive invented roles");
+  assert.deepEqual(prediction.embedded,[],"unsupported constructions must not receive invented events");
+}
+const embeddedNegated=current.analyse("Анна попросила Бориса не открывать дверь.",{contextRelation:"new_topic"},null).proposition;
+assert.equal(embeddedNegated.polarity,"positive","embedded negation must not negate the matrix request");
+assert.equal(embeddedNegated.embeddedPropositions[0].polarity,"negative","embedded action negation must be preserved");
+const bothNegated=current.analyse("Анна не попросила Бориса не открывать дверь.",{contextRelation:"new_topic"},null).proposition;
+assert.equal(bothNegated.polarity,"negative");
+assert.equal(bothNegated.embeddedPropositions[0].polarity,"negative");
 
 const forged=current.validateProposition({
   subject:"Анна",predicate:"попросила",object:"Бориса",
@@ -165,5 +197,8 @@ console.log("NEUROGENESIS semantic-role pilot: "+JSON.stringify({
   baseline:baselineMetrics,experiment:experimentMetrics,knownMatrix,heldOutInfinitive:heldOut,
   unsupportedPredicateAbstention:{sentence:abstention.text,remainsFragment:abstentionPrediction.kind==="fragment",
     noRolesInvented:abstentionPrediction.arguments.length===0,
-    noEmbeddedEventInvented:abstentionPrediction.embedded.length===0}
+    noEmbeddedEventInvented:abstentionPrediction.embedded.length===0},
+  unsupportedStructureAbstentions:cases.filter(x=>x.group==="abstention").map(item=>item.text),
+  embeddedNegation:{matrixPolarity:embeddedNegated.polarity,embeddedPolarity:embeddedNegated.embeddedPropositions[0].polarity,
+    bothScopes:{matrix:bothNegated.polarity,embedded:bothNegated.embeddedPropositions[0].polarity}}
 }));

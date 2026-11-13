@@ -584,9 +584,12 @@
         predicate: controlled.predicate,
         object: controlled.controller,
         relation: "predicate",
-        polarity: polarityScope.scope !== "none" ? polarityScope.polarity
-          : controlled.negated ? "negative" : "positive",
-        polarityScope,
+        // Negation immediately before the infinitive belongs to the embedded
+        // event, not to the matrix speech act ("asked" vs "asked not to").
+        polarity: controlled.matrixNegated ? "negative" : "positive",
+        polarityScope: controlled.matrixNegated
+          ? { scope: "predicate", quantifier: "unspecified", effect: "negative" }
+          : { scope: "none", quantifier: "unspecified", effect: "none" },
         modality: conditional ? "conditional" : opinion ? "opinion" : modality,
         embeddedPropositions: [controlled.embedded],
         confidence: 0.78,
@@ -1283,25 +1286,46 @@
     велит: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" },
     велят: { relation: "command_content", controllerRole: "addressee", controllerCase: "dative" }
   });
+  const CONTROLLED_INTERVENING_ADVERBS = new Set([
+    "быстро", "медленно", "сразу", "немедленно", "аккуратно", "осторожно",
+    "тихо", "громко", "неожиданно", "вчера", "сегодня", "завтра",
+    "сначала", "потом", "снова", "опять", "никогда", "всегда",
+    "вежливо", "специально", "временно", "совместно", "постепенно",
+    "самостоятельно", "поочередно", "поочерёдно"
+  ]);
   function extractControlledInfinitive(value) {
     const text = clean(value, 800).replace(/[?!.…]+$/u, "").trim();
     const forms = Object.keys(CONTROLLED_MATRIX_PREDICATES).sort((left, right) => right.length - left.length);
     const expression = new RegExp(
-      "^(.+?)\\s+(не\\s+)?(" + forms.join("|") + ")\\s+(.+?)\\s+([\\p{L}]+(?:ть|ти|чь))\\s+(.+)$",
+      "^(.+?)\\s+(не\\s+)?(" + forms.join("|") + ")\\s+(.+?)\\s+(не\\s+)?([\\p{L}]+(?:ть|ти|чь))\\s+(.+)$",
       "iu"
     );
     const match = text.match(expression);
     if (!match) return null;
     const configuration = CONTROLLED_MATRIX_PREDICATES[normalise(match[3])];
     const subject = clean(match[1], 180), controller = clean(match[4], 180);
-    const predicate = clean(match[5], 80), object = clean(match[6], 220);
+    const predicate = clean(match[6], 80), object = clean(match[7], 220);
     if (!configuration || !subject || !controller || !predicate || !object) return null;
+    const controllerWords = controller.split(/\\s+/u).map(normalise);
+    const objectWords = object.split(/\\s+/u).map(normalise);
+    const hasCoordination = phrase => /(?:^|\\s)(?:и|или|либо)(?:\\s|$)/iu.test(phrase);
+    const looksInfinitive = word => /^[\\p{L}]+(?:ть|ти|чь)$/u.test(word);
+    // Do not absorb adverbs, prepositional adjuncts, another predicate, or a
+    // coordinated participant into a single controller/object span.
+    if (hasCoordination(subject) || hasCoordination(controller) || hasCoordination(object) ||
+        controllerWords.some(word => CONTROLLED_INTERVENING_ADVERBS.has(word) ||
+          GRAMMATICAL_FUNCTION_WORDS.has(word) || Object.hasOwn(CONTROLLED_MATRIX_PREDICATES, word) ||
+          looksInfinitive(word)) ||
+        objectWords.some(looksInfinitive)) return null;
+    const matrixNegated = !!match[2], embeddedNegated = !!match[5];
     return {
-      subject, predicate: clean(match[3], 80), controller, negated: !!match[2],
+      subject, predicate: clean(match[3], 80), controller,
+      matrixNegated, embeddedNegated,
       embedded: {
         schema: "NG_EMBEDDED_PROPOSITION_V1",
         relation: configuration.relation,
         subject: controller, predicate, object,
+        polarity: embeddedNegated ? "negative" : "positive",
         controllerRole: configuration.controllerRole,
         controllerCase: configuration.controllerCase,
         confidence: 0.76
@@ -1681,6 +1705,7 @@
         schema: "NG_EMBEDDED_PROPOSITION_V1",
         relation: item.relation,
         subject, predicate, object,
+        polarity: item.polarity === "negative" ? "negative" : "positive",
         arguments: buildSemanticArguments(subject, predicate, object, {
           actorCase: controllerCase, actorRule: "matrix_object_control"
         }),

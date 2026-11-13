@@ -25,14 +25,16 @@ const baseline = loadCore(baselineSource), current = loadCore(currentSource);
 const normalize = value => String(value ?? "").normalize("NFKC").toLowerCase()
   .replace(/ё/gu, "е").replace(/[^\p{L}\p{N}]+/gu, "");
 const goldRoleMap = new Map([
-  ["субъект","agent"], ["агенс","agent"],
-  ["объект","patient"], ["каузат","patient"],
-  ["каузатор","cause"], ["локатив","location"], ["темпоратив","time"],
+  // Keep only reasonably aligned semantic labels. Generic grammatical/semantic
+  // "субъект" is not always an AGENT; "каузат" is an affected outcome (EFFECT),
+  // not automatically a PATIENT.
+  ["агенс","agent"], ["объект","patient"], ["каузатор","cause"],
+  ["каузат","effect"], ["локатив","location"], ["темпоратив","time"],
   ["инструмент","instrument"], ["инструментив","instrument"]
 ]);
 const predictedRoleMap = new Map([
   ["agent","agent"], ["cause","cause"], ["patient","patient"], ["theme","patient"],
-  ["location","location"], ["time","time"], ["instrument","instrument"]
+  ["effect","effect"], ["location","location"], ["time","time"], ["instrument","instrument"]
 ]);
 function spanPositions(tokens, phrase) {
   const wanted = String(phrase ?? "").split(/\s+/u).map(normalize).filter(Boolean);
@@ -49,6 +51,7 @@ function spanPositions(tokens, phrase) {
 }
 
 let malformedRows=0, multiPredicateSkipped=0, noMappedRoleSkipped=0;
+const unmappedRoleCounts=Object.create(null);
 const frames=[];
 for (const row of rows) {
   const {tokens,synt_head:syntHead,sem_head:semHead,sem_role:semRole}=row;
@@ -64,8 +67,10 @@ for (const row of rows) {
   const goldArguments=[];
   for(let index=0;index<tokens.length;index++) {
     if(semHead[index]!==predicateIndex) continue;
-    const role=goldRoleMap.get(semRole[index]);
+    const label=semRole[index];
+    const role=goldRoleMap.get(label);
     if(role) goldArguments.push({index,role,token:tokens[index]});
+    else if(label&&label!=="_") unmappedRoleCounts[label]=(unmappedRoleCounts[label]||0)+1;
   }
   if(!goldArguments.length) { noMappedRoleSkipped++; continue; }
   frames.push({sentId:row.sent_id,tokens,text:tokens.join(" "),
@@ -81,6 +86,7 @@ function evaluate(core,selectedFrames) {
   let predicateCovered=0,predicateExact=0,frameCovered=0,exactFrames=0;
   let tp=0,fp=0,fn=0,goldArgumentCount=0,analysisErrors=0;
   const roleStats={},errorSamples=[];
+  const ensureRole=role=>roleStats[role] ||= {gold:0,truePositive:0,falsePositive:0,falseNegative:0};
   for(const frame of selectedFrames) {
     let proposition=null;
     try { proposition=core.analyse(frame.text,{contextRelation:"new_topic"},null)?.proposition||null; }
@@ -102,13 +108,12 @@ function evaluate(core,selectedFrames) {
         !matchedGold.has(gold.index+"|"+gold.role)&&gold.role===role&&positions.has(gold.index)):null;
       if(match) {
         matchedGold.add(match.index+"|"+match.role); tp++;
-        roleStats[role] ||= {gold:0,matched:0}; roleStats[role].matched++;
-      } else { fp++; frameFalsePositives++; }
+        ensureRole(role).truePositive++;
+      } else { fp++; frameFalsePositives++; ensureRole(role).falsePositive++; }
     }
     for(const gold of frame.goldArguments) {
-      goldArgumentCount++; roleStats[gold.role] ||= {gold:0,matched:0};
-      roleStats[gold.role].gold++;
-      if(!matchedGold.has(gold.index+"|"+gold.role)) fn++;
+      goldArgumentCount++; ensureRole(gold.role).gold++;
+      if(!matchedGold.has(gold.index+"|"+gold.role)) { fn++; ensureRole(gold.role).falseNegative++; }
     }
     if(predicateIsExact&&matchedGold.size===frame.goldArguments.length&&frameFalsePositives===0) exactFrames++;
     if(errorSamples.length<8&&(!predicateIsExact||matchedGold.size!==frame.goldArguments.length||frameFalsePositives)) {
@@ -120,6 +125,16 @@ function evaluate(core,selectedFrames) {
   }
   const precision=tp+fp?tp/(tp+fp):0,recall=goldArgumentCount?tp/goldArgumentCount:0;
   const f1=precision+recall?2*precision*recall/(precision+recall):0;
+  const roleRows=Object.entries(roleStats).map(([role,stats])=>{
+    const rolePrecision=stats.truePositive+stats.falsePositive
+      ?stats.truePositive/(stats.truePositive+stats.falsePositive):0;
+    const roleRecall=stats.gold?stats.truePositive/stats.gold:0;
+    const roleF1=rolePrecision+roleRecall?2*rolePrecision*roleRecall/(rolePrecision+roleRecall):0;
+    return [role,{...stats,precision:rolePrecision,recall:roleRecall,f1:roleF1}];
+  });
+  const supportedGoldRoles=roleRows.filter(([,stats])=>stats.gold>0);
+  const macroF1=supportedGoldRoles.length
+    ?supportedGoldRoles.reduce((sum,[,stats])=>sum+stats.f1,0)/supportedGoldRoles.length:0;
   const total=selectedFrames.length;
   return {
     frames:total,
@@ -128,8 +143,8 @@ function evaluate(core,selectedFrames) {
     frameCoverage:{covered:frameCovered,total,rate:total?frameCovered/total:null},
     exactFrame:{correct:exactFrames,total,accuracy:total?exactFrames/total:null},
     argumentHeads:{truePositive:tp,falsePositive:fp,falseNegative:fn,gold:goldArgumentCount,
-      precision,recall,microF1:f1},
-    roles:roleStats,analysisErrors,errorSamples
+      precision,recall,microF1:f1,macroF1},
+    roles:Object.fromEntries(roleRows),analysisErrors,errorSamples
   };
 }
 const baselineMetrics=evaluate(baseline,frames),experimentMetrics=evaluate(current,frames);
@@ -143,10 +158,12 @@ assert.equal(experimentMetrics.analysisErrors,0,"semantic-core must not throw on
 console.log("NEUROGENESIS RuSRL external semantic-role evaluation: "+JSON.stringify({
   protocol:{dataset:"IsaNLP/RuSRL",revision:"56080b4b6f77c39b0a57147b1025feaabd1d843e",
     license:"CC BY-NC 4.0",publishedRows:rows.length,singlePredicateFrames:frames.length,
-    multiPredicateSkipped,noMappedRoleSkipped,malformedRows,goldRoleSubset:[...new Set(goldRoleMap.keys())],
+    multiPredicateSkipped,noMappedRoleSkipped,malformedRows,unmappedRoleCounts,
+    goldRoleSubset:[...new Set(goldRoleMap.keys())],
     predicateForms:predicateFrequency.size,singletonPredicateFrames:singletonFrames.length,
     repeatedPredicateFrames:repeatedFrames.length,evaluationOnly:true,officialTestSplit:false,
-    goldSyntaxAvailable:true,predictedSyntaxAvailable:false},
+    goldSyntaxAnnotationsAvailable:true,goldSyntaxUsedAsInput:false,
+    predictedSyntaxAvailable:false,syntaxComparison:"not_performed"},
   baseline:baselineMetrics,experiment:experimentMetrics,
   predicateFrequencySlices:{singleton:singletonMetrics,repeated:repeatedMetrics}
 }));
