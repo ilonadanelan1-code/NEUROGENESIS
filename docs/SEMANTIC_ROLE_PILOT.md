@@ -25,13 +25,15 @@ The audit found a concrete gap: common past forms such as `открыла` were 
 
 It reports exact full-frame accuracy, role micro precision/recall/F1, frame coverage, the known matrix-verb slice, the held-out infinitive slice, and unsupported-predicate abstention. The expected annotations are hand-authored regression diagnostics, not a statistically representative corpus benchmark.
 
-There is no gold-syntax versus predicted-syntax comparison in this run: `main` has no general dependency parser producing sentence trees for this runtime. PR #31 was not used because its CI failed at the benchmark entry point with `Dependency.create is not a function`.
+RuSRL supplies gold `synt_head`, `sem_head`, and `sem_role` arrays. The external benchmark uses the gold semantic heads/roles to evaluate the current sentence-level core on single-predicate frames. `main` still does not emit a predicted dependency tree, so a gold-syntax versus predicted-syntax comparison is not available. PR #31 was not used because its CI failed at the benchmark entry point with `Dependency.create is not a function`.
 
-## Russian resources and licensing
+## External RuSRL evaluation
+
+The CI downloads the pinned `IsaNLP/RuSRL` JSONL revision `56080b4b6f77c39b0a57147b1025feaabd1d843e` and runs `tests/semantic-role-rusrl-benchmark.mjs`. The dataset card reports 1,500 rows in one `train` split, with `tokens`, gold syntactic heads (`synt_head`), gold semantic heads (`sem_head`), and semantic role labels (`sem_role`). Its license is CC BY-NC 4.0. The benchmark uses the rows evaluation-only—no fitting or tuning—and does not copy the dataset into this repository. It includes only sentences with one unique semantic head and at least one mapped role; it reports the skipped multi-predicate and unmapped cases. The mapped role subset is deliberately conservative: subject/agent, object/causate, causer, location, time, and instrument. This is an external diagnostic over the published train split, **not** an official held-out test split; do not treat its score as an unbiased leaderboard result.
 
 Russian FrameBank is highly relevant: it documents predicate–argument constructions, core/non-core roles, passive/imperative/negation alternations, and control/raising. Its README says the example index with sentence/context material is an external ~500 MB file, not included in the offline GitHub release; it also carries a copyright notice for source texts. The public repository is marked GPL-3.0. We did not silently ingest or redistribute the text corpus, and cannot claim a FrameBank held-out evaluation from the accessible annotation tables alone.
 
-UD Russian-GSD 2.18 is an openly downloadable syntactic treebank (CC BY-SA 4.0), but it annotates UPOS, FEATS, and dependency relations—not semantic roles. It is useful for a future syntax-input experiment, not gold SRL by itself.
+UD Russian-GSD 2.18 is an openly downloadable syntactic treebank (CC BY-SA 4.0), but it annotates UPOS, FEATS, and dependency relations—not semantic roles. It is useful for a future syntax-input experiment, not gold SRL by itself. RuSRL provides a small gold semantic-role sample and gold syntax arrays, but has only one published split.
 
 ## Research notes and sources
 
@@ -40,6 +42,7 @@ UD Russian-GSD 2.18 is an openly downloadable syntactic treebank (CC BY-SA 4.0),
 - Berkeley ICSI FrameNet: lexical units are organized into semantic frames with frame elements and manually annotated examples. https://icsi.berkeley.edu/projects/framenet-project/
 - Universal Dependencies v2: consistent cross-lingual POS, morphology, and typed dependency relations; core arguments and non-core dependents are syntax evidence, not identical to semantic roles. https://universaldependencies.org/ and https://universaldependencies.org/u/dep/all.html
 - UD Russian-GSD treebank and license: https://universaldependencies.org/treebanks/ru_gsd/index.html
+- IsaNLP/RuSRL dataset card and file (1.5k Russian rows, `synt_head` / `sem_head` / `sem_role`, CC BY-NC 4.0): https://huggingface.co/datasets/IsaNLP/RuSRL
 - Lyashevskaya & Kashkin (2015), *FrameBank: A Database of Russian Lexical Constructions*, AIST 2015, CCIS 542, pp. 337–348; offline resource: https://github.com/olesar/framebank
 - Alimova, Tutubalina & Kirillovich (2020), *Cross-lingual Transfer Learning for Semantic Role Labeling in Russian*, CLIB 2020, pp. 72–80. They compare BERT, XLM-R, MUSE and LASER; reduced English FrameNet pretraining + Russian FrameBank fine-tuning reached 79.8 macro-F1 vs 78.4 baseline: https://aclanthology.org/2020.clib-1.8/
 - Larionov, Shelmanov, Chistova & Smirnov (2019), *Semantic Role Labeling with Pretrained Language Models for Known and Unknown Predicates*, RANLP 2019, pp. 620–628. The public IsaNLP FrameBank parser provides a Russian SRL implementation, but its README marks the code alpha and describes a Python 3.6/3.7 stack with Gensim 3.6, TensorFlow 1.x, ELMo embeddings, and separate morphology/syntax/SRL services: https://github.com/IINemo/isanlp_srl_framebank
@@ -62,4 +65,4 @@ The practical path for this JavaScript-first project is a hybrid representation:
 - Control patterns require a finite matrix verb followed by one controller phrase, an infinitive, and its object; intervening adverbs, coordination, omitted controllers, nested control, and long-distance dependencies are not covered.
 - Controller-case labels come from the selected construction family; this is not a general morphological analyzer.
 - Twelve hand-built cases cannot establish corpus-level generalization or confidence calibration.
-- No production dependency tree, gold syntax, or independent FrameBank SRL test split is available in this run.
+- No production dependency tree is available, so predicted-syntax evaluation remains unavailable. RuSRL has only one published split and the FrameBank offline release lacks its external sentence/context index; neither supplies an official independent test split for this experiment.
