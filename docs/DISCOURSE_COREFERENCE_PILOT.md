@@ -65,7 +65,7 @@ The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFE
 
 ## Data and evaluation
 
-RuCoCo is not used because its dataset reuse license could not be verified from the official repository metadata/readme. The added 24-case contrast set is hand-authored and explicitly diagnostic, not a representative corpus. It covers agreement, semantic-role/case conflicts, long-distance candidates, topic boundaries, ambiguity and missing antecedents. It is not used for training and has no train/test split.
+RuCoCo is not used because its dataset reuse license could not be verified from the official repository metadata/readme. The added 26-case contrast set is hand-authored and explicitly diagnostic, not a representative corpus. It covers agreement, semantic-role/case conflicts, long-distance candidates, topic boundaries, ambiguity and missing antecedents. It is not used for training and has no train/test split.
 
 The benchmark compares:
 - a nearest-compatible-mention baseline (recency, with ties abstaining); this is a simple comparator, not a claim that the existing application already performs cross-turn entity linking;
@@ -73,21 +73,21 @@ The benchmark compares:
 
 The 24 benchmark cases provide explicit candidate records, so these metrics evaluate ranking and abstention given candidate mentions. Candidate extraction from real active-thread messages is covered separately by unit/integration tests; parser candidate recall is not measured by the 24-case score. Coverage is the fraction of diagnostic queries linked by the ranker, not end-to-end mention-detection coverage. Metrics are exact accuracy, link precision/recall/F1, coverage, false-link rate and correct-abstention rate, with slices by diagnostic category. These figures measure only this curated diagnostic set; they must not be presented as corpus-level Russian coreference performance.
 
-## Diagnostic results (24 hand-authored cases)
+## Diagnostic results (26 hand-authored cases)
 
-The first complete benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training; later commits changed only query-hint ordering and possessive-pronoun detection, not the scoring or benchmark cases.
+The complete 26-case benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training. It includes contrast cases for negation and causal connectives; later commits after this run changed only a unit-test assertion and documentation.
 
 | Metric | Nearest-compatible baseline | Experimental ranker | Change |
 |---|---:|---:|---:|
-| Exact decision accuracy | 14/24 = 58.33% | 20/24 = 83.33% | +25.00 pp |
-| Link precision | 8/18 = 44.44% | 14/14 = 100.00% | +55.56 pp |
-| Link recall | 8/18 = 44.44% | 14/18 = 77.78% | +33.33 pp |
-| Link F1 | 44.44% | 87.50% | +43.06 pp |
-| Coverage | 18/24 = 75.00% | 14/24 = 58.33% | −16.67 pp |
-| False-link rate | 10/18 = 55.56% | 0/14 = 0.00% | −55.56 pp |
+| Exact decision accuracy | 15/26 = 57.69% | 22/26 = 84.62% | +26.92 pp |
+| Link precision | 9/20 = 45.00% | 16/16 = 100.00% | +55.00 pp |
+| Link recall | 9/20 = 45.00% | 16/20 = 80.00% | +35.00 pp |
+| Link F1 | 45.00% | 88.89% | +43.89 pp |
+| Coverage | 20/26 = 76.92% | 16/26 = 61.54% | −15.38 pp |
+| False-link rate | 11/20 = 55.00% | 0/16 = 0.00% | −55.00 pp |
 | Correct abstention | 6/6 = 100% | 6/6 = 100% | 0 pp |
 
-The ranker deliberately makes fewer links. It removes all false links in this diagnostic set at the cost of lower coverage. Category results: agreement 4/4 for both; semantic-role cases 0/8 baseline vs 6/8 experiment; long-distance 2/3 for both; explicit topic return 1/2 for both; ambiguous 3/3 correct abstentions for both; unresolved 2/2 for both; topic-switch boundary 2/2 exact decisions for both. The small long-distance and topic-return slices show no measured improvement and are too small for generalization claims.
+The ranker deliberately makes fewer links. It removes all false links in this diagnostic set at the cost of lower coverage. Category results: agreement 4/4 for both; semantic-role cases 0/8 baseline vs 6/8 experiment; long-distance 2/3 for both; explicit topic return 1/2 for both; ambiguous 3/3 correct abstentions for both; unresolved 2/2 for both; topic-switch boundary 2/2 exact decisions for both; negation 1/1 for both; causal connective 0/1 baseline vs 1/1 experiment. The small long-distance and topic-return slices show no measured improvement and are too small for generalization claims.
 
 There is no unseen-lemma score: the set is hand-authored, has no corpus split and is not a generalization benchmark. No corpus-level or statistical claim follows from these numbers.
 
