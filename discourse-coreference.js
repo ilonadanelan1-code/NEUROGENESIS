@@ -195,7 +195,7 @@
     const second = candidates[1] || null;
     const margin = best ? Number((best.score - (second ? second.score : 0)).toFixed(4)) : 0;
     const minimumScore = Number.isFinite(Number(options.minimumScore)) ? Number(options.minimumScore) : 2.5;
-    const minimumMargin = Number.isFinite(Number(options.minimumMargin)) ? Number(options.minimumMargin) : 0.55;
+    const minimumMargin = Number.isFinite(Number(options.minimumMargin)) ? Number(options.minimumMargin) : 0.5;
     let status = "unresolved", reason = "no_compatible_antecedent", confidence = 0;
     if (best) {
       if (best.score < minimumScore) {
