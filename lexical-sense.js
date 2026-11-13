@@ -52,7 +52,7 @@ function resolveExample(example, model) {
   if (targetIndex < 0 && targetForm) targetIndex = tokens.findIndex(token => normalise(token) === targetForm);
   if (targetIndex < 0 || targetIndex >= tokens.length) return null;
   const surface = normalise(example.targetForm || tokens[targetIndex]);
-  if (!surface) return null;
+  if (!surface || normalise(tokens[targetIndex]) !== surface) return null;
   const stem = tokenStem(surface, model);
   const lemma = normalise(example.lemma || stem);
   const left = tokens.slice(0, targetIndex).map(token => tokenStem(token, model)).filter(Boolean);
