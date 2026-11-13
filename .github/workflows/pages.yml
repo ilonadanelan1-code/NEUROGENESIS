@@ -281,6 +281,12 @@ jobs:
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
+      - name: Compare contextual vocabulary capacities
+        run: |
+          node tests/context-vocabulary-capacity.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+
       - name: Run regression tests
         run: |
           node tests/experience-quality.test.js
