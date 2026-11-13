@@ -184,7 +184,10 @@ function mergeLocalDiscourseResolution(interpreted, localPlan) {
 
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";
- const turns=(Array.isArray(context&&context.recentMessages)?context.recentMessages:[]).filter(x=>x&&x.threadId===id&&["user","assistant"].includes(x.role)).slice(-8).map(x=>({role:x.role,text:clean(x.text,320),relation:clean(x.relation,32)}));
+ const historySource=Array.isArray(context&&context.threadHistory)?context.threadHistory:
+  Array.isArray(context&&context.recentMessages)?context.recentMessages:[];
+ const turns=historySource.filter(x=>x&&x.threadId===id&&["user","assistant"].includes(x.role)).slice(-8)
+  .map(x=>({role:x.role,text:clean(x.text,320),relation:clean(x.relation,32)}));
  const index=(Array.isArray(memories)?memories:[]).slice(-48).map(x=>({id:clean(x&&x.id,80),text:clean(x&&x.text,190)})).filter(x=>x.id&&x.text);
  const rawFocus=context&&context.focus;
  const contextFocus=rawFocus&&active&&rawFocus.threadId===id?{
