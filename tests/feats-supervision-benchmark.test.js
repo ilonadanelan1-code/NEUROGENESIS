@@ -126,7 +126,9 @@ function aggregateVariant(aggregate,variant,attribute,metrics,seed) {
 
 const recordMap = new Map(prepared.trainingRecords.map(row=>[row.normalized,row]));
 const seedReports = [];
-const aggregate = Object.fromEntries(Object.keys(variants).map(variant=>[variant,Object.create(null)]));
+const aggregate = Object.fromEntries(
+  [...Object.keys(variants),"validationSelected"].map(variant=>[variant,Object.create(null)])
+);
 
 for(const seed of seeds) {
   const contextual = Attention.create({
@@ -189,6 +191,9 @@ for(const seed of seeds) {
       assert.equal(training.selectionMetric,
         configuration.selectionMetric==="loss"?"validation_loss":"validation_macro_f1");
 
+      const validationReport = head.evaluate(validationRows);
+      assert.ok(Number.isFinite(validationReport.macroF1),
+        "validation macro-F1 must be available for leakage-safe per-attribute selection");
       const all = summarize(testRows,head,training.majorityLabel);
       const known = summarize(testRows,head,training.majorityLabel,trainLemmas);
       const unseenRows = testRows.filter(row=>!trainLemmas.has(row.lemma));
@@ -201,9 +206,15 @@ for(const seed of seeds) {
 
       const metrics={all,knownLemma:known,unseenLemma:unseen};
       aggregateVariant(aggregate,variant,attribute,metrics,seed.model);
-      variantReports[variant]={training,metrics};
+      variantReports[variant]={training,validationMacroF1:validationReport.macroF1,metrics};
     }
 
+    const selectionPriority = {unweighted:0,sqrtInverse:1,sqrtInverseCapped:2};
+    const [selectedWeighting,selectedReport] = Object.entries(variantReports).sort((left,right)=>{
+      const delta=right[1].validationMacroF1-left[1].validationMacroF1;
+      return Math.abs(delta)>1e-12 ? delta : selectionPriority[left[0]]-selectionPriority[right[0]];
+    })[0];
+    aggregateVariant(aggregate,"validationSelected",attribute,selectedReport.metrics,seed.model);
     const weighted = variantReports.sqrtInverse.metrics;
     const unweighted = variantReports.unweighted.metrics;
     attributeReports[attribute] = {
@@ -216,6 +227,11 @@ for(const seed of seeds) {
         unseenLemmaAccuracyDelta:difference(weighted.unseenLemma.accuracy,unweighted.unseenLemma.accuracy),
         allMacroF1Delta:difference(weighted.all.macroF1,unweighted.all.macroF1),
         unseenLemmaMacroF1Delta:difference(weighted.unseenLemma.macroF1,unweighted.unseenLemma.macroF1)
+      },
+      validationSelected:{
+        weighting:selectedWeighting,
+        validationMacroF1:selectedReport.validationMacroF1,
+        metrics:selectedReport.metrics
       },
       variants:variantReports
     };
@@ -282,6 +298,8 @@ const summary = {
     selectedAttributes,
     maximumAttributes,
     minimumClassExamples,
+    sameContextualEncoderAndRowsForAllVariants:true,
+    perAttributeWeightingSelection:"highest validation macro-F1 among unweighted, sqrt_inverse, and sqrt_inverse_capped; ties prefer unweighted",
     sameContextualEncoderAndRowsForBothVariants:true,
     checkpointSelectionMetricByVariant:Object.fromEntries(
       Object.entries(variants).map(([name,configuration])=>[name,configuration.selectionMetric])
@@ -303,7 +321,9 @@ const summary = {
 };
 assert.equal(summary.isolation.normalizedSentenceLeakage,0);
 assert.ok(Object.keys(aggregateReport.sqrtInverse).length>=4);
-assert.deepEqual(Object.keys(aggregateReport.sqrtInverse).sort(),
-  Object.keys(aggregateReport.unweighted).sort(),
-  "both FEATS variants must report the same attributes");
+for (const variant of [...Object.keys(variants),"validationSelected"]) {
+  assert.deepEqual(Object.keys(aggregateReport[variant]).sort(),
+    Object.keys(aggregateReport.unweighted).sort(),
+    "all FEATS weighting policies must report the same attributes");
+}
 console.log("NEUROGENESIS 0.58.118 paired contextual FEATS pilot: "+JSON.stringify(summary));
