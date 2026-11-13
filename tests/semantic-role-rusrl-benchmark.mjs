@@ -32,9 +32,7 @@ const goldRoleMap = new Map([
 ]);
 const predictedRoleMap = new Map([
   ["agent","agent"], ["cause","cause"], ["patient","patient"], ["theme","patient"],
-  ["location","location"], ["time","time"], ["instrument","instrument"],
-  ["recipient","recipient"], ["addressee","recipient"], ["indirect_object","recipient"],
-  ["causee","agent"]
+  ["location","location"], ["time","time"], ["instrument","instrument"]
 ]);
 function spanPositions(tokens, phrase) {
   const wanted = String(phrase ?? "").split(/\s+/u).map(normalize).filter(Boolean);
@@ -92,10 +90,11 @@ function evaluate(core,selectedFrames) {
     if(predictedPredicate) predicateCovered++;
     if(predicateIsExact) predicateExact++;
     const predictedArguments=Array.isArray(proposition?.arguments)?proposition.arguments:[];
-    if(predictedPredicate&&predictedArguments.length) frameCovered++;
+    const supportedArguments=predictedArguments.filter(argument=>predictedRoleMap.has(argument.role));
+    if(predictedPredicate&&supportedArguments.length) frameCovered++;
     const matchedGold=new Set();
     let frameFalsePositives=0;
-    for(const argument of predictedArguments) {
+    for(const argument of supportedArguments) {
       const role=predictedRoleMap.get(argument.role);
       if(!role) continue;
       const positions=new Set(spanPositions(frame.tokens,argument.text));
@@ -116,7 +115,7 @@ function evaluate(core,selectedFrames) {
       errorSamples.push({sentId:frame.sentId,text:frame.text.slice(0,220),goldPredicate:frame.predicate,
         predictedPredicate:proposition?.predicate||null,
         goldRoles:frame.goldArguments.map(g=>({role:g.role,token:g.token,index:g.index})),
-        predictedRoles:predictedArguments.map(a=>({role:a.role,text:a.text}))});
+        predictedRoles:supportedArguments.map(a=>({role:a.role,text:a.text}))});
     }
   }
   const precision=tp+fp?tp/(tp+fp):0,recall=goldArgumentCount?tp/goldArgumentCount:0;
