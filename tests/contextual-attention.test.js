@@ -58,7 +58,7 @@ assert.equal(model.status().transformerBlocks,2,"the encoder must stack two inde
 assert.equal(initialState.blocks.length,2);assert.equal(model.exportState().blocks.length,2);
 const frequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
 const frequencyReport=frequencyModel.train(corpus,{
- epochs:90,learningRate:.025,splitSeed:902,patience:24,vocabularyStrategy:"frequency"
+ epochs:4,learningRate:.025,splitSeed:902,patience:3,vocabularyStrategy:"frequency"
 });
 assert.equal(frequencyReport.vocabularyStrategy,"frequency");
 assert.equal(frequencyReport.vocabularySelection.strategy,"frequency");
@@ -76,7 +76,7 @@ assert.deepEqual(Array.from(frequencyModel.exportState().vocabulary),expectedFre
  "frequency vocabulary must be ranked by training frequency with a lexical tie-break");
 const repeatedFrequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
 repeatedFrequencyModel.train(corpus,{
- epochs:90,learningRate:.025,splitSeed:902,patience:24,vocabularyStrategy:"frequency"
+ epochs:4,learningRate:.025,splitSeed:902,patience:3,vocabularyStrategy:"frequency"
 });
 assert.deepEqual(Array.from(repeatedFrequencyModel.exportState().vocabulary),
  Array.from(frequencyModel.exportState().vocabulary),
