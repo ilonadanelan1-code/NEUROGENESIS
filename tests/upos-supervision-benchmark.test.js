@@ -114,6 +114,13 @@ for (const seed of seeds) {
       epochs:80,learningRate:.035,patience:12,seed:seed.model,...configuration
     });
     assert.ok(headTraining.classes.length>=2);
+    assert.equal(headTraining.classWeighting,configuration.classWeighting);
+    const trainingCounts = new Map(headTraining.classes.map(label => [label,0]));
+    for (const row of trainSet.examples) trainingCounts.set(row.label,(trainingCounts.get(row.label)||0)+1);
+    const weightedTrainingMass = headTraining.classes.reduce((sum,label) =>
+      sum + trainingCounts.get(label) * headTraining.classWeights[label],0);
+    assert.ok(Math.abs(weightedTrainingMass/trainSet.examples.length-1)<1e-9,
+      "all weighting variants must preserve mean training-sample weight 1");
     assert.equal(headTraining.selectionMetric,configuration.selectionMetric,
       "the trained UPOS head must report the checkpoint-selection metric requested by its paired configuration");
     const metrics=Object.fromEntries(Object.entries(groups).map(([key,examples])=>[
@@ -181,9 +188,11 @@ const summary={
 assert.equal(summary.isolation.normalizedSentenceLeakage,0);
 assert.ok(aggregate.unweighted.unseenLemma.targets>0,
   "the independent test must include lemmas not seen in the supervised training partition");
-assert.deepEqual(
-  Object.values(aggregate.sqrtInverse).map(row=>row.targets),
-  Object.values(aggregate.unweighted).map(row=>row.targets),
-  "both variants must use the exact same independent test rows"
-);
+for (const variant of Object.keys(variants)) {
+  assert.deepEqual(
+    Object.values(aggregate[variant]).map(row=>row.targets),
+    Object.values(aggregate.unweighted).map(row=>row.targets),
+    "all variants must use the exact same independent test rows"
+  );
+}
 console.log("NEUROGENESIS 0.58.116 supervised contextual UPOS class-balance benchmark: "+JSON.stringify(summary));
