@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - experiment/event-reference-2026-11-13
   pull_request:
     branches:
       - main
@@ -314,7 +315,7 @@ jobs:
 
   deploy:
     name: Deploy GitHub Pages
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: validate
     permissions:
       contents: read
