@@ -47,6 +47,16 @@ assert.equal(resolved.antecedent.subject,"Система");
 assert.equal(resolved.provenance.memoryEffect,"none");
 assert.equal(resolved.provenance.usage,"advisory_only");
 
+const multiSentenceEvents=api.extractCandidates([{
+ id:"MULTI",threadId:"T1",role:"user",text:"Модель запускает процесс. Затем он сохраняет результат."
+}],core,{topicId:"T1"});
+assert.equal(multiSentenceEvents.length,2,
+ "both asserted propositions in one user message must be retained as separate events");
+assert.equal(new Set(multiSentenceEvents.map(row=>row.id)).size,2,
+ "separate propositions from one message must have distinct stable event identifiers");
+assert.ok(multiSentenceEvents.every(row=>row.id.startsWith("MULTI-p")),
+ "event identifiers must retain the source message id and proposition identity");
+
 const competingMessages=[
  {id:"E1",threadId:"T1",role:"user",text:"Система получает сигнал."},
  {id:"E2",threadId:"T1",role:"user",text:"Модуль активирует процесс."}

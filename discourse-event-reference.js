@@ -35,7 +35,8 @@
         ?frame.propositionChain.items:[];
       const propositions=chain.length?chain.map(item=>({proposition:item.proposition||{},text:item.text||message.text,id:item.id||""})):
         frame&&frame.proposition?[{proposition:frame.proposition,text:message.text,id:""}]:[];
-      for(const row of propositions){
+      for(let propositionIndex=0;propositionIndex<propositions.length;propositionIndex++){
+        const row=propositions[propositionIndex];
         const p=row.proposition||{};
         if(!["assertion"].includes(p.kind)||p.modality==="conditional"||p.modality==="reported"||
            p.attribution&&p.attribution.source&&p.attribution.source!=="user_utterance")continue;
@@ -43,8 +44,10 @@
         if(!predicate||(!subject&&!object)||Number(p.confidence)<0.5)continue;
         const signature=normalise([subject,predicate,object].filter(Boolean).join(" "));
         if(!signature)continue;
+        const messageId=clean(message.id,56);
+        const propositionId=clean(row.id,12)||String(propositionIndex+1);
         rows.push({
-          id:clean(message.id,80)||"event-"+index+"-"+rows.length,
+          id:messageId?clean(messageId+"-p"+propositionId,80):"event-"+index+"-p"+(propositionIndex+1),
           text:clean(row.text,260),subject,predicate,object,kind:p.kind,
           polarity:p.polarity==="negative"?"negative":"positive",
           modality:clean(p.modality,24)||"asserted",
