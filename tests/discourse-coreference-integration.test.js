@@ -23,17 +23,20 @@ const context={
 };
 window.NG_DISCOURSE_COREFERENCE_EXPERIMENT=false;
 const advisory=planner.local("А что он сделал?",context,null);
-assert.ok(advisory.discourseResolution,"local semantic planning should expose the bounded cross-turn resolution");
-assert.equal(advisory.discourseResolution.schema,"NG_DISCOURSE_COREFERENCE_V1");
-assert.equal(advisory.discourseResolution.antecedent.text,"сигнал");
-assert.ok(advisory.semanticFrame.discourseEntityResolution,
- "the resolution and its provenance should remain attached to the local semantic frame");
-assert.equal(advisory.semanticFrame.discourseEntityResolution.provenance.memoryEffect,"none");
+assert.equal(advisory.discourseResolution,null,
+ "the cross-turn resolver must not run or add context when its experiment flag is disabled");
+assert.equal(advisory.semanticFrame.discourseEntityResolution,undefined);
 assert.equal(advisory.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),false,
  "the experimental resolver must not alter retrieval while its feature flag is disabled");
 
 window.NG_DISCOURSE_COREFERENCE_EXPERIMENT=true;
 const enabled=planner.local("А что он сделал?",context,null);
+assert.ok(enabled.discourseResolution,"the opt-in local semantic planner should expose the bounded cross-turn resolution");
+assert.equal(enabled.discourseResolution.schema,"NG_DISCOURSE_COREFERENCE_V1");
+assert.equal(enabled.discourseResolution.antecedent.text,"сигнал");
+assert.ok(enabled.semanticFrame.discourseEntityResolution,
+ "the resolution and its provenance should remain attached to the local semantic frame");
+assert.equal(enabled.semanticFrame.discourseEntityResolution.provenance.memoryEffect,"none");
 assert.equal(enabled.discourseResolution.status,"resolved");
 assert.ok(enabled.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),
  "an explicitly enabled high-confidence link may add a retrieval hint");
