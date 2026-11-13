@@ -47,6 +47,7 @@ jobs:
           node --check dialog-manager.js
           node --check semantic-query.js
           node --check contextual-attention.js
+          node --check lexical-sense.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
@@ -265,6 +266,20 @@ jobs:
       - name: Run independent language-understanding benchmark
         run: node tests/language-generalization.test.js
 
+      - name: Run contextual lexical-sense pilot
+        run: |
+          git clone --quiet https://github.com/lopuhin/ruslang-wsd-labeled.git /tmp/ruslang-wsd-labeled
+          git -C /tmp/ruslang-wsd-labeled fetch --quiet --depth 1 origin 67266b5bb21dd92e7def0bdc41adddb2584c1868
+          git -C /tmp/ruslang-wsd-labeled checkout --quiet 67266b5bb21dd92e7def0bdc41adddb2584c1868
+          node tests/lexical-sense-benchmark.test.js /tmp/ruslang-wsd-labeled/rl_wsd_labeled/nouns/RNC
+
+      - name: Upload contextual lexical-sense benchmark
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-lexical-sense-context-v1
+          path: benchmark-reports/lexical-sense-context-v1.json
+          if-no-files-found: error
+
       - name: Download pinned UD Russian-GSD corpus
         run: |
           mkdir -p /tmp/ud-russian-gsd
@@ -298,6 +313,7 @@ jobs:
           node --check semantic-core.js
           node tests/semantic-query.test.js
           node tests/contextual-attention.test.js
+          node tests/lexical-sense.test.js
           node tests/contextual-attention-retrieval-benchmark.test.js
           node tests/phrase-composition.test.js
           node tests/semantic-understanding.test.js
