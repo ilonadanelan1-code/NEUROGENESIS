@@ -113,6 +113,7 @@ const weightedReport=weightedModel.train(corpus,{
 assert.equal(weightedReport.classWeighting,"inverse_capped");
 assert.ok(Math.abs(weightedReport.meanTargetClassWeight-1)<1e-9,
  "target weights must be normalized to mean one over training examples");
+assert.ok(weightedReport.targetWeightByFrequency["1"]&&weightedReport.targetWeightByFrequency["2-4"]);
 assert.ok(weightedReport.targetWeightByFrequency["1"].meanWeight>
  weightedReport.targetWeightByFrequency["2-4"].meanWeight,
  "single-example target classes must receive higher weight than 2-4-example classes");
