@@ -5,6 +5,7 @@ on:
     branches:
       - experiment/upos-evidence-guardrail-2026-11-14
       - experiment/upos-pos-specific-calibration-2026-11-14
+      - experiment/russian-gsd-training-scale-2026-11-14
   workflow_dispatch:
 
 permissions:
