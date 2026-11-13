@@ -165,6 +165,37 @@ function local(input,context={},knowledge=null){
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
   contextualAnalysis,contextualHints,phraseComposition,compositionHint,discourseResolution};
 }
+
+function mergeLocalDiscourseResolution(interpreted, localPlan) {
+ const plan=interpreted&&typeof interpreted==="object"?interpreted:null;
+ const local=localPlan&&typeof localPlan==="object"?localPlan:null;
+ if(!plan||!local)return plan;
+ const resolution=local.discourseResolution;
+ if(!resolution||resolution.status==="not_applicable")return plan;
+ const sourceFrame=plan.semanticFrame&&typeof plan.semanticFrame==="object"?plan.semanticFrame:{};
+ const annotatedFrame={...sourceFrame,discourseEntityResolution:resolution};
+ const annotated={...plan,semanticFrame:annotatedFrame,discourseResolution:resolution};
+ if(resolution.status!=="resolved"||!resolution.antecedent||
+    local.contextRelation!=="follow_up"||plan.contextRelation!=="follow_up")return annotated;
+ const antecedent=resolution.antecedent;
+ const role=resolution.mention&&resolution.mention.syntacticRole==="subject"?"subject":"object";
+ const localFrame=local.semanticFrame&&typeof local.semanticFrame==="object"?local.semanticFrame:{};
+ const localProposition=localFrame.proposition&&typeof localFrame.proposition==="object"?localFrame.proposition:{};
+ const modelProposition=sourceFrame.proposition&&typeof sourceFrame.proposition==="object"?sourceFrame.proposition:{};
+ const proposition={...modelProposition,[role]:localProposition[role]||antecedent.text,crossTurnReference:resolution};
+ const entities=Array.isArray(sourceFrame.entities)?sourceFrame.entities.slice():[];
+ if(!entities.some(item=>normalise(item&&item.text)===normalise(antecedent.text))){
+  entities.unshift({text:antecedent.text,role,certainty:"context_candidate"});
+ }
+ const frame={...annotatedFrame,proposition,entities:entities.slice(0,8),
+  discourse:{...(sourceFrame.discourse||{}),resolvedFrom:antecedent.text}};
+ if(role==="subject")frame.subject={text:antecedent.text,certainty:"context_candidate"};
+ const query=clean(local.originalText||plan.canonicalQuestion||"",300);
+ const hint=query?clean(antecedent.text+" "+query,300):"";
+ const searchQueries=[...new Set([...(Array.isArray(plan.searchQueries)?plan.searchQueries:[]),hint].filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
+ return {...annotated,semanticFrame:frame,searchQueries};
+}
+
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";
  const turns=(Array.isArray(context&&context.recentMessages)?context.recentMessages:[]).filter(x=>x&&x.threadId===id&&["user","assistant"].includes(x.role)).slice(-8).map(x=>({role:x.role,text:clean(x.text,320),relation:clean(x.relation,32)}));
@@ -254,5 +285,5 @@ function parse(raw, originalQuestion=""){
   requiredSteps>1&&evidencePlan.length<requiredSteps;
  return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan,evidencePlanInvalid,confidence};
 }
-window.NGSemanticQuery=Object.freeze({version:3,local,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
+window.NGSemanticQuery=Object.freeze({version:3,local,mergeLocalDiscourseResolution,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
 })();
