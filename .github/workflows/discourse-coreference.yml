@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "discourse-coreference.js"
+      - "semantic-core.js"
       - "semantic-query.js"
       - "index.html"
       - "tests/discourse-coreference*.test.js"
@@ -16,6 +17,7 @@ on:
       - experiment/night-discourse-coreference-2026-11-13-c9
     paths:
       - "discourse-coreference.js"
+      - "semantic-core.js"
       - "semantic-query.js"
       - "index.html"
       - "tests/discourse-coreference*.test.js"
@@ -37,10 +39,13 @@ jobs:
           node-version: 22
       - name: Check syntax
         run: |
+          node --check semantic-core.js
           node --check discourse-coreference.js
           node --check semantic-query.js
       - name: Run unit and integration tests
         run: node tests/discourse-coreference.test.js
+      - name: Run morphology-aware identity diagnostic
+        run: node tests/discourse-coreference-identity.test.js
       - name: Run semantic-query integration test
         run: node tests/discourse-coreference-integration.test.js
       - name: Run diagnostic benchmark

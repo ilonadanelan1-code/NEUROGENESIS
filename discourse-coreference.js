@@ -107,13 +107,44 @@
     return { gender:"unknown", number:"unknown" };
   }
 
+  function semanticMorphology(value, syntacticRole, grammaticalCase, core) {
+    if (!core || typeof core.grammaticalFeatures !== "function") return null;
+    try {
+      const features = core.grammaticalFeatures(value, syntacticRole, grammaticalCase || null);
+      return features && typeof features === "object" ? features : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function morphologyIdentity(value, features) {
+    if (!features) return null;
+    const gender = ["masculine","feminine","neuter","plural"].includes(features.gender)
+      ? features.gender : "unknown";
+    const number = ["singular","plural"].includes(features.number) ? features.number : "unknown";
+    if (gender === "unknown" || number === "unknown" ||
+        (gender === "plural") !== (number === "plural")) return null;
+    const canonicalText = clean(features.canonicalText, 180) ||
+      (features.grammaticalCase === "nominative" ? clean(value, 180) : "");
+    const canonicalKey = normalise(canonicalText);
+    if (!canonicalKey) return null;
+    return {
+      key: gender + "|" + number + "|" + canonicalKey,
+      canonicalText,
+      gender,
+      number
+    };
+  }
+
   function candidateFeatures(candidate) {
     const inferred = inferFeatures(candidate && candidate.text);
+    const semanticFeaturesAreAuthoritative = candidate && candidate.featureSource === "semantic_core";
     let gender = candidate && ["masculine","feminine","neuter","plural"].includes(candidate.gender)
-      ? candidate.gender : inferred.gender;
+      ? candidate.gender : semanticFeaturesAreAuthoritative ? "unknown" : inferred.gender;
     let number = candidate && ["singular","plural"].includes(candidate.number)
-      ? candidate.number : inferred.number;
-    if (number === "unknown" && candidate && candidate.grammaticalCase === "nominative" &&
+      ? candidate.number : semanticFeaturesAreAuthoritative ? "unknown" : inferred.number;
+    if (!semanticFeaturesAreAuthoritative && number === "unknown" && candidate &&
+        candidate.grammaticalCase === "nominative" &&
         /[ыи]$/u.test(normalise(candidate.text).split(" ").pop() || "")) number = "plural";
     if (number === "plural") gender = "plural";
     return { gender, number };
@@ -218,17 +249,21 @@
       schema:SCHEMA,status,mention,antecedent:status==="resolved"?{
         id:best.id||null,text:clean(best.text,180),gender:best.features.gender,number:best.features.number,
         syntacticRole:best.syntacticRole||"unknown",semanticRole:best.semanticRole||best.role||"unknown",
-        turnDistance:Math.max(1,Number(best.turnDistance)||1),sentenceDistance:Math.max(0,Number(best.sentenceDistance)||0)
+        turnDistance:Math.max(1,Number(best.turnDistance)||1),sentenceDistance:Math.max(0,Number(best.sentenceDistance)||0),
+        identityBasis:best.identityBasis||"provided_candidate",
+        surfaceForms:Array.isArray(best.surfaceForms)?best.surfaceForms.slice(0,8):[clean(best.text,180)]
       }:null,
       candidates:candidates.slice(0,5).map(row=>({
         id:row.id||null,text:clean(row.text,180),score:row.score,reasons:row.reasons,
         gender:row.features.gender,number:row.features.number,
         syntacticRole:row.syntacticRole||"unknown",semanticRole:row.semanticRole||row.role||"unknown",
-        turnDistance:Math.max(1,Number(row.turnDistance)||1)
+        turnDistance:Math.max(1,Number(row.turnDistance)||1),
+        identityBasis:row.identityBasis||"provided_candidate",
+        surfaceForms:Array.isArray(row.surfaceForms)?row.surfaceForms.slice(0,8):[clean(row.text,180)]
       })),
       confidence,margin,reason,
       provenance:{source:"discourse_coreference",rule:"agreement_role_salience_recency",window:MAX_MESSAGES,
-        candidateSource:"active_thread_messages",identityBasis:"surface_cluster_or_single_mention",
+        candidateSource:"active_thread_messages",identityBasis:"exact_surface_or_guarded_morphological_lemma",
         memoryEffect:"none",uncalibrated:true}
     };
   }
@@ -252,18 +287,34 @@
           const text = clean(rawText,180);
           const key = normalise(text);
           if (!key || COMMON_FUNCTION.has(key) || PRONOUNS[key] || key.split(" ").some(token=>COMMON_FUNCTION.has(token))) return;
-          const features = inferFeatures(text);
+          const parserFeatures = semanticMorphology(text,syntacticRole,grammaticalCase,core);
+          const identity = morphologyIdentity(text,parserFeatures);
+          const inferred = parserFeatures
+            ? {
+                gender:["masculine","feminine","neuter","plural"].includes(parserFeatures.gender)
+                  ? parserFeatures.gender : "unknown",
+                number:["singular","plural"].includes(parserFeatures.number)
+                  ? parserFeatures.number : "unknown"
+              }
+            : inferFeatures(text);
           const argumentRole = clean(semanticRole,32)||syntacticRole;
           rows.push({
             id:"d"+messageIndex+"-"+propositionIndex+"-"+syntacticRole+"-"+key.replace(/\s+/gu,"-").slice(0,36),
-            text,gender:features.gender,number:features.number,
-            syntacticRole,semanticRole:argumentRole,grammaticalCase:grammaticalCase||null,
+            text,gender:inferred.gender,number:inferred.number,
+            featureSource:parserFeatures?"semantic_core":"surface_heuristic",
+            morphologyKey:identity&&identity.key||null,
+            morphologyCanonicalText:identity&&identity.canonicalText||null,
+            morphologyGender:identity&&identity.gender||null,
+            morphologyNumber:identity&&identity.number||null,
+            syntacticRole,semanticRole:argumentRole,
+            grammaticalCase:grammaticalCase || parserFeatures&&parserFeatures.grammaticalCase || null,
             turnDistance:messages.length-messageIndex,
             sentenceDistance:propositions.length-propositionIndex-1,
             topicId:clean(message.threadId,80),
             sourceRole:message.role==="user"?"user":"assistant",
             salience:syntacticRole==="subject"?0.9:0.55,
-            mentionCount:1
+            mentionCount:1,
+            messageIndex
           });
         };
         const subject = clean(proposition.subject,180), object = clean(proposition.object,180);
@@ -280,17 +331,37 @@
         }
       });
     });
-    // Exact surface forms are grouped only inside this bounded active-thread window.
-    // This is a retrieval convenience, not a persistent real-world identity assertion.
+
+    // First preserve the old exact-surface clusters. A surface cluster is eligible
+    // for morphology only when every occurrence has the same trusted, unambiguous
+    // parser identity; mixed/unknown morphology blocks automatic merging.
     const grouped = new Map();
     for (const row of rows) {
       const key = row.topicId+"|"+normalise(row.text);
       const prior = grouped.get(key);
-      if (!prior) grouped.set(key,{...row,mentionCount:1});
-      else {
+      if (!prior) {
+        grouped.set(key,{
+          ...row,mentionCount:1,
+          _messageIndexes:new Set([row.messageIndex]),
+          _surfaceForms:new Set([row.text]),
+          _morphologyKey:row.morphologyKey,
+          _morphologyIdentity:row.morphologyKey?{
+            key:row.morphologyKey,
+            canonicalText:row.morphologyCanonicalText,
+            gender:row.morphologyGender,
+            number:row.morphologyNumber
+          }:null,
+          _morphologyInvalid:!row.morphologyKey
+        });
+      } else {
         prior.mentionCount++;
+        prior._messageIndexes.add(row.messageIndex);
+        prior._surfaceForms.add(row.text);
         prior.turnDistance = Math.min(prior.turnDistance,row.turnDistance);
         prior.sentenceDistance = Math.min(prior.sentenceDistance,row.sentenceDistance);
+        if (!row.morphologyKey || prior._morphologyKey !== row.morphologyKey) {
+          prior._morphologyInvalid = true;
+        }
         if (row.salience>prior.salience) {
           prior.salience=row.salience;
           prior.syntacticRole=row.syntacticRole;
@@ -298,7 +369,85 @@
         }
       }
     }
-    return [...grouped.values()].slice(-MAX_CANDIDATES);
+
+    const surfaceGroups = [...grouped.values()];
+    const morphologyBuckets = new Map();
+    for (const group of surfaceGroups) {
+      if (group._morphologyInvalid || !group._morphologyIdentity) continue;
+      const bucket = morphologyBuckets.get(group._morphologyKey) || [];
+      bucket.push(group);
+      morphologyBuckets.set(group._morphologyKey,bucket);
+    }
+
+    // Merge distinct inflections only when the same lemma is never represented
+    // by two different surface forms in one message. If co-occurrence suggests
+    // two separate referents (or a parser ambiguity), keep both candidates.
+    const replacements = new Map();
+    const skipped = new Set();
+    for (const bucket of morphologyBuckets.values()) {
+      if (bucket.length < 2) continue;
+      let collision = false;
+      for (let left=0;left<bucket.length && !collision;left++) {
+        for (let right=left+1;right<bucket.length && !collision;right++) {
+          for (const index of bucket[left]._messageIndexes) {
+            if (bucket[right]._messageIndexes.has(index)) {
+              collision = true;
+              break;
+            }
+          }
+        }
+      }
+      if (collision) continue;
+      const first = bucket[0];
+      const identity = first._morphologyIdentity;
+      const merged = {
+        ...first,
+        text:identity.canonicalText || first.text,
+        gender:identity.gender,
+        number:identity.number,
+        mentionCount:bucket.reduce((sum,row)=>sum+row.mentionCount,0),
+        turnDistance:Math.min(...bucket.map(row=>row.turnDistance)),
+        sentenceDistance:Math.min(...bucket.map(row=>row.sentenceDistance)),
+        identityBasis:"morphological_lemma",
+        surfaceForms:[...new Set(bucket.flatMap(row=>[...row._surfaceForms]))]
+      };
+      for (const group of bucket) {
+        for (const index of group._messageIndexes) merged._messageIndexes.add(index);
+        if (group.salience>merged.salience) {
+          merged.salience=group.salience;
+          merged.syntacticRole=group.syntacticRole;
+          merged.semanticRole=group.semanticRole;
+        }
+      }
+      replacements.set(first,merged);
+      for (const group of bucket.slice(1)) skipped.add(group);
+    }
+
+    const output = [];
+    for (const group of surfaceGroups) {
+      if (skipped.has(group)) continue;
+      const selected = replacements.get(group) || group;
+      const surfaceForms = selected.surfaceForms || [...selected._surfaceForms];
+      output.push({
+        id:selected.id,
+        text:selected.text,
+        gender:selected.gender,
+        number:selected.number,
+        featureSource:selected.featureSource,
+        syntacticRole:selected.syntacticRole,
+        semanticRole:selected.semanticRole,
+        grammaticalCase:selected.grammaticalCase,
+        turnDistance:selected.turnDistance,
+        sentenceDistance:selected.sentenceDistance,
+        topicId:selected.topicId,
+        sourceRole:selected.sourceRole,
+        salience:selected.salience,
+        mentionCount:selected.mentionCount,
+        identityBasis:selected.identityBasis || "surface_form",
+        surfaceForms:surfaceForms.slice(0,8)
+      });
+    }
+    return output.slice(-MAX_CANDIDATES);
   }
 
   function resolveFromHistory(query, messages, core, options = {}) {

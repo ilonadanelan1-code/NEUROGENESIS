@@ -2125,6 +2125,7 @@
     tokens,
     answerType,
     intentType,
+    grammaticalFeatures,
     surfaceSlots,
     extractProposition,
     validateProposition,

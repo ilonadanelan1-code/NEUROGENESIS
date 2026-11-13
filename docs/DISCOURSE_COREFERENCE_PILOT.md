@@ -63,7 +63,7 @@ discourse-coreference.js is a bounded, rule-scored antecedent ranker. It reuses 
 
 The resolver returns resolved, ambiguous, unresolved or not_applicable, along with candidate scores, reason codes, confidence and provenance. It refuses to choose when the score or top-candidate margin is insufficient. A topic ID filter prevents linking to an entity from another thread.
 
-The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFERENCE_EXPERIMENT === true; default runtime behavior remains unchanged. The LLM request now prefers the thread-scoped history supplied by `memory.js` over the globally most recent messages, preserving the selected topic when another thread has newer traffic. The local planner exposes the result as advisory provenance only: it does not rewrite its own semantic frame or retrieval queries. When the LLM-backed query planner succeeds, `memory.js` merges the local link into the model plan only if both planners classify the message as `follow_up` and the local ranker resolves one antecedent. If the model plan is low-confidence or unavailable, the local fallback therefore cannot silently promote the antecedent into retrieval or a proposition. Otherwise the model plan is not semantically overwritten; local ambiguity/unresolved provenance can remain visible. Resolutions are labeled `context_candidate`, not verified facts. The resolver reports `memoryEffect: "none"` and does not create or promote durable knowledge claims; the application continues its existing ordinary conversation-history logging. Repeated identical surface forms are grouped only within the bounded active-thread window; this is not persistent real-world identity resolution and can conflate homonyms.
+The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFERENCE_EXPERIMENT === true; default runtime behavior remains unchanged. The LLM request now prefers the thread-scoped history supplied by `memory.js` over the globally most recent messages, preserving the selected topic when another thread has newer traffic. The local planner exposes the result as advisory provenance only: it does not rewrite its own semantic frame or retrieval queries. When the LLM-backed query planner succeeds, `memory.js` merges the local link into the model plan only if both planners classify the message as `follow_up` and the local ranker resolves one antecedent. If the model plan is low-confidence or unavailable, the local fallback therefore cannot silently promote the antecedent into retrieval or a proposition. Otherwise the model plan is not semantically overwritten; local ambiguity/unresolved provenance can remain visible. Resolutions are labeled `context_candidate`, not verified facts. The resolver reports `memoryEffect: "none"` and does not create or promote durable knowledge claims; the application continues its existing ordinary conversation-history logging. Repeated identical surface forms remain grouped within the bounded active-thread window. A follow-up identity experiment additionally reuses NGSemanticCore.grammaticalFeatures() to group different inflections only when gender and number are known, a canonical lemma is supplied by the existing lexicon, and the surface variants do not co-occur in the same message. Ambiguous forms such as «системы» and unsupported inflections are not canonicalized. These are temporary thread-local candidate clusters, not persistent real-world identity assertions; repeated homonyms across separate messages can still be conflated.
 
 ## Data and evaluation
 
@@ -98,7 +98,35 @@ There is no unseen-lemma score: the set is hand-authored, has no corpus split an
 - Candidate extraction inherits the existing rule parser's errors and cannot discover mentions the parser misses.
 - The pilot resolves only the first supported personal-pronoun mention in a query and supports a limited set of Russian inflectional forms; event demonstratives such as “это” are intentionally out of scope.
 - Candidate gender/number inference is a conservative suffix heuristic when the parser does not provide a feature; unisex names such as “Саша” and “Женя” remain gender-unknown, while homonyms, rare inflections and ambiguous soft-sign nouns can remain unresolved or be misclassified.
-- Surface-form grouping can conflate same-name entities. No persistent entity IDs are created.
+- Exact-surface grouping can still conflate homonyms, and morphology-based grouping can conflate two distinct real-world referents that share a lemma but never co-occur in one message. The co-occurrence guard catches only explicit same-message competitors; it is not a complete entity identity model. No persistent entity IDs are created.
 - There is no learned encoder, no RuCoCo supervision and no calibrated probability model.
 - Full-document coreference metrics such as LEA, MUC, B³ or CEAF cannot be claimed from this diagnostic set.
 - The feature is off by default until an appropriately licensed corpus and independent evaluation justify enabling it.
+
+
+## Follow-up experiment: guarded morphology-aware entity identity
+
+### Audited limitation
+
+The first pilot grouped only identical normalized surface strings. That split obvious cross-turn inflections such as «Система» / «систему» and «Сервер» / «серверу». A naive suffix stemmer would be unsafe in Russian: for example, «системы» can be singular genitive or plural nominative. The existing semantic-core.js already contains a hand-curated Russian morphology lexicon and grammaticalFeatures() / canonicalNominativePhrase(); the functionality was private to the module and was not being used by cross-turn candidate grouping.
+
+### Engineering change
+
+The experiment exposes the existing grammaticalFeatures() function through NGSemanticCore and reuses it for candidate identity. It does not add a second inflection dictionary and does not treat UD Russian-GSD as a runtime lemmatizer. Morphological identity is accepted only when:
+- parser gender and number are known and internally consistent;
+- the existing semantic-core lexicon supplies a canonical form, or the parser marks the candidate nominative;
+- all occurrences within an exact-surface cluster agree on one morphology key;
+- distinct surface clusters with the same key do not co-occur in the same message;
+- the candidate belongs to the same active dialogue thread.
+
+When any gate fails, candidates stay separate. The ranking stage also preserves semantic-core's explicit unknown gender/number instead of replacing it with the discourse module's coarse suffix guess. Candidate output records identityBasis and the observed surface forms for auditability. These clusters are ephemeral; the feature does not write to durable memory.
+
+### Paired diagnostic set
+
+tests/discourse-coreference-identity.test.js is a deterministic, hand-authored 12-pair diagnostic. Six positive pairs test «Система/систему», «Сервер/серверу», «Процесс/процессом», «Модуль/модулю», «Сеть/сетью» and «Сигнал/сигналом». Six negative pairs test same-message co-occurrence, ambiguous singular/plural «системы», an unsupported inflection («карта/карту»), two different masculine lemmas, singular/plural «сервер/серверы» and a topic boundary.
+
+The expected diagnostic outcome is 6/6 supported cross-turn pairs merged and 6/6 negative pairs kept separate. The baseline is the former exact-normalized-surface grouping: it cannot join the six different-form positive pairs but keeps the six negative cases distinct. Thus pairwise exact decisions are compared on the same 12 examples (6/12 = 50.00% baseline; 12/12 = 100.00% in this curated experiment, +50.00 percentage points). This is a small controlled diagnostic, not a representative Russian corpus, statistical estimate or unseen-lemma benchmark.
+
+### Remaining limitations
+
+The canonicalization lexicon is finite and manually maintained. It does not cover arbitrary Russian inflections, adjective agreement, multiword aliases, coreference across synonyms, split antecedents or event references. The same-message collision guard does not detect two distinct same-lemma entities introduced in separate messages. Ambiguous forms remain unresolved by design. A licensed gold corpus and independent document-level evaluation (including LEA, MUC, B³ and CEAF) are still required before enabling the feature by default.
