@@ -900,8 +900,8 @@ assert.deepEqual(
 for (const variant of ["withAugmentation","withoutAugmentation"]) {
   for (const threshold of relationThresholds) {
     const rows = roleGatedRelationThresholdSweep[variant][threshold.toFixed(2)];
-    assert.equal(rows.tp + rows.fn, phraseTotal.roleTotal > 0 ? 3 * 49 : 0,
-      "role-gated relation scoring must preserve the fixed three-edge-per-role-case denominator");
+    assert.equal(rows.tp + rows.fn, phraseTotal.tp + phraseTotal.fn,
+      "role-gated relation scoring must preserve the fixed expected-edge denominator");
     assert.ok(rows.tp >= 0 && rows.fp >= 0 && rows.fn >= 0);
   }
 }
