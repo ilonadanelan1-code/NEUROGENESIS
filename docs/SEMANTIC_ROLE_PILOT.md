@@ -28,7 +28,7 @@ The audit found a concrete gap: common past forms such as `открыла` were 
 
 ## Evaluation protocol
 
-`node tests/semantic-role-pilot.test.mjs` loads the exact pre-experiment `semantic-core.js` from baseline commit `92eddaab0d914721e7732aae6f8345643216818c` with Node's VM and evaluates the current file on the same 12 manually curated cases: 11 positive structures, one unsupported-predicate abstention control, 36 expected role slots, and two held-out infinitive forms (`объяснить`, `включить`) with new entity names/nouns.
+`node tests/semantic-role-pilot.test.mjs` loads the exact pre-experiment `semantic-core.js` from baseline commit `92eddaab0d914721e7732aae6f8345643216818c` with Node's VM and evaluates the current file on the same 16 manually curated cases: 13 positive structures, three conservative abstention controls, 44 expected role slots, and two held-out infinitive forms (`объяснить`, `включить`) with new entity names/nouns.
 
 It reports exact full-frame accuracy, role micro precision/recall/F1, frame coverage, the known matrix-verb slice, the two held-out infinitive lemmas, and abstention on unsupported matrix predicates, coordinated controllers, and intervening adverbs. The expected annotations are hand-authored regression diagnostics, not a statistically representative corpus benchmark.
 
