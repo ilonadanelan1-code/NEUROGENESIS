@@ -174,6 +174,56 @@ const seeds = [
 const maskGroups = {};
 const surfaceMaskGroups = {};
 const phraseGroups = {};
+const phraseGroupsWithoutAugmentation = {};
+const relationThresholds = [0.34, 0.40, 0.45, 0.50, 0.55];
+const makeThresholdBuckets = () => Object.fromEntries(
+  relationThresholds.map(value => [value.toFixed(2), {tp:0,fp:0,fn:0}])
+);
+const relationThresholdSweep = {
+  withAugmentation: makeThresholdBuckets(),
+  withoutAugmentation: makeThresholdBuckets()
+};
+const roleGatedRelationThresholdSweep = {
+  withAugmentation: makeThresholdBuckets(),
+  withoutAugmentation: makeThresholdBuckets()
+};
+const relationRolePairs = {
+  subject_to_predicate:["subject","predicate"],
+  predicate_to_object:["predicate","object"],
+  subject_to_object:["subject","object"]
+};
+function accumulateThresholdSweep(buckets, result, expectedEdges) {
+  const candidates = Array.isArray(result.relationCandidates)
+    ? result.relationCandidates : result.edges;
+  for (const threshold of relationThresholds) {
+    const predicted = new Set(candidates.filter(edge => edge.confidence >= threshold).slice(0, 16)
+      .map(edge => [edge.from, edge.to, edge.relation].join(":")));
+    const bucket = buckets[threshold.toFixed(2)];
+    for (const edge of expectedEdges) {
+      if (predicted.has(edge)) bucket.tp++;
+      else bucket.fn++;
+    }
+    for (const edge of predicted) if (!expectedEdges.has(edge)) bucket.fp++;
+  }
+}
+function accumulateRoleGatedThresholdSweep(buckets, result, expectedEdges) {
+  const candidates = Array.isArray(result.relationCandidates)
+    ? result.relationCandidates : result.edges;
+  for (const threshold of relationThresholds) {
+    const predicted = new Set(candidates.filter(edge => {
+      const required = relationRolePairs[edge.relation];
+      return required && edge.confidence >= threshold &&
+        result.roles[edge.from]?.role === required[0] &&
+        result.roles[edge.to]?.role === required[1];
+    }).slice(0, 16).map(edge => [edge.from, edge.to, edge.relation].join(":")));
+    const bucket = buckets[threshold.toFixed(2)];
+    for (const edge of expectedEdges) {
+      if (predicted.has(edge)) bucket.tp++;
+      else bucket.fn++;
+    }
+    for (const edge of predicted) if (!expectedEdges.has(edge)) bucket.fp++;
+  }
+}
 const seedReports = [];
 let baselineShort = null;
 let firstModel = null;
@@ -194,6 +244,18 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   assert.equal(contextualReport.trainRows + contextualReport.validationRows + contextualReport.testRows, trainRows.length);
   assert.ok(contextualReport.validationExamples > 0 && contextualReport.testExamples > 0);
   if (seedIndex === 0) firstModel = contextual;
+
+  // Paired control: same encoder, same phrase seed and hyperparameters; only SOV augmentation is disabled.
+  const composerWithoutAugmentation = Composer.create({ dimension: 12, seed: seed.phrase });
+  const composerWithoutAugmentationTraining = composerWithoutAugmentation.train(
+    trainRows, contextual, core, knowledge, {
+      epochs: 45, learningRate: 0.045,
+      augmentWordOrder: false, augmentationWeight: 0.3, excludeSentences: cases.map(row => row.text)
+    }
+  );
+  assert.equal(composerWithoutAugmentationTraining.sourceSentences, trainRows.length);
+  assert.equal(composerWithoutAugmentationTraining.augmentedSentences, 0);
+  assert.equal(composerWithoutAugmentationTraining.evaluation, "training_only_not_held_out");
 
   const composer = Composer.create({ dimension: 12, seed: seed.phrase });
   const composerTraining = composer.train(trainRows, contextual, core, knowledge, {
@@ -426,13 +488,41 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
   };
   for (const testCase of cases.filter(row => row.roles)) {
     const result = composer.analyse(testCase.text, contextual, core, knowledge);
+    const resultWithoutAugmentation = composerWithoutAugmentation.analyse(
+      testCase.text, contextual, core, knowledge
+    );
     const tokens = result.tokens.map(normalise);
+    const controlTokens = resultWithoutAugmentation.tokens.map(normalise);
+    assert.deepEqual(controlTokens, tokens,
+      "paired phrase heads must be evaluated on identical tokenized test examples");
     const expectedRoles = tokens.map(token =>
       testCase.roles.s.some(value => normalise(value) === token) ? "subject" :
       testCase.roles.p.some(value => normalise(value) === token) ? "predicate" :
       testCase.roles.o.some(value => normalise(value) === token) ? "object" : "other"
     );
     assert.equal(result.roles.length, expectedRoles.length, "phrase-role output must align with manual token labels");
+    assert.ok(Array.isArray(result.trustedEdges),
+      "analysis must expose a separate role-consistent edge list");
+    const legacyEdgeKeys = result.relationCandidates
+      .filter(edge => edge.confidence >= 0.34).slice(0, 16)
+      .map(edge => [edge.from, edge.to, edge.relation].join(":"));
+    assert.deepEqual(result.edges.map(edge => [edge.from, edge.to, edge.relation].join(":")),
+      legacyEdgeKeys, "the legacy edge output must remain unchanged");
+    const expectedTrustedEdgeKeys = result.relationCandidates.filter(edge => {
+      const required = relationRolePairs[edge.relation];
+      return required && edge.confidence >= 0.34 &&
+        result.roles[edge.from]?.role === required[0] &&
+        result.roles[edge.to]?.role === required[1];
+    }).slice(0, 16).map(edge => [edge.from, edge.to, edge.relation].join(":"));
+    assert.deepEqual(result.trustedEdges.map(edge => [edge.from, edge.to, edge.relation].join(":")),
+      expectedTrustedEdgeKeys, "trusted edges must be exactly the confidence- and role-consistent subset");
+    for (const edge of result.trustedEdges) {
+      const required = relationRolePairs[edge.relation];
+      assert.ok(required, "trusted edge relation must have a role signature");
+      assert.equal(result.roles[edge.from]?.role, required[0]);
+      assert.equal(result.roles[edge.to]?.role, required[1]);
+      assert.ok(edge.confidence >= 0.34);
+    }
     for (const role of ["s", "p", "o"]) {
       for (const value of testCase.roles[role]) {
         assert.ok(tokens.includes(normalise(value)), "manual phrase annotation must point to an existing token");
@@ -445,6 +535,14 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
     result.roles.forEach((row, index) => {
       group.roleTotal++;
       if (row.role === expectedRoles[index]) group.roleCorrect++;
+    });
+    const controlGroup = phraseGroupsWithoutAugmentation[testCase.group] ||
+      (phraseGroupsWithoutAugmentation[testCase.group] = {
+        roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0
+      });
+    resultWithoutAugmentation.roles.forEach((row, index) => {
+      controlGroup.roleTotal++;
+      if (row.role === expectedRoles[index]) controlGroup.roleCorrect++;
     });
 
     const subjectHead = tokens.indexOf(normalise(testCase.roles.s[testCase.roles.s.length - 1]));
@@ -462,6 +560,25 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       else group.fn++;
     }
     for (const edge of predictedEdges) if (!expectedEdges.has(edge)) group.fp++;
+
+    const controlPredictedEdges = new Set(resultWithoutAugmentation.edges
+      .map(row => [row.from, row.to, row.relation].join(":")));
+    for (const edge of expectedEdges) {
+      if (controlPredictedEdges.has(edge)) controlGroup.tp++;
+      else controlGroup.fn++;
+    }
+    for (const edge of controlPredictedEdges) if (!expectedEdges.has(edge)) controlGroup.fp++;
+
+    accumulateThresholdSweep(relationThresholdSweep.withAugmentation, result, expectedEdges);
+    accumulateThresholdSweep(
+      relationThresholdSweep.withoutAugmentation, resultWithoutAugmentation, expectedEdges
+    );
+    accumulateRoleGatedThresholdSweep(
+      roleGatedRelationThresholdSweep.withAugmentation, result, expectedEdges
+    );
+    accumulateRoleGatedThresholdSweep(
+      roleGatedRelationThresholdSweep.withoutAugmentation, resultWithoutAugmentation, expectedEdges
+    );
 
     if (seedIndex === 0 && testCase.group === "short") {
       if (!baselineShort) baselineShort = { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 };
@@ -540,6 +657,13 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       roleAccuracy: composerTraining.roleTrainingAccuracy,
       relationAccuracy: composerTraining.relationTrainingAccuracy,
       evaluation: composerTraining.evaluation
+    },
+    phraseTrainingWithoutAugmentation: {
+      sourceSentences: composerWithoutAugmentationTraining.sourceSentences,
+      augmentedSentences: composerWithoutAugmentationTraining.augmentedSentences,
+      roleAccuracy: composerWithoutAugmentationTraining.roleTrainingAccuracy,
+      relationAccuracy: composerWithoutAugmentationTraining.relationTrainingAccuracy,
+      evaluation: composerWithoutAugmentationTraining.evaluation
     }
   });
 }
@@ -617,6 +741,14 @@ const phraseOutput = Object.fromEntries(Object.entries(phraseGroups).map(([name,
   edgePrecision: ratio(group.tp, group.tp + group.fp),
   edgeRecall: ratio(group.tp, group.tp + group.fn)
 }]));
+const phraseOutputWithoutAugmentation = Object.fromEntries(
+  Object.entries(phraseGroupsWithoutAugmentation).map(([name, group]) => [name, {
+    ...group,
+    roleAccuracy: ratio(group.roleCorrect, group.roleTotal),
+    edgePrecision: ratio(group.tp, group.tp + group.fp),
+    edgeRecall: ratio(group.tp, group.tp + group.fn)
+  }])
+);
 const maskTotal = Object.values(maskGroups).reduce((sum, group) => ({
   correct: sum.correct + group.correct,
   covered: sum.covered + group.covered,
@@ -643,6 +775,30 @@ const phraseTotal = Object.values(phraseGroups).reduce((sum, group) => ({
   fp: sum.fp + group.fp,
   fn: sum.fn + group.fn
 }), { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 });
+const phraseTotalWithoutAugmentation = Object.values(phraseGroupsWithoutAugmentation).reduce((sum, group) => ({
+  roleCorrect: sum.roleCorrect + group.roleCorrect,
+  roleTotal: sum.roleTotal + group.roleTotal,
+  tp: sum.tp + group.tp,
+  fp: sum.fp + group.fp,
+  fn: sum.fn + group.fn
+}), { roleCorrect: 0, roleTotal: 0, tp: 0, fp: 0, fn: 0 });
+const summarizeThresholdBuckets = buckets => Object.fromEntries(
+  Object.entries(buckets).map(([threshold, counts]) => [threshold, {
+    ...counts,
+    precision: ratio(counts.tp, counts.tp + counts.fp),
+    recall: ratio(counts.tp, counts.tp + counts.fn)
+  }])
+);
+const relationThresholdSummary = Object.fromEntries(
+  Object.entries(relationThresholdSweep).map(([variant, buckets]) => [variant,
+    summarizeThresholdBuckets(buckets)
+  ])
+);
+const roleGatedRelationThresholdSummary = Object.fromEntries(
+  Object.entries(roleGatedRelationThresholdSweep).map(([variant, buckets]) => [variant,
+    summarizeThresholdBuckets(buckets)
+  ])
+);
 const internalValidation = seedReports.reduce((sum, row) => ({
   correct: sum.correct + row.validation.correct,
   covered: sum.covered + row.validation.covered,
@@ -751,6 +907,26 @@ assert.equal(cases.length, baseline05893.heldOutSentences,
   "the comparison must keep the exact 0.58.93 held-out sentence set");
 assert.equal(phraseTotal.roleTotal, baseline05893.phraseRoles.total,
   "phrase-role comparison must use the same token denominator as 0.58.93");
+assert.equal(phraseTotalWithoutAugmentation.roleTotal, phraseTotal.roleTotal,
+  "paired phrase heads must use the identical held-out role denominator");
+assert.deepEqual(
+  relationThresholdSweep.withAugmentation["0.34"],
+  {tp:phraseTotal.tp,fp:phraseTotal.fp,fn:phraseTotal.fn},
+  "0.34 threshold reproduction must match the existing edge output"
+);
+assert.deepEqual(
+  relationThresholdSweep.withoutAugmentation["0.34"],
+  {tp:phraseTotalWithoutAugmentation.tp,fp:phraseTotalWithoutAugmentation.fp,fn:phraseTotalWithoutAugmentation.fn},
+  "0.34 threshold reproduction must match the control edge output"
+);
+for (const variant of ["withAugmentation","withoutAugmentation"]) {
+  for (const threshold of relationThresholds) {
+    const rows = roleGatedRelationThresholdSweep[variant][threshold.toFixed(2)];
+    assert.equal(rows.tp + rows.fn, phraseTotal.tp + phraseTotal.fn,
+      "role-gated relation scoring must preserve the fixed expected-edge denominator");
+    assert.ok(rows.tp >= 0 && rows.fp >= 0 && rows.fn >= 0);
+  }
+}
 assert.equal(maskTotal.total, baseline05893.maskedTokens.total,
   "legacy knowledge-token metric must retain the 0.58.93 denominator");
 assert.equal(surfaceMaskTotal.total,seedReports.length*cases.reduce((sum,row)=>sum+Attention.tokenize(row.text).length,0),
@@ -865,6 +1041,29 @@ const summary = {
     roleAccuracy: ratio(phraseTotal.roleCorrect, phraseTotal.roleTotal),
     edgePrecision: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fp),
     edgeRecall: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fn)
+  },
+  phraseAugmentationAblation: {
+    pairedSeeds: seeds.map(row => ({model:row.model,split:row.split,phrase:row.phrase})),
+    onlyChangedTrainingVariable: "verified SOV word-order augmentation enabled versus disabled",
+    withAugmentation: {
+      ...phraseTotal,
+      roleAccuracy: ratio(phraseTotal.roleCorrect, phraseTotal.roleTotal),
+      edgePrecision: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fp),
+      edgeRecall: ratio(phraseTotal.tp, phraseTotal.tp + phraseTotal.fn)
+    },
+    withoutAugmentation: {
+      ...phraseTotalWithoutAugmentation,
+      roleAccuracy: ratio(phraseTotalWithoutAugmentation.roleCorrect, phraseTotalWithoutAugmentation.roleTotal),
+      edgePrecision: ratio(phraseTotalWithoutAugmentation.tp,
+        phraseTotalWithoutAugmentation.tp + phraseTotalWithoutAugmentation.fp),
+      edgeRecall: ratio(phraseTotalWithoutAugmentation.tp,
+        phraseTotalWithoutAugmentation.tp + phraseTotalWithoutAugmentation.fn)
+    },
+    wordOrderWithAugmentation: phraseOutput.word_order || null,
+    wordOrderWithoutAugmentation: phraseOutputWithoutAugmentation.word_order || null,
+    relationThresholdSweep: relationThresholdSummary,
+    roleGatedRelationThresholdSweep: roleGatedRelationThresholdSummary,
+    roleGateDefinition: "emit an edge only when predicted source and target phrase roles match the edge relation"
   },
   historicalSixSentenceBaseline: {
     ...baselineShort,
