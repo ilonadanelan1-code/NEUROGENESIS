@@ -248,9 +248,13 @@ const cleanTrainRows = decontaminate(trainRowsByLemma, "train");
 const cleanValidationRows = decontaminate(validationRowsByLemma, "validation");
 const cleanKnownTestRows = decontaminate(knownTestRowsByLemma, "knownTest");
 const cleanUnseenTestRows = decontaminate(unseenTestRowsByLemma, "unseenTest");
-const trainValidationSet = new Set([...partitionSets.train, ...partitionSets.validation]);
-const allEarlier = new Set([...trainValidationSet, ...partitionSets.knownTest]);
-const crossPartitionOverlap = [...partitionSets.unseenTest].filter(value => allEarlier.has(value)).length;
+let crossPartitionOverlap = 0;
+for (let left = 0; left < partitionOrder.length; left++) {
+  for (let right = left + 1; right < partitionOrder.length; right++) {
+    const a = partitionSets[partitionOrder[left]], b = partitionSets[partitionOrder[right]];
+    for (const sentence of a) if (b.has(sentence)) crossPartitionOverlap++;
+  }
+}
 assert.equal(crossPartitionOverlap, 0, "normalized sentence overlap must be zero across all partitions");
 
 const trainPairs = pairsFor(cleanTrainRows, 70, 101);
@@ -306,6 +310,14 @@ const majority = (pairs) => {
 const firstRun = allRuns[0];
 const report = {
   benchmark: "NEUROGENESIS contextual lexical-sense / WiC pilot",
+  dataset: {
+    files: files.length,
+    usableLemmas: eligible.length,
+    uniqueLabelledContexts: parsed.reduce((sum, item) => sum + item.contexts.length, 0),
+    usableContexts: eligible.reduce((sum, item) => sum + item.contexts.length, 0),
+    senseCountsByLemma: Object.fromEntries(eligible.map(item => [item.lemma, item.senseCount])),
+    usableContextCountsByLemma: Object.fromEntries(eligible.map(item => [item.lemma, item.contexts.length]))
+  },
   schema: "NG_LEXICAL_SENSE_BENCHMARK_V1",
   source: {
     repository: "https://github.com/lopuhin/ruslang-wsd-labeled",
@@ -322,6 +334,10 @@ const report = {
     knownTestLemmas: cleanKnownTestRows.map(row => row[0]),
     unseenTestLemmas: cleanUnseenTestRows.map(row => row[0]),
     encoderTrainingSentences: encoderTexts.length,
+    trainContextRows: cleanTrainRows.reduce((sum, item) => sum + item[1].length, 0),
+    validationContextRows: cleanValidationRows.reduce((sum, item) => sum + item[1].length, 0),
+    knownTestContextRows: cleanKnownTestRows.reduce((sum, item) => sum + item[1].length, 0),
+    unseenTestContextRows: cleanUnseenTestRows.reduce((sum, item) => sum + item[1].length, 0),
     trainPairs: trainPairs.length,
     validationPairs: validationPairs.length,
     knownTestPairs: knownTestPairs.length,
