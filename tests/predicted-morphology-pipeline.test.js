@@ -428,6 +428,6 @@ const report={
   seeds:seedReports
 };
 assert.equal(report.protocol.normalizedSentenceLeakage,0);
-assert.ok(report.lemma.oracle.unseenLemma.targets>0);
+assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracle.all.targets);
 console.log("NEUROGENESIS 0.58.123 predicted morphology pipeline: "+JSON.stringify(report));
