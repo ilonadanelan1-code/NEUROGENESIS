@@ -48,11 +48,16 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Benchmark POS-specific UPOS evidence calibration on independent UD Russian-GSD
+      - name: Compare baseline and expanded Russian-GSD training samples
         run: |
+          echo "=== Paired baseline: 320 training sentences ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 320
+          echo "=== Expanded sample: 960 training sentences; same nested baseline and independent test ==="
+          node tests/predicted-morphology-pipeline.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960
 
       - name: Run focused cognitive and storage regressions
         run: |
