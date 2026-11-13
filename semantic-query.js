@@ -101,9 +101,10 @@ function local(input,context={},knowledge=null){
  const canonical=relation==="follow_up"&&subjectContext?clean(query+" [контекст активной темы: "+clean(subjectContext,220)+"]",MAX_QUERY):query;
  const frame=CORE?CORE.analyse(query,{contextRelation:relation,contextText:relation==="follow_up"?subjectContext:""},knowledge):null;
  const anchorFrame=CORE&&relation==="follow_up"&&subjectContext?CORE.analyse(subjectContext,{contextRelation:"new_topic"},knowledge):null;
- const discourseResolution=relation==="follow_up"&&DISCOURSE_COREFERENCE&&typeof DISCOURSE_COREFERENCE.resolveFromHistory==="function"
-  ?DISCOURSE_COREFERENCE.resolveFromHistory(query,recent,CORE,{topicId:id}):null;
  const discourseExperimentEnabled=window.NG_DISCOURSE_COREFERENCE_EXPERIMENT===true;
+ const discourseResolution=discourseExperimentEnabled&&relation==="follow_up"&&DISCOURSE_COREFERENCE&&
+  typeof DISCOURSE_COREFERENCE.resolveFromHistory==="function"
+  ?DISCOURSE_COREFERENCE.resolveFromHistory(query,recent,CORE,{topicId:id}):null;
  if(frame&&discourseResolution&&discourseResolution.status!=="not_applicable"){
   frame.discourseEntityResolution=discourseResolution;
   if(discourseExperimentEnabled&&discourseResolution.status==="resolved"&&discourseResolution.antecedent){
