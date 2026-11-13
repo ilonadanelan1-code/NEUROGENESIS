@@ -566,10 +566,18 @@ if (!trainPath && !testPath) {
           surfaceUnseenInTraining:metrics.paradigmSurfaceUnseenInTraining,
           lemmaSeenInTraining:metrics.paradigmLemmaSeenInTraining,
           lemmaAndUposSeenInTraining:metrics.paradigmLemmaPosSeenInTraining,
-          exactLemmaUpostFeatsSignatureSeen:metrics.paradigmSignatureSeenInTraining,
+          exactLemmaUposFeatsSignatureSeen:metrics.paradigmSignatureSeenInTraining,
           exactSurfaceSeenUnderSignature:metrics.paradigmExactSurfaceSeenInSignature,
           unseenSurfaceWithKnownSignature:metrics.paradigmNovelSurfaceWithSeenSignature,
-          missingLemmaOrUpostFeatsSignature:metrics.paradigmMissingLemmaOrPos,
+          missingLemmaOrUposFeatsSignature:metrics.paradigmMissingLemmaOrPos,
+          rates: {
+            surfaceSeenInTraining:ratio(metrics.paradigmSurfaceSeenInTraining,metrics.paradigmGoldAnnotatedOovTargets),
+            lemmaSeenInTraining:ratio(metrics.paradigmLemmaSeenInTraining,metrics.paradigmGoldAnnotatedOovTargets),
+            lemmaAndUposSeenInTraining:ratio(metrics.paradigmLemmaPosSeenInTraining,metrics.paradigmGoldAnnotatedOovTargets),
+            exactLemmaUposFeatsSignatureSeen:ratio(metrics.paradigmSignatureSeenInTraining,metrics.paradigmGoldAnnotatedOovTargets),
+            exactSurfaceGivenKnownSignature:ratio(metrics.paradigmExactSurfaceSeenInSignature,metrics.paradigmSignatureSeenInTraining),
+            novelSurfaceGivenKnownSignature:ratio(metrics.paradigmNovelSurfaceWithSeenSignature,metrics.paradigmSignatureSeenInTraining)
+          },
           denominatorDescription:"annotated OOV targets; diagnostic uses held-out gold lemma, UPOS and FEATS only to estimate an oracle ceiling, never to produce a prediction"
         },
         lemmaLevelContextRetrieval: {
@@ -809,13 +817,19 @@ if (!trainPath && !testPath) {
           surfaceSeenInTraining:aggregate.paradigmSurfaceSeenInTraining,
           surfaceUnseenInTraining:aggregate.paradigmSurfaceUnseenInTraining,
           lemmaSeenInTraining:aggregate.paradigmLemmaSeenInTraining,
-          lemmaAndUpOsSeenInTraining:aggregate.paradigmLemmaPosSeenInTraining,
-          exactLemmaUpostFeatsSignatureSeen:aggregate.paradigmSignatureSeenInTraining,
+          lemmaAndUposSeenInTraining:aggregate.paradigmLemmaPosSeenInTraining,
+          exactLemmaUposFeatsSignatureSeen:aggregate.paradigmSignatureSeenInTraining,
           exactSurfaceSeenUnderSignature:aggregate.paradigmExactSurfaceSeenInSignature,
           unseenSurfaceWithKnownSignature:aggregate.paradigmNovelSurfaceWithSeenSignature,
-          missingLemmaOrUpostFeatsSignature:aggregate.paradigmMissingLemmaOrPos,
-          exactSurfaceRate:ratio(aggregate.paradigmExactSurfaceSeenInSignature,aggregate.paradigmGoldAnnotatedOovTargets),
-          knownSignatureRate:ratio(aggregate.paradigmSignatureSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+          missingLemmaOrUposFeatsSignature:aggregate.paradigmMissingLemmaOrPos,
+          rates: {
+            surfaceSeenInTraining:ratio(aggregate.paradigmSurfaceSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+            lemmaSeenInTraining:ratio(aggregate.paradigmLemmaSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+            lemmaAndUposSeenInTraining:ratio(aggregate.paradigmLemmaPosSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+            exactLemmaUposFeatsSignatureSeen:ratio(aggregate.paradigmSignatureSeenInTraining,aggregate.paradigmGoldAnnotatedOovTargets),
+            exactSurfaceGivenKnownSignature:ratio(aggregate.paradigmExactSurfaceSeenInSignature,aggregate.paradigmSignatureSeenInTraining),
+            novelSurfaceGivenKnownSignature:ratio(aggregate.paradigmNovelSurfaceWithSeenSignature,aggregate.paradigmSignatureSeenInTraining)
+          },
           denominatorDescription:"annotated OOV targets; diagnostic uses held-out gold lemma, UPOS and FEATS only to estimate an oracle ceiling, never to produce a prediction"
         },
         lemmaLevelContextRetrieval: {
