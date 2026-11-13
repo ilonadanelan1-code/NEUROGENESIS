@@ -56,6 +56,66 @@ assert.equal(model.status().trained,true);assert.equal(model.status().heads,3);
 assert.equal(model.status().headDimension,4);assert.equal(model.status().feedForwardDimension,24);
 assert.equal(model.status().transformerBlocks,2,"the encoder must stack two independent transformer blocks");
 assert.equal(initialState.blocks.length,2);assert.equal(model.exportState().blocks.length,2);
+const frequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const frequencyReport=frequencyModel.train(corpus,{
+ epochs:4,learningRate:.025,splitSeed:902,patience:3,vocabularyStrategy:"frequency"
+});
+assert.equal(frequencyReport.vocabularyStrategy,"frequency");
+assert.equal(frequencyReport.vocabularySelection.strategy,"frequency");
+assert.equal(frequencyReport.vocabularySelection.selectedTypes,frequencyReport.vocabularySize);
+const frequencySplit=frequencyModel.splitCorpus(corpus,902);
+const frequencyCounts=new Map();
+for(const row of frequencySplit.train)for(const token of api.tokenize(row))
+ frequencyCounts.set(token,(frequencyCounts.get(token)||0)+1);
+assert.equal(frequencyReport.vocabularySelection.candidateTypes,frequencyCounts.size,
+ "frequency vocabulary candidates must come only from the training partition");
+const expectedFrequencyVocabulary=Array.from(frequencyCounts.entries())
+ .sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:a[0]>b[0]?1:0))
+ .slice(0,frequencyReport.vocabularyLimit).map(row=>row[0]);
+assert.deepEqual(Array.from(frequencyModel.exportState().vocabulary),expectedFrequencyVocabulary,
+ "frequency vocabulary must be ranked by training frequency with a lexical tie-break");
+const repeatedFrequencyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+repeatedFrequencyModel.train(corpus,{
+ epochs:4,learningRate:.025,splitSeed:902,patience:3,vocabularyStrategy:"frequency"
+});
+assert.deepEqual(Array.from(repeatedFrequencyModel.exportState().vocabulary),
+ Array.from(frequencyModel.exportState().vocabulary),
+ "frequency selection must be deterministic for the same corpus and split seed");
+const defaultStrategyModel=api.create({dimension:12,windowSize:2,heads:3,seed:9173});
+const defaultStrategyReport=defaultStrategyModel.train(corpus,{epochs:3,learningRate:.025,splitSeed:902,patience:2});
+assert.equal(defaultStrategyReport.vocabularyStrategy,"first_seen",
+ "existing training calls must preserve first-seen vocabulary behavior by default");
+assert.equal(defaultStrategyReport.vocabularySelection.strategy,"first_seen");
+assert.equal(defaultStrategyReport.vocabularyLimit,1024,"the established 1,024-word default must remain unchanged");
+assert.equal(defaultStrategyModel.status().vocabularyLimit,1024);
+assert.equal(api.maxVocabulary,4096);
+assert.equal(api.create({vocabularyLimit:9000}).status().vocabularyLimit,4096,
+ "the configurable capacity must remain within the validated hard ceiling");
+
+const syntheticRows=Array.from({length:40},(_,rowIndex)=>
+ Array.from({length:45},(_,tokenIndex)=>"термин"+(rowIndex*45+tokenIndex+1)).join(" "));
+const expandedVocabularyModel=api.create({
+ dimension:4,windowSize:2,heads:1,blocks:1,seed:404,vocabularyLimit:2048
+});
+const expandedVocabularyReport=expandedVocabularyModel.train(syntheticRows,{
+ epochs:1,learningRate:.005,patience:2,splitSeed:903
+});
+assert.equal(expandedVocabularyReport.vocabularyLimit,2048);
+assert.ok(expandedVocabularyReport.vocabularySize>1024,
+ "an opt-in larger vocabulary must retain training types beyond the previous 1,024-word ceiling");
+assert.equal(expandedVocabularyReport.vocabularySize,expandedVocabularyReport.vocabularySelection.candidateTypes,
+ "when capacity is sufficient, every lexical type from the training partition must be retained");
+assert.equal(expandedVocabularyModel.status().vocabularyLimit,2048);
+const expandedState=expandedVocabularyModel.exportState();
+assert.equal(expandedState.vocabularyLimit,2048);
+const restoredExpandedModel=api.fromState(expandedState);
+assert.equal(restoredExpandedModel.status().vocabularyLimit,2048);
+assert.deepEqual(restoredExpandedModel.exportState(),expandedState,
+ "model export and restore must preserve the selected vocabulary capacity");
+assert.throws(()=>api.create({dimension:4,windowSize:2,heads:1,blocks:1}).loadState(expandedState),
+ /dimensions, heads, blocks, vocabulary limit or vocabulary are invalid/u,
+ "a trained model must not be loaded into an incompatible vocabulary-capacity configuration");
+
 const attention=model.score("нейрон получает сигнал",1);
 assert.ok(attention&&attention.attention.length>=2);
 assert.equal(attention.heads.length,3,"three separately parameterized attention heads must be exposed");
@@ -122,7 +182,7 @@ assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
 assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"training diagnostics must persist with the selected checkpoint");
 assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"),
  "the complete multi-head architecture must persist");
-assert.throws(()=>restored.loadState({schema:api.schema,version:5,dimension:999,windowSize:2,heads:3,transformerBlocks:2,vocabulary:[],blocks:[{},{}]}),/dimensions, heads, blocks or vocabulary/u);
+assert.throws(()=>restored.loadState({schema:api.schema,version:5,dimension:999,windowSize:2,heads:3,transformerBlocks:2,vocabulary:[],blocks:[{},{}]}),/dimensions, heads, blocks, vocabulary limit or vocabulary/u);
 assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V4",version:4}),/Unsupported contextual model state/u);
 const malformedState=restored.exportState();malformedState.blocks[0].relativePositionBias[0].pop();
 assert.throws(()=>restored.loadState(malformedState),/weights are malformed/u);

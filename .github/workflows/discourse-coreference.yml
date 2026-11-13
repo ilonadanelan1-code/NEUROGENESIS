@@ -4,16 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "discourse-coreference.js"
-      - "semantic-core.js"
-      - "semantic-query.js"
-      - "index.html"
-      - "tests/discourse-coreference*.test.js"
-      - "docs/DISCOURSE_COREFERENCE_PILOT.md"
-      - ".github/workflows/discourse-coreference.yml"
-  push:
-    branches:
       - experiment/night-discourse-coreference-2026-11-13-c9
     paths:
       - "discourse-coreference.js"
@@ -21,6 +11,28 @@ on:
       - "semantic-query.js"
       - "index.html"
       - "tests/discourse-coreference*.test.js"
+      - "discourse-event-reference.js"
+      - "tests/discourse-event-reference.test.js"
+      - "contextual-attention.js"
+      - "tests/contextual-attention.test.js"
+      - "tests/ud-russian-gsd-benchmark.test.js"
+      - "scripts/ud-russian-gsd.js"
+      - "docs/DISCOURSE_COREFERENCE_PILOT.md"
+      - ".github/workflows/discourse-coreference.yml"
+  push:
+    branches:
+      - experiment/night-discourse-coreference-2026-11-13-c9
+      - experiment/event-reference-2026-11-13
+    paths:
+      - "discourse-coreference.js"
+      - "semantic-core.js"
+      - "semantic-query.js"
+      - "index.html"
+      - "tests/discourse-coreference*.test.js"
+      - "contextual-attention.js"
+      - "tests/contextual-attention.test.js"
+      - "tests/ud-russian-gsd-benchmark.test.js"
+      - "scripts/ud-russian-gsd.js"
       - ".github/workflows/discourse-coreference.yml"
 
 permissions:
@@ -48,6 +60,30 @@ jobs:
         run: node tests/discourse-coreference-identity.test.js
       - name: Test coordinated entity-group resolution
         run: node tests/discourse-coreference-groups.test.js
+      - name: Test discourse event-reference pilot
+        run: node tests/discourse-event-reference.test.js
+      - name: Test deterministic vocabulary selection experiment
+        run: |
+          node --check contextual-attention.js
+          node tests/contextual-attention.test.js
+      - name: Test UD benchmark harness and importer fixtures
+        run: |
+          node --check tests/ud-russian-gsd-benchmark.test.js
+          node tests/ud-russian-gsd-benchmark.test.js
+      - name: Download pinned UD Russian-GSD corpus for predictor capacity experiment
+        run: |
+          mkdir -p /tmp/ud-russian-gsd
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
+            --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
+      - name: Run external UD Russian-GSD predictor capacity benchmark
+        run: |
+          node tests/ud-russian-gsd-benchmark.test.js \
+            /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
       - name: Run 24-message distant-reference diagnostic
         run: node tests/discourse-coreference-window.test.js
       - name: Run semantic-query integration test

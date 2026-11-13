@@ -12,6 +12,7 @@ const GROUPS=[
 ];
 const CORE=window.NGSemanticCore||null;
 const DISCOURSE_COREFERENCE=window.NGDiscourseCoreference||null;
+const DISCOURSE_EVENT_REFERENCE=window.NGDiscourseEventReference||null;
 const clean=(v,n=MAX_QUERY)=>String(v==null?"":v).replace(/\s+/gu," ").trim().slice(0,n);
 const normalise=v=>CORE?CORE.normalise(v,window.NGKnowledge):clean(v,1600).normalize("NFKC").toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/giu," ").trim().replace(/\s+/g," ");
 function requiredEvidenceSteps(question){
@@ -79,13 +80,16 @@ function buildCompositionHint(originalText,analysis){
 function local(input,context={},knowledge=null){
  const originalText=String(input==null?"":input).slice(0,MAX_QUERY),query=clean(input),active=context&&context.activeThread||null,id=active&&active.id||"";
  const history=Array.isArray(context&&context.threadHistory)?context.threadHistory:context&&context.recentMessages;
- const recent=Array.isArray(history)?history.filter(r=>r&&r.threadId===id).slice(-8):[];
+ const activeHistory=Array.isArray(history)?history.filter(r=>r&&r.threadId===id).slice(-24):[];
+ const recent=activeHistory.slice(-8);
  const resolution=context&&context.resolution||null,normalized=normalise(query);
  const contextFocus=context&&context.focus||resolution&&resolution.context&&resolution.context.focus||null;
  const detectedDiscourseMention=DISCOURSE_COREFERENCE&&typeof DISCOURSE_COREFERENCE.detectMention==="function"?DISCOURSE_COREFERENCE.detectMention(query):null;
- const referential=!!detectedDiscourseMention||/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
+ const eventReferenceExperimentEnabled=window.NG_DISCOURSE_EVENT_REFERENCE_EXPERIMENT===true;
+ const detectedEventMention=eventReferenceExperimentEnabled&&DISCOURSE_EVENT_REFERENCE&&typeof DISCOURSE_EVENT_REFERENCE.detectMention==="function"?DISCOURSE_EVENT_REFERENCE.detectMention(query):null;
+ const referential=!!detectedDiscourseMention||!!detectedEventMention||/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
  const interrogative=/^(?:(?:а|и|ну|так|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|есть\s+ли)(?=\s|$)/iu.test(query)||/[?？]\s*$/u.test(query);
- const words=tokens(query,knowledge),hasPronoun=!!detectedDiscourseMention||/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
+ const words=tokens(query,knowledge),hasPronoun=!!detectedDiscourseMention||!!detectedEventMention||/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
  const definitionQuestion=/^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|где\s+находится|как\s+называется)\b/iu.test(query);
  const namedObject=/\bу\s+(?!него|неё|нее|них)\p{L}/iu.test(query)&&words.length>=1;
  const colloquialFollowUp=/^(?:а|и|ну|так|но)\s+(?:почему|зачем|как|сколько|кольк[\p{L}]*|что|где)\b/iu.test(query);
@@ -107,10 +111,17 @@ function local(input,context={},knowledge=null){
  const discourseResolution=discourseExperimentEnabled&&relation==="follow_up"&&DISCOURSE_COREFERENCE&&
   typeof DISCOURSE_COREFERENCE.resolveFromHistory==="function"
   ?DISCOURSE_COREFERENCE.resolveFromHistory(query,recent,CORE,{topicId:id}):null;
+ const discourseEventResolution=eventReferenceExperimentEnabled&&relation==="follow_up"&&detectedEventMention&&
+  DISCOURSE_EVENT_REFERENCE&&typeof DISCOURSE_EVENT_REFERENCE.resolveFromHistory==="function"
+  ?DISCOURSE_EVENT_REFERENCE.resolveFromHistory(query,activeHistory,CORE,{topicId:id}):null;
  if(frame&&discourseResolution&&discourseResolution.status!=="not_applicable"){
   // Keep the local antecedent as advisory provenance. Only the model-plan merge
   // below may apply it, and only when both planners agree this is a follow-up.
   frame.discourseEntityResolution=discourseResolution;
+ }
+ if(frame&&discourseEventResolution&&discourseEventResolution.status!=="not_applicable"){
+  // Keep event resolution advisory only; never rewrite the proposition or retrieval query.
+  frame.discourseEventResolution=discourseEventResolution;
  }
  const expanded=[...synonymExpansion(canonical,knowledge),...synonymExpansion(query,knowledge)];
  const contextualModel=window.NGContextualAttention&&typeof window.NGContextualAttention.analyse==="function"?window.NGContextualAttention:null;
@@ -151,7 +162,7 @@ function local(input,context={},knowledge=null){
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
-  contextualAnalysis,contextualHints,phraseComposition,compositionHint,discourseResolution};
+  contextualAnalysis,contextualHints,phraseComposition,compositionHint,discourseResolution,discourseEventResolution};
 }
 
 function mergeLocalDiscourseResolution(interpreted, localPlan) {
@@ -159,10 +170,18 @@ function mergeLocalDiscourseResolution(interpreted, localPlan) {
  const local=localPlan&&typeof localPlan==="object"?localPlan:null;
  if(!plan||!local)return plan;
  const resolution=local.discourseResolution;
- if(!resolution||resolution.status==="not_applicable")return plan;
+ const eventResolution=local.discourseEventResolution;
+ const hasEntityResolution=!!resolution&&resolution.status!=="not_applicable";
+ const hasEventResolution=!!eventResolution&&eventResolution.status!=="not_applicable";
+ if(!hasEntityResolution&&!hasEventResolution)return plan;
  const sourceFrame=plan.semanticFrame&&typeof plan.semanticFrame==="object"?plan.semanticFrame:{};
- const annotatedFrame={...sourceFrame,discourseEntityResolution:resolution};
- const annotated={...plan,semanticFrame:annotatedFrame,discourseResolution:resolution};
+ const annotatedFrame={...sourceFrame,
+  ...(hasEntityResolution?{discourseEntityResolution:resolution}:{}),
+  ...(hasEventResolution?{discourseEventResolution:eventResolution}:{})};
+ const annotated={...plan,semanticFrame:annotatedFrame,
+  ...(hasEntityResolution?{discourseResolution:resolution}:{}),
+  ...(hasEventResolution?{discourseEventResolution:eventResolution}:{})};
+ if(!hasEntityResolution)return annotated;
  if(resolution.status!=="resolved"||!resolution.antecedent||
     local.contextRelation!=="follow_up"||plan.contextRelation!=="follow_up")return annotated;
  const antecedent=resolution.antecedent;
