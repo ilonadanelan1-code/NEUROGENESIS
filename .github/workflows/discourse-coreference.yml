@@ -9,6 +9,7 @@ on:
       - "semantic-query.js"
       - "index.html"
       - "tests/discourse-coreference*.test.js"
+      - "docs/DISCOURSE_COREFERENCE_PILOT.md"
       - ".github/workflows/discourse-coreference.yml"
   push:
     branches:
