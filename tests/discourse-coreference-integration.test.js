@@ -46,4 +46,18 @@ assert.equal(enabled.semanticFrame.subject.certainty,"context_candidate");
 assert.equal(enabled.semanticFrame.proposition.subject,"сигнал");
 assert.equal(enabled.semanticFrame.proposition.crossTurnReference.status,"resolved");
 
+const instrumentalFollowUp=planner.local("С ним опять проблема.",context,null);
+assert.equal(instrumentalFollowUp.contextRelation,"follow_up",
+ "instrumental pronouns detected by the discourse resolver must keep the active topic instead of being classified as a new explicit topic");
+assert.ok(instrumentalFollowUp.discourseResolution,
+ "prepositional personal pronouns must reach the opt-in cross-turn resolver");
+assert.equal(instrumentalFollowUp.discourseResolution.mention.token,"ним");
+assert.equal(instrumentalFollowUp.discourseResolution.mention.grammaticalCase,"instrumental");
+
+const dativeFollowUp=planner.local("Ему снова передали файл.",context,null);
+assert.equal(dativeFollowUp.contextRelation,"follow_up",
+ "dative personal pronouns must be recognized as references even without a question mark");
+assert.ok(dativeFollowUp.discourseResolution);
+assert.equal(dativeFollowUp.discourseResolution.mention.token,"ему");
+
 console.log("NEUROGENESIS discourse coreference semantic-query integration tests passed.");
