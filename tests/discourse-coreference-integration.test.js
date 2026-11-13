@@ -53,13 +53,14 @@ assert.equal(resumedThreadPlan.discourseResolution.antecedent.text,"сигнал
 
 assert.match(memorySource,/DIALOG_CONTEXT\.history\(dialogContext,\s*report\.activeThread\.id,\s*24\)/,
  "the production context builder must provide bounded per-thread history, not only the globally recent eight messages");
-assert.ok(enabled.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),
- "an explicitly enabled high-confidence link may add a retrieval hint");
-assert.equal(enabled.semanticFrame.subject.text,"сигнал",
- "the opt-in path may use the resolved antecedent as a context candidate");
-assert.equal(enabled.semanticFrame.subject.certainty,"context_candidate");
-assert.equal(enabled.semanticFrame.proposition.subject,"сигнал");
-assert.equal(enabled.semanticFrame.proposition.crossTurnReference.status,"resolved");
+assert.equal(enabled.searchQueries.some(x=>/сигнал\s+А что он сделал/iu.test(x)),false,
+ "a local antecedent hypothesis must not change fallback retrieval before the model plan confirms follow-up");
+assert.notEqual(enabled.semanticFrame.subject&&enabled.semanticFrame.subject.text,"сигнал",
+ "the local plan must expose the candidate without rewriting its own semantic frame");
+assert.notEqual(enabled.semanticFrame.proposition.subject,"сигнал",
+ "the local plan must not turn a candidate into a proposition fact");
+assert.equal(enabled.semanticFrame.proposition.crossTurnReference,undefined,
+ "the applied cross-turn reference belongs only on a confirmed merged plan");
 
 const instrumentalFollowUp=planner.local("С ним опять проблема.",context,null);
 assert.equal(instrumentalFollowUp.contextRelation,"follow_up",
@@ -68,6 +69,12 @@ assert.ok(instrumentalFollowUp.discourseResolution,
  "prepositional personal pronouns must reach the opt-in cross-turn resolver");
 assert.equal(instrumentalFollowUp.discourseResolution.mention.token,"ним");
 assert.equal(instrumentalFollowUp.discourseResolution.mention.grammaticalCase,"instrumental");
+
+const prepositionalFollowUp=planner.local("О нём говорили вчера.",context,null);
+assert.equal(prepositionalFollowUp.contextRelation,"follow_up");
+assert.ok(prepositionalFollowUp.discourseResolution);
+assert.equal(prepositionalFollowUp.discourseResolution.mention.token,"нём");
+assert.equal(prepositionalFollowUp.discourseResolution.mention.grammaticalCase,"prepositional");
 
 const dativeFollowUp=planner.local("Ему снова передали файл.",context,null);
 assert.equal(dativeFollowUp.contextRelation,"follow_up",
