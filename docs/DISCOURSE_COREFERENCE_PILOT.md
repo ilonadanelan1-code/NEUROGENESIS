@@ -97,7 +97,7 @@ There is no unseen-lemma score: the set is hand-authored, has no corpus split an
 
 - Candidate extraction inherits the existing rule parser's errors and cannot discover mentions the parser misses.
 - The pilot resolves only the first supported personal-pronoun mention in a query and supports a limited set of Russian inflectional forms; event demonstratives such as “это” are intentionally out of scope.
-- Candidate gender/number inference is a conservative suffix heuristic when the parser does not provide a feature; homonyms, rare inflections and ambiguous soft-sign nouns can remain unresolved or be misclassified.
+- Candidate gender/number inference is a conservative suffix heuristic when the parser does not provide a feature; unisex names such as “Саша” and “Женя” remain gender-unknown, while homonyms, rare inflections and ambiguous soft-sign nouns can remain unresolved or be misclassified.
 - Surface-form grouping can conflate same-name entities. No persistent entity IDs are created.
 - There is no learned encoder, no RuCoCo supervision and no calibrated probability model.
 - Full-document coreference metrics such as LEA, MUC, B³ or CEAF cannot be claimed from this diagnostic set.
