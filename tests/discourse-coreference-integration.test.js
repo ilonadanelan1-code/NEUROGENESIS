@@ -40,5 +40,7 @@ assert.ok(enabled.searchQueries.some(x=>/сигнал\s+А что он сдел�
 assert.equal(enabled.semanticFrame.subject.text,"сигнал",
  "the opt-in path may use the resolved antecedent as a context candidate");
 assert.equal(enabled.semanticFrame.subject.certainty,"context_candidate");
+assert.equal(enabled.semanticFrame.proposition.subject,"сигнал");
+assert.equal(enabled.semanticFrame.proposition.crossTurnReference.status,"resolved");
 
 console.log("NEUROGENESIS discourse coreference semantic-query integration tests passed.");
