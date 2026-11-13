@@ -13,6 +13,10 @@ on:
       - "tests/discourse-coreference*.test.js"
       - "discourse-event-reference.js"
       - "tests/discourse-event-reference.test.js"
+      - "contextual-attention.js"
+      - "tests/contextual-attention.test.js"
+      - "tests/ud-russian-gsd-benchmark.test.js"
+      - "scripts/ud-russian-gsd.js"
       - "docs/DISCOURSE_COREFERENCE_PILOT.md"
       - ".github/workflows/discourse-coreference.yml"
   push:
@@ -25,6 +29,10 @@ on:
       - "semantic-query.js"
       - "index.html"
       - "tests/discourse-coreference*.test.js"
+      - "contextual-attention.js"
+      - "tests/contextual-attention.test.js"
+      - "tests/ud-russian-gsd-benchmark.test.js"
+      - "scripts/ud-russian-gsd.js"
       - ".github/workflows/discourse-coreference.yml"
 
 permissions:
@@ -54,6 +62,14 @@ jobs:
         run: node tests/discourse-coreference-groups.test.js
       - name: Test discourse event-reference pilot
         run: node tests/discourse-event-reference.test.js
+      - name: Test deterministic vocabulary selection experiment
+        run: |
+          node --check contextual-attention.js
+          node tests/contextual-attention.test.js
+      - name: Test UD benchmark harness and importer fixtures
+        run: |
+          node --check tests/ud-russian-gsd-benchmark.test.js
+          node tests/ud-russian-gsd-benchmark.test.js
       - name: Run 24-message distant-reference diagnostic
         run: node tests/discourse-coreference-window.test.js
       - name: Run semantic-query integration test
