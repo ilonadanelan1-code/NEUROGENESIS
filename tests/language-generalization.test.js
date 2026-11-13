@@ -501,6 +501,28 @@ for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
       testCase.roles.o.some(value => normalise(value) === token) ? "object" : "other"
     );
     assert.equal(result.roles.length, expectedRoles.length, "phrase-role output must align with manual token labels");
+    assert.ok(Array.isArray(result.trustedEdges),
+      "analysis must expose a separate role-consistent edge list");
+    const legacyEdgeKeys = result.relationCandidates
+      .filter(edge => edge.confidence >= 0.34).slice(0, 16)
+      .map(edge => [edge.from, edge.to, edge.relation].join(":"));
+    assert.deepEqual(result.edges.map(edge => [edge.from, edge.to, edge.relation].join(":")),
+      legacyEdgeKeys, "the legacy edge output must remain unchanged");
+    const expectedTrustedEdgeKeys = result.relationCandidates.filter(edge => {
+      const required = relationRolePairs[edge.relation];
+      return required && edge.confidence >= 0.34 &&
+        result.roles[edge.from]?.role === required[0] &&
+        result.roles[edge.to]?.role === required[1];
+    }).slice(0, 16).map(edge => [edge.from, edge.to, edge.relation].join(":"));
+    assert.deepEqual(result.trustedEdges.map(edge => [edge.from, edge.to, edge.relation].join(":")),
+      expectedTrustedEdgeKeys, "trusted edges must be exactly the confidence- and role-consistent subset");
+    for (const edge of result.trustedEdges) {
+      const required = relationRolePairs[edge.relation];
+      assert.ok(required, "trusted edge relation must have a role signature");
+      assert.equal(result.roles[edge.from]?.role, required[0]);
+      assert.equal(result.roles[edge.to]?.role, required[1]);
+      assert.ok(edge.confidence >= 0.34);
+    }
     for (const role of ["s", "p", "o"]) {
       for (const value of testCase.roles[role]) {
         assert.ok(tokens.includes(normalise(value)), "manual phrase annotation must point to an existing token");
