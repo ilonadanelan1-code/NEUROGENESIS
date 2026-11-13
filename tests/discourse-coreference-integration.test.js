@@ -50,6 +50,12 @@ assert.equal(resumedThreadPlan.contextRelation,"follow_up");
 assert.equal(resumedThreadPlan.discourseResolution.status,"resolved");
 assert.equal(resumedThreadPlan.discourseResolution.antecedent.text,"сигнал",
  "the resolver must use active-thread history even when globally recent messages belong to another topic");
+const resumedRequest=planner.buildRequest("Он снова ответил.",resumedThreadContext,[]);
+const requestPayload=JSON.parse(resumedRequest.messages[1].content.slice(resumedRequest.messages[1].content.indexOf("\\n")+1));
+assert.ok(requestPayload.recentTurns.some(row=>row.text==="Система получает сигнал."),
+ "the LLM request must include the active thread history, not lose it behind globally recent messages");
+assert.ok(requestPayload.recentTurns.every(row=>row.text.includes("Система")||row.text.includes("Сигнал")),
+ "the request must not mix turns from a different topic into the active thread history");
 
 assert.match(memorySource,/DIALOG_CONTEXT\.history\(dialogContext,\s*report\.activeThread\.id,\s*24\)/,
  "the production context builder must provide bounded per-thread history, not only the globally recent eight messages");
