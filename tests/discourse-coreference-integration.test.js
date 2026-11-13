@@ -76,7 +76,7 @@ const distantEvent=planner.local("Из-за этого всё остановил
 },null);
 assert.equal(distantEvent.discourseEventResolution.status,"resolved",
  "the resolver should see the bounded 24-message active-thread history");
-assert.equal(distantEvent.discourseEventResolution.antecedent.id,"OLD");
+assert.equal(distantEvent.discourseEventResolution.antecedent.id,"OLD-p1");
 assert.equal(distantEvent.discourseEventResolution.antecedent.turnDistance,24);
 
 const expiredEventHistory=[{id:"TOO_OLD",threadId:"T1",role:"user",text:"Система получает сигнал."},
