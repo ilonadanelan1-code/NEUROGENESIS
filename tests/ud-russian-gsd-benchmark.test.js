@@ -151,7 +151,8 @@ if (!trainPath && !testPath) {
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-    strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+    strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    idfCovered: 0, idfCorrect: 0, contextBackoffs: 0
   };
   const add = (target, source) => {
     for (const key of Object.keys(target)) target[key] += source[key] || 0;
@@ -197,7 +198,8 @@ if (!trainPath && !testPath) {
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-      strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+      strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    idfCovered: 0, idfCorrect: 0, contextBackoffs: 0
     };
     for (const sentence of prepared.testTexts) {
       const tokens = Attention.tokenize(sentence);
@@ -239,6 +241,7 @@ if (!trainPath && !testPath) {
           }
         }
         const inversionPrediction = model.predictMasked(sentence, index, {allowOrderInversion: true});
+        const idfPrediction = model.predictMasked(sentence, index, {scoring: "inverse_frequency"});
         const generated = strictPrediction?.generatedPrediction;
         if (generated) {
           metrics.generatedCovered++;
@@ -263,6 +266,13 @@ if (!trainPath && !testPath) {
           metrics.inversionCovered++;
           if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) {
             metrics.inversionCorrect++;
+          }
+        }
+        const idfCandidate = idfPrediction?.retrievalCandidate;
+        if (idfCandidate) {
+          metrics.idfCovered++;
+          if (Attention.russianStem(idfCandidate.token) === Attention.russianStem(tokens[index])) {
+            metrics.idfCorrect++;
           }
         }
       }
@@ -316,6 +326,11 @@ if (!trainPath && !testPath) {
           correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
           coverage: ratio(metrics.inversionCovered, metrics.oov)
+        },
+        contextRetrievalInverseFrequency: {
+          correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+          precision: ratio(metrics.idfCorrect, metrics.idfCovered),
+          coverage: ratio(metrics.idfCovered, metrics.oov)
         },
         strictRetrievalSurface: {
           correct: metrics.strictSurfaceCorrect, covered: metrics.strictSurfaceCovered,
@@ -431,7 +446,8 @@ if (!trainPath && !testPath) {
     oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
     oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
     strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-    strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+    strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    idfCovered: 0, idfCorrect: 0, contextBackoffs: 0
   };
   const frequencyAggregateBuckets = createFrequencyBuckets();
   const frequencySeedReports = [];
@@ -478,7 +494,8 @@ if (!trainPath && !testPath) {
       oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
       oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
       strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
-      strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+      strictSurfaceCovered: 0, strictSurfaceCorrect: 0,
+    idfCovered: 0, idfCorrect: 0, contextBackoffs: 0
     };
     for (const sentence of prepared.testTexts) {
       const tokens = Attention.tokenize(sentence);
@@ -518,6 +535,7 @@ if (!trainPath && !testPath) {
           } else metrics.oovPluralNoKnownBaseTargets++;
         }
         const inversionPrediction = model.predictMasked(sentence, index, {allowOrderInversion: true});
+        const idfPrediction = model.predictMasked(sentence, index, {scoring: "inverse_frequency"});
         const generated = strictPrediction?.generatedPrediction;
         if (generated) {
           metrics.generatedCovered++;
@@ -539,6 +557,11 @@ if (!trainPath && !testPath) {
         if (inversionCandidate) {
           metrics.inversionCovered++;
           if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) metrics.inversionCorrect++;
+        }
+        const idfCandidate = idfPrediction?.retrievalCandidate;
+        if (idfCandidate) {
+          metrics.idfCovered++;
+          if (Attention.russianStem(idfCandidate.token) === Attention.russianStem(tokens[index])) metrics.idfCorrect++;
         }
       }
     }
@@ -579,6 +602,11 @@ if (!trainPath && !testPath) {
           correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
           precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
           coverage: ratio(metrics.inversionCovered, metrics.oov)
+        },
+        contextRetrievalInverseFrequency: {
+          correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+          precision: ratio(metrics.idfCorrect, metrics.idfCovered),
+          coverage: ratio(metrics.idfCovered, metrics.oov)
         }
       }
     });
@@ -609,6 +637,11 @@ if (!trainPath && !testPath) {
       correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
       precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
       coverage: ratio(metrics.inversionCovered, metrics.oov)
+    },
+    contextRetrievalInverseFrequency: {
+      correct: metrics.idfCorrect, covered: metrics.idfCovered, oovTargets: metrics.oov,
+      precision: ratio(metrics.idfCorrect, metrics.idfCovered),
+      coverage: ratio(metrics.idfCovered, metrics.oov)
     }
   });
   const frequencyMetrics = {...metricSummary(frequencyAggregate),
@@ -616,6 +649,22 @@ if (!trainPath && !testPath) {
   const baselineMetrics = metricSummary(aggregate);
   const percentagePointDelta = (current, previous) =>
     current == null || previous == null ? null : (current - previous) * 100;
+  const contextRetrievalScoringExperiment = {
+    control: "uniform exact/stem overlap scoring",
+    experiment: "inverse document frequency weighted scoring",
+    sameModelsSeedsCorpusSplitsAndTraining: true,
+    onlyChangedVariable: "retrieval candidate scoring",
+    controlMetrics: baselineMetrics.contextRetrievalStrict,
+    experimentMetrics: baselineMetrics.contextRetrievalInverseFrequency,
+    deltasPercentagePoints: {
+      precision: percentagePointDelta(
+        baselineMetrics.contextRetrievalInverseFrequency.precision,
+        baselineMetrics.contextRetrievalStrict.precision),
+      coverage: percentagePointDelta(
+        baselineMetrics.contextRetrievalInverseFrequency.coverage,
+        baselineMetrics.contextRetrievalStrict.coverage)
+    }
+  };
 
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
@@ -658,6 +707,11 @@ if (!trainPath && !testPath) {
           precision: ratio(aggregate.inversionCorrect, aggregate.inversionCovered),
           coverage: ratio(aggregate.inversionCovered, aggregate.oov)
         },
+        contextRetrievalInverseFrequency: {
+          correct: aggregate.idfCorrect, covered: aggregate.idfCovered, oovTargets: aggregate.oov,
+          precision: ratio(aggregate.idfCorrect, aggregate.idfCovered),
+          coverage: ratio(aggregate.idfCovered, aggregate.oov)
+        },
         strictRetrievalSurface: {
           correct: aggregate.strictSurfaceCorrect, covered: aggregate.strictSurfaceCovered,
           accuracy: ratio(aggregate.strictSurfaceCorrect, aggregate.strictSurfaceCovered)
@@ -674,6 +728,7 @@ if (!trainPath && !testPath) {
         }
       }
     },
+    contextRetrievalScoringExperiment,
     seeds: seedReports,
     vocabularySelectionExperiment: {
       control: {strategy: "first_seen", metrics: baselineMetrics},
