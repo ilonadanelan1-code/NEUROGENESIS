@@ -15,6 +15,8 @@ This experiment tests whether NEUROGENESIS can tell whether two occurrences of t
 - Gusyatskaya & Lukashevich (2026), «Большие языковые модели в задаче разрешения лексической многозначности на материале русского языка», Электронные библиотеки, т. 29, № 4, pp. 1118–1132, DOI 10.26907/1562-5419-2026-29-4-1118-1132. The Russian WSD study compares small/medium decoder-only LMs, finds broad context and dictionary enrichment useful, and reports that direct generative use is not necessarily the most efficient classifier: https://rdl-journal.ru/article/view/1093
 - Kokosinskiy (2026), «Большие языковые модели в задаче оценки семантической близости словоупотреблений», Электронные библиотеки, т. 29, № 4, pp. 1133–1154, DOI 10.26907/1562-5419-2026-29-4-1133-1154. It studies WiC with LLMs and correction from labelled examples without fine-tuning the large model, while noting substantial compute costs: https://rdl-journal.ru/article/view/1085
 - Aksenova, Gavrishina, Rykov & Kutuzov (2022), *RuDSI: Graph-based Word Sense Induction Dataset for Russian*, TextGraphs-16, pp. 77–88: https://aclanthology.org/2022.textgraphs-1.9/
+- Kutuzov & Kuzmenko (2019), *To Lemmatize or Not to Lemmatize: How Word Normalisation Affects ELMo Performance in Word Sense Disambiguation*, NODALIDA 2019 workshop, pp. 22–28, arXiv:1909.03135. Their Russian experiments found small but consistent WSD gains from lemma-normalized training/testing, supporting separate lemma and surface-form signals rather than throwing either away: https://aclanthology.org/W19-6203/
+- Stoliarov (2024), *Russian Homograph Dataset*, GitHub data release, pinned repository revision `d8f65f2004a6ae0bbc0dc9bd70801a63d6a00ff3`. The repository declares GPL-3.0 and describes roughly 84,400 manually annotated RNC contexts for 56 homograph pairs plus one triad. It is useful as a supplementary orthography/morphology stress test, not a broad polysemy benchmark: only four pairs are lexical homographs; other groups include POS and intraparadigmatic form contrasts: https://github.com/iv-stoliar/RussianHomographDataset/tree/d8f65f2004a6ae0bbc0dc9bd70801a63d6a00ff3
 - Snegirev et al. (2024), *The Russian-focused embedders' exploration: ruMTEB benchmark and Russian embedding model design*, arXiv:2408.12503. This provides Russian embedding evaluation beyond generic English benchmarks: https://arxiv.org/abs/2408.12503
 
 ### Design decision
@@ -34,6 +36,9 @@ The current contextual model supports a window of up to eight tokens on either s
 The CI benchmark reads the RNC noun subset from the public package repository lopuhin/ruslang-wsd-labeled, pinned to commit 67266b5bb21dd92e7def0bdc41adddb2584c1868. Its README describes human-labelled Russian contexts sampled from the Russian National Corpus (RNC) and RuTenTen, with sense definitions from the Active Dictionary. Its PyPI package metadata and setup.py declare MIT. This pilot uses only nouns/RNC/*.txt, fetches the data during CI, does not commit or redistribute the corpus, and records the exact upstream revision.
 
 Important licensing caveat: the package declares MIT, but that declaration must not be assumed to override any separate terms applicable to source-corpus texts. The source corpus terms must be checked before redistribution or production training. The pilot does not vendor the texts.
+The pinned `ruslang-wsd-labeled` repository has no standalone `LICENSE` file at the inspected revision; MIT appears in `setup.py` package metadata. Treat this as a declared package license, not proof that the underlying RNC texts can be redistributed or used without separate corpus terms.
+
+`RussianHomographDataset` is the clearest additional Russian resource found with an explicit repository-level GPL-3.0 license and manually labelled RNC provenance. It is not substituted into the main WiC score because its labels intentionally mix lexical sense, POS, and inflectional contrasts; a future supplementary evaluation should report those subsets separately. The RNC source-text terms still need independent review.
 
 RuSemCor (Zenodo DOI 10.5281/zenodo.15686750) is a valuable WordNet-annotated Russian corpus and was examined alongside RuDSI. The Zenodo landing page has an empty license field, so RuSemCor is not downloaded into this automated benchmark. RuDSI's provenance and annotation approach are documented, but a clearly confirmed data license was not found in the inspected metadata.
 
@@ -47,6 +52,7 @@ The main branch already contains contextual-attention.js. Its score(text, target
 - exposes conservative Russian stemming, verb-number hints and noun plural generation.
 
 The limitation found in the audit is that the existing model is trained to predict a masked token and expose attention, but it has no explicit supervised objective for distinguishing two senses of the same lemma. The existing Russian morphology is heuristic: it does not provide a full lemma, case, gender or POS analysis.
+The shared tokenizer also normalizes `ё` to `е`; this can erase an explicit Russian orthographic cue (for example, `берег`/`берёг`). The current WiC pilot therefore does not claim coverage of `ё`-sensitive homographs. Preserve raw orthography alongside normalized lookup forms before integrating a future morphology-aware sense head.
 
 The new lexical-sense.js module adds an isolated WiC comparison head. The baseline uses context TF-IDF/Jaccard overlap and surface/stem/number hints. The contextual variant adds pairwise contextual-vector and token-vector similarities, differences and products. Both logistic heads use the same labelled training pairs and validation log-loss checkpoint selection.
 
@@ -60,6 +66,7 @@ The new lexical-sense.js module adds an isolated WiC comparison head. The baseli
 - Unseen-lemma test words are excluded entirely from encoder and classifier training.
 - Exact normalized sentence duplicates are removed across partitions; the benchmark asserts zero remaining train/validation/test overlap.
 - The benchmark uses three fixed seeds and reports exact counts, denominators, accuracy, macro-F1, coverage, confusion counts, known/unseen lemmas and false-merge/false-split examples.
+- Per-seed metrics use the unique known/unseen test-pair denominator; pooled totals across three seeds count repeated predictions on the same fixed pairs and must not be interpreted as three times as many independent corpus examples.
 - Baseline accuracy is also computed on the exact subset covered by contextual vectors, so coverage differences do not create a misleading comparison.
 
 The lower/higher context-count buckets are only a proxy for the number of labelled examples available for a lemma, not a measure of its true frequency in Russian text.
