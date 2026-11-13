@@ -80,7 +80,7 @@ function layerNormBackward(gradient,cache,gamma){
 }
 function clipped(value){return Math.max(-5,Math.min(5,value||0));}
 function splitCorpus(texts,seed=902){
- const unique=new Map(),rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,320);
+ const unique=new Map(),rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,1280);
  for(const row of rows){const identity=tokenize(row).join(" ");if(identity&&!unique.has(identity))unique.set(identity,row);}
  const entries=Array.from(unique.entries());
  if(entries.length<3)throw new TypeError("At least three distinct sentences are required for train, validation and test splits.");
@@ -169,7 +169,7 @@ function create(options={}){
  }
  function collectExamples(rows,expand){
   const examples=[];
-  for(const row of rows.slice(0,320)){
+  for(const row of rows.slice(0,1280)){
    const sequence=tokenize(row).map(token=>featureForToken(token,expand));
    for(let i=0;i<sequence.length;i++){
     const context=contextFor(sequence,i);
@@ -439,7 +439,7 @@ function create(options={}){
   return{loss:total/examples.length,accuracy:correct/examples.length,examples:examples.length};
  }
  function train(texts,trainOptions={}){
-  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,320);
+  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,1280);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
   const split=splitCorpus(rows,trainOptions.splitSeed);
   loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
@@ -518,7 +518,7 @@ function create(options={}){
  function rebuildTrainingContextIndex(texts){
   if(!lastTraining||!vocabulary.length)return{rebuilt:false,reason:"model_not_trained",examples:trainingContextExamples.length};
   if(trainingContextExamples.length)return{rebuilt:false,reason:"index_already_present",examples:trainingContextExamples.length};
-  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,320);
+  const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,1280);
   if(!rows.length)return{rebuilt:false,reason:"empty_corpus",examples:0};
   let split;
   try{split=splitCorpus(rows,lastTraining.splitSeed);}catch(_){return{rebuilt:false,reason:"invalid_corpus",examples:0};}
