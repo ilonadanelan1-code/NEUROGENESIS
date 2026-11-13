@@ -161,12 +161,31 @@ for(const seed of seeds) {
       aggregate[variant][key].oracleHeadRelationMacroF1BySeed.push(metrics[key].oracleHeadRelationMacroF1);
       aggregate[variant][key].predictedHeadRelationMacroF1BySeed.push(metrics[key].predictedHeadRelationMacroF1);
     }
-    variantReports[variant]={training:trainingReport,metrics};
+    const headPredictions = {
+      validation: validation.groups.map(row => head.predict(row)?.headId),
+      all: slices.all.map(row => head.predict(row)?.headId),
+      knownLemma: slices.knownLemma.map(row => head.predict(row)?.headId),
+      unseenLemma: slices.unseenLemma.map(row => head.predict(row)?.headId)
+    };
+    assert.ok(Object.values(headPredictions).every(values =>
+      values.every(value => Number.isInteger(value))),
+      "every evaluated dependent must receive a concrete predicted HEAD");
+    variantReports[variant]={training:trainingReport,metrics,headPredictions};
   }
+  assert.deepEqual(
+    variantReports.unweighted.headPredictions.validation,
+    variantReports.sqrtInverse.headPredictions.validation,
+    "relation weighting must not change any validation HEAD prediction"
+  );
   for (const slice of Object.keys(slices)) {
+    assert.deepEqual(
+      variantReports.unweighted.headPredictions[slice],
+      variantReports.sqrtInverse.headPredictions[slice],
+      "only relation-class weighting may change; each paired dependent must retain its exact predicted HEAD for "+slice
+    );
     assert.equal(variantReports.unweighted.metrics[slice].headCorrect,
       variantReports.sqrtInverse.metrics[slice].headCorrect,
-      "only relation-class weighting may change; paired attachment predictions must remain identical for "+slice);
+      "paired attachment accuracy counts must remain identical for "+slice);
   }
   assert.equal(variantReports.unweighted.training.bestArcEpoch,
     variantReports.sqrtInverse.training.bestArcEpoch,
