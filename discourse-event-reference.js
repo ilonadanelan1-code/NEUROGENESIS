@@ -7,9 +7,9 @@
   const normalise = value => clean(value,300).normalize("NFKC").toLowerCase()
     .replace(/ё/gu,"е").replace(/[^\p{L}\p{N}]+/gu," ").trim();
   const EVENT_CUES = Object.freeze([
-    {pattern:/^(?:из-за этого|вследствие этого|поэтому|в результате этого)\b/iu, relation:"cause_or_result"},
-    {pattern:/^(?:после этого|затем|вслед за этим|тогда)\b/iu, relation:"sequence"},
-    {pattern:/^это\s+(?:привело|вызвало|спровоцировало|остановило|запустило|изменило|повредило|нарушило|позволило|помешало)\b/iu, relation:"event_subject"}
+    {pattern:/^(?:из-за этого|вследствие этого|поэтому|в результате этого)(?![\p{L}\p{N}])/iu, relation:"cause_or_result"},
+    {pattern:/^(?:после этого|затем|вслед за этим|тогда)(?![\p{L}\p{N}])/iu, relation:"sequence"},
+    {pattern:/^это\s+(?:привело|вызвало|спровоцировало|остановило|запустило|изменило|повредило|нарушило|позволило|помешало)(?![\p{L}\p{N}])/iu, relation:"event_subject"}
   ]);
   function detectMention(value) {
     const text=clean(value,500);
