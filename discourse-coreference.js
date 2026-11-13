@@ -104,10 +104,13 @@
 
   function candidateFeatures(candidate) {
     const inferred = inferFeatures(candidate && candidate.text);
-    const gender = ["masculine","feminine","neuter","plural","unknown"].includes(candidate && candidate.gender)
+    let gender = candidate && ["masculine","feminine","neuter","plural"].includes(candidate.gender)
       ? candidate.gender : inferred.gender;
-    const number = ["singular","plural","unknown"].includes(candidate && candidate.number)
+    let number = candidate && ["singular","plural"].includes(candidate.number)
       ? candidate.number : inferred.number;
+    if (number === "unknown" && candidate && candidate.grammaticalCase === "nominative" &&
+        /[ыи]$/u.test(normalise(candidate.text).split(" ").pop() || "")) number = "plural";
+    if (number === "plural") gender = "plural";
     return { gender, number };
   }
 
@@ -140,15 +143,25 @@
     const syntacticRole = candidate.syntacticRole === "subject" ? "subject"
       : candidate.syntacticRole === "object" ? "object" : "unknown";
     const semanticRole = clean(candidate.semanticRole || candidate.role, 32).toLowerCase();
+    const expectedSemanticRoles = mention.grammaticalCase === "dative"
+      ? ["recipient","beneficiary","indirect_object"]
+      : mention.grammaticalCase === "instrumental"
+        ? ["instrument","agent"]
+        : mention.grammaticalCase === "prepositional"
+          ? ["location","context"]
+          : mention.grammaticalCase === "genitive_or_accusative" || mention.grammaticalCase === "genitive_or_instrumental"
+            ? ["theme","patient","object","source","recipient"]
+            : mention.syntacticRole === "subject"
+              ? ["agent","experiencer","source","subject"] : ["theme","patient","recipient","instrument","source","object","beneficiary"];
     if (mention.syntacticRole === "subject") {
-      score += syntacticRole === "subject" ? 1.05 : syntacticRole === "object" ? 0.12 : 0.28;
-      if (["agent","experiencer","source","recipient","subject"].includes(semanticRole)) score += 0.3;
+      score += syntacticRole === "subject" ? 0.45 : syntacticRole === "object" ? 0.18 : 0.28;
+      if (expectedSemanticRoles.includes(semanticRole)) score += 0.35;
       reasons.push(syntacticRole === "subject" ? "subject_prominence" : "subject_role_weak");
     } else {
-      score += syntacticRole === "object" ? 0.5 : syntacticRole === "subject" ? 0.12 : 0.25;
-      if (["theme","patient","recipient","instrument","source","object","beneficiary"].includes(semanticRole)) score += 0.55;
-      reasons.push(["theme","patient","recipient","instrument","source","object","beneficiary"].includes(semanticRole)
-        ? "semantic_argument_compatibility" : "object_role_weak");
+      score += syntacticRole === "object" ? 0.25 : syntacticRole === "subject" ? 0.1 : 0.18;
+      if (expectedSemanticRoles.includes(semanticRole)) score += 0.65;
+      reasons.push(expectedSemanticRoles.includes(semanticRole)
+        ? "case_compatible_semantic_role" : "object_role_weak");
     }
 
     const turnDistance = Math.max(1, Math.min(32, Number(candidate.turnDistance) || 1));
