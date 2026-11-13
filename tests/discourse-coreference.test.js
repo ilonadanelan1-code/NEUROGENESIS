@@ -31,6 +31,10 @@ assert.equal(discourse.detectMention("О нём говорили позже.").g
   "the common prepositional form нём must be recognized");
 assert.equal(discourse.detectMention("Это произошло позже."), null,
   "event demonstratives are outside this person/entity pilot and must not be forced into an entity link");
+assert.equal(discourse.inferFeatures("Саша").gender, "unknown",
+  "gender-ambiguous names must not be hard-coded as masculine");
+assert.equal(discourse.inferFeatures("Женя").gender, "unknown",
+  "unisex diminutive names must remain gender-ambiguous without contextual evidence");
 
 const candidate = (id,text,gender,number,syntacticRole,semanticRole,turnDistance=1,extra={}) => ({
   id,text,gender,number,syntacticRole,semanticRole,turnDistance,sentenceDistance:0,
