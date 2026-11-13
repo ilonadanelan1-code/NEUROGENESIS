@@ -22,7 +22,7 @@ The audit found a concrete gap: common past forms such as `открыла` were 
    - `заставить` → `causative_content`, controller as accusative `causee`;
    - `разрешить` / `позволить` → `permission_content`, controller as dative `addressee`;
    - `приказать` / `велеть` → `command_content`, controller as dative `addressee`.
-4. Represents the infinitive as `embeddedPropositions[]`, with its own predicate, object, argument roles, controller provenance, local polarity, and `assertionStatus: not_independently_asserted`. Matrix negation and embedded-event negation are kept separate: “не попросила открыть” is not the same as “попросила не открывать”. A request or command is not silently promoted into a fact that the embedded action happened.
+4. Represents the infinitive as `embeddedPropositions[]`, with its own predicate, object, argument roles, controller provenance, local polarity, and `assertionStatus: not_independently_asserted`. Matrix negation and embedded-event negation are kept separate: “не попросила открыть” is not the same as “попросила не открывать”. Validation preserves this local scope when a language-model response proposes a broader negative label. A request or command is not silently promoted into a fact that the embedded action happened.
 5. Extends passive instrumental-tail recognition to productive endings and recognizes a capitalized inflected proper name as an agent candidate.
 6. Keeps fallback behavior for unsupported matrix predicates. `Анна убедила Бориса открыть дверь` remains unresolved rather than receiving guessed roles.
 

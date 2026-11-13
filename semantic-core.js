@@ -1747,16 +1747,25 @@
       : null;
     const basePolarityScope = validScope(base.polarityScope);
     const sourcePolarityScope = validScope(source.polarityScope);
-    const preserveLocalPolarityScope = !!basePolarityScope && basePolarityScope.scope !== "none" &&
-      Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
-    const polarityScope = preserveLocalPolarityScope ? basePolarityScope
+    const controlledBase = Array.isArray(base.embeddedPropositions) &&
+      base.embeddedPropositions.some(item => item && item.schema === "NG_EMBEDDED_PROPOSITION_V1");
+    const preserveControlledPolarity = controlledBase &&
+      part(source.subject || base.subject, 180) === part(base.subject, 180) &&
+      part(source.predicate || base.predicate, 100) === part(base.predicate, 100) &&
+      part(source.object || base.object, 220) === part(base.object, 220);
+    const preserveLocalPolarityScope = preserveControlledPolarity ||
+      (!!basePolarityScope && basePolarityScope.scope !== "none" &&
+        Number.isFinite(baseConfidence) && baseConfidence >= 0.58);
+    const polarityScope = preserveControlledPolarity ? basePolarityScope
+      : preserveLocalPolarityScope ? basePolarityScope
       : sourcePolarityScope || basePolarityScope ||
         { scope: "none", quantifier: "unspecified", effect: "none" };
     const preserveNegativePolarity = basePolarity === "negative" &&
       Number.isFinite(baseConfidence) && baseConfidence >= 0.58;
     const preserveScopedPolarity = preserveLocalPolarityScope &&
       ["negative", "mixed", "unknown"].includes(basePolarity);
-    const polarity = preserveScopedPolarity ? basePolarity
+    const polarity = preserveControlledPolarity ? basePolarity || "positive"
+      : preserveScopedPolarity ? basePolarity
       : preserveNegativePolarity ? "negative" : sourcePolarity || basePolarity || "unknown";
     const validModalities = ["asserted", "possible", "necessary", "conditional", "opinion",
       "reported", "quoted", "interrogative", "directive", "unknown"];

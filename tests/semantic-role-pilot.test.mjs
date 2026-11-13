@@ -168,6 +168,14 @@ for(const item of cases.filter(x=>x.group==="abstention")) {
 const embeddedNegated=current.analyse("Анна попросила Бориса не открывать дверь.",{contextRelation:"new_topic"},null).proposition;
 assert.equal(embeddedNegated.polarity,"positive","embedded negation must not negate the matrix request");
 assert.equal(embeddedNegated.embeddedPropositions[0].polarity,"negative","embedded action negation must be preserved");
+const modelNegatedMatrix=current.validateProposition({
+  subject:"Анна",predicate:"попросила",object:"Бориса",polarity:"negative",
+  polarityScope:{scope:"predicate",quantifier:"unspecified",effect:"negative"}
+},embeddedNegated);
+assert.equal(modelNegatedMatrix.polarity,"positive",
+  "a model-level broad negation must not override the locally scoped matrix polarity");
+assert.equal(modelNegatedMatrix.polarityScope.effect,"none");
+assert.equal(modelNegatedMatrix.embeddedPropositions[0].polarity,"negative");
 const bothNegated=current.analyse("Анна не попросила Бориса не открывать дверь.",{contextRelation:"new_topic"},null).proposition;
 assert.equal(bothNegated.polarity,"negative");
 assert.equal(bothNegated.embeddedPropositions[0].polarity,"negative");
@@ -200,5 +208,6 @@ console.log("NEUROGENESIS semantic-role pilot: "+JSON.stringify({
     noEmbeddedEventInvented:abstentionPrediction.embedded.length===0},
   unsupportedStructureAbstentions:cases.filter(x=>x.group==="abstention").map(item=>item.text),
   embeddedNegation:{matrixPolarity:embeddedNegated.polarity,embeddedPolarity:embeddedNegated.embeddedPropositions[0].polarity,
+    modelOverrideRejected:modelNegatedMatrix.polarity==="positive"&&modelNegatedMatrix.polarityScope.effect==="none",
     bothScopes:{matrix:bothNegated.polarity,embedded:bothNegated.embeddedPropositions[0].polarity}}
 }));
