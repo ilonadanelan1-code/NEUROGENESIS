@@ -40,5 +40,7 @@ jobs:
           node --check semantic-query.js
       - name: Run unit and integration tests
         run: node tests/discourse-coreference.test.js
+      - name: Run semantic-query integration test
+        run: node tests/discourse-coreference-integration.test.js
       - name: Run diagnostic benchmark
         run: node tests/discourse-coreference-benchmark.test.js
