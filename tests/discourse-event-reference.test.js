@@ -1,5 +1,4 @@
 "use strict";
-// Regression guard: Russian Unicode word boundaries must not rely on ASCII \\b.
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const vm=require("node:vm");
@@ -13,41 +12,51 @@ assert.equal(api.detectMention("Из-за этого обработка оста
 assert.equal(api.detectMention("После этого сервер перезапустился").relation,"sequence");
 assert.equal(api.detectMention("Это привело к сбою").relation,"event_subject");
 assert.equal(api.detectMention("Он снова заработал"),null,"entity pronouns belong to the entity resolver");
-assert.equal(api.detectMention("Это устройство новое"),null,"possessive/demonstrative noun phrase is not an event link");
+assert.equal(api.detectMention("Это устройство новое"),null,"a demonstrative noun phrase is not an event link");
+
+// Integration guard: use verb patterns supported by the real semantic analyser.
+const parsed=core.analyse("Система получает сигнал.",{contextRelation:"new_topic"});
+assert.equal(parsed.proposition.kind,"assertion");
+assert.equal(parsed.proposition.subject,"Система");
+assert.equal(parsed.proposition.predicate,"получает");
+assert.equal(parsed.proposition.object,"сигнал");
+assert.equal(parsed.proposition.attribution.source,"user_utterance");
+assert.ok(parsed.proposition.confidence>=0.5);
+
 const messages=[
- {id:"E1",threadId:"T1",role:"user",text:"Сервер потерял соединение."},
- {id:"A1",threadId:"T1",role:"assistant",text:"Это неприятно."},
- {id:"E3",threadId:"T2",role:"user",text:"База данных перезапустилась."}
+ {id:"E1",threadId:"T1",role:"user",text:"Система получает сигнал."},
+ {id:"A1",threadId:"T1",role:"assistant",text:"Модуль активирует процесс."},
+ {id:"E3",threadId:"T2",role:"user",text:"Модуль активирует процесс."},
+ {id:"R1",threadId:"T1",role:"user",text:"В отчёте говорится, что система получает сигнал."},
+ {id:"H1",threadId:"T1",role:"user",text:"Возможно, система получает сигнал."},
+ {id:"O1",threadId:"T1",role:"user",text:"Я думаю, система получает сигнал."}
 ];
-const eventCore={
- analyse(text) {
-  if(text==="Сервер потерял соединение.") return {proposition:{
-   kind:"assertion",subject:"Сервер",predicate:"потерял",object:"соединение",
-   polarity:"positive",modality:"asserted",confidence:0.82,
-   attribution:{source:"user_utterance"}
-  }};
-  if(text==="База данных перезапустилась.") return {proposition:{
-   kind:"assertion",subject:"База данных",predicate:"перезапустилась",object:"",
-   polarity:"positive",modality:"asserted",confidence:0.82,
-   attribution:{source:"user_utterance"}
-  }};
-  return {proposition:{kind:"fragment",confidence:0.2}};
- }
-};
-const candidates=api.extractCandidates(messages,eventCore,{topicId:"T1"});
-assert.ok(candidates.length>0,"asserted user propositions in active thread should become event candidates");
-assert.equal(candidates.some(x=>x.id==="A1"),false,"assistant text must not become user-grounded event fact");
-assert.equal(candidates.some(x=>x.id==="E3"),false,"other thread must be excluded");
-const resolved=api.resolveMention("Из-за этого обработка остановилась",candidates,{topicId:"T1"});
+const candidates=api.extractCandidates(messages,core,{topicId:"T1"});
+assert.equal(candidates.length,1,"only the asserted user proposition should become a candidate");
+assert.equal(candidates[0].id,"E1");
+assert.equal(candidates.some(x=>x.id==="A1"),false,"assistant text must not become a user-grounded event");
+assert.equal(candidates.some(x=>x.id==="E3"),false,"another topic must be excluded");
+assert.equal(candidates.some(x=>x.id==="R1"),false,"reported content must not become an asserted event");
+assert.equal(candidates.some(x=>x.id==="H1"),false,"hypotheses must not become asserted events");
+assert.equal(candidates.some(x=>x.id==="O1"),false,"user opinions must not become asserted events");
+
+const resolved=api.resolveFromHistory("Из-за этого обработка остановилась",messages,core,{topicId:"T1"});
 assert.equal(resolved.status,"resolved");
 assert.equal(resolved.antecedent.id,"E1");
+assert.equal(resolved.antecedent.subject,"Система");
 assert.equal(resolved.provenance.memoryEffect,"none");
-const competing=api.resolveMention("Из-за этого возник сбой",[
- {id:"E1",text:"Сервер потерял соединение",subject:"сервер",predicate:"потерял",object:"соединение",signature:"сервер потерял соединение",confidence:0.8,turnDistance:1,topicId:"T1"},
- {id:"E2",text:"База данных остановила обработку",subject:"база данных",predicate:"остановила",object:"обработку",signature:"база данных остановила обработку",confidence:0.8,turnDistance:1,topicId:"T1"}
-],{topicId:"T1"});
-assert.equal(competing.status,"ambiguous","equally plausible events must not be guessed");
+assert.equal(resolved.provenance.usage,"advisory_only");
+
+const competingMessages=[
+ {id:"E1",threadId:"T1",role:"user",text:"Система получает сигнал."},
+ {id:"E2",threadId:"T1",role:"user",text:"Модуль активирует процесс."}
+];
+const actualCompetingCandidates=api.extractCandidates(competingMessages,core,{topicId:"T1"});
+assert.equal(actualCompetingCandidates.length,2,"both statements should be parsed by the real semantic core");
+const competing=api.resolveMention("Из-за этого возник сбой",actualCompetingCandidates,{topicId:"T1"});
+assert.equal(competing.status,"ambiguous","equally plausible real parser events must not be guessed");
 assert.equal(competing.antecedent,null);
+
 const otherTopic=api.resolveMention("Из-за этого всё остановилось",candidates,{topicId:"T2"});
 assert.equal(otherTopic.status,"unresolved");
-console.log("NEUROGENESIS discourse event reference pilot tests passed.");
+console.log("NEUROGENESIS discourse event reference real semantic-core integration tests passed.");
