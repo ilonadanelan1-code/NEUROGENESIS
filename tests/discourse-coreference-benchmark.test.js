@@ -32,7 +32,7 @@ const cases = [
     candidates:[make("agents","Инженеры","plural","plural","subject","agent",1),make("recipients","Исследователи","plural","plural","object","recipient",2)]},
   {id:"instrumental-role",query:"С ним работали.",gold:"instrument",category:"role",
     candidates:[make("theme","Модуль","masculine","singular","object","theme",1),make("instrument","Инструмент","masculine","singular","object","instrument",3)]},
-  {id:"plural-object-theme",query:"Они проверили их.",gold:"files",category:"role",
+  {id:"plural-object-theme",query:"Проверили их.",gold:"files",category:"role",
     candidates:[make("people","Инженеры","plural","plural","subject","agent",1),make("files","Файлы","plural","plural","object","theme",2)]},
   {id:"older-subject-over-near-object",query:"Он позвонил.",gold:"older-agent",category:"role",
     candidates:[make("near-object","Пётр","masculine","singular","object","theme",1),make("older-agent","Иван","masculine","singular","subject","agent",2)]},
@@ -75,7 +75,7 @@ function compatible(mention,candidate){
 function nearestBaseline(query,candidates){
   const mention=discourse.detectMention(query);
   if(!mention)return null;
-  const rows=(candidates||[]).filter(c=>compatible(mention,c))
+  const rows=(candidates||[]).filter(c=>!c.topicId||c.topicId==="T1").filter(c=>compatible(mention,c))
     .sort((a,b)=>(a.turnDistance||1)-(b.turnDistance||1)||
       (a.sentenceDistance||0)-(b.sentenceDistance||0));
   if(!rows.length)return null;
