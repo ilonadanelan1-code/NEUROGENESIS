@@ -409,7 +409,7 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
   const maximumUposAccuracyDrop=0.05;
   const globalLambda=globalTuning.constrainedLambda;
   const tags=Object.keys(conditionedTraining.summary.upos).sort();
-  const lambdaByUpos=Object.fromEntries(tags.map(tag=>[tag,globalLambda]));
+  let lambdaByUpos=Object.fromEntries(tags.map(tag=>[tag,globalLambda]));
   const rank=(a,b)=>b.qualityF1-a.qualityF1 ||
     b.exactRecall-a.exactRecall ||
     b.precision-a.precision ||
@@ -419,7 +419,7 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
 
   for(const tag of tags) {
     const rows=validationRows.filter(row=>row.upos===tag);
-    const targets=rows.filter(row=>row.form&&row.lemma&&/[\\p{L}\\p{N}]/u.test(row.form)&&
+    const targets=rows.filter(row=>row.form&&row.lemma&&/[\p{L}\p{N}]/u.test(row.form)&&
       !outputVocabulary.has(row.form)).length;
     if(targets<minimumTargets) {
       byUpos[tag]={targets,selectedLambda:globalLambda,localCandidateLambda:globalLambda,
@@ -446,7 +446,9 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
       row.uposAccuracy>=baseline.uposAccuracy-maximumUposAccuracyDrop-1e-12);
     const best=(admissible.length?admissible:[results.find(row=>row.lambda===0)]).slice().sort(rank)[0];
     const improves=best.qualityF1>=reference.qualityF1+0.005;
-    const chosen=improves?best.lambda:globalLambda;
+    const referenceAllowed=reference.uposAccuracy!=null&&
+      reference.uposAccuracy>=baseline.uposAccuracy-maximumUposAccuracyDrop-1e-12;
+    const chosen=improves?best.lambda:(referenceAllowed?globalLambda:0);
     lambdaByUpos[tag]=chosen;
     const selected=results.find(row=>row.lambda===chosen);
     byUpos[tag]={
@@ -484,6 +486,7 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
   }
   assert.ok(finalEvaluation.uposAccuracy>=allowed-1e-12,
     "POS-specific calibration must preserve the global validation UPOS guardrail");
+  for(const tag of tags) byUpos[tag].effectiveLambda=lambdaByUpos[tag];
   return {
     lambdaByUpos,globalLambda,minimumTargets,maximumUposAccuracyDrop,
     globalBaselineValidationUposAccuracy:globalBaseline.uposAccuracy,
