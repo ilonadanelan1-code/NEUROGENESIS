@@ -182,7 +182,7 @@ assert.equal(restored.status().trainingSteps,model.status().trainingSteps);
 assert.deepEqual(restored.status().lastTraining,model.status().lastTraining,"training diagnostics must persist with the selected checkpoint");
 assert.deepEqual(restored.analyse("нейрон получает сигнал"),model.analyse("нейрон получает сигнал"),
  "the complete multi-head architecture must persist");
-assert.throws(()=>restored.loadState({schema:api.schema,version:5,dimension:999,windowSize:2,heads:3,transformerBlocks:2,vocabulary:[],blocks:[{},{}]}),/dimensions, heads, blocks or vocabulary/u);
+assert.throws(()=>restored.loadState({schema:api.schema,version:5,dimension:999,windowSize:2,heads:3,transformerBlocks:2,vocabulary:[],blocks:[{},{}]}),/dimensions, heads, blocks, vocabulary limit or vocabulary/u);
 assert.throws(()=>restored.loadState({schema:"NG_CONTEXTUAL_ATTENTION_V4",version:4}),/Unsupported contextual model state/u);
 const malformedState=restored.exportState();malformedState.blocks[0].relativePositionBias[0].pop();
 assert.throws(()=>restored.loadState(malformedState),/weights are malformed/u);
