@@ -4257,7 +4257,9 @@
           (interpreted.contextRelation === "follow_up" && !(report && report.activeThread))) {
         return { ...localPlan, source:"local_fallback", fallbackReason:"low_confidence_or_missing_context" };
       }
-      return interpreted;
+      return SEMANTIC_QUERY && typeof SEMANTIC_QUERY.mergeLocalDiscourseResolution === "function"
+        ? SEMANTIC_QUERY.mergeLocalDiscourseResolution(interpreted, localPlan)
+        : interpreted;
     } catch (error) {
       console.warn("NEUROGENESIS semantic query interpretation failed; using local retrieval:", error);
       return { ...localPlan, source:"local_fallback", fallbackReason:String(error && error.message || error).slice(0,180) };
