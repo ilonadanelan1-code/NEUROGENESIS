@@ -425,6 +425,197 @@ if (!trainPath && !testPath) {
     });
   }
 
+  const frequencyAggregate = {
+    frequencyBuckets: createFrequencyBuckets(),
+    total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+    oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+    oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
+    oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
+    strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
+    strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+  };
+  const frequencySeedReports = [];
+  for (const seed of seeds) {
+    const model = Attention.create({
+      dimension: 12, windowSize: 4, heads: 3, blocks: 2, seed: seed.model
+    });
+    const training = model.train(prepared.trainingTexts, {
+      epochs: 20, learningRate: 0.02, patience: 8, splitSeed: seed.split,
+      vocabularyStrategy: "frequency"
+    });
+    assert.equal(training.vocabularyStrategy, "frequency");
+    const trainingSplit = model.splitCorpus(prepared.trainingTexts, seed.split);
+    assert.equal(trainingSplit.train.length, training.trainRows);
+    const tokenFrequency = new Map();
+    for (const row of trainingSplit.train) {
+      for (const token of Attention.tokenize(row)) {
+        tokenFrequency.set(token, (tokenFrequency.get(token) || 0) + 1);
+      }
+    }
+    assert.equal(training.vocabularySelection.candidateTypes, tokenFrequency.size,
+      "frequency selection must count only the exact training partition");
+    assert.equal(training.vocabularySelection.selectedTypes, training.vocabularySize);
+    const selectedVocabulary = new Set(model.exportState().vocabulary);
+    assert.ok(Array.from(selectedVocabulary).every(token => tokenFrequency.has(token)),
+      "frequency selection must never include a validation or test-only token");
+    const expectedVocabulary = Array.from(tokenFrequency.entries())
+      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .slice(0, 1024).map(row => row[0]);
+    assert.deepEqual(Array.from(model.exportState().vocabulary), expectedVocabulary,
+      "frequency vocabulary must be ordered by train frequency with deterministic lexical ties");
+    const retrievalIndex = model.retrievalIndexStatus();
+    assert.equal(retrievalIndex.built, true);
+    assert.equal(retrievalIndex.exampleCount, model.status().trainingContextExamples);
+    const pluralCandidateBaseCounts = new Map();
+    for (const base of model.exportState().vocabulary) {
+      const surface = Attention.russianNounPlural(base);
+      if (surface) pluralCandidateBaseCounts.set(surface, (pluralCandidateBaseCounts.get(surface) || 0) + 1);
+    }
+    const metrics = {
+      frequencyBuckets: createFrequencyBuckets(),
+      total: 0, known: 0, exact: 0, morphologyCovered: 0, morphologyCorrect: 0,
+      oov: 0, generatedCovered: 0, generatedCorrect: 0, generatedCandidateHits: 0,
+      oovPluralHintTargets: 0, oovPluralKnownBaseTargets: 0, oovPluralKnownBaseHits: 0,
+      oovPluralNoKnownBaseTargets: 0, oovPluralAmbiguousBaseTargets: 0,
+      strictCovered: 0, strictCorrect: 0, inversionCovered: 0, inversionCorrect: 0,
+      strictSurfaceCovered: 0, strictSurfaceCorrect: 0, contextBackoffs: 0
+    };
+    for (const sentence of prepared.testTexts) {
+      const tokens = Attention.tokenize(sentence);
+      for (let index = 0; index < tokens.length; index++) {
+        metrics.total++;
+        const score = model.score(sentence, index);
+        if (!score) continue;
+        metrics.contextBackoffs += score.contextMorphologyBackoffs.length;
+        if (score.targetKnown) {
+          metrics.known++;
+          const frequency = tokenFrequency.get(tokens[index]) || 0;
+          assert.ok(frequency > 0, "known targets must occur in the training partition");
+          const band = frequency === 1 ? "1" : frequency <= 4 ? "2-4" :
+            frequency <= 9 ? "5-9" : "10+";
+          metrics.frequencyBuckets[band].targets++;
+          if (score.predictions[0]?.token === tokens[index]) {
+            metrics.exact++;
+            metrics.frequencyBuckets[band].correct++;
+          }
+        }
+        if (score.morphologyKnown) {
+          metrics.morphologyCovered++;
+          if (score.morphologyCorrect) metrics.morphologyCorrect++;
+        }
+        if (score.targetKnown) continue;
+        metrics.oov++;
+        const strictPrediction = model.predictMasked(sentence, index);
+        if (strictPrediction?.morphologyHint?.number === "plural") {
+          metrics.oovPluralHintTargets++;
+          const baseCount = pluralCandidateBaseCounts.get(tokens[index]) || 0;
+          if (baseCount > 0) {
+            metrics.oovPluralKnownBaseTargets++;
+            if (baseCount > 1) metrics.oovPluralAmbiguousBaseTargets++;
+            if (strictPrediction.generatedCandidates?.some(row => row.surface === tokens[index])) {
+              metrics.oovPluralKnownBaseHits++;
+            }
+          } else metrics.oovPluralNoKnownBaseTargets++;
+        }
+        const inversionPrediction = model.predictMasked(sentence, index, {allowOrderInversion: true});
+        const generated = strictPrediction?.generatedPrediction;
+        if (generated) {
+          metrics.generatedCovered++;
+          if (generated.surface === tokens[index]) metrics.generatedCorrect++;
+        }
+        if (strictPrediction?.generatedCandidates?.some(row => row.surface === tokens[index])) {
+          metrics.generatedCandidateHits++;
+        }
+        const strictCandidate = strictPrediction?.retrievalCandidate;
+        if (strictCandidate) {
+          metrics.strictCovered++;
+          if (Attention.russianStem(strictCandidate.token) === Attention.russianStem(tokens[index])) metrics.strictCorrect++;
+        }
+        if (strictPrediction?.retrievalPrediction) {
+          metrics.strictSurfaceCovered++;
+          if (strictPrediction.retrievalPrediction.surface === tokens[index]) metrics.strictSurfaceCorrect++;
+        }
+        const inversionCandidate = inversionPrediction?.retrievalCandidate;
+        if (inversionCandidate) {
+          metrics.inversionCovered++;
+          if (Attention.russianStem(inversionCandidate.token) === Attention.russianStem(tokens[index])) metrics.inversionCorrect++;
+        }
+      }
+    }
+    assert.equal(metrics.oovPluralHintTargets,
+      metrics.oovPluralKnownBaseTargets + metrics.oovPluralNoKnownBaseTargets);
+    add(frequencyAggregate, metrics);
+    mergeFrequencyBuckets(frequencyAggregate.frequencyBuckets, metrics.frequencyBuckets);
+    frequencySeedReports.push({
+      modelSeed: seed.model, splitSeed: seed.split,
+      training: {
+        trainRows: training.trainRows, vocabularySize: training.vocabularySize,
+        vocabularyCapacity: 1024, vocabularySelection: training.vocabularySelection,
+        epochs: training.epochs, trainingContextExamples: model.status().trainingContextExamples
+      },
+      metrics: {
+        targets: metrics.total,
+        knownTargetCoverage: ratio(metrics.known, metrics.total),
+        exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+        allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
+        frequencyBuckets: summarizeFrequencyBuckets(metrics.frequencyBuckets),
+        morphology: {
+          correct: metrics.morphologyCorrect, covered: metrics.morphologyCovered,
+          accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered),
+          coverage: ratio(metrics.morphologyCovered, metrics.total)
+        },
+        oovGeneration: {
+          correct: metrics.generatedCorrect, covered: metrics.generatedCovered, oovTargets: metrics.oov,
+          accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
+          coverage: ratio(metrics.generatedCovered, metrics.oov),
+          candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.oov)
+        },
+        contextRetrievalStrict: {
+          correct: metrics.strictCorrect, covered: metrics.strictCovered, oovTargets: metrics.oov,
+          precision: ratio(metrics.strictCorrect, metrics.strictCovered),
+          coverage: ratio(metrics.strictCovered, metrics.oov)
+        },
+        contextRetrievalOrderInvariant: {
+          correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
+          precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
+          coverage: ratio(metrics.inversionCovered, metrics.oov)
+        }
+      }
+    });
+  }
+
+  const metricSummary = metrics => ({
+    targets: metrics.total,
+    knownTargetCoverage: ratio(metrics.known, metrics.total),
+    exactKnownTargetAccuracy: ratio(metrics.exact, metrics.known),
+    allTargetExactAccuracy: ratio(metrics.exact, metrics.total),
+    morphology: {
+      correct: metrics.morphologyCorrect, covered: metrics.morphologyCovered,
+      accuracy: ratio(metrics.morphologyCorrect, metrics.morphologyCovered),
+      coverage: ratio(metrics.morphologyCovered, metrics.total)
+    },
+    oovGeneration: {
+      correct: metrics.generatedCorrect, covered: metrics.generatedCovered, oovTargets: metrics.oov,
+      accuracy: ratio(metrics.generatedCorrect, metrics.generatedCovered),
+      coverage: ratio(metrics.generatedCovered, metrics.oov),
+      candidateRecallAt8: ratio(metrics.generatedCandidateHits, metrics.oov)
+    },
+    contextRetrievalStrict: {
+      correct: metrics.strictCorrect, covered: metrics.strictCovered, oovTargets: metrics.oov,
+      precision: ratio(metrics.strictCorrect, metrics.strictCovered),
+      coverage: ratio(metrics.strictCovered, metrics.oov)
+    },
+    contextRetrievalOrderInvariant: {
+      correct: metrics.inversionCorrect, covered: metrics.inversionCovered, oovTargets: metrics.oov,
+      precision: ratio(metrics.inversionCorrect, metrics.inversionCovered),
+      coverage: ratio(metrics.inversionCovered, metrics.oov)
+    }
+  });
+  const frequencyMetrics = metricSummary(frequencyAggregate);
+  const baselineMetrics = metricSummary(aggregate);
+  const percentagePointDelta = (current, previous) =>
+    current == null || previous == null ? null : (current - previous) * 100;
+
   const summary = {
     benchmark: "NEUROGENESIS external Russian language pilot",
     version: "0.58.111",
@@ -483,6 +674,26 @@ if (!trainPath && !testPath) {
       }
     },
     seeds: seedReports,
+    vocabularySelectionExperiment: {
+      control: {strategy: "first_seen", metrics: baselineMetrics},
+      experiment: {strategy: "frequency", metrics: frequencyMetrics},
+      deltasPercentagePoints: {
+        knownTargetCoverage: percentagePointDelta(frequencyMetrics.knownTargetCoverage, baselineMetrics.knownTargetCoverage),
+        exactKnownTargetAccuracy: percentagePointDelta(frequencyMetrics.exactKnownTargetAccuracy, baselineMetrics.exactKnownTargetAccuracy),
+        allTargetExactAccuracy: percentagePointDelta(frequencyMetrics.allTargetExactAccuracy, baselineMetrics.allTargetExactAccuracy),
+        morphologyAccuracy: percentagePointDelta(frequencyMetrics.morphology.accuracy, baselineMetrics.morphology.accuracy),
+        morphologyCoverage: percentagePointDelta(frequencyMetrics.morphology.coverage, baselineMetrics.morphology.coverage),
+        oovGenerationAccuracy: percentagePointDelta(frequencyMetrics.oovGeneration.accuracy, baselineMetrics.oovGeneration.accuracy),
+        oovGenerationCoverage: percentagePointDelta(frequencyMetrics.oovGeneration.coverage, baselineMetrics.oovGeneration.coverage),
+        strictRetrievalPrecision: percentagePointDelta(frequencyMetrics.contextRetrievalStrict.precision, baselineMetrics.contextRetrievalStrict.precision),
+        strictRetrievalCoverage: percentagePointDelta(frequencyMetrics.contextRetrievalStrict.coverage, baselineMetrics.contextRetrievalStrict.coverage),
+        orderInvariantRetrievalPrecision: percentagePointDelta(frequencyMetrics.contextRetrievalOrderInvariant.precision, baselineMetrics.contextRetrievalOrderInvariant.precision),
+        orderInvariantRetrievalCoverage: percentagePointDelta(frequencyMetrics.contextRetrievalOrderInvariant.coverage, baselineMetrics.contextRetrievalOrderInvariant.coverage)
+      },
+      sameSeedsCorpusSplitAndHyperparameters: true,
+      onlyChangedVariable: "vocabulary selection strategy",
+      seeds: frequencySeedReports
+    },
     trainingOrderExperiment: {
       control: "fixed training-example order each epoch",
       experiment: "seeded Fisher-Yates shuffle before each epoch",
