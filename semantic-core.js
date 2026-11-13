@@ -14,6 +14,16 @@
   const ATTRIBUTE_HEAD = /(?:серд|камер|ног|лап|глаз|пальц|зуб|крыл|плавник|сосуд|нейрон|синапс|связ|человек|особ|клет|час|день|сутк|минут|раз|штук|вид|сторон|метр|килограмм|литр|процент)/iu;
   const PRONOUN_SUBJECT = /^(?:него|неё|нее|них|этого|этой|этих|он|она|они|это|там|тогда|его|ее|её)$/iu;
   const COREFERENCE_SCHEMA = "NG_COREFERENCE_REFERENCE_V1";
+  const COORDINATED_PROPER_NAMES = new Set([
+    "иван","ивана","иване","ивану","иваном","петр","пётр","петра","петру","петром",
+    "анна","анны","анне","анну","анней","мария","марии","марию","марией",
+    "александр","александра","александру","александром","сергей","сергея","сергею","сергеем",
+    "андрей","андрея","андрею","андреем","михаил","михаила","михаилу","михаилом",
+    "павел","павла","павлу","павлом","ольга","ольги","ольге","ольгу","ольгой",
+    "елена","елены","елене","елену","еленой","николай","николая","николаю","николаем",
+    "дмитрий","дмитрия","дмитрию","дмитрием","алексей","алексея","алексею","алексеем",
+    "саша","саши","саше","сашу","женя","жени","жене","женю","петя","пети","пете","петю"
+  ]);
   const FEMININE_HEADS = new Set(["система", "сеть", "память", "модель", "нейросеть",
     "связь", "активность", "энергия", "информация", "причина", "лаборатория", "комната",
     "дверь", "кость", "тень", "роль", "цель", "часть", "вещь", "жизнь", "площадь",
@@ -692,8 +702,23 @@
   }
 
 
+  function isKnownCoordinationMember(value) {
+    const words = normalise(value).split(/\s+/u).filter(Boolean);
+    const head = words[words.length - 1] || "";
+    return COORDINATED_PROPER_NAMES.has(head) ||
+      FEMININE_HEADS.has(head) || FEMININE_INFLECTED_HEADS.has(head) ||
+      MASCULINE_HEADS.has(head) || MASCULINE_INFLECTED_HEADS.has(head) ||
+      NEUTER_HEADS.has(head) || NEUTER_INFLECTED_HEADS.has(head) ||
+      PLURAL_INFLECTED_HEADS.has(head) || NOMINATIVE_FORM_BY_INFLECTION.has(head);
+  }
+
   function grammaticalGender(value) {
     const text = clean(value, 180).toLowerCase().replace(/^[«"']|[»"']$/gu, "");
+    // An explicit conjunction of known noun phrases denotes a plural entity group.
+    // Unknown or arbitrary word pairs are not promoted through suffix guesswork.
+    const coordinated = text.split(/\s+и\s+/u).map(part => part.trim()).filter(Boolean);
+    if (coordinated.length > 1 && coordinated.length <= 4 &&
+        coordinated.every(isKnownCoordinationMember)) return "plural";
     const words = text.split(/\s+/u).map(word =>
       word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "").replace(/ё/gu, "е")).filter(Boolean);
     if (!words.length) return "unknown";
@@ -813,6 +838,18 @@
   function canonicalNominativePhrase(value, gender, number) {
     const text = clean(value, 180);
     const words = text.split(/\s+/u).filter(Boolean);
+    const coordinated = text.split(/\s+и\s+/u).map(part => part.trim()).filter(Boolean);
+    if (coordinated.length > 1) {
+      if (coordinated.length > 4 || !coordinated.every(isKnownCoordinationMember)) return null;
+      const canonicalParts = coordinated.map(part => {
+        const memberGender = grammaticalGender(part);
+        if (!["masculine", "feminine", "neuter"].includes(memberGender)) return null;
+        const mapped = canonicalNominativePhrase(part, memberGender, "singular");
+        if (mapped) return mapped;
+        return part.split(/\s+/u).length === 1 ? normalise(part) : null;
+      });
+      return canonicalParts.every(Boolean) ? canonicalParts.join(" и ") : null;
+    }
     if (!words.length || words.length > 2 ||
         (words.length > 1 && GRAMMATICAL_FUNCTION_WORDS.has(normalise(words[0])))) return null;
     const head = normalise(words[words.length - 1]);
@@ -2125,6 +2162,7 @@
     tokens,
     answerType,
     intentType,
+    grammaticalFeatures,
     surfaceSlots,
     extractProposition,
     validateProposition,

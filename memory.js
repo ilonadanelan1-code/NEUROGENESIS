@@ -4237,7 +4237,9 @@
     const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : null;
     const focus = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.focus === "function" ? DIALOG_CONTEXT.focus(dialogContext, query) : null;
-    const context = { ...(report || {}), resolution, focus };
+    const threadHistory = report && report.activeThread && DIALOG_CONTEXT && typeof DIALOG_CONTEXT.history === "function"
+      ? DIALOG_CONTEXT.history(dialogContext, report.activeThread.id, 24) : [];
+    const context = { ...(report || {}), resolution, focus, threadHistory };
     const localPlan = SEMANTIC_QUERY && typeof SEMANTIC_QUERY.local === "function"
       ? SEMANTIC_QUERY.local(query, context, KNOWLEDGE)
       : { source:"local", contextRelation:"new_topic", canonicalQuestion:query, searchQueries:[query], confidence:0.4 };
@@ -4257,7 +4259,9 @@
           (interpreted.contextRelation === "follow_up" && !(report && report.activeThread))) {
         return { ...localPlan, source:"local_fallback", fallbackReason:"low_confidence_or_missing_context" };
       }
-      return interpreted;
+      return SEMANTIC_QUERY && typeof SEMANTIC_QUERY.mergeLocalDiscourseResolution === "function"
+        ? SEMANTIC_QUERY.mergeLocalDiscourseResolution(interpreted, localPlan)
+        : interpreted;
     } catch (error) {
       console.warn("NEUROGENESIS semantic query interpretation failed; using local retrieval:", error);
       return { ...localPlan, source:"local_fallback", fallbackReason:String(error && error.message || error).slice(0,180) };

@@ -11,6 +11,7 @@ const GROUPS=[
  ["сон","сновидение","отдых"]
 ];
 const CORE=window.NGSemanticCore||null;
+const DISCOURSE_COREFERENCE=window.NGDiscourseCoreference||null;
 const clean=(v,n=MAX_QUERY)=>String(v==null?"":v).replace(/\s+/gu," ").trim().slice(0,n);
 const normalise=v=>CORE?CORE.normalise(v,window.NGKnowledge):clean(v,1600).normalize("NFKC").toLowerCase().replace(/ё/g,"е").replace(/[^a-zа-я0-9]+/giu," ").trim().replace(/\s+/g," ");
 function requiredEvidenceSteps(question){
@@ -77,12 +78,14 @@ function buildCompositionHint(originalText,analysis){
 }
 function local(input,context={},knowledge=null){
  const originalText=String(input==null?"":input).slice(0,MAX_QUERY),query=clean(input),active=context&&context.activeThread||null,id=active&&active.id||"";
- const recent=Array.isArray(context&&context.recentMessages)?context.recentMessages.filter(r=>r&&r.threadId===id).slice(-8):[];
+ const history=Array.isArray(context&&context.threadHistory)?context.threadHistory:context&&context.recentMessages;
+ const recent=Array.isArray(history)?history.filter(r=>r&&r.threadId===id).slice(-8):[];
  const resolution=context&&context.resolution||null,normalized=normalise(query);
  const contextFocus=context&&context.focus||resolution&&resolution.context&&resolution.context.focus||null;
- const referential=/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
+ const detectedDiscourseMention=DISCOURSE_COREFERENCE&&typeof DISCOURSE_COREFERENCE.detectMention==="function"?DISCOURSE_COREFERENCE.detectMention(query):null;
+ const referential=!!detectedDiscourseMention||/^(?:(?:а|и|ну|так|но)\s+)?(?:у\s+него|у\s+нее|у\s+неё|у\s+них|он|она|они|его|ее|её|их|это|там|тогда|почему|зачем|так\s+сколько|ну\s+так|а\s+дальше|что\s+дальше)(?=\s|$)/iu.test(query)||/^(?:так|ну)\s+(?:сколько|кольк[\p{L}]*)(?=\s|$)/iu.test(query);
  const interrogative=/^(?:(?:а|и|ну|так|но)\s+)?(?:кто|что|где|куда|откуда|когда|сколько|почему|зачем|как|какой|какая|какие|какое|чей|чья|есть\s+ли)(?=\s|$)/iu.test(query)||/[?？]\s*$/u.test(query);
- const words=tokens(query,knowledge),hasPronoun=/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
+ const words=tokens(query,knowledge),hasPronoun=!!detectedDiscourseMention||/\b(?:него|нее|неё|них|он|она|они|его|ее|её|их|это|там|тогда)\b/u.test(normalized);
  const definitionQuestion=/^(?:что\s+такое|кто\s+такой|кто\s+такая|кто\s+такие|где\s+находится|как\s+называется)\b/iu.test(query);
  const namedObject=/\bу\s+(?!него|неё|нее|них)\p{L}/iu.test(query)&&words.length>=1;
  const colloquialFollowUp=/^(?:а|и|ну|так|но)\s+(?:почему|зачем|как|сколько|кольк[\p{L}]*|что|где)\b/iu.test(query);
@@ -100,6 +103,15 @@ function local(input,context={},knowledge=null){
  const canonical=relation==="follow_up"&&subjectContext?clean(query+" [контекст активной темы: "+clean(subjectContext,220)+"]",MAX_QUERY):query;
  const frame=CORE?CORE.analyse(query,{contextRelation:relation,contextText:relation==="follow_up"?subjectContext:""},knowledge):null;
  const anchorFrame=CORE&&relation==="follow_up"&&subjectContext?CORE.analyse(subjectContext,{contextRelation:"new_topic"},knowledge):null;
+ const discourseExperimentEnabled=window.NG_DISCOURSE_COREFERENCE_EXPERIMENT===true;
+ const discourseResolution=discourseExperimentEnabled&&relation==="follow_up"&&DISCOURSE_COREFERENCE&&
+  typeof DISCOURSE_COREFERENCE.resolveFromHistory==="function"
+  ?DISCOURSE_COREFERENCE.resolveFromHistory(query,recent,CORE,{topicId:id}):null;
+ if(frame&&discourseResolution&&discourseResolution.status!=="not_applicable"){
+  // Keep the local antecedent as advisory provenance. Only the model-plan merge
+  // below may apply it, and only when both planners agree this is a follow-up.
+  frame.discourseEntityResolution=discourseResolution;
+ }
  const expanded=[...synonymExpansion(canonical,knowledge),...synonymExpansion(query,knowledge)];
  const contextualModel=window.NGContextualAttention&&typeof window.NGContextualAttention.analyse==="function"?window.NGContextualAttention:null;
  const contextualStatus=contextualModel&&typeof contextualModel.status==="function"?contextualModel.status():null;
@@ -134,15 +146,48 @@ function local(input,context={},knowledge=null){
   frame.propositionChain.sourceText=originalText;
   frame.propositionChain.advisorySignals=advisorySignals;
  }
- const search=[...new Set([canonical,query,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
+ const discourseSearchHint="";
+ const search=[...new Set([canonical,query,discourseSearchHint,...(CORE?CORE.toSearchQueries(frame):[]),...(CORE?CORE.toSearchQueries(anchorFrame):[]),expanded.join(" "),
   contextualQuery?clean(query+" "+contextualQuery,300):""].map(x=>clean(x,300)).filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
  return {version:4,source:"local",originalText,contextRelation:relation,canonicalQuestion:canonical,searchQueries:search,
   expectedAnswerType:answerType(query),semanticFrame:frame||anchorFrame,evidencePlan:[],confidence:0.54,
-  contextualAnalysis,contextualHints,phraseComposition,compositionHint};
+  contextualAnalysis,contextualHints,phraseComposition,compositionHint,discourseResolution};
 }
+
+function mergeLocalDiscourseResolution(interpreted, localPlan) {
+ const plan=interpreted&&typeof interpreted==="object"?interpreted:null;
+ const local=localPlan&&typeof localPlan==="object"?localPlan:null;
+ if(!plan||!local)return plan;
+ const resolution=local.discourseResolution;
+ if(!resolution||resolution.status==="not_applicable")return plan;
+ const sourceFrame=plan.semanticFrame&&typeof plan.semanticFrame==="object"?plan.semanticFrame:{};
+ const annotatedFrame={...sourceFrame,discourseEntityResolution:resolution};
+ const annotated={...plan,semanticFrame:annotatedFrame,discourseResolution:resolution};
+ if(resolution.status!=="resolved"||!resolution.antecedent||
+    local.contextRelation!=="follow_up"||plan.contextRelation!=="follow_up")return annotated;
+ const antecedent=resolution.antecedent;
+ const role=resolution.mention&&resolution.mention.syntacticRole==="subject"?"subject":"object";
+ const modelProposition=sourceFrame.proposition&&typeof sourceFrame.proposition==="object"?sourceFrame.proposition:{};
+ const proposition={...modelProposition,[role]:antecedent.text,crossTurnReference:resolution};
+ const entities=Array.isArray(sourceFrame.entities)?sourceFrame.entities.slice():[];
+ if(!entities.some(item=>normalise(item&&item.text)===normalise(antecedent.text))){
+  entities.unshift({text:antecedent.text,role,certainty:"context_candidate"});
+ }
+ const frame={...annotatedFrame,proposition,entities:entities.slice(0,8),
+  discourse:{...(sourceFrame.discourse||{}),resolvedFrom:antecedent.text}};
+ if(role==="subject")frame.subject={text:antecedent.text,certainty:"context_candidate"};
+ const query=clean(local.originalText||plan.canonicalQuestion||"",300);
+ const hint=query?clean(antecedent.text+" "+query,300):"";
+ const searchQueries=[...new Set([...(Array.isArray(plan.searchQueries)?plan.searchQueries:[]),hint].filter(Boolean))].slice(0,MAX_SEARCH_QUERIES);
+ return {...annotated,semanticFrame:frame,searchQueries};
+}
+
 function buildRequest(input,context={},memories=[]){
  const active=context&&context.activeThread||null,id=active&&typeof active.id==="string"?active.id:"";
- const turns=(Array.isArray(context&&context.recentMessages)?context.recentMessages:[]).filter(x=>x&&x.threadId===id&&["user","assistant"].includes(x.role)).slice(-8).map(x=>({role:x.role,text:clean(x.text,320),relation:clean(x.relation,32)}));
+ const historySource=Array.isArray(context&&context.threadHistory)?context.threadHistory:
+  Array.isArray(context&&context.recentMessages)?context.recentMessages:[];
+ const turns=historySource.filter(x=>x&&x.threadId===id&&["user","assistant"].includes(x.role)).slice(-8)
+  .map(x=>({role:x.role,text:clean(x.text,320),relation:clean(x.relation,32)}));
  const index=(Array.isArray(memories)?memories:[]).slice(-48).map(x=>({id:clean(x&&x.id,80),text:clean(x&&x.text,190)})).filter(x=>x.id&&x.text);
  const rawFocus=context&&context.focus;
  const contextFocus=rawFocus&&active&&rawFocus.threadId===id?{
@@ -229,5 +274,5 @@ function parse(raw, originalQuestion=""){
   requiredSteps>1&&evidencePlan.length<requiredSteps;
  return {version:3,source:"model",contextRelation:relation,canonicalQuestion:canonical,searchQueries:queries.slice(0,MAX_SEARCH_QUERIES),expectedAnswerType:CORE?(CORE.answerTypes.includes(value.expectedAnswerType)?value.expectedAnswerType:expected):expected,semanticFrame:normalizedFrame,evidencePlan,evidencePlanInvalid,confidence};
 }
-window.NGSemanticQuery=Object.freeze({version:3,local,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
+window.NGSemanticQuery=Object.freeze({version:3,local,mergeLocalDiscourseResolution,buildRequest,parse,isStructuredCommand,synonymExpansion,answerType,normaliseEvidencePlan});
 })();

@@ -1,0 +1,56 @@
+name: Discourse coreference pilot
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "discourse-coreference.js"
+      - "semantic-core.js"
+      - "semantic-query.js"
+      - "index.html"
+      - "tests/discourse-coreference*.test.js"
+      - "docs/DISCOURSE_COREFERENCE_PILOT.md"
+      - ".github/workflows/discourse-coreference.yml"
+  push:
+    branches:
+      - experiment/night-discourse-coreference-2026-11-13-c9
+    paths:
+      - "discourse-coreference.js"
+      - "semantic-core.js"
+      - "semantic-query.js"
+      - "index.html"
+      - "tests/discourse-coreference*.test.js"
+      - ".github/workflows/discourse-coreference.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  discourse:
+    name: Validate discourse coreference experiment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check syntax
+        run: |
+          node --check semantic-core.js
+          node --check discourse-coreference.js
+          node --check semantic-query.js
+      - name: Run unit and integration tests
+        run: node tests/discourse-coreference.test.js
+      - name: Run morphology-aware identity diagnostic
+        run: node tests/discourse-coreference-identity.test.js
+      - name: Test coordinated entity-group resolution
+        run: node tests/discourse-coreference-groups.test.js
+      - name: Run 24-message distant-reference diagnostic
+        run: node tests/discourse-coreference-window.test.js
+      - name: Run semantic-query integration test
+        run: node tests/discourse-coreference-integration.test.js
+      - name: Run diagnostic benchmark
+        run: node tests/discourse-coreference-benchmark.test.js

@@ -1,0 +1,163 @@
+# NEUROGENESIS — bounded discourse coreference pilot
+
+## Scope and diagnosed gap
+
+The current semantic core resolves entity references inside a single proposition chain. Its local resolver searches up to six preceding propositions. The dialogue context manager, in contrast, stores thread messages, short extractive summaries, anchors and pending questions. It does not retain a typed, thread-local inventory of discourse entities.
+
+The semantic query planner previously analysed the current query and used one prior user utterance as contextText. That can provide a broad subject hint, but it does not identify which entity inside that utterance a pronoun denotes. In particular, the parser's within-message antecedent resolver cannot link a pronoun in a later user turn to an entity mentioned in a prior turn.
+
+This pilot tests one narrow fix: build a bounded candidate set from the existing semantic parser's subject/object/argument frames for the active thread, then rank candidate antecedents using agreement, semantic role, syntactic role, salience and recency. It does not create a second semantic parser.
+
+## Research and method selection
+
+1. **Lee, He, Lewis & Zettlemoyer (2017), “End-to-end Neural Coreference Resolution.”** The model learns contextual span representations and scores antecedents for each mention, with marginal likelihood over gold antecedents. This is a strong conceptual reference for candidate ranking, but its end-to-end span enumeration and neural encoder are too expensive to reproduce in this small browser project without a suitable pretrained encoder and labeled training data.  
+   https://arxiv.org/abs/1707.07045
+
+2. **Barzilay & Lapata (2008), “Modeling Local Coherence: An Entity-Based Approach.”** The entity grid records each entity's syntactic role across adjacent sentences. This supports a lightweight feature-based approach: retain whether an entity is a subject, object or semantic argument, rather than using recency alone.  
+   https://aclanthology.org/J08-1001/  
+   DOI: https://doi.org/10.1162/coli.2008.34.1.1
+
+3. **Grosz, Joshi & Weinstein (1995), “Centering: A Framework for Modeling the Local Coherence of Discourse.”** Centering theory models which discourse entity is most central from one utterance to the next. It motivates salience and continuity features, but also warns against reducing reference to nearest-mention distance alone.  
+   https://aclanthology.org/J95-2003/
+
+4. **Dobrovolskii, Michurina & Ivoylova (2022), “RuCoCo: a new Russian corpus with coreference annotation.”** The paper reports about one million words and roughly 150,000 mentions, with Russian news texts and public availability.  
+   https://arxiv.org/abs/2206.04925
+
+5. **RuCoCo-2023 shared task.** The organizer repository documents a JSON format with character-offset mention spans grouped into entity chains, separate includes for split antecedents, and LEA scoring. Its README reports about one million train/dev words. The GitHub repository exposes train.zip, test_public.zip and test_private.zip. Its raw README carries a CC-BY-NC-4.0 badge, but the repository API has no recognized license metadata and there is no standalone LICENSE file; the badge scope over annotations versus underlying news text is unclear. The original annotation-materials repository has a public `v1.0.0.zip` release, but no recognized GitHub license metadata or standalone dataset LICENSE file. Public download is not the same as a verified reuse/redistribution license; this pilot therefore does not download, copy, train on, or redistribute RuCoCo data.  
+   https://github.com/dialogue-evaluation/RuCoCo-2023  
+   https://github.com/vdobrovolskii/rucoco  
+   Competition page: https://codalab.lisn.upsaclay.fr/competitions/10273  
+   RusConTextBench: https://huggingface.co/datasets/askatasuna/RusConTextBench  
+   Ru-RSTreebank: https://rstreebank.ru/
+
+6. **Russian lightweight baseline.** Chistova & Smirnov (2023), “Light Coreference Resolution for Russian with Hierarchical Discourse Features,” is relevant because it adds discourse structure to Russian coreference. Its reported RuCoCo shared-task setting is more appropriate than simply importing an English-only resolver, but the published model is still a learned system and cannot be assumed to transfer to this project's parser without its data and dependencies.  
+   https://arxiv.org/abs/2306.01465
+
+**Transformer and contextual language representations.** Vaswani et al. (2017) introduced the Transformer as an attention-only encoder/decoder architecture. Devlin et al. (2018) showed that bidirectional contextual pretraining (BERT) can support downstream tasks with a task-specific output layer. These works explain why contextual representations are preferable to isolated word-form lookup, but reproducing a large pretrained encoder is outside this pilot's resource budget.  
+   https://arxiv.org/abs/1706.03762  
+   https://arxiv.org/abs/1810.04805
+
+**Retrieval and memory separation.** Lewis et al. (2020) distinguish parametric model knowledge from explicit non-parametric retrieval memory. For NEUROGENESIS, the analogous engineering boundary is: active-thread discourse candidates are ephemeral context; long-term user knowledge is a separate evidence-backed store. A pronoun resolution hypothesis must not silently become a persistent fact.  
+   https://arxiv.org/abs/2005.11401
+
+**LEA evaluation.** Moosavi & Strube (2016) proposed the link-based entity-aware metric used by the RuCoCo-2023 organizers. A real corpus evaluation should report LEA and preferably standard coreference metrics (MUC, B³ and CEAF), not only local pronoun accuracy.  
+   https://aclanthology.org/P16-1060/
+
+7. **Public LLM training information.** OpenAI's GPT-4 Technical Report describes GPT-4 as Transformer-based and pretrained to predict the next token, followed by post-training alignment. OpenAI's current foundation-model overview describes data preparation, pretraining, post-training and ongoing evaluation. These sources support the general lesson that contextual language competence is learned through large-scale training and later refinement; they do not disclose the full architecture of current ChatGPT models. Anthropic's January 2026 Claude Constitution is a public behavior/values document, not a technical description of Claude's coreference architecture.  
+   https://arxiv.org/abs/2303.08774  
+   https://help.openai.com/en/articles/7842364-how-chatgpt-and-our-foundation-models-are-developed  
+   https://github.com/anthropics/claude-constitution
+
+8. **Russian syntactic annotations.** UD Russian GSD is available under CC BY-SA 4.0 and can supply morphology/dependency features, but it is not a gold coreference corpus.  
+   https://universaldependencies.org/treebanks/ru_gsd/index.html
+
+## Engineering decision
+
+discourse-coreference.js is a bounded, rule-scored antecedent ranker. It reuses NGSemanticCore.analyse() to obtain existing subject/object and semantic argument candidates from the last eight messages in the active thread. The query context supplies up to 24 messages from that thread (rather than relying only on the globally last eight messages), so a recent exchange in another thread does not erase the active thread's bounded antecedent window. It scores:
+
+- gender and number agreement (hard incompatibilities are excluded);
+- pronoun case and semantic argument compatibility (e.g. dative → recipient/beneficiary; instrumental → instrument/agent);
+- syntactic prominence (subject/object);
+- entity salience and mention recurrence inside the bounded thread window;
+- turn/sentence recency.
+
+The resolver returns resolved, ambiguous, unresolved or not_applicable, along with candidate scores, reason codes, confidence and provenance. It refuses to choose when the score or top-candidate margin is insufficient. A topic ID filter prevents linking to an entity from another thread.
+
+The semantic-query integration is **opt-in only** via window.NG_DISCOURSE_COREFERENCE_EXPERIMENT === true; default runtime behavior remains unchanged. The LLM request now prefers the thread-scoped history supplied by `memory.js` over the globally most recent messages, preserving the selected topic when another thread has newer traffic. The local planner exposes the result as advisory provenance only: it does not rewrite its own semantic frame or retrieval queries. When the LLM-backed query planner succeeds, `memory.js` merges the local link into the model plan only if both planners classify the message as `follow_up` and the local ranker resolves one antecedent. If the model plan is low-confidence or unavailable, the local fallback therefore cannot silently promote the antecedent into retrieval or a proposition. Otherwise the model plan is not semantically overwritten; local ambiguity/unresolved provenance can remain visible. Resolutions are labeled `context_candidate`, not verified facts. The resolver reports `memoryEffect: "none"` and does not create or promote durable knowledge claims; the application continues its existing ordinary conversation-history logging. Repeated identical surface forms remain grouped within the bounded active-thread window. A follow-up identity experiment additionally reuses NGSemanticCore.grammaticalFeatures() to group different inflections only when gender and number are known, a canonical lemma is supplied by the existing lexicon, and the surface variants do not co-occur in the same message. Ambiguous forms such as «системы» and unsupported inflections are not canonicalized. These are temporary thread-local candidate clusters, not persistent real-world identity assertions; repeated homonyms across separate messages can still be conflated.
+
+## Data and evaluation
+
+RuCoCo is not used in this pilot. The original `vdobrovolskii/rucoco` repository is accessible, contains annotation tooling/guidelines and exposes a public `v1.0.0.zip` release (about 6.5 MB); its API license metadata is null and there is no standalone dataset LICENSE file or explicit reuse statement. The `dialogue-evaluation/RuCoCo-2023` repository contains `train.zip`, `test_public.zip` and `test_private.zip`; its raw README carries a CC-BY-NC-4.0 badge, but the repository API has no recognized license metadata and there is no standalone LICENSE file. The badge scope over annotations versus underlying news text is not explicit enough for this project to redistribute or rely on the archives without clarification. The associated CodaLab competition page remains reachable, but its evaluation phases ended in 2023. The related RusConTextBench card lists 500 anaphora and 300 noun-phrase coreference examples sourced from RuCoCo, plus 2,738 discourse-relation examples from RuDABank and Russian DISRPT, but its Hugging Face dataset viewer currently fails schema conversion and the card does not surface a dataset license. Ru-RSTreebank is a relevant discourse resource (333 texts, about 328,000 tokens) for rhetorical relations, but it is not a gold entity-coreference corpus and its landing page does not identify a reuse license. The historic RuCor download site was not accessible during this audit, so its current availability and terms could not be verified. None of these resources is copied into this PR. The added 26-case contrast set is hand-authored and explicitly diagnostic, not a representative corpus. It covers agreement, semantic-role/case conflicts, long-distance candidates, topic boundaries, ambiguity and missing antecedents. It is not used for training and has no train/test split.
+
+The benchmark compares:
+- a nearest-compatible-mention baseline (recency, with ties abstaining); this is a simple comparator, not a claim that the existing application already performs cross-turn entity linking;
+- the experimental agreement + case/role + salience + recency ranker with score/margin abstention.
+
+The 26 benchmark cases provide explicit candidate records, so these metrics evaluate ranking and abstention given candidate mentions. Candidate extraction from real active-thread messages is covered separately by unit/integration tests; parser candidate recall is not measured by the 26-case score. Coverage is the fraction of diagnostic queries linked by the ranker, not end-to-end mention-detection coverage. Metrics are exact accuracy, link precision/recall/F1, coverage, false-link rate and correct-abstention rate, with slices by diagnostic category. These figures measure only this curated diagnostic set; they must not be presented as corpus-level Russian coreference performance.
+
+## Diagnostic results (26 hand-authored cases)
+
+The complete 26-case benchmark run on this branch produced the following paired counts. The benchmark is deterministic and contains no training. It includes contrast cases for negation and causal connectives. Subsequent commits expanded the semantic-query integration to recognize all supported personal-pronoun forms (including dative and prepositional/instrumental forms); the diagnostic benchmark and its scoring logic were unchanged.
+
+| Metric | Nearest-compatible baseline | Experimental ranker | Change |
+|---|---:|---:|---:|
+| Exact decision accuracy | 15/26 = 57.69% | 22/26 = 84.62% | +26.92 pp |
+| Link precision | 9/20 = 45.00% | 16/16 = 100.00% | +55.00 pp |
+| Link recall | 9/20 = 45.00% | 16/20 = 80.00% | +35.00 pp |
+| Link F1 | 45.00% | 88.89% | +43.89 pp |
+| Coverage | 20/26 = 76.92% | 16/26 = 61.54% | −15.38 pp |
+| False-link rate | 11/20 = 55.00% | 0/16 = 0.00% | −55.00 pp |
+| Correct abstention | 6/6 = 100% | 6/6 = 100% | 0 pp |
+
+The ranker deliberately makes fewer links. It removes all false links in this diagnostic set at the cost of lower coverage. Category results: agreement 4/4 for both; semantic-role cases 0/8 baseline vs 6/8 experiment; long-distance 2/3 for both; explicit topic return 1/2 for both; ambiguous 3/3 correct abstentions for both; unresolved 2/2 for both; topic-switch boundary 2/2 exact decisions for both; negation 1/1 for both; causal connective 0/1 baseline vs 1/1 experiment. The small long-distance and topic-return slices show no measured improvement and are too small for generalization claims.
+
+There is no unseen-lemma score: the set is hand-authored, has no corpus split and is not a generalization benchmark. No corpus-level or statistical claim follows from these numbers.
+
+## Runtime boundary and limitations
+
+- Candidate extraction inherits the existing rule parser's errors and cannot discover mentions the parser misses.
+- The pilot resolves only the first supported personal-pronoun mention in a query and supports a limited set of Russian inflectional forms; event demonstratives such as “это” are intentionally out of scope.
+- Candidate gender/number inference is a conservative suffix heuristic when the parser does not provide a feature; unisex names such as “Саша” and “Женя” remain gender-unknown, while homonyms, rare inflections and ambiguous soft-sign nouns can remain unresolved or be misclassified.
+- Exact-surface grouping can still conflate homonyms, and morphology-based grouping can conflate two distinct real-world referents that share a lemma but never co-occur in one message. The co-occurrence guard catches only explicit same-message competitors; it is not a complete entity identity model. No persistent entity IDs are created.
+- There is no learned encoder, no RuCoCo supervision and no calibrated probability model.
+- Full-document coreference metrics such as LEA, MUC, B³ or CEAF cannot be claimed from this diagnostic set.
+- The feature is off by default until an appropriately licensed corpus and independent evaluation justify enabling it.
+
+
+## Follow-up experiment: guarded morphology-aware entity identity
+
+### Audited limitation
+
+The first pilot grouped only identical normalized surface strings. That split obvious cross-turn inflections such as «Система» / «систему» and «Сервер» / «серверу». A naive suffix stemmer would be unsafe in Russian: for example, «системы» can be singular genitive or plural nominative. The existing semantic-core.js already contains a hand-curated Russian morphology lexicon and grammaticalFeatures() / canonicalNominativePhrase(); the functionality was private to the module and was not being used by cross-turn candidate grouping.
+
+### Engineering change
+
+The experiment exposes the existing grammaticalFeatures() function through NGSemanticCore and reuses it for candidate identity. It does not add a second inflection dictionary and does not treat UD Russian-GSD as a runtime lemmatizer. Morphological identity is accepted only when:
+- parser gender and number are known and internally consistent;
+- the existing semantic-core lexicon supplies a canonical form, or the parser marks the candidate nominative;
+- all occurrences within an exact-surface cluster agree on one morphology key;
+- distinct surface clusters with the same key do not co-occur in the same message;
+- the candidate belongs to the same active dialogue thread.
+
+When any gate fails, candidates stay separate. The ranking stage also preserves semantic-core's explicit unknown gender/number instead of replacing it with the discourse module's coarse suffix guess. Candidate output records identityBasis and the observed surface forms for auditability. These clusters are ephemeral; the feature does not write to durable memory.
+
+### Paired diagnostic set
+
+tests/discourse-coreference-identity.test.js is a deterministic, hand-authored 12-pair diagnostic. Six positive pairs test «Система/систему», «Сервер/серверу», «Процесс/процессом», «Модуль/модулю», «Сеть/сетью» and «Сигнал/сигналом». Six negative pairs test same-message co-occurrence, ambiguous singular/plural «системы», an unsupported inflection («карта/карту»), two different masculine lemmas, singular/plural «сервер/серверы» and a topic boundary.
+
+The expected diagnostic outcome is 6/6 supported cross-turn pairs merged and 6/6 negative pairs kept separate. The baseline is the former exact-normalized-surface grouping: it cannot join the six different-form positive pairs but keeps the six negative cases distinct. Thus pairwise exact decisions are compared on the same 12 examples (6/12 = 50.00% baseline; 12/12 = 100.00% in this curated experiment, +50.00 percentage points). This is a small controlled diagnostic, not a representative Russian corpus, statistical estimate or unseen-lemma benchmark.
+
+### Remaining limitations
+
+The canonicalization lexicon is finite and manually maintained. It does not cover arbitrary Russian inflections, adjective agreement, multiword aliases, coreference across synonyms, split antecedents or event references. The same-message collision guard does not detect two distinct same-lemma entities introduced in separate messages. Ambiguous forms remain unresolved by design. A licensed gold corpus and independent document-level evaluation (including LEA, MUC, B³ and CEAF) are still required before enabling the feature by default.
+
+
+## Follow-up experiment: 24-message thread window and explicit abstention
+
+### Audited limitation
+
+The production context builder already provides up to 24 messages from the selected thread (memory.js calls DIALOG_CONTEXT.history(..., 24)), while the initial discourse resolver truncated that supplied history to eight messages. As a result, the resolver discarded up to sixteen messages of available active-thread context before candidate extraction. Increasing the window without a safety test could also reintroduce old, competing antecedents.
+
+A second morphology safety issue was found during integration: semantic-core's general noun-ending heuristic can label unisex names such as «Саша» or «Женя» as feminine, while the discourse module already maintains an ambiguity list and specific masculine-name exceptions. The new integration had to preserve those local exceptions rather than blindly trusting the generic noun heuristic.
+
+### Engineering change
+
+The resolver now inspects up to 24 messages, matching the maximum thread history supplied by memory.js. The same thread filter is applied before extraction, so messages from another topic cannot enter the candidate set. Unknown gender or number is no longer treated as neutral evidence for a personal-pronoun link: a candidate with unknown morphology remains visible in extraction diagnostics but is excluded from automatic resolution. The local ambiguity list for «Саша» / «Женя» and masculine diminutive exceptions take precedence over generic suffix morphology.
+
+The experiment remains opt-in, thread-local and non-persistent. Extending the lookback does not alter the selected thread or promote a candidate to durable memory.
+
+### Paired distant-reference diagnostic
+
+tests/discourse-coreference-window.test.js loads an eight-message baseline and the 24-message experimental resolver from the same source, then runs the same 12 hand-authored cases. Six cases place one supported antecedent at distances 23–24 and fill the newer turns with incompatible entities; six cases present two equally plausible distant antecedents and require abstention. Additional checks cover ambiguous names («Саша», «Женя») and the known masculine exception «Петя».
+
+Expected controlled outcome: the 8-message baseline links 0/6 distant targets and correctly abstains on 6/6 ambiguous cases (6/12 exact decisions). The 24-message resolver links 6/6 distant targets, abstains on 6/6 ambiguous pairs, and makes 0/6 false links (12/12 exact decisions, +50.00 percentage points). Link precision and recall on the six positive pairs are 6/6 and 6/6; coverage rises from 0/12 to 6/12. Baseline false-link rate is undefined because it makes no links (0/0); experimental false-link rate is 0/6. The set is a small constructed diagnostic, not a representative corpus or evidence of general long-range coreference quality.
+
+### Remaining limitations
+
+The window is capped at 24 because that is the existing context-manager limit; the resolver does not search beyond retained thread history. If two equally plausible antecedents are close in score it abstains; when two distinct real-world entities share a known lemma but never co-occur in a message, the current identity cluster can still conflate them. Lexical morphology remains finite. Relative clauses, multiword aliases, synonyms, event references, split antecedents and richer causal/event chains need separate diagnostics. A licensed gold corpus and document-level evaluation (LEA, MUC, B³ and CEAF) remain necessary before enabling the experiment by default.
+
+## Coordinated entity groups (experimental extension)
+
+The semantic core now recognizes an explicit noun coordination such as «Иван и Пётр» as a plural entity group only when every member head is present in the supported noun morphology or proper-name inventory. Known inflected members are canonicalized independently, so «Система и сервер» and «систему и серверу» can share one group identity. A pronoun «они» may resolve to that group; two equally plausible groups remain ambiguous. Disjunction («или»), arbitrary word pairs, unknown member heads, same-proposition collisions and different member sets are not merged. This is a narrow lexicon-backed diagnostic, not general Russian coordination parsing.
+
+A dedicated test covers group number agreement, per-member morphology canonicalization, ambiguous competing groups, and collision guards. These cases remain experimental and do not enable the discourse feature by default or write to long-term memory.
