@@ -96,6 +96,7 @@ function splitCorpus(texts,seed=902){
 function create(options={}){
  const dimension=Math.max(4,Math.min(48,Math.floor(finite(options.dimension,12))));
  const vocabularyCapacity=Math.max(256,Math.min(4096,Math.floor(finite(options.vocabularyCapacity,MAX_VOCABULARY))));
+ const vocabularyOrder=options.vocabularyOrder==="frequency"?"frequency":"first_appearance";
  const requestedHeads=Math.max(1,Math.min(6,Math.floor(finite(options.heads,3))));
  const heads=dimension%requestedHeads===0?requestedHeads:
   (options.heads==null?[3,2,1].find(value=>dimension%value===0):0);
@@ -103,7 +104,6 @@ function create(options={}){
  const headDimension=dimension/heads,feedForwardDimension=dimension*2;
  const windowSize=Math.max(1,Math.min(MAX_WINDOW_SIZE,Math.floor(finite(options.windowSize,4))));
  const random=makeRandom(options.seed),tokenSeed=finite(options.seed,173)+104729;
- let tokenRandom=makeRandom(tokenSeed);
  const scale=Math.sqrt(2/(dimension+headDimension));
  const blockCount=Math.max(1,Math.min(MAX_TRANSFORMER_BLOCKS,Math.floor(finite(options.blocks,2))));
  const vocabulary=[],indices=new Map(),embeddings=[],subwordEmbeddings=matrix(SUBWORD_BUCKETS,dimension,random,.04),positions=matrix(windowSize*2,dimension,random,.04);
@@ -119,6 +119,37 @@ function create(options={}){
  let outputWeights=[],outputBias=[],trainingSteps=0,lastLoss=null,lastTraining=null,stemIndexCache=null,trainingContextExamples=[],contextRetrievalIndex=null;
  function relativeSlot(delta){return Math.max(-windowSize,Math.min(windowSize,delta))+windowSize;}
  function zeroMatrix(rows,cols){return Array.from({length:rows},()=>zeros(cols));}
+ function stableTokenHash(token){
+  let hash=2166136261;
+  for(let index=0;index<token.length;index++){hash^=token.charCodeAt(index);hash=Math.imul(hash,16777619);}
+  return hash>>>0;
+ }
+ function prepareTrainingVocabulary(rows){
+  const frequencies=new Map();let totalTokens=0;
+  for(const row of rows)for(const token of tokenize(row)){
+   frequencies.set(token,(frequencies.get(token)||0)+1);totalTokens++;
+  }
+  if(vocabularyOrder==="frequency"){
+   const ranked=Array.from(frequencies.entries()).map(([token,count],firstSeen)=>({token,count,firstSeen}))
+    .sort((left,right)=>right.count-left.count||left.firstSeen-right.firstSeen);
+   for(const row of ranked.slice(0,vocabularyCapacity))addToken(row.token);
+  }
+  return{frequencies,totalTokens};
+ }
+ function summarizeVocabularySelection(source){
+  const retained=Array.from(source.frequencies.entries()).filter(([token])=>indices.has(token));
+  const retainedTokens=retained.reduce((sum,[,count])=>sum+count,0);
+  const retainedFrequencies=retained.map(([,count])=>count);
+  return{
+   strategy:vocabularyOrder,candidateTypes:source.frequencies.size,retainedTypes:retained.length,
+   excludedTypes:Math.max(0,source.frequencies.size-retained.length),
+   typeCoverage:source.frequencies.size?retained.length/source.frequencies.size:0,
+   candidateTokens:source.totalTokens,retainedTokens,
+   tokenCoverage:source.totalTokens?retainedTokens/source.totalTokens:0,
+   minimumRetainedFrequency:retainedFrequencies.length?Math.min(...retainedFrequencies):null,
+   tieBreak:"first_appearance"
+  };
+ }
 
  function addToken(raw){
   const token=clean(raw,48).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
@@ -126,6 +157,7 @@ function create(options={}){
   if(indices.has(token))return indices.get(token);
   if(vocabulary.length>=vocabularyCapacity)return-1;
   const index=vocabulary.length;indices.set(token,index);vocabulary.push(token);stemIndexCache=null;
+  const tokenRandom=makeRandom((Math.floor(tokenSeed)^stableTokenHash(token))>>>0);
   embeddings.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));
   outputWeights.push(Array.from({length:dimension},()=>((tokenRandom()*2)-1)*.08));outputBias.push(0);
   return index;
@@ -443,16 +475,18 @@ function create(options={}){
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,1280);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
   const split=splitCorpus(rows,trainOptions.splitSeed);
-  loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
+  loadState(initialCheckpoint);
   let trainRows=split.train,validationRows=split.validation,testRows=split.test;
+  let vocabularyFrequencyCounts=prepareTrainingVocabulary(trainRows);
   let trainExamples=collectExamples(trainRows,true);
   let validationExamples=collectExamples(validationRows,false),testExamples=collectExamples(testRows,false);
   let evaluationMode="held_out_sentences",splitFallback=false;
   if(!validationExamples.length){
    // Tiny/low-overlap corpora cannot support meaningful sentence-level validation.
    // Train on the complete corpus, but explicitly report that no held-out score exists.
-   loadState(initialCheckpoint);tokenRandom=makeRandom(tokenSeed);
+   loadState(initialCheckpoint);
    trainRows=rows;validationRows=[];testRows=[];
+   vocabularyFrequencyCounts=prepareTrainingVocabulary(trainRows);
    trainExamples=collectExamples(trainRows,true);validationExamples=[];testExamples=[];
    evaluationMode="train_only_insufficient_validation";splitFallback=true;
   }
@@ -506,7 +540,8 @@ function create(options={}){
    validationCoverage:validationExamples.length?validationExamples.length/Math.max(1,rowsForTargets(validationRows)):null,
    testCoverage:testExamples.length?testExamples.length/Math.max(1,rowsForTargets(testRows)):null,
    heldOutCoverage:eligibleTargets?coveredTargets/eligibleTargets:null,evaluationIsolated:!splitFallback,
-   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,vocabularyCapacity,transformerBlocks:blockCount,
+   lossReduction:initialTrain.loss-finalTrain.loss,vocabularySize:vocabulary.length,vocabularyCapacity,vocabularyOrder,
+   vocabularySelection:summarizeVocabularySelection(vocabularyFrequencyCounts),transformerBlocks:blockCount,
    shuffleExamples,shuffleSeed:shuffleExamples?shuffleSeed:null,
    trainingSteps:selectedSteps,attemptedTrainingSteps:attemptedSteps,heads,headDimension,feedForwardDimension,
    trainingContextExamples:trainingContextExamples.length};
@@ -601,7 +636,7 @@ function create(options={}){
    knownTokenCount:tokens.length-unknownTokens.length,unknownTokens,oovCount:unknownTokens.length,morphologyCoveredTokenCount,
    morphologyBackoffCount:morphologyBackoffTokens.length,morphologyBackoffTokens,morphologyAmbiguousTokens,
    contextMorphologyBackoffCount,positions};}
- function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,vocabularyCapacity,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
+ function status(){return{schema:SCHEMA,version:5,vocabularySize:vocabulary.length,vocabularyCapacity,vocabularyOrder,subwordBuckets:SUBWORD_BUCKETS,transformerBlocks:blockCount,dimension,windowSize,maxWindowSize:MAX_WINDOW_SIZE,heads,headDimension,
   feedForwardDimension,trainingSteps,trainingContextExamples:trainingContextExamples.length,trained:trainingSteps>0,lastLoss,lastTraining:lastTraining?{...lastTraining}:null};}
  function exportState(){
   const copy=rows=>rows.map(row=>row.slice()),copyBlock=block=>({
@@ -609,13 +644,15 @@ function create(options={}){
    norm1Gamma:block.norm1Gamma.slice(),norm1Beta:block.norm1Beta.slice(),norm2Gamma:block.norm2Gamma.slice(),norm2Beta:block.norm2Beta.slice(),
    feedForward1:copy(block.feedForward1),feedForward1Bias:block.feedForward1Bias.slice(),feedForward2:copy(block.feedForward2),feedForward2Bias:block.feedForward2Bias.slice()
   });
-  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabularyCapacity,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
+  return{schema:SCHEMA,version:5,dimension,windowSize,heads,transformerBlocks:blockCount,vocabularyCapacity,vocabularyOrder,vocabulary:vocabulary.slice(),embeddings:copy(embeddings),subwordEmbeddings:copy(subwordEmbeddings),positions:copy(positions),blocks:blocks.map(copyBlock),outputWeights:copy(outputWeights),outputBias:outputBias.slice(),trainingSteps,lastLoss,lastTraining:lastTraining?{...lastTraining}:null,
    trainingContextExamples:trainingContextExamples.map(example=>({target:example.target,context:example.context.map(item=>({...item}))}))};
  }
  function loadState(state){
   if(!state||state.schema!==SCHEMA||state.version!==5)throw new TypeError("Unsupported contextual model state.");
   const storedVocabularyCapacity=Math.floor(finite(state.vocabularyCapacity,MAX_VOCABULARY));
+  const storedVocabularyOrder=state.vocabularyOrder??"first_appearance";
   if(!Number.isSafeInteger(storedVocabularyCapacity)||storedVocabularyCapacity<256||storedVocabularyCapacity>4096||
+   !["first_appearance","frequency"].includes(storedVocabularyOrder)||storedVocabularyOrder!==vocabularyOrder||
    state.dimension!==dimension||state.windowSize!==windowSize||state.heads!==heads||state.transformerBlocks!==blockCount||
    !Array.isArray(state.vocabulary)||state.vocabulary.length>vocabularyCapacity||!Array.isArray(state.blocks)||state.blocks.length!==blockCount)
    throw new TypeError("Contextual model dimensions, heads, blocks or vocabulary are invalid.");
@@ -654,7 +691,7 @@ function create(options={}){
  const initialCheckpoint=exportState();
  return Object.freeze({train,analyse,score,predictMasked,rebuildTrainingContextIndex,retrievalIndexStatus,retrieveContextCandidate,status,exportState,loadState,tokenize,splitCorpus,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 }
-function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks,vocabularyCapacity:state.vocabularyCapacity??MAX_VOCABULARY});model.loadState(state);return model;}
+function fromState(state){if(!state||state.schema!==SCHEMA)throw new TypeError("Invalid contextual model state.");const model=create({dimension:state.dimension,windowSize:state.windowSize,heads:state.heads,blocks:state.transformerBlocks,vocabularyCapacity:state.vocabularyCapacity??MAX_VOCABULARY,vocabularyOrder:state.vocabularyOrder??"first_appearance"});model.loadState(state);return model;}
 const root=typeof window!=="undefined"?window:globalThis;
 root.NGContextualModel=Object.freeze({schema:SCHEMA,version:5,create,fromState,tokenize,subwordFeatures,russianStem,russianVerbNumber,inferMaskedNumber,russianNounPlural});
 })();
