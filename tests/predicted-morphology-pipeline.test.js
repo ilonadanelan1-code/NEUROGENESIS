@@ -12,6 +12,7 @@ const trainPath = process.argv[2];
 const testPath = process.argv[3];
 const requestedTrainLimit = Number(process.argv[4] || 320);
 const requestedVocabularyCapacity = Number(process.argv[5] || 1024);
+const requestedVocabularyOrder = process.argv[6] || "first_appearance";
 if (!trainPath && !testPath) {
   console.log("NEUROGENESIS predicted morphology pipeline fixtures: passed; external corpus files not supplied.");
   process.exit(0);
@@ -21,6 +22,8 @@ assert.ok(Number.isSafeInteger(requestedTrainLimit) && requestedTrainLimit >= 32
   "training-size experiment must use an integer from 320 to 1280 sentences");
 assert.ok([1024,2048].includes(requestedVocabularyCapacity),
   "vocabulary-capacity experiment must use either 1024 or 2048 tokens");
+assert.ok(["first_appearance","frequency"].includes(requestedVocabularyOrder),
+  "vocabulary-order experiment must use first_appearance or frequency");
 const trainContent = fs.readFileSync(trainPath, "utf8");
 const testContent = fs.readFileSync(testPath, "utf8");
 const preparationOptions = {trainLimit:requestedTrainLimit,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40};
@@ -660,7 +663,8 @@ assert.ok(outputVocabulary.size>=minimumReferenceVocabularySize,
 for(const seed of seeds) {
   const contextual=Attention.create({
     dimension:12,windowSize:4,heads:3,blocks:2,seed:seed.model,
-    vocabularyCapacity:requestedVocabularyCapacity
+    vocabularyCapacity:requestedVocabularyCapacity,
+    vocabularyOrder:requestedVocabularyOrder
   });
   const contextualTraining=contextual.train(prepared.trainingTexts,{
     epochs:20,learningRate:0.02,patience:8,splitSeed:seed.split
@@ -669,6 +673,14 @@ for(const seed of seeds) {
     "contextual encoder validation/test partitions must remain isolated");
   assert.equal(contextualTraining.vocabularyCapacity,requestedVocabularyCapacity,
     "contextual encoder must report the requested vocabulary capacity");
+  assert.equal(contextualTraining.vocabularyOrder,requestedVocabularyOrder,
+    "contextual encoder must report the requested vocabulary ordering");
+  assert.ok(contextualTraining.vocabularySelection&&contextualTraining.vocabularySelection.strategy===requestedVocabularyOrder,
+    "training-only vocabulary selection statistics must be reported");
+  assert.ok(contextualTraining.vocabularySelection.candidateTypes>requestedVocabularyCapacity,
+    "the fixed 960-sentence experiment must have enough distinct training types to test truncation");
+  assert.equal(contextualTraining.vocabularySelection.retainedTypes,requestedVocabularyCapacity,
+    "the vocabulary capacity must be saturated in both ordering conditions");
   assert.ok(contextualTraining.vocabularySize<=requestedVocabularyCapacity,
     "contextual encoder vocabulary must not exceed its configured capacity");
   if(requestedVocabularyCapacity===2048) assert.ok(contextualTraining.vocabularySize>1024,
@@ -789,7 +801,8 @@ for(const seed of seeds) {
     contextualTraining:{
       trainRows:contextualTraining.trainRows,validationRows:contextualTraining.validationRows,
       internalTestRows:contextualTraining.testRows,vocabularySize:contextualTraining.vocabularySize,
-      vocabularyCapacity:contextualTraining.vocabularyCapacity,epochs:contextualTraining.epochs
+      vocabularyCapacity:contextualTraining.vocabularyCapacity,vocabularyOrder:contextualTraining.vocabularyOrder,
+      vocabularySelection:contextualTraining.vocabularySelection,epochs:contextualTraining.epochs
     },
     extraction:{
       training:trainExtracted.stats,validation:validationExtracted.stats,
@@ -893,13 +906,13 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.131",
+  version:"0.58.132",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,requestedModelVocabularyCapacity:requestedVocabularyCapacity,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,requestedModelVocabularyCapacity:requestedVocabularyCapacity,requestedVocabularyOrder,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
@@ -948,4 +961,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.131 paired vocabulary-capacity OOV-calibrated pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.132 paired frequency-vocabulary OOV-calibrated pipeline: "+JSON.stringify(report));
