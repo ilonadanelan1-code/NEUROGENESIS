@@ -11,6 +11,7 @@ const importer = require("../scripts/ud-russian-gsd.js");
 const trainPath = process.argv[2];
 const testPath = process.argv[3];
 const requestedTrainLimit = Number(process.argv[4] || 320);
+const requestedVocabularyCapacity = Number(process.argv[5] || 1024);
 if (!trainPath && !testPath) {
   console.log("NEUROGENESIS predicted morphology pipeline fixtures: passed; external corpus files not supplied.");
   process.exit(0);
@@ -18,6 +19,8 @@ if (!trainPath && !testPath) {
 assert.ok(trainPath && testPath, "supply both pinned UD train and test CoNLL-U files");
 assert.ok(Number.isSafeInteger(requestedTrainLimit) && requestedTrainLimit >= 320 && requestedTrainLimit <= 1280,
   "training-size experiment must use an integer from 320 to 1280 sentences");
+assert.ok([1024,2048].includes(requestedVocabularyCapacity),
+  "vocabulary-capacity experiment must use either 1024 or 2048 tokens");
 const trainContent = fs.readFileSync(trainPath, "utf8");
 const testContent = fs.readFileSync(testPath, "utf8");
 const preparationOptions = {trainLimit:requestedTrainLimit,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40};
@@ -647,22 +650,29 @@ const aggregate={
   perAttributePredictedUpos:Object.fromEntries(attributes.map(a=>[a,{targets:0,correct:0}]))
 };
 const seedReports=[];
-const vocabularyLimit=1024;
+const minimumReferenceVocabularySize=1024;
 const outputVocabulary=new Set(oovReference.trainingTexts.flatMap(sentence=>
   importer.tokenizeText(sentence).map(norm)
 ));
-assert.ok(outputVocabulary.size>=vocabularyLimit,
+assert.ok(outputVocabulary.size>=minimumReferenceVocabularySize,
   "the fixed OOV reference vocabulary must contain at least the legacy 1024-form capacity");
 
 for(const seed of seeds) {
   const contextual=Attention.create({
-    dimension:12,windowSize:4,heads:3,blocks:2,seed:seed.model
+    dimension:12,windowSize:4,heads:3,blocks:2,seed:seed.model,
+    vocabularyCapacity:requestedVocabularyCapacity
   });
   const contextualTraining=contextual.train(prepared.trainingTexts,{
     epochs:20,learningRate:0.02,patience:8,splitSeed:seed.split
   });
   assert.ok(contextualTraining.evaluationIsolated===true,
     "contextual encoder validation/test partitions must remain isolated");
+  assert.equal(contextualTraining.vocabularyCapacity,requestedVocabularyCapacity,
+    "contextual encoder must report the requested vocabulary capacity");
+  assert.ok(contextualTraining.vocabularySize<=requestedVocabularyCapacity,
+    "contextual encoder vocabulary must not exceed its configured capacity");
+  if(requestedVocabularyCapacity===2048) assert.ok(contextualTraining.vocabularySize>1024,
+    "the expanded-capacity run must actually learn more than the legacy 1024-token vocabulary");
   const split=contextual.splitCorpus(prepared.trainingTexts,seed.split);
   assert.equal(split.train.length,contextualTraining.trainRows);
   assert.equal(split.validation.length,contextualTraining.validationRows);
@@ -779,7 +789,7 @@ for(const seed of seeds) {
     contextualTraining:{
       trainRows:contextualTraining.trainRows,validationRows:contextualTraining.validationRows,
       internalTestRows:contextualTraining.testRows,vocabularySize:contextualTraining.vocabularySize,
-      epochs:contextualTraining.epochs
+      vocabularyCapacity:contextualTraining.vocabularyCapacity,epochs:contextualTraining.epochs
     },
     extraction:{
       training:trainExtracted.stats,validation:validationExtracted.stats,
@@ -883,13 +893,13 @@ function summariseTokens(value) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.130",
+  version:"0.58.131",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,contextualModelVocabularyCapacity:vocabularyLimit,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,requestedModelVocabularyCapacity:requestedVocabularyCapacity,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
@@ -938,4 +948,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.130 paired training-scale OOV-calibrated pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.131 paired vocabulary-capacity OOV-calibrated pipeline: "+JSON.stringify(report));
