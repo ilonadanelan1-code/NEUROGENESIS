@@ -4,6 +4,18 @@ const window={},sandbox={window,Math,Map,Set,JSON,Object,Array,String,Number,Reg
 vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),sandbox,{filename:"contextual-attention.js"});
 const api=window.NGContextualModel;
 assert.ok(api&&api.schema==="NG_CONTEXTUAL_ATTENTION_V5");
+const defaultCapacityModel=api.create({seed:1});
+assert.equal(defaultCapacityModel.status().vocabularyCapacity,1024,
+ "the default contextual vocabulary capacity must remain backward compatible");
+const expandedCapacityModel=api.create({seed:1,vocabularyCapacity:2048});
+assert.equal(expandedCapacityModel.status().vocabularyCapacity,2048,
+ "the contextual vocabulary capacity must be configurable");
+assert.equal(expandedCapacityModel.exportState().vocabularyCapacity,2048,
+ "checkpoint export must persist vocabulary capacity");
+assert.equal(api.fromState(expandedCapacityModel.exportState()).status().vocabularyCapacity,2048,
+ "checkpoint restoration must preserve expanded vocabulary capacity");
+assert.equal(api.create({vocabularyCapacity:99999}).status().vocabularyCapacity,4096,
+ "configured vocabulary capacity must stay within the supported upper bound");
 assert.equal(api.russianStem("нейроны"),api.russianStem("нейрон"));
 assert.equal(api.russianStem("сигнала"),api.russianStem("сигнал"));
 assert.equal(api.russianStem("систему"),api.russianStem("система"));
