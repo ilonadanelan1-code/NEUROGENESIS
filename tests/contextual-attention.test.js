@@ -16,6 +16,39 @@ assert.equal(api.fromState(expandedCapacityModel.exportState()).status().vocabul
  "checkpoint restoration must preserve expanded vocabulary capacity");
 assert.equal(api.create({vocabularyCapacity:99999}).status().vocabularyCapacity,4096,
  "configured vocabulary capacity must stay within the supported upper bound");
+
+const vocabularyProbeCorpus=[
+ "нейрон получает сигнал","нейрон хранит сигнал","нейрон обрабатывает данные",
+ "сеть получает данные","сеть хранит данные","память хранит информацию",
+ "система получает данные","модель изучает контекст","контекст меняет значение",
+ "ключ открывает замок","ключ запускает программу","программа использует ключ"
+];
+const firstAppearanceProbe=api.create({dimension:8,windowSize:2,heads:2,seed:77,vocabularyCapacity:256});
+const probeSplit=firstAppearanceProbe.splitCorpus(vocabularyProbeCorpus,31415);
+const expectedFirstAppearance=[...new Set(probeSplit.train.flatMap(sentence=>api.tokenize(sentence)))];
+const frequencies=new Map();
+for(const sentence of probeSplit.train)for(const token of api.tokenize(sentence))
+ frequencies.set(token,(frequencies.get(token)||0)+1);
+const expectedFrequencyOrder=Array.from(frequencies.entries())
+ .map(([token,count,],firstSeen)=>({token,count,firstSeen}))
+ .sort((left,right)=>right.count-left.count||left.firstSeen-right.firstSeen)
+ .map(row=>row.token);
+firstAppearanceProbe.train(vocabularyProbeCorpus,{epochs:4,learningRate:.02,splitSeed:31415,patience:2});
+assert.deepEqual(firstAppearanceProbe.exportState().vocabulary,expectedFirstAppearance,
+ "the control vocabulary must preserve first-appearance ordering on the training partition");
+assert.equal(firstAppearanceProbe.status().vocabularyOrder,"first_appearance");
+const frequencyProbe=api.create({dimension:8,windowSize:2,heads:2,seed:77,vocabularyCapacity:256,vocabularyOrder:"frequency"});
+frequencyProbe.train(vocabularyProbeCorpus,{epochs:4,learningRate:.02,splitSeed:31415,patience:2});
+assert.deepEqual(frequencyProbe.exportState().vocabulary,expectedFrequencyOrder,
+ "frequency vocabulary must sort only training-partition words by descending count, breaking ties by first appearance");
+assert.equal(frequencyProbe.status().vocabularyOrder,"frequency");
+assert.equal(api.fromState(frequencyProbe.exportState()).status().vocabularyOrder,"frequency",
+ "frequency vocabulary policy must survive checkpoint restoration");
+const legacyOrderState=firstAppearanceProbe.exportState();
+delete legacyOrderState.vocabularyOrder;
+assert.equal(api.fromState(legacyOrderState).status().vocabularyOrder,"first_appearance",
+ "checkpoints without an explicit vocabulary policy must retain the legacy first-appearance default");
+
 assert.equal(api.russianStem("нейроны"),api.russianStem("нейрон"));
 assert.equal(api.russianStem("сигнала"),api.russianStem("сигнал"));
 assert.equal(api.russianStem("систему"),api.russianStem("система"));
