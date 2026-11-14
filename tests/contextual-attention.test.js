@@ -25,10 +25,13 @@ const vocabularyProbeCorpus=[
 ];
 const firstAppearanceProbe=api.create({dimension:8,windowSize:2,heads:2,seed:77,vocabularyCapacity:256});
 const probeSplit=firstAppearanceProbe.splitCorpus(vocabularyProbeCorpus,31415);
-const expectedFirstAppearance=[...new Set(probeSplit.train.flatMap(sentence=>api.tokenize(sentence)))];
+const normalizeProbeToken=token=>token.normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
+const expectedFirstAppearance=[...new Set(probeSplit.train.flatMap(sentence=>api.tokenize(sentence)).map(normalizeProbeToken))];
 const frequencies=new Map();
-for(const sentence of probeSplit.train)for(const token of api.tokenize(sentence))
+for(const sentence of probeSplit.train)for(const rawToken of api.tokenize(sentence)){
+ const token=normalizeProbeToken(rawToken);
  frequencies.set(token,(frequencies.get(token)||0)+1);
+}
 const expectedFrequencyOrder=Array.from(frequencies.entries())
  .map(([token,count,],firstSeen)=>({token,count,firstSeen}))
  .sort((left,right)=>right.count-left.count||left.firstSeen-right.firstSeen)
