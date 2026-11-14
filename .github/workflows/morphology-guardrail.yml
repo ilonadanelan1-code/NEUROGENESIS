@@ -7,6 +7,7 @@ on:
       - experiment/upos-pos-specific-calibration-2026-11-14
       - experiment/russian-gsd-training-scale-2026-11-14
       - experiment/context-vocabulary-capacity-2026-11-14
+      - experiment/frequency-vocabulary-order-2026-11-14
   workflow_dispatch:
 
 permissions:
@@ -51,16 +52,16 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Compare 1024 and 2048 vocabulary capacities on the same 960 sentences
+      - name: Compare first-appearance and frequency vocabulary order at fixed 1024 capacity
         run: |
-          echo "=== Fixed 960-sentence sample; control vocabulary capacity 1024 ==="
+          echo "=== Fixed 960-sentence sample; 1024 capacity; first-appearance control ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024
-          echo "=== Same 960-sentence sample; expanded vocabulary capacity 2048 ==="
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024 first_appearance
+          echo "=== Same 960-sentence sample; 1024 capacity; frequency-ranked vocabulary ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 2048
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024 frequency
 
       - name: Run focused cognitive and storage regressions
         run: |
