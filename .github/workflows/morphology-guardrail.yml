@@ -10,6 +10,7 @@ on:
       - experiment/frequency-vocabulary-order-2026-11-14
       - experiment/feats-global-blend-2026-11-14
       - experiment/feats-support-aware-blend-2026-11-14
+      - experiment/feats-per-attribute-adaptive-blend-2026-11-14
   workflow_dispatch:
 
 permissions:
@@ -54,13 +55,13 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Compare fixed vocabulary orders and validation-guarded support-aware FEATS blending at 1024 capacity
+      - name: Compare fixed vocabulary orders and validation-guarded global plus per-attribute adaptive FEATS blending at 1024 capacity
         run: |
           echo "=== Fixed 960-sentence sample; 1024 capacity; first-appearance control ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024 first_appearance
-          echo "=== Same 960-sentence sample; 1024 capacity; frequency-ranked vocabulary plus validation-guarded support-aware FEATS blend ==="
+          echo "=== Same 960-sentence sample; 1024 capacity; frequency-ranked vocabulary plus validation-guarded per-attribute adaptive FEATS blend ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
             /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024 frequency
