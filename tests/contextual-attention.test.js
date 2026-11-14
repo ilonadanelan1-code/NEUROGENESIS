@@ -37,12 +37,12 @@ const expectedFrequencyOrder=Array.from(frequencies.entries())
  .sort((left,right)=>right.count-left.count||left.firstSeen-right.firstSeen)
  .map(row=>row.token);
 firstAppearanceProbe.train(vocabularyProbeCorpus,{epochs:4,learningRate:.02,splitSeed:31415,patience:2});
-assert.deepEqual(firstAppearanceProbe.exportState().vocabulary,expectedFirstAppearance,
+assert.deepEqual(Array.from(firstAppearanceProbe.exportState().vocabulary),expectedFirstAppearance,
  "the control vocabulary must preserve first-appearance ordering on the training partition");
 assert.equal(firstAppearanceProbe.status().vocabularyOrder,"first_appearance");
 const frequencyProbe=api.create({dimension:8,windowSize:2,heads:2,seed:77,vocabularyCapacity:256,vocabularyOrder:"frequency"});
 frequencyProbe.train(vocabularyProbeCorpus,{epochs:4,learningRate:.02,splitSeed:31415,patience:2});
-assert.deepEqual(frequencyProbe.exportState().vocabulary,expectedFrequencyOrder,
+assert.deepEqual(Array.from(frequencyProbe.exportState().vocabulary),expectedFrequencyOrder,
  "frequency vocabulary must sort only training-partition words by descending count, breaking ties by first appearance");
 assert.equal(frequencyProbe.status().vocabularyOrder,"frequency");
 assert.equal(api.fromState(frequencyProbe.exportState()).status().vocabularyOrder,"frequency",
