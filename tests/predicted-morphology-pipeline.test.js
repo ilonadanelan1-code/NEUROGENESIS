@@ -13,6 +13,7 @@ const testPath = process.argv[3];
 const requestedTrainLimit = Number(process.argv[4] || 320);
 const requestedVocabularyCapacity = Number(process.argv[5] || 1024);
 const requestedVocabularyOrder = process.argv[6] || "first_appearance";
+const requestedOovViewAugmentationRate = Number(process.argv[7] || 0);
 if (!trainPath && !testPath) {
   console.log("NEUROGENESIS predicted morphology pipeline fixtures: passed; external corpus files not supplied.");
   process.exit(0);
@@ -24,6 +25,11 @@ assert.ok([1024,2048].includes(requestedVocabularyCapacity),
   "vocabulary-capacity experiment must use either 1024 or 2048 tokens");
 assert.ok(["first_appearance","frequency"].includes(requestedVocabularyOrder),
   "vocabulary-order experiment must use first_appearance or frequency");
+assert.ok(Number.isFinite(requestedOovViewAugmentationRate)&&requestedOovViewAugmentationRate>=0&&
+  requestedOovViewAugmentationRate<=0.75,
+  "OOV-view augmentation rate must be between 0 and 0.75");
+assert.ok(requestedOovViewAugmentationRate===0||requestedVocabularyOrder==="frequency",
+  "OOV-view augmentation is restricted to the paired frequency-vocabulary experiment");
 const trainContent = fs.readFileSync(trainPath, "utf8");
 const testContent = fs.readFileSync(testPath, "utf8");
 const preparationOptions = {trainLimit:requestedTrainLimit,testLimit:240,seed:20261112,minimumTokens:4,maximumTokens:40};
@@ -140,13 +146,15 @@ function alignedTokenRows(records,model) {
     for (let index=0; index<aligned.length; index++) {
       const {token,piece} = aligned[index];
       const score = model.score(record.text,index);
-      if (!score || !Array.isArray(score.tokenVector) ||
+      if (!score || !Array.isArray(score.tokenVector) || !Array.isArray(score.subwordVector) ||
           !Array.isArray(score.contextualVector) ||
-          score.tokenVector.length !== score.contextualVector.length) continue;
+          score.tokenVector.length !== score.contextualVector.length ||
+          score.subwordVector.length !== score.contextualVector.length) continue;
       const features = score.tokenVector.concat(score.contextualVector).map(Number);
-      if (!features.length || !features.every(Number.isFinite)) continue;
+      const oovFeatures = score.subwordVector.concat(score.contextualVector).map(Number);
+      if (!features.length || !features.every(Number.isFinite)||!oovFeatures.every(Number.isFinite)) continue;
       rows.push({
-        features,form:norm(piece),lemma:token.lemma?norm(token.lemma):null,
+        features,oovFeatures,form:norm(piece),lemma:token.lemma?norm(token.lemma):null,
         upos:token.upos||null,feats:trackedFeatures(token.feats||{}),
         sentenceId:record.sentenceId||null,targetKnown:score.targetKnown===true
       });
@@ -154,6 +162,31 @@ function alignedTokenRows(records,model) {
   }
   stats.tokenRows=rows.length;
   return {rows,stats};
+}
+function createOovViewTrainingRows(rows,augmentationRate,seed) {
+  const stableFraction=value=>{
+    let hash=2166136261;
+    for(let index=0;index<value.length;index++){hash^=value.charCodeAt(index);hash=Math.imul(hash,16777619);}
+    return (hash>>>0)/4294967296;
+  };
+  let eligibleKnownTokenRows=0,replacedKnownTokenRows=0;
+  const augmented=rows.map((row,index)=>{
+    if(row.targetKnown&&Array.isArray(row.oovFeatures)&&row.oovFeatures.length===row.features.length) {
+      eligibleKnownTokenRows++;
+      const key=String(seed)+"|"+String(row.sentenceId||"")+"|"+String(row.form||"")+"|"+index;
+      if(stableFraction(key)<augmentationRate) {
+        replacedKnownTokenRows++;
+        return {...row,features:row.oovFeatures.slice(),targetKnown:false,oovViewAugmented:true};
+      }
+    }
+    return row;
+  });
+  return {rows:augmented,stats:{
+    originalRows:rows.length,trainingRows:augmented.length,eligibleKnownTokenRows,replacedKnownTokenRows,
+    actualRate:eligibleKnownTokenRows?replacedKnownTokenRows/eligibleKnownTokenRows:0,
+    untouchedOovRows:rows.filter(row=>!row.targetKnown).length,
+    preservedTrainingRowCount:augmented.length===rows.length
+  }};
 }
 function recordsFor(texts,recordMap) {
   return texts.map(text=>{
@@ -884,20 +917,34 @@ for(const seed of seeds) {
     assert.equal(result.stats.skippedSentences,0,name+" sentence annotations must align completely");
   }
   const trainRows=trainExtracted.rows.filter(row=>row.upos&&row.lemma);
+  const headTrainingViews=createOovViewTrainingRows(trainRows,requestedOovViewAugmentationRate,seed.model);
+  const headTrainingRows=headTrainingViews.rows;
+  assert.equal(headTrainingRows.length,trainRows.length,
+    "OOV-view augmentation must preserve the supervised training example count");
+  if(requestedOovViewAugmentationRate>0) {
+    assert.ok(headTrainingViews.stats.eligibleKnownTokenRows>0&&headTrainingViews.stats.replacedKnownTokenRows>0,
+      "the OOV-view treatment must replace a nonzero subset of known lexical views");
+    assert.ok(headTrainingViews.stats.actualRate>0&&headTrainingViews.stats.actualRate<=requestedOovViewAugmentationRate+0.02,
+      "the realized OOV-view augmentation rate must remain close to the configured rate");
+  }
   const validationRows=validationExtracted.rows.filter(row=>row.upos&&row.lemma);
   const oovValidationRows=oovValidationExtracted.rows.filter(row=>row.upos&&row.lemma);
   const testRows=testExtracted.rows.filter(row=>row.upos&&row.lemma);
+  const independentOovRows=testRows.filter(row=>!outputVocabulary.has(row.form));
+  assert.ok(independentOovRows.length>0);
+  assert.ok(independentOovRows.every(row=>!row.targetKnown),
+    "independent OOV targets must enter morphology heads through subword-only target views");
   assert.ok(trainRows.length&&validationRows.length&&oovValidationRows.length&&testRows.length);
 
   const uposSelected=chooseHead(
     Upos,
-    headRows(trainRows,row=>row.upos),
+    headRows(headTrainingRows,row=>row.upos),
     headRows(validationRows,row=>row.upos),
     seed.model,{epochs:80,learningRate:0.035,patience:12}
   );
   const featHeads=Object.create(null),featSelection={};
   for(const attribute of attributes) {
-    const trainExamples=headRows(trainRows,row=>cleanFeatureValue(row.feats[attribute]));
+    const trainExamples=headRows(headTrainingRows,row=>cleanFeatureValue(row.feats[attribute]));
     const validationExamples=headRows(validationRows,row=>cleanFeatureValue(row.feats[attribute]));
     assert.ok(new Set(trainExamples.map(row=>row.label)).size>=2,
       "each FEATS head must learn absent and present/alternative values");
@@ -911,7 +958,7 @@ for(const seed of seeds) {
     };
   }
 
-  const conditionedTraining=fitPosConditionedFeats(trainRows,validationRows,featHeads,seed.model);
+  const conditionedTraining=fitPosConditionedFeats(headTrainingRows,validationRows,featHeads,seed.model);
   // Shared OOV targets come from the fixed 960-sentence reference sample above.
   // Every seed and both training sizes use exactly this same lexical exclusion set.
   const trainLemmas=new Set(trainRows.map(row=>row.lemma).filter(Boolean));
@@ -1045,6 +1092,7 @@ for(const seed of seeds) {
 
   seedReports.push({
     modelSeed:seed.model,splitSeed:seed.split,
+    headInputViewAugmentation:{configuredRate:requestedOovViewAugmentationRate,...headTrainingViews.stats},
     contextualTraining:{
       trainRows:contextualTraining.trainRows,validationRows:contextualTraining.validationRows,
       internalTestRows:contextualTraining.testRows,vocabularySize:contextualTraining.vocabularySize,
@@ -1290,13 +1338,14 @@ function combineAdaptiveLemmaSlice(key) {
 }
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.135",
+  version:"0.58.136",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
   },
   protocol:{
-    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,requestedModelVocabularyCapacity:requestedVocabularyCapacity,requestedVocabularyOrder,commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
+    seeds,trainSentences:prepared.trainingRecords.length,requestedTrainSentences:requestedTrainLimit,eligibleTrainSentences:prepared.stats.eligibleTrainSentencesAfterDecontamination,oovValidationSentences:oovValidationRecords.length,independentTestSentences:240,requestedModelVocabularyCapacity:requestedVocabularyCapacity,requestedVocabularyOrder,requestedOovViewAugmentationRate,
+    commonOovReferenceTrainingSentences:960,commonOovReferenceVocabularySize:outputVocabulary.size,oovTargetDefinition:"test lexical forms absent from all lexical forms in the fixed 960-sentence decontaminated reference sample",oovValidationDefinition:"240 disjoint sentences sampled from the eligible UD training pool outside the common 960-sentence reference; used only for lambda calibration",
     trackedFeatures:attributes,
     featurePrediction:"global contextual classifiers plus UPOS-conditioned contextual heads; compare global constrained morphology-evidence lambda with POS-specific validation-calibrated weights, minimum POS support and global UPOS guardrail; test annotations remain scoring-only; constant and fallback heads are excluded from evidence; NONE is explicit",
     headSelection:"validation macro-F1 among unweighted, sqrt-inverse and capped sqrt-inverse",
@@ -1347,4 +1396,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.135 paired support-aware and per-attribute adaptive FEATS blend pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.136 paired OOV-view training exposure morphology benchmark: "+JSON.stringify(report));
