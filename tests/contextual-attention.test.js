@@ -140,6 +140,16 @@ assert.equal(oovScore.targetKnown,false);assert.equal(oovScore.targetProbability
 assert.ok(oovScore.subwordFeatures>0&&oovScore.contextualVector.every(Number.isFinite));
 assert.ok(oovScore.tokenVector.length===12&&oovScore.tokenVector.every(Number.isFinite)&&oovScore.tokenVector.some(value=>value!==0),
  "an OOV token must expose its own composed character n-gram vector");
+assert.ok(oovScore.subwordVector.length===12&&oovScore.subwordVector.every(Number.isFinite));
+for(let index=0;index<12;index++)assert.ok(Math.abs(oovScore.tokenVector[index]-oovScore.subwordVector[index])<1e-12,
+ "an unknown token vector must equal its subword-only view");
+const knownScore=model.score("нейрон получает сигнал",0);
+assert.equal(knownScore.targetKnown,true);
+const knownIndex=trainedState.vocabulary.indexOf("нейрон");
+assert.ok(knownIndex>=0&&knownScore.subwordVector.length===12);
+for(let index=0;index<12;index++)assert.ok(Math.abs(
+ knownScore.tokenVector[index]-trainedState.embeddings[knownIndex][index]-knownScore.subwordVector[index]
+)<1e-10,"known-token vectors must decompose into lexical and subword components");
 assert.ok(oovScore.attention.some(row=>row.token==="нейрон")&&oovScore.attention.some(row=>row.token==="сигнал"),
  "unknown words must receive a subword context representation");
 const firstRunState=model.exportState();
