@@ -321,34 +321,46 @@ function predictPosConditionedFeats(features,upos,conditionedHeads,globalHeads) 
 function predictBlendedPosConditionedFeats(features,upos,conditionedTraining,globalHeads,globalBlendWeight) {
   const weight=Math.max(0,Math.min(1,Number(globalBlendWeight)||0));
   if(weight===0)return predictPosConditionedFeats(features,upos,conditionedTraining.heads,globalHeads);
-  const selected=conditionedTraining.heads[upos]||Object.create(null),result=Object.create(null);
+  const selected=conditionedTraining.heads[upos]||Object.create(null);
+  const metadataByAttribute=conditionedTraining.summary.byUpos[upos]||Object.create(null);
+  const result=Object.create(null);
   for(const attribute of attributes) {
     const globalHead=globalHeads[attribute].head;
     const localHead=selected[attribute]||globalHead;
     const local=localHead.predict(features),global=globalHead.predict(features);
-    if(!global||!Array.isArray(global.probabilities))continue;
-    if(weight===1||!local||!Array.isArray(local.probabilities)) {
-      const value=global.label||noFeature;
+    const metadata=metadataByAttribute[attribute]||{method:"global_fallback"};
+    // Constant and global-fallback POS heads are already the correct support policy:
+    // never let a global distribution override a constant NONE (or another fixed value).
+    if(metadata.method!=="trained"||!local||!Array.isArray(local.probabilities)||
+      !global||!Array.isArray(global.probabilities)) {
+      const value=local&&local.label||noFeature;
       if(value!==noFeature)result[attribute]=value;
       continue;
     }
+    // The global head may reweight a POS-specific class, but cannot invent a value
+    // that this UPOS never exhibited in the supervised training partition.
+    const supportedLabels=new Set(Array.isArray(metadata.classes)&&metadata.classes.length
+      ?metadata.classes.map(String)
+      :local.probabilities.map(row=>String(row.label||noFeature)));
     const distribution=new Map();
     for(const row of local.probabilities) {
       const label=String(row.label||noFeature);
+      if(!supportedLabels.has(label))continue;
       distribution.set(label,(distribution.get(label)||0)+(1-weight)*Math.max(0,Number(row.probability)||0));
     }
     for(const row of global.probabilities) {
       const label=String(row.label||noFeature);
+      if(!supportedLabels.has(label))continue;
       distribution.set(label,(distribution.get(label)||0)+weight*Math.max(0,Number(row.probability)||0));
     }
-    const best=[...distribution.entries()].sort((left,right)=>right[1]-left[1]||
-      (left[0]<right[0]?-1:left[0]>right[0]?1:0))[0];
-    const value=best?best[0]:noFeature;
+    const hasPositiveMass=[...distribution.values()].some(value=>value>0);
+    const best=hasPositiveMass?[...distribution.entries()].sort((left,right)=>right[1]-left[1]||
+      (left[0]<right[0]?-1:left[0]>right[0]?1:0))[0]:null;
+    const value=best?best[0]:(local.label||noFeature);
     if(value!==noFeature)result[attribute]=value;
   }
   return result;
 }
-
 
 function selectUposWithMorphologyEvidence(features,uposHead,conditionedTraining,globalHeads,lambda) {
   const base=uposHead.predict(features);
@@ -604,7 +616,7 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
 
 function tuneGlobalFeatsBlend(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambdaByUpos) {
   const candidates=[0,0.1,0.25,0.5,0.75,0.9,1];
-  const minimumMacroF1Gain=0.003;
+  const maximumLemmaF1Drop=0.002;
   const results=candidates.map(globalBlendWeight=>{
     const evaluation=evaluateJointPosEvidence(
       validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,
@@ -617,29 +629,38 @@ function tuneGlobalFeatsBlend(validationRows,outputVocabulary,uposHead,condition
     };
   });
   const baseline=results.find(row=>row.globalBlendWeight===0);
-  const best=results.slice().sort((left,right)=>
-    right.featsMacroF1-left.featsMacroF1||
+  for(const row of results) {
+    row.featsExactNonRegression=row.trackedFeatsExactAccuracy+1e-12>=baseline.trackedFeatsExactAccuracy;
+    row.lemmaF1WithinTolerance=row.lemmaF1+maximumLemmaF1Drop+1e-12>=baseline.lemmaF1;
+  }
+  const admissible=results.filter(row=>row.featsExactNonRegression&&row.lemmaF1WithinTolerance);
+  const best=admissible.slice().sort((left,right)=>
     right.trackedFeatsExactAccuracy-left.trackedFeatsExactAccuracy||
     right.lemmaF1-left.lemmaF1||
+    right.featsMacroF1-left.featsMacroF1||
     left.globalBlendWeight-right.globalBlendWeight
-  )[0];
-  const improves=best.featsMacroF1>=baseline.featsMacroF1+minimumMacroF1Gain;
+  )[0]||baseline;
+  const improves=best.trackedFeatsExactAccuracy>baseline.trackedFeatsExactAccuracy+1e-12;
   const selected=improves?best:baseline;
   const validation=evaluateJointPosEvidence(
     validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,
     lambdaByUpos,selected.globalBlendWeight,true
   );
   return {
-    selectedGlobalBlendWeight:selected.globalBlendWeight,minimumMacroF1Gain,
+    selectedGlobalBlendWeight:selected.globalBlendWeight,maximumLemmaF1Drop,
     baselineValidationMacroF1:baseline.featsMacroF1,
     selectedValidationMacroF1:validation.featsMacroF1,
     macroF1Gain:validation.featsMacroF1-baseline.featsMacroF1,
+    baselineValidationExactFeatsAccuracy:baseline.trackedFeatsExactAccuracy,
+    selectedValidationExactFeatsAccuracy:validation.trackedFeatsExactAccuracy,
+    baselineValidationLemmaF1:baseline.lemmaF1,
+    selectedValidationLemmaF1:validation.qualityF1,
+    feasibleCandidateCount:admissible.length,
     usedBaselineFallback:!improves,
-    selectionObjective:"maximize mean per-attribute FEATS macro-F1 on the reserved OOV validation split; require at least +0.003 over hard POS routing; tie-break by exact FEATS accuracy, lemma F1, then smaller global weight",
+    selectionObjective:"maximize exact tracked-FEATS accuracy on reserved OOV validation, subject to no FEATS regression and lemma-F1 drop <= 0.002; ties prefer lemma F1, per-attribute macro-F1, then smaller blend weight",
     results,validation
   };
 }
-
 
 function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
   const predictedBoth=emptyMetrics(),oracle=emptyMetrics();
@@ -878,23 +899,35 @@ for(const seed of seeds) {
       "FEATS blend evaluation must use the same independent OOV test targets");
     assert.deepEqual(featsBlendTest.upos,posSpecificTest.upos,
       "FEATS blending must not change the already-selected UPOS route");
-    const probe=oovValidationRows.find(row=>row.form&&row.lemma&&row.upos&&/[\p{L}\p{N}]/u.test(row.form)&&!outputVocabulary.has(row.form));
-    if(probe) {
-      assert.deepEqual(
-        predictBlendedPosConditionedFeats(probe.features,probe.upos,conditionedTraining,featHeads,0),
-        predictPosConditionedFeats(probe.features,probe.upos,conditionedTraining.heads,featHeads),
-        "zero global blend must exactly preserve hard POS-conditioned FEATS"
+    assert.ok(featsBlendTuning.validation.trackedFeatsExactAccuracy+1e-12>=
+      posSpecificValidation.trackedFeatsExactAccuracy,
+      "validation-selected FEATS blending must not reduce exact FEATS accuracy");
+    assert.ok(featsBlendTuning.validation.qualityF1+featsBlendTuning.maximumLemmaF1Drop+1e-12>=
+      posSpecificValidation.qualityF1,
+      "validation-selected FEATS blending must respect the lemma-F1 tolerance");
+    const invariantRows=oovValidationRows.filter(row=>row.form&&row.lemma&&row.upos&&/[\p{L}\p{N}]/u.test(row.form)&&!outputVocabulary.has(row.form));
+    for(const row of invariantRows) {
+      const selectedRoute=selectUposWithMorphologyEvidence(
+        row.features,uposSelected.head,conditionedTraining,featHeads,posSpecificTuning.lambdaByUpos
       );
-      const globalExpected=Object.create(null);
-      for(const attribute of attributes) {
-        const label=featHeads[attribute].head.predict(probe.features)?.label||noFeature;
-        if(label!==noFeature)globalExpected[attribute]=label;
+      if(!selectedRoute.label)continue;
+      for(const blendWeight of new Set([featsBlendTuning.selectedGlobalBlendWeight,1])) {
+        const prediction=predictBlendedPosConditionedFeats(
+          row.features,selectedRoute.label,conditionedTraining,featHeads,blendWeight
+        );
+        const support=conditionedTraining.summary.byUpos[selectedRoute.label]||Object.create(null);
+        for(const attribute of attributes) {
+          const metadata=support[attribute]||{method:"global_fallback"};
+          const value=String(prediction[attribute]||noFeature);
+          if(metadata.method==="constant") {
+            assert.equal(value,String(metadata.classes[0]||noFeature),
+              "constant POS-conditioned FEATS heads must not be overridden by global blending");
+          } else if(metadata.method==="trained") {
+            assert.ok((metadata.classes||[]).map(String).includes(value),
+              "global blending must stay within the trained POS-specific FEATS class support");
+          }
+        }
       }
-      assert.deepEqual(
-        predictBlendedPosConditionedFeats(probe.features,probe.upos,conditionedTraining,featHeads,1),
-        globalExpected,
-        "full global blend must exactly reproduce global FEATS heads"
-      );
     }
   }
   assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on reserved external OOV validation targets");
@@ -1087,6 +1120,8 @@ const featsGlobalBlendAggregate=blendSeedReports.length?{
   seedCount:blendSeedReports.length,
   selectedGlobalBlendWeightMean:blendSeedReports.reduce((sum,row)=>sum+row.selectedGlobalBlendWeight,0)/blendSeedReports.length,
   validationMacroF1Mean:blendSeedReports.reduce((sum,row)=>sum+row.selectedValidationMacroF1,0)/blendSeedReports.length,
+  validationExactFeatsAccuracyMean:blendSeedReports.reduce((sum,row)=>sum+row.selectedValidationExactFeatsAccuracy,0)/blendSeedReports.length,
+  validationLemmaF1Mean:blendSeedReports.reduce((sum,row)=>sum+row.selectedValidationLemmaF1,0)/blendSeedReports.length,
   independentTest:{
     targets:blendSeedReports.reduce((sum,row)=>sum+row.independentTest.targets,0),
     upos:combineBlendCounter("upos"),featsExact:combineBlendCounter("featsExact"),joint:combineBlendCounter("joint"),
@@ -1108,7 +1143,7 @@ const featsGlobalBlendAggregate=blendSeedReports.length?{
 }:null;
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.133",
+  version:"0.58.134",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -1164,4 +1199,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.133 paired frequency-vocabulary and validation-tuned FEATS blend pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.134 paired frequency-vocabulary and validation-tuned FEATS blend pipeline: "+JSON.stringify(report));
