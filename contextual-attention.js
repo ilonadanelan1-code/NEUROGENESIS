@@ -614,12 +614,17 @@ function create(options={}){
   const morphologyTargetIndex=targetIndexInVocabulary>=0?targetIndexInVocabulary:(stemMatches.length===1?stemMatches[0]:-1);
   const morphologyKnown=morphologyTargetIndex>=0,morphologyBackoff=targetIndexInVocabulary<0&&morphologyKnown,morphologyAmbiguous=targetIndexInVocabulary<0&&stemMatches.length>1;
   const tokenVector=targetIndexInVocabulary>=0?embeddings[targetIndexInVocabulary].slice():zeros(dimension);
-  for(const bucket of target.subwordBuckets)for(let i=0;i<dimension;i++)tokenVector[i]+=subwordEmbeddings[bucket][i]/target.subwordBuckets.length;
+  const subwordVector=zeros(dimension);
+  for(const bucket of target.subwordBuckets)for(let i=0;i<dimension;i++){
+   const contribution=subwordEmbeddings[bucket][i]/target.subwordBuckets.length;
+   tokenVector[i]+=contribution;
+   subwordVector[i]+=contribution;
+  }
   const rows=last.rowPasses,meanVector=selector=>Array.from({length:dimension},(_,i)=>rows.reduce((sum,row)=>sum+selector(row)[i],0)/rows.length);
   const hidden=Array.from({length:feedForwardDimension},(_,i)=>rows.reduce((sum,row)=>sum+row.ffHidden[i],0)/rows.length);
   const predictions=topPredictions(pass.probabilities,vocabulary),morphologyPrediction=predictions[0];
   const morphologyCorrect=morphologyKnown&&!!morphologyPrediction&&russianStem(morphologyPrediction.token)===targetStem;
-  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:target.subwordBuckets.length,tokenVector,contextualVector:pass.pooled.slice(),attention:aggregate,heads:headRows,predictions,
+  return{token:tokens[safeIndex],index:safeIndex,targetKnown:targetIndexInVocabulary>=0,subwordFeatures:target.subwordBuckets.length,tokenVector,subwordVector,contextualVector:pass.pooled.slice(),attention:aggregate,heads:headRows,predictions,
    targetProbability:targetIndexInVocabulary>=0?pass.probabilities[targetIndexInVocabulary]:null,
    morphologyKnown,morphologyBackoff,morphologyAmbiguous,morphologyToken:morphologyTargetIndex>=0?vocabulary[morphologyTargetIndex]:null,
    morphologyStem:targetStem,morphologyProbability:morphologyTargetIndex>=0?pass.probabilities[morphologyTargetIndex]:null,
