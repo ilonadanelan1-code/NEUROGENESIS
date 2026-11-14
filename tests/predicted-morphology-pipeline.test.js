@@ -318,44 +318,50 @@ function predictPosConditionedFeats(features,upos,conditionedHeads,globalHeads) 
   }
   return result;
 }
+function blendWeightForAttribute(globalBlendWeight,attribute) {
+  const raw=typeof globalBlendWeight==="number"?globalBlendWeight:
+    (globalBlendWeight&&typeof globalBlendWeight==="object"?globalBlendWeight[attribute]:0);
+  return Math.max(0,Math.min(1,Number(raw)||0));
+}
+function hasPositiveBlendWeight(globalBlendWeight) {
+  return typeof globalBlendWeight==="number"?globalBlendWeight>0:
+    Object.values(globalBlendWeight||{}).some(value=>Number(value)>0);
+}
 function predictBlendedPosConditionedFeats(features,upos,conditionedTraining,globalHeads,globalBlendWeight) {
-  const weight=Math.max(0,Math.min(1,Number(globalBlendWeight)||0));
-  if(weight===0)return predictPosConditionedFeats(features,upos,conditionedTraining.heads,globalHeads);
   const selected=conditionedTraining.heads[upos]||Object.create(null);
   const metadataByAttribute=conditionedTraining.summary.byUpos[upos]||Object.create(null);
   const result=Object.create(null);
   for(const attribute of attributes) {
+    const weight=blendWeightForAttribute(globalBlendWeight,attribute);
     const globalHead=globalHeads[attribute].head;
     const localHead=selected[attribute]||globalHead;
-    const local=localHead.predict(features),global=globalHead.predict(features);
+    const local=localHead.predict(features);
+    if(weight===0) {
+      const value=local&&local.label||noFeature;
+      if(value!==noFeature)result[attribute]=value;
+      continue;
+    }
+    const global=globalHead.predict(features);
     const metadata=metadataByAttribute[attribute]||{method:"global_fallback"};
-    // Constant and global-fallback POS heads are already the correct support policy:
-    // never let a global distribution override a constant NONE (or another fixed value).
     if(metadata.method!=="trained"||!local||!Array.isArray(local.probabilities)||
       !global||!Array.isArray(global.probabilities)) {
       const value=local&&local.label||noFeature;
       if(value!==noFeature)result[attribute]=value;
       continue;
     }
-    // The global head may reweight a POS-specific class, but cannot invent a value
-    // that this UPOS never exhibited in the supervised training partition.
+    // Global scores can reweight a POS-specific class, never add a class unsupported for this UPOS.
     const supportedLabels=new Set(Array.isArray(metadata.classes)&&metadata.classes.length
-      ?metadata.classes.map(String)
-      :local.probabilities.map(row=>String(row.label||noFeature)));
+      ?metadata.classes.map(String):local.probabilities.map(row=>String(row.label||noFeature)));
     const distribution=new Map();
     for(const row of local.probabilities) {
       const label=String(row.label||noFeature);
-      if(!supportedLabels.has(label))continue;
-      distribution.set(label,(distribution.get(label)||0)+(1-weight)*Math.max(0,Number(row.probability)||0));
+      if(supportedLabels.has(label))distribution.set(label,(distribution.get(label)||0)+(1-weight)*Math.max(0,Number(row.probability)||0));
     }
     for(const row of global.probabilities) {
       const label=String(row.label||noFeature);
-      if(!supportedLabels.has(label))continue;
-      distribution.set(label,(distribution.get(label)||0)+weight*Math.max(0,Number(row.probability)||0));
+      if(supportedLabels.has(label))distribution.set(label,(distribution.get(label)||0)+weight*Math.max(0,Number(row.probability)||0));
     }
-    const hasPositiveMass=[...distribution.values()].some(value=>value>0);
-    const best=hasPositiveMass?[...distribution.entries()].sort((left,right)=>right[1]-left[1]||
-      (left[0]<right[0]?-1:left[0]>right[0]?1:0))[0]:null;
+    const best=[...distribution.entries()].filter(([,value])=>value>0).sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:1))[0];
     const value=best?best[0]:(local.label||noFeature);
     if(value!==noFeature)result[attribute]=value;
   }
@@ -425,7 +431,7 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
     if(!selected.label) continue;
     if(lambdaIsZero(lambda)) assert.equal(selected.label,selected.baseLabel,
       "zero morphology-evidence weight must exactly preserve the base UPOS prediction");
-    const predictedFeats=globalBlendWeight>0
+    const predictedFeats=hasPositiveBlendWeight(globalBlendWeight)
       ?predictBlendedPosConditionedFeats(row.features,selected.label,conditionedTraining,globalHeads,globalBlendWeight)
       :predictPosConditionedFeats(row.features,selected.label,conditionedTraining.heads,globalHeads);
     const goldFeats=trackedFeatures(row.feats);
@@ -662,6 +668,63 @@ function tuneGlobalFeatsBlend(validationRows,outputVocabulary,uposHead,condition
   };
 }
 
+function tunePerAttributeFeatsBlend(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambdaByUpos,startingWeight) {
+  const candidates=[0,0.1,0.25,0.5,0.75,0.9,1],maximumLemmaF1Drop=0.002,minimumAttributeTargets=30;
+  const selectedBlendWeights=Object.fromEntries(attributes.map(attribute=>[attribute,startingWeight]));
+  const baseline=evaluateJointPosEvidence(validationRows,outputVocabulary,uposHead,conditionedTraining,
+    globalHeads,ruleBank,trainLemmas,lambdaByUpos,selectedBlendWeights,true);
+  let current=baseline;
+  const perAttribute=Object.create(null);
+  for(const attribute of attributes) {
+    const baseAttribute=baseline.perAttribute[attribute];
+    if(!baseAttribute||baseAttribute.targets<minimumAttributeTargets) {
+      perAttribute[attribute]={targets:baseAttribute?baseAttribute.targets:0,selectedWeight:startingWeight,
+        baselineAccuracy:baseAttribute?baseAttribute.accuracy:null,selectedAccuracy:baseAttribute?baseAttribute.accuracy:null,
+        baselineMacroF1:baseAttribute?baseAttribute.macroF1:null,selectedMacroF1:baseAttribute?baseAttribute.macroF1:null,
+        candidateCount:0,fallback:true,reason:"insufficient_validation_targets",candidates:[]};
+      continue;
+    }
+    const trials=candidates.map(weight=>{
+      const trialWeights={...selectedBlendWeights,[attribute]:weight};
+      const evaluation=evaluateJointPosEvidence(validationRows,outputVocabulary,uposHead,conditionedTraining,
+        globalHeads,ruleBank,trainLemmas,lambdaByUpos,trialWeights,true);
+      return {weight,evaluation,accuracy:evaluation.perAttribute[attribute].accuracy,
+        macroF1:evaluation.perAttribute[attribute].macroF1};
+    });
+    const admissible=trials.filter(row=>
+      row.evaluation.trackedFeatsExactAccuracy+1e-12>=baseline.trackedFeatsExactAccuracy&&
+      row.evaluation.qualityF1+maximumLemmaF1Drop+1e-12>=baseline.qualityF1&&
+      row.accuracy+1e-12>=baseAttribute.accuracy);
+    const ranked=admissible.slice().sort((a,b)=>
+      b.evaluation.trackedFeatsExactAccuracy-a.evaluation.trackedFeatsExactAccuracy||
+      b.evaluation.qualityF1-a.evaluation.qualityF1||b.macroF1-a.macroF1||
+      Math.abs(a.weight-startingWeight)-Math.abs(b.weight-startingWeight)||a.weight-b.weight);
+    const best=ranked[0]||null;
+    const improves=Boolean(best&&best.evaluation.trackedFeatsExactAccuracy>current.trackedFeatsExactAccuracy+1e-12);
+    if(improves){selectedBlendWeights[attribute]=best.weight;current=best.evaluation;}
+    const chosen=current.perAttribute[attribute];
+    perAttribute[attribute]={
+      targets:baseAttribute.targets,selectedWeight:selectedBlendWeights[attribute],
+      baselineAccuracy:baseAttribute.accuracy,selectedAccuracy:chosen.accuracy,
+      baselineMacroF1:baseAttribute.macroF1,selectedMacroF1:chosen.macroF1,
+      candidateCount:admissible.length,fallback:!improves,
+      reason:improves?null:"no_joint_exact_feats_gain_without_guardrail_regression",
+      candidates:trials.map(row=>({weight:row.weight,exactFeatsAccuracy:row.evaluation.trackedFeatsExactAccuracy,
+        lemmaF1:row.evaluation.qualityF1,attributeAccuracy:row.accuracy,attributeMacroF1:row.macroF1}))
+    };
+  }
+  assert.ok(current.trackedFeatsExactAccuracy+1e-12>=baseline.trackedFeatsExactAccuracy);
+  assert.ok(current.qualityF1+maximumLemmaF1Drop+1e-12>=baseline.qualityF1);
+  return {selectedBlendWeights:{...selectedBlendWeights},maximumLemmaF1Drop,minimumAttributeTargets,
+    baselineValidationExactFeatsAccuracy:baseline.trackedFeatsExactAccuracy,
+    selectedValidationExactFeatsAccuracy:current.trackedFeatsExactAccuracy,
+    baselineValidationLemmaF1:baseline.qualityF1,selectedValidationLemmaF1:current.qualityF1,
+    baselineValidationMacroF1:baseline.featsMacroF1,selectedValidationMacroF1:current.featsMacroF1,
+    improvedAttributeCount:Object.values(perAttribute).filter(row=>!row.fallback).length,
+    usedBaselineFallback:current.trackedFeatsExactAccuracy<=baseline.trackedFeatsExactAccuracy+1e-12,
+    perAttribute,validation:current};
+}
+
 function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
   const predictedBoth=emptyMetrics(),oracle=emptyMetrics();
   const goldUposPredFeats=emptyMetrics(),predictedUposGoldFeats=emptyMetrics();
@@ -892,6 +955,12 @@ for(const seed of seeds) {
     testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     posSpecificTuning.lambdaByUpos,featsBlendTuning.selectedGlobalBlendWeight,true
   ):null;
+  const featsAdaptiveTuning=featsBlendTuning?tunePerAttributeFeatsBlend(
+    oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    posSpecificTuning.lambdaByUpos,featsBlendTuning.selectedGlobalBlendWeight):null;
+  const featsAdaptiveTest=featsAdaptiveTuning?evaluateJointPosEvidence(
+    testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    posSpecificTuning.lambdaByUpos,featsAdaptiveTuning.selectedBlendWeights,true):null;
   if(featsBlendTuning) {
     assert.equal(featsBlendTuning.validation.targets,posSpecificValidation.targets,
       "FEATS blend calibration must use the same reserved OOV validation targets");
@@ -905,13 +974,23 @@ for(const seed of seeds) {
     assert.ok(featsBlendTuning.validation.qualityF1+featsBlendTuning.maximumLemmaF1Drop+1e-12>=
       posSpecificValidation.qualityF1,
       "validation-selected FEATS blending must respect the lemma-F1 tolerance");
+    assert.equal(featsAdaptiveTest.targets,featsBlendTest.targets);
+    assert.deepEqual(featsAdaptiveTest.upos,featsBlendTest.upos);
+    assert.ok(featsAdaptiveTuning.selectedValidationExactFeatsAccuracy+1e-12>=featsAdaptiveTuning.baselineValidationExactFeatsAccuracy);
+    assert.ok(featsAdaptiveTuning.selectedValidationLemmaF1+featsAdaptiveTuning.maximumLemmaF1Drop+1e-12>=
+      featsAdaptiveTuning.baselineValidationLemmaF1);
+    for(const attribute of attributes) {
+      const tuned=featsAdaptiveTuning.perAttribute[attribute];
+      assert.ok(tuned.selectedWeight>=0&&tuned.selectedWeight<=1);
+      assert.ok(tuned.selectedAccuracy+1e-12>=tuned.baselineAccuracy);
+    }
     const invariantRows=oovValidationRows.filter(row=>row.form&&row.lemma&&row.upos&&/[\p{L}\p{N}]/u.test(row.form)&&!outputVocabulary.has(row.form));
     for(const row of invariantRows) {
       const selectedRoute=selectUposWithMorphologyEvidence(
         row.features,uposSelected.head,conditionedTraining,featHeads,posSpecificTuning.lambdaByUpos
       );
       if(!selectedRoute.label)continue;
-      for(const blendWeight of new Set([featsBlendTuning.selectedGlobalBlendWeight,1])) {
+      for(const blendWeight of [featsBlendTuning.selectedGlobalBlendWeight,featsAdaptiveTuning.selectedBlendWeights,1]) {
         const prediction=predictBlendedPosConditionedFeats(
           row.features,selectedRoute.label,conditionedTraining,featHeads,blendWeight
         );
@@ -1007,6 +1086,10 @@ for(const seed of seeds) {
       minimumMacroF1Gain:featsBlendTuning.minimumMacroF1Gain,
       baselineValidationMacroF1:featsBlendTuning.baselineValidationMacroF1,
       selectedValidationMacroF1:featsBlendTuning.selectedValidationMacroF1,
+      baselineValidationExactFeatsAccuracy:featsBlendTuning.baselineValidationExactFeatsAccuracy,
+      selectedValidationExactFeatsAccuracy:featsBlendTuning.selectedValidationExactFeatsAccuracy,
+      baselineValidationLemmaF1:featsBlendTuning.baselineValidationLemmaF1,
+      selectedValidationLemmaF1:featsBlendTuning.selectedValidationLemmaF1,
       macroF1Gain:featsBlendTuning.macroF1Gain,
       usedBaselineFallback:featsBlendTuning.usedBaselineFallback,
       candidates:featsBlendTuning.results,
@@ -1021,6 +1104,30 @@ for(const seed of seeds) {
         qualityF1:featsBlendTest.qualityF1,
         perAttribute:featsBlendTest.perAttribute,
         lemma:summariseMetrics(featsBlendTest.metrics)
+      }
+    }:null,
+    featsAdaptiveBlend:featsAdaptiveTuning?{
+      startingGlobalWeight:featsBlendTuning.selectedGlobalBlendWeight,
+      selectedBlendWeights:featsAdaptiveTuning.selectedBlendWeights,
+      baselineValidationExactFeatsAccuracy:featsAdaptiveTuning.baselineValidationExactFeatsAccuracy,
+      selectedValidationExactFeatsAccuracy:featsAdaptiveTuning.selectedValidationExactFeatsAccuracy,
+      baselineValidationLemmaF1:featsAdaptiveTuning.baselineValidationLemmaF1,
+      selectedValidationLemmaF1:featsAdaptiveTuning.selectedValidationLemmaF1,
+      baselineValidationMacroF1:featsAdaptiveTuning.baselineValidationMacroF1,
+      selectedValidationMacroF1:featsAdaptiveTuning.selectedValidationMacroF1,
+      maximumLemmaF1Drop:featsAdaptiveTuning.maximumLemmaF1Drop,
+      improvedAttributeCount:featsAdaptiveTuning.improvedAttributeCount,
+      usedBaselineFallback:featsAdaptiveTuning.usedBaselineFallback,
+      perAttribute:featsAdaptiveTuning.perAttribute,
+      independentTest:{
+        targets:featsAdaptiveTest.targets,upos:featsAdaptiveTest.upos,
+        featsExact:featsAdaptiveTest.featsExact,joint:featsAdaptiveTest.joint,
+        uposAccuracy:featsAdaptiveTest.uposAccuracy,
+        trackedFeatsExactAccuracy:featsAdaptiveTest.trackedFeatsExactAccuracy,
+        jointTagsAccuracy:featsAdaptiveTest.jointTagsAccuracy,featsMacroF1:featsAdaptiveTest.featsMacroF1,
+        precision:featsAdaptiveTest.precision,exactRecall:featsAdaptiveTest.exactRecall,
+        qualityF1:featsAdaptiveTest.qualityF1,perAttribute:featsAdaptiveTest.perAttribute,
+        lemma:summariseMetrics(featsAdaptiveTest.metrics)
       }
     }:null,
     posSpecificJointPosEvidence:{
@@ -1095,6 +1202,7 @@ function summariseTokens(value) {
   return {...value,accuracy:ratio(value.correct,value.targets)};
 }
 const blendSeedReports=seedReports.map(seed=>seed.featsGlobalBlend).filter(Boolean);
+const adaptiveBlendSeedReports=seedReports.map(seed=>seed.featsAdaptiveBlend).filter(Boolean);
 function combineBlendLemmaSlice(key) {
   const rows=blendSeedReports.map(seed=>seed.independentTest.lemma[key]);
   const targets=rows.reduce((sum,row)=>sum+row.targets,0);
@@ -1141,9 +1249,48 @@ const featsGlobalBlendAggregate=blendSeedReports.length?{
     }))
   }
 }:null;
+const featsAdaptiveBlendAggregate=adaptiveBlendSeedReports.length?{
+  seedCount:adaptiveBlendSeedReports.length,
+  baselineValidationExactFeatsAccuracyMean:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.baselineValidationExactFeatsAccuracy,0)/adaptiveBlendSeedReports.length,
+  selectedValidationExactFeatsAccuracyMean:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.selectedValidationExactFeatsAccuracy,0)/adaptiveBlendSeedReports.length,
+  baselineValidationLemmaF1Mean:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.baselineValidationLemmaF1,0)/adaptiveBlendSeedReports.length,
+  selectedValidationLemmaF1Mean:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.selectedValidationLemmaF1,0)/adaptiveBlendSeedReports.length,
+  selectedBlendWeightsMean:Object.fromEntries(attributes.map(attribute=>[attribute,
+    adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.selectedBlendWeights[attribute],0)/adaptiveBlendSeedReports.length])),
+  improvedAttributeCount:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.improvedAttributeCount,0),
+  independentTest:{
+    targets:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.independentTest.targets,0),
+    upos:combineAdaptiveCounter("upos"),featsExact:combineAdaptiveCounter("featsExact"),joint:combineAdaptiveCounter("joint"),
+    uposAccuracy:combineAdaptiveCounter("upos").accuracy,
+    trackedFeatsExactAccuracy:combineAdaptiveCounter("featsExact").accuracy,
+    jointTagsAccuracy:combineAdaptiveCounter("joint").accuracy,
+    featsMacroF1Mean:adaptiveBlendSeedReports.reduce((sum,row)=>sum+row.independentTest.featsMacroF1,0)/adaptiveBlendSeedReports.length,
+    lemma:Object.fromEntries(["all","knownLemma","unseenLemma"].map(key=>[key,combineAdaptiveLemmaSlice(key)])),
+    perAttribute:Object.fromEntries(attributes.map(attribute=>{
+      const rows=adaptiveBlendSeedReports.map(seed=>seed.independentTest.perAttribute[attribute]);
+      const targets=rows.reduce((sum,row)=>sum+row.targets,0),correct=rows.reduce((sum,row)=>sum+row.correct,0);
+      return [attribute,{targets,correct,accuracy:targets?correct/targets:null,
+        macroF1Mean:rows.reduce((sum,row)=>sum+row.macroF1,0)/rows.length}];
+    }))
+  }
+}:null;
+function combineAdaptiveCounter(key) {
+  const rows=adaptiveBlendSeedReports.map(seed=>seed.independentTest[key]);
+  const targets=rows.reduce((sum,row)=>sum+row.targets,0),correct=rows.reduce((sum,row)=>sum+row.correct,0);
+  return {targets,correct,accuracy:targets?correct/targets:null};
+}
+function combineAdaptiveLemmaSlice(key) {
+  const rows=adaptiveBlendSeedReports.map(seed=>seed.independentTest.lemma[key]);
+  const targets=rows.reduce((sum,row)=>sum+row.targets,0),generated=rows.reduce((sum,row)=>sum+row.generated,0);
+  const correct=rows.reduce((sum,row)=>sum+row.correct,0),ambiguous=rows.reduce((sum,row)=>sum+row.ambiguous,0);
+  const support=rows.reduce((sum,row)=>sum+row.meanSupportingLemmas*row.generated,0);
+  return {targets,generated,correct,ambiguous,coverage:targets?generated/targets:null,
+    precisionAmongGenerated:generated?correct/generated:null,exactRecallAcrossTargets:targets?correct/targets:null,
+    meanSupportingLemmas:generated?support/generated:null};
+}
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.134",
+  version:"0.58.135",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -1181,6 +1328,7 @@ const report={
     predictedUpos:Object.fromEntries(Object.entries(aggregate.perAttributePredictedUpos).map(([key,value])=>[key,summariseTokens(value)]))
   },
   featsGlobalBlend:featsGlobalBlendAggregate,
+  featsAdaptiveBlend:featsAdaptiveBlendAggregate,
   lemma:{
     predictedBoth:summariseMetrics(aggregate.predictedBoth),
     goldUposPredFeats:summariseMetrics(aggregate.goldUposPredFeats),
@@ -1199,4 +1347,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.134 paired frequency-vocabulary and validation-tuned FEATS blend pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.135 paired support-aware and per-attribute adaptive FEATS blend pipeline: "+JSON.stringify(report));
