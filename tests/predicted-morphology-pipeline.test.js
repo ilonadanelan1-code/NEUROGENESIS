@@ -318,6 +318,36 @@ function predictPosConditionedFeats(features,upos,conditionedHeads,globalHeads) 
   }
   return result;
 }
+function predictBlendedPosConditionedFeats(features,upos,conditionedTraining,globalHeads,globalBlendWeight) {
+  const weight=Math.max(0,Math.min(1,Number(globalBlendWeight)||0));
+  if(weight===0)return predictPosConditionedFeats(features,upos,conditionedTraining.heads,globalHeads);
+  const selected=conditionedTraining.heads[upos]||Object.create(null),result=Object.create(null);
+  for(const attribute of attributes) {
+    const globalHead=globalHeads[attribute].head;
+    const localHead=selected[attribute]||globalHead;
+    const local=localHead.predict(features),global=globalHead.predict(features);
+    if(!global||!Array.isArray(global.probabilities))continue;
+    if(weight===1||!local||!Array.isArray(local.probabilities)) {
+      const value=global.label||noFeature;
+      if(value!==noFeature)result[attribute]=value;
+      continue;
+    }
+    const distribution=new Map();
+    for(const row of local.probabilities) {
+      const label=String(row.label||noFeature);
+      distribution.set(label,(distribution.get(label)||0)+(1-weight)*Math.max(0,Number(row.probability)||0));
+    }
+    for(const row of global.probabilities) {
+      const label=String(row.label||noFeature);
+      distribution.set(label,(distribution.get(label)||0)+weight*Math.max(0,Number(row.probability)||0));
+    }
+    const best=[...distribution.entries()].sort((left,right)=>right[1]-left[1]||
+      (left[0]<right[0]?-1:left[0]>right[0]?1:0))[0];
+    const value=best?best[0]:noFeature;
+    if(value!==noFeature)result[attribute]=value;
+  }
+  return result;
+}
 
 
 function selectUposWithMorphologyEvidence(features,uposHead,conditionedTraining,globalHeads,lambda) {
@@ -365,11 +395,14 @@ function lambdaIsZero(lambda) {
   if(typeof lambda==="number") return lambda===0;
   return Object.values(lambda||{}).every(value=>Number(value)===0);
 }
-function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambda) {
+function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambda,globalBlendWeight=0,trackFeatureMetrics=false) {
   const metrics=emptyMetrics();
   const upos={targets:0,correct:0};
   const featsExact={targets:0,correct:0};
   const joint={targets:0,correct:0};
+  const featureStats=trackFeatureMetrics?Object.fromEntries(attributes.map(attribute=>[attribute,{
+    targets:0,correct:0,goldCounts:new Map(),predictedCounts:new Map(),truePositives:new Map()
+  }])):null;
   let evidenceTotal=0,evidenceRows=0;
   for(const row of rows) {
     if(!row.form||!row.lemma||!row.upos||!/[\p{L}\p{N}]/u.test(row.form)) continue;
@@ -380,15 +413,26 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
     if(!selected.label) continue;
     if(lambdaIsZero(lambda)) assert.equal(selected.label,selected.baseLabel,
       "zero morphology-evidence weight must exactly preserve the base UPOS prediction");
-    const predictedFeats=predictPosConditionedFeats(
-      row.features,selected.label,conditionedTraining.heads,globalHeads
-    );
+    const predictedFeats=globalBlendWeight>0
+      ?predictBlendedPosConditionedFeats(row.features,selected.label,conditionedTraining,globalHeads,globalBlendWeight)
+      :predictPosConditionedFeats(row.features,selected.label,conditionedTraining.heads,globalHeads);
     const goldFeats=trackedFeatures(row.feats);
     const sameUpos=selected.label===row.upos;
     const sameFeats=featureSignature(predictedFeats)===featureSignature(goldFeats);
     upos.targets++;if(sameUpos)upos.correct++;
     featsExact.targets++;if(sameFeats)featsExact.correct++;
     joint.targets++;if(sameUpos&&sameFeats)joint.correct++;
+    if(featureStats)for(const attribute of attributes) {
+      const stat=featureStats[attribute];
+      const gold=goldFeats[attribute]||noFeature,predicted=predictedFeats[attribute]||noFeature;
+      stat.targets++;
+      if(gold===predicted) {
+        stat.correct++;
+        stat.truePositives.set(gold,(stat.truePositives.get(gold)||0)+1);
+      }
+      stat.goldCounts.set(gold,(stat.goldCounts.get(gold)||0)+1);
+      stat.predictedCounts.set(predicted,(stat.predictedCounts.get(predicted)||0)+1);
+    }
     evidenceTotal+=selected.evidence;evidenceRows++;
     const prediction=predictLemma(row.form,selected.label,predictedFeats,ruleBank.bank);
     const group=trainLemmas.has(row.lemma)?"knownLemma":"unseenLemma";
@@ -399,13 +443,31 @@ function evaluateJointPosEvidence(rows,outputVocabulary,uposHead,conditionedTrai
   const recall=all.exactRecallAcrossTargets||0;
   const precision=all.precisionAmongGenerated||0;
   const qualityF1=precision+recall?2*precision*recall/(precision+recall):0;
+  let perAttribute=null,featsMacroF1=null;
+  if(featureStats) {
+    perAttribute=Object.fromEntries(attributes.map(attribute=>{
+      const stat=featureStats[attribute];
+      const labels=[...new Set([...stat.goldCounts.keys(),...stat.predictedCounts.keys()])];
+      const classF1=labels.map(label=>{
+        const tp=stat.truePositives.get(label)||0;
+        const predicted=stat.predictedCounts.get(label)||0;
+        const gold=stat.goldCounts.get(label)||0;
+        const precision=predicted?tp/predicted:0,recall=gold?tp/gold:0;
+        return precision+recall?2*precision*recall/(precision+recall):0;
+      });
+      const macroF1=classF1.length?classF1.reduce((sum,value)=>sum+value,0)/classF1.length:0;
+      return [attribute,{targets:stat.targets,correct:stat.correct,accuracy:ratio(stat.correct,stat.targets),macroF1}];
+    }));
+    featsMacroF1=attributes.reduce((sum,attribute)=>sum+perAttribute[attribute].macroF1,0)/attributes.length;
+  }
   return {
     metrics,targets:metrics.all.targets,upos,featsExact,joint,
     uposAccuracy:ratio(upos.correct,upos.targets),
     trackedFeatsExactAccuracy:ratio(featsExact.correct,featsExact.targets),
     jointTagsAccuracy:ratio(joint.correct,joint.targets),
     precision,exactRecall:recall,qualityF1,
-    meanMorphologyEvidence:evidenceRows?evidenceTotal/evidenceRows:null
+    meanMorphologyEvidence:evidenceRows?evidenceTotal/evidenceRows:null,
+    ...(trackFeatureMetrics?{perAttribute,featsMacroF1}:{})
   };
 }
 function tuneJointPosEvidenceLambda(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas) {
@@ -539,6 +601,45 @@ function tunePosSpecificJointPosEvidenceLambda(validationRows,outputVocabulary,u
     validation:finalEvaluation,shrinkageScale,byUpos
   };
 }
+
+function tuneGlobalFeatsBlend(validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,lambdaByUpos) {
+  const candidates=[0,0.1,0.25,0.5,0.75,0.9,1];
+  const minimumMacroF1Gain=0.003;
+  const results=candidates.map(globalBlendWeight=>{
+    const evaluation=evaluateJointPosEvidence(
+      validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,
+      lambdaByUpos,globalBlendWeight,true
+    );
+    return {
+      globalBlendWeight,targets:evaluation.targets,featsMacroF1:evaluation.featsMacroF1,
+      trackedFeatsExactAccuracy:evaluation.trackedFeatsExactAccuracy,
+      uposAccuracy:evaluation.uposAccuracy,lemmaF1:evaluation.qualityF1
+    };
+  });
+  const baseline=results.find(row=>row.globalBlendWeight===0);
+  const best=results.slice().sort((left,right)=>
+    right.featsMacroF1-left.featsMacroF1||
+    right.trackedFeatsExactAccuracy-left.trackedFeatsExactAccuracy||
+    right.lemmaF1-left.lemmaF1||
+    left.globalBlendWeight-right.globalBlendWeight
+  )[0];
+  const improves=best.featsMacroF1>=baseline.featsMacroF1+minimumMacroF1Gain;
+  const selected=improves?best:baseline;
+  const validation=evaluateJointPosEvidence(
+    validationRows,outputVocabulary,uposHead,conditionedTraining,globalHeads,ruleBank,trainLemmas,
+    lambdaByUpos,selected.globalBlendWeight,true
+  );
+  return {
+    selectedGlobalBlendWeight:selected.globalBlendWeight,minimumMacroF1Gain,
+    baselineValidationMacroF1:baseline.featsMacroF1,
+    selectedValidationMacroF1:validation.featsMacroF1,
+    macroF1Gain:validation.featsMacroF1-baseline.featsMacroF1,
+    usedBaselineFallback:!improves,
+    selectionObjective:"maximize mean per-attribute FEATS macro-F1 on the reserved OOV validation split; require at least +0.003 over hard POS routing; tie-break by exact FEATS accuracy, lemma F1, then smaller global weight",
+    results,validation
+  };
+}
+
 
 function evaluatePipeline(testRows,outputVocabulary,uposHead,featHeads,conditionedHeads,ruleBank,trainLemmas) {
   const predictedBoth=emptyMetrics(),oracle=emptyMetrics();
@@ -762,6 +863,40 @@ for(const seed of seeds) {
     testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
     posSpecificTuning.lambdaByUpos
   );
+  const featsBlendTuning=requestedVocabularyOrder==="frequency"
+    ?tuneGlobalFeatsBlend(oovValidationRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,
+      ruleBank,trainLemmas,posSpecificTuning.lambdaByUpos)
+    :null;
+  const featsBlendTest=featsBlendTuning?evaluateJointPosEvidence(
+    testRows,outputVocabulary,uposSelected.head,conditionedTraining,featHeads,ruleBank,trainLemmas,
+    posSpecificTuning.lambdaByUpos,featsBlendTuning.selectedGlobalBlendWeight,true
+  ):null;
+  if(featsBlendTuning) {
+    assert.equal(featsBlendTuning.validation.targets,posSpecificValidation.targets,
+      "FEATS blend calibration must use the same reserved OOV validation targets");
+    assert.equal(featsBlendTest.targets,posSpecificTest.targets,
+      "FEATS blend evaluation must use the same independent OOV test targets");
+    assert.deepEqual(featsBlendTest.upos,posSpecificTest.upos,
+      "FEATS blending must not change the already-selected UPOS route");
+    const probe=oovValidationRows.find(row=>row.form&&row.lemma&&row.upos&&/[\p{L}\p{N}]/u.test(row.form)&&!outputVocabulary.has(row.form));
+    if(probe) {
+      assert.deepEqual(
+        predictBlendedPosConditionedFeats(probe.features,probe.upos,conditionedTraining,featHeads,0),
+        predictPosConditionedFeats(probe.features,probe.upos,conditionedTraining.heads,featHeads),
+        "zero global blend must exactly preserve hard POS-conditioned FEATS"
+      );
+      const globalExpected=Object.create(null);
+      for(const attribute of attributes) {
+        const label=featHeads[attribute].head.predict(probe.features)?.label||noFeature;
+        if(label!==noFeature)globalExpected[attribute]=label;
+      }
+      assert.deepEqual(
+        predictBlendedPosConditionedFeats(probe.features,probe.upos,conditionedTraining,featHeads,1),
+        globalExpected,
+        "full global blend must exactly reproduce global FEATS heads"
+      );
+    }
+  }
   assert.ok(rerankedValidation.targets>0,"joint POS evidence must tune on reserved external OOV validation targets");
   assert.ok(rerankedValidation.uposAccuracy>=rerankingTuning.baselineValidationUposAccuracy-
     rerankingTuning.maximumUposAccuracyDrop-1e-12,
@@ -833,6 +968,28 @@ for(const seed of seeds) {
     lemma:Object.fromEntries(["oracle","goldUposPredFeats","predictedUposGoldFeats","predictedBoth"].map(key=>[
       key,Object.fromEntries(Object.entries(evaluation[key]).map(([slice,value])=>[slice,summariseSlice(value)]))
     ])),
+    featsGlobalBlend:featsBlendTuning?{
+      selectionObjective:featsBlendTuning.selectionObjective,
+      selectedGlobalBlendWeight:featsBlendTuning.selectedGlobalBlendWeight,
+      minimumMacroF1Gain:featsBlendTuning.minimumMacroF1Gain,
+      baselineValidationMacroF1:featsBlendTuning.baselineValidationMacroF1,
+      selectedValidationMacroF1:featsBlendTuning.selectedValidationMacroF1,
+      macroF1Gain:featsBlendTuning.macroF1Gain,
+      usedBaselineFallback:featsBlendTuning.usedBaselineFallback,
+      candidates:featsBlendTuning.results,
+      independentTest:{
+        targets:featsBlendTest.targets,
+        upos:featsBlendTest.upos,featsExact:featsBlendTest.featsExact,joint:featsBlendTest.joint,
+        uposAccuracy:featsBlendTest.uposAccuracy,
+        trackedFeatsExactAccuracy:featsBlendTest.trackedFeatsExactAccuracy,
+        jointTagsAccuracy:featsBlendTest.jointTagsAccuracy,
+        featsMacroF1:featsBlendTest.featsMacroF1,
+        precision:featsBlendTest.precision,exactRecall:featsBlendTest.exactRecall,
+        qualityF1:featsBlendTest.qualityF1,
+        perAttribute:featsBlendTest.perAttribute,
+        lemma:summariseMetrics(featsBlendTest.metrics)
+      }
+    }:null,
     posSpecificJointPosEvidence:{
       globalFallbackLambda:posSpecificTuning.globalLambda,
       minimumValidationTargets:posSpecificTuning.minimumTargets,
@@ -904,9 +1061,54 @@ function summariseMetrics(metrics) {
 function summariseTokens(value) {
   return {...value,accuracy:ratio(value.correct,value.targets)};
 }
+const blendSeedReports=seedReports.map(seed=>seed.featsGlobalBlend).filter(Boolean);
+function combineBlendLemmaSlice(key) {
+  const rows=blendSeedReports.map(seed=>seed.independentTest.lemma[key]);
+  const targets=rows.reduce((sum,row)=>sum+row.targets,0);
+  const generated=rows.reduce((sum,row)=>sum+row.generated,0);
+  const correct=rows.reduce((sum,row)=>sum+row.correct,0);
+  const ambiguous=rows.reduce((sum,row)=>sum+row.ambiguous,0);
+  const support=rows.reduce((sum,row)=>sum+row.meanSupportingLemmas*row.generated,0);
+  return {
+    targets,generated,correct,ambiguous,
+    coverage:targets?generated/targets:null,
+    precisionAmongGenerated:generated?correct/generated:null,
+    exactRecallAcrossTargets:targets?correct/targets:null,
+    meanSupportingLemmas:generated?support/generated:null
+  };
+}
+function combineBlendCounter(key) {
+  const rows=blendSeedReports.map(seed=>seed.independentTest[key]);
+  const targets=rows.reduce((sum,row)=>sum+row.targets,0);
+  const correct=rows.reduce((sum,row)=>sum+row.correct,0);
+  return {targets,correct,accuracy:targets?correct/targets:null};
+}
+const featsGlobalBlendAggregate=blendSeedReports.length?{
+  seedCount:blendSeedReports.length,
+  selectedGlobalBlendWeightMean:blendSeedReports.reduce((sum,row)=>sum+row.selectedGlobalBlendWeight,0)/blendSeedReports.length,
+  validationMacroF1Mean:blendSeedReports.reduce((sum,row)=>sum+row.selectedValidationMacroF1,0)/blendSeedReports.length,
+  independentTest:{
+    targets:blendSeedReports.reduce((sum,row)=>sum+row.independentTest.targets,0),
+    upos:combineBlendCounter("upos"),featsExact:combineBlendCounter("featsExact"),joint:combineBlendCounter("joint"),
+    uposAccuracy:combineBlendCounter("upos").accuracy,
+    trackedFeatsExactAccuracy:combineBlendCounter("featsExact").accuracy,
+    jointTagsAccuracy:combineBlendCounter("joint").accuracy,
+    featsMacroF1Mean:blendSeedReports.reduce((sum,row)=>sum+row.independentTest.featsMacroF1,0)/blendSeedReports.length,
+    lemma:Object.fromEntries(["all","knownLemma","unseenLemma"].map(key=>[key,combineBlendLemmaSlice(key)])),
+    perAttribute:Object.fromEntries(attributes.map(attribute=>{
+      const rows=blendSeedReports.map(seed=>seed.independentTest.perAttribute[attribute]);
+      const targets=rows.reduce((sum,row)=>sum+row.targets,0);
+      const correct=rows.reduce((sum,row)=>sum+row.correct,0);
+      return [attribute,{
+        targets,correct,accuracy:targets?correct/targets:null,
+        macroF1Mean:rows.reduce((sum,row)=>sum+row.macroF1,0)/rows.length
+      }];
+    }))
+  }
+}:null;
 const report={
   benchmark:"NEUROGENESIS UPOS-conditioned FEATS to inverse morphology lemma pipeline",
-  version:"0.58.132",
+  version:"0.58.133",
   source:{
     treebank:"UD_Russian-GSD",release:"r2.18",
     commit:"9acc9d677327043bd416fcc89e4b3407c620d885",license:"CC BY-SA 4.0"
@@ -943,6 +1145,7 @@ const report={
     goldUpos:Object.fromEntries(Object.entries(aggregate.perAttributeGoldUpos).map(([key,value])=>[key,summariseTokens(value)])),
     predictedUpos:Object.fromEntries(Object.entries(aggregate.perAttributePredictedUpos).map(([key,value])=>[key,summariseTokens(value)]))
   },
+  featsGlobalBlend:featsGlobalBlendAggregate,
   lemma:{
     predictedBoth:summariseMetrics(aggregate.predictedBoth),
     goldUposPredFeats:summariseMetrics(aggregate.goldUposPredFeats),
@@ -961,4 +1164,4 @@ assert.ok(report.lemma.oracleGoldTags.unseenLemma.targets>0);
 assert.ok(report.lemma.oracleGoldTags && report.lemma.oracleGoldTags.all,
   "oracle lemma metrics must be present in the report");
 assert.equal(report.lemma.predictedBoth.all.targets,report.lemma.oracleGoldTags.all.targets);
-console.log("NEUROGENESIS 0.58.132 paired frequency-vocabulary OOV-calibrated pipeline: "+JSON.stringify(report));
+console.log("NEUROGENESIS 0.58.133 paired frequency-vocabulary and validation-tuned FEATS blend pipeline: "+JSON.stringify(report));
