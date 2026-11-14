@@ -6,6 +6,7 @@ on:
       - experiment/upos-evidence-guardrail-2026-11-14
       - experiment/upos-pos-specific-calibration-2026-11-14
       - experiment/russian-gsd-training-scale-2026-11-14
+      - experiment/context-vocabulary-capacity-2026-11-14
   workflow_dispatch:
 
 permissions:
@@ -19,7 +20,7 @@ jobs:
   morphology:
     name: Validate UPOS evidence guardrail
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +36,7 @@ jobs:
           node --check upos-supervision.js
           node --check feats-supervision.js
           node --check tests/predicted-morphology-pipeline.test.js
+          node --check tests/contextual-attention.test.js
 
       - name: Test UD annotation importer and deterministic splits
         run: node tests/ud-russian-gsd-benchmark.test.js
@@ -49,16 +51,16 @@ jobs:
             https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu \
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
-      - name: Compare baseline and expanded Russian-GSD training samples
+      - name: Compare 1024 and 2048 vocabulary capacities on the same 960 sentences
         run: |
-          echo "=== Paired baseline: 320 training sentences ==="
+          echo "=== Fixed 960-sentence sample; control vocabulary capacity 1024 ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 320
-          echo "=== Expanded sample: 960 training sentences; same nested baseline and independent test ==="
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 1024
+          echo "=== Same 960-sentence sample; expanded vocabulary capacity 2048 ==="
           node tests/predicted-morphology-pipeline.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
-            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960
+            /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu 960 2048
 
       - name: Run focused cognitive and storage regressions
         run: |
