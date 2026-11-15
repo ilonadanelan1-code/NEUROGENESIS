@@ -596,7 +596,7 @@ def main():
             "word_decoder": "One-piece RuRoBERTa words use a single-mask filtered token ranking; multi-piece words use an 8-wide beam with 8 branches and a next-token word-boundary probability.",
             "byte_bpe_rules": "Word starts are selected using the tokenizer's Ġ prefix when the masked position follows whitespace; continuation pieces do not use Ġ. Candidate surfaces must round-trip to the exact generated token IDs.",
             "max_generated_pieces": MAX_PIECES,
-            "tokenizer_note": "Uses the patched-tokenizer revision that makes six frequent Russian lowercase letters single tokens."
+            "tokenizer_note": "Uses the patched-tokenizer revision that makes six frequent Russian lowercase letters single tokens.",
             "beam_width": BEAM_WIDTH,
             "branch_size": BRANCH_SIZE,
             "max_sequence_length": MAX_LENGTH,
