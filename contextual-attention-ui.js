@@ -120,7 +120,7 @@
           lines.push("РАНЖИРОВАННЫЕ КОНТЕКСТНЫЕ КАНДИДАТЫ: "+
             ranked.candidates.slice(0,6).map(item=>item.surface+
               (item.baseToken!==item.surface?" ← "+item.baseToken:"")+
-              " "+Math.round(item.score*100)+"%").join(" · "));
+              " · балл "+Math.round(item.score*100)).join(" · "));
         }
       }
     }
