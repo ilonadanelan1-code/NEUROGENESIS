@@ -27,11 +27,12 @@ def normalize(value):
 
 def first_word_from_fill(decoded, tokenizer):
     text = str(decoded or "")
-    # T5 span-corruption targets start with the sentinel corresponding to the
-    # missing span. A following sentinel marks the end of that span.
+    # GPT2Tokenizer's decoder sequence starts with the T5 pad/decoder-start
+    # token. Drop it from the left; never split at it (that would erase fills).
+    text = re.sub(r"^<pad>\\s*", "", text)
     if "<extra_id_0>" in text:
         text = text.split("<extra_id_0>", 1)[1]
-    for sentinel in ("<extra_id_1>", "</s>", "<pad>"):
+    for sentinel in ("<extra_id_1>", "</s>"):
         if sentinel in text:
             text = text.split(sentinel, 1)[0]
     words = WORD_RE.findall(text)
