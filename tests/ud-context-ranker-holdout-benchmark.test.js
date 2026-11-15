@@ -46,66 +46,75 @@ const variants=[
 const contentPOS=new Set(["NOUN","PROPN","VERB","AUX","ADJ","ADV","PRON","NUM"]);
 const keys=["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"];
 const clean=v=>String(v==null?"":v).normalize("NFKC").toLowerCase().replace(/ё/gu,"е");
-function evaluate(records,options){
- const groups={all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},
-  oovSurface:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},
-  unseenLemma:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0}};
- const pos={total:0,correct:0},morph=Object.create(null),perPos=Object.create(null),errors=[];
+function evaluateMany(records,optionsList){
+ const states=optionsList.map(()=>({
+  groups:{all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},
+   oovSurface:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},
+   unseenLemma:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0}},
+  pos:{total:0,correct:0},morph:Object.create(null),perPos:Object.create(null),errors:[]
+ }));
  for(const sentence of records){
   const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
   const text=lexical.map(t=>t.form).join(" ");
   for(let index=0;index<lexical.length;index++){
    const target=lexical[index];if(!contentPOS.has(target.upos))continue;
-   const result=ranker.predictMasked(text,index,{limit:8,...options});
+   const base=ranker.predictMasked(text,index,{limit:12});
    const form=clean(target.form),lemma=clean(target.lemma||target.form);
    const oovForm=!trainingForms.has(form),oovLemma=!trainingLemmas.has(lemma);
-   const covered=result.candidates.length>0;
-   const top1=covered&&clean(result.candidates[0].form)===form;
-   const recall8=covered&&result.candidates.some(c=>clean(c.form)===form);
-   const lemmaTop1=covered&&clean(result.candidates[0].lemma)===lemma;
-   const lemmaRecall8=covered&&result.candidates.some(c=>clean(c.lemma)===lemma);
-   const update=g=>{g.total++;if(covered)g.covered++;if(top1)g.top1++;if(recall8)g.recall8++;if(lemmaTop1)g.lemmaTop1++;if(lemmaRecall8)g.lemmaRecall8++;};
-   update(groups.all);if(oovForm)update(groups.oovSurface);if(oovLemma)update(groups.unseenLemma);
-   if(!perPos[target.upos])perPos[target.upos]={total:0,covered:0,top1:0,recall8:0};
-   update(perPos[target.upos]);
-   const predictedPos=result.tagPrediction&&result.tagPrediction.upos[0]?.label;
-   pos.total++;if(predictedPos===target.upos)pos.correct++;
-   for(const key of keys){
-    const expected=target.feats&&target.feats[key];if(!expected)continue;
-    const distribution=result.tagPrediction&&result.tagPrediction.morphology[target.upos]&&result.tagPrediction.morphology[target.upos][key];
-    if(!distribution||!distribution.length)continue;
-    if(!morph[key])morph[key]={total:0,correct:0};
-    morph[key].total++;if(distribution[0].label===expected)morph[key].correct++;
+   for(let variantIndex=0;variantIndex<optionsList.length;variantIndex++){
+    const options=optionsList[variantIndex],state=states[variantIndex],groups=state.groups;
+    const candidates=ranker.rerankCandidates(base.candidates,base.tagPrediction,options).slice(0,8);
+    const covered=candidates.length>0,top1=covered&&clean(candidates[0].form)===form;
+    const recall8=covered&&candidates.some(c=>clean(c.form)===form);
+    const lemmaTop1=covered&&clean(candidates[0].lemma)===lemma;
+    const lemmaRecall8=covered&&candidates.some(c=>clean(c.lemma)===lemma);
+    const update=g=>{g.total++;if(covered)g.covered++;if(top1)g.top1++;if(recall8)g.recall8++;if(lemmaTop1)g.lemmaTop1++;if(lemmaRecall8)g.lemmaRecall8++;};
+    update(groups.all);if(oovForm)update(groups.oovSurface);if(oovLemma)update(groups.unseenLemma);
+    if(!state.perPos[target.upos])state.perPos[target.upos]={total:0,covered:0,top1:0,recall8:0};
+    update(state.perPos[target.upos]);
+    const predictedPos=base.tagPrediction&&base.tagPrediction.upos[0]?.label;
+    state.pos.total++;if(predictedPos===target.upos)state.pos.correct++;
+    for(const key of keys){
+     const expected=target.feats&&target.feats[key];if(!expected)continue;
+     const distribution=base.tagPrediction&&base.tagPrediction.morphology[target.upos]&&base.tagPrediction.morphology[target.upos][key];
+     if(!distribution||!distribution.length)continue;
+     if(!state.morph[key])state.morph[key]={total:0,correct:0};
+     state.morph[key].total++;if(distribution[0].label===expected)state.morph[key].correct++;
+    }
+    if(!top1&&state.errors.length<20)state.errors.push({sentence:sentence.text,target:target.form,lemma,upos:target.upos,
+     oovSurface:oovForm,unseenLemma:oovLemma,candidates:candidates.slice(0,4).map(c=>({form:c.form,lemma:c.lemma,upos:c.upos,score:Number(c.score.toFixed(3))}))});
    }
-   if(!top1&&errors.length<20)errors.push({sentence:sentence.text,target:target.form,lemma,upos:target.upos,
-    oovSurface:oovForm,unseenLemma:oovLemma,candidates:result.candidates.slice(0,4).map(c=>({form:c.form,lemma:c.lemma,upos:c.upos,score:Number(c.score.toFixed(3))}))});
   }
  }
  const ratio=(a,b)=>b?a/b:0;
- const sum=g=>({total:g.total,coverage:ratio(g.covered,g.total),top1AmongCovered:ratio(g.top1,g.covered),
-  recallAt8AmongCovered:ratio(g.recall8,g.covered),lemmaRecallAt8AmongCovered:ratio(g.lemmaRecall8,g.covered),
-  top1All:ratio(g.top1,g.total),recallAt8All:ratio(g.recall8,g.total),
-  lemmaTop1All:ratio(g.lemmaTop1,g.total),lemmaRecallAt8All:ratio(g.lemmaRecall8,g.total)});
- const summarized=Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,sum(v)]));
- const objective=summarized.all.top1All+.2*summarized.all.recallAt8All;
- return{metrics:{...summarized,byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,sum(v)])),
-  tagger:{upos:{...pos,accuracy:ratio(pos.correct,pos.total)},
-   morphology:Object.fromEntries(Object.entries(morph).map(([k,v])=>[k,{...v,accuracy:ratio(v.correct,v.total)}]))}},
-  objective,errorExamples:errors};
+ return states.map(state=>{
+  const sum=g=>({total:g.total,coverage:ratio(g.covered,g.total),top1AmongCovered:ratio(g.top1,g.covered),
+   recallAt8AmongCovered:ratio(g.recall8,g.covered),lemmaRecallAt8AmongCovered:ratio(g.lemmaRecall8,g.covered),
+   top1All:ratio(g.top1,g.total),recallAt8All:ratio(g.recall8,g.total),
+   lemmaTop1All:ratio(g.lemmaTop1,g.total),lemmaRecallAt8All:ratio(g.lemmaRecall8,g.total)});
+  const summarized=Object.fromEntries(Object.entries(state.groups).map(([k,v])=>[k,sum(v)]));
+  const objective=summarized.all.top1All+.2*summarized.all.recallAt8All;
+  return{metrics:{...summarized,byUPOS:Object.fromEntries(Object.entries(state.perPos).map(([k,v])=>[k,sum(v)])),
+   tagger:{upos:{...state.pos,accuracy:ratio(state.pos.correct,state.pos.total)},
+    morphology:Object.fromEntries(Object.entries(state.morph).map(([k,v])=>[k,{...v,accuracy:ratio(v.correct,v.total)}]))}},
+   objective,errorExamples:state.errors};
+ });
 }
 const trainingForms=new Set(),trainingLemmas=new Set();
 for(const row of trainForRanker)for(const token of row.tokens){
  const form=clean(token.form),lemma=clean(token.lemma||token.form);
  if(form)trainingForms.add(form);if(lemma)trainingLemmas.add(lemma);
 }
-const tuning=variants.map(variant=>({variant,result:evaluate(devSample,{tagPosWeight:variant.tagPosWeight,tagFeatureWeight:variant.tagFeatureWeight})}));
+const tuningResults=evaluateMany(devSample,variants);
+const tuning=variants.map((variant,index)=>({variant,result:tuningResults[index]}));
 tuning.sort((a,b)=>b.result.objective-a.result.objective||
  b.result.metrics.all.recallAt8All-a.result.metrics.all.recallAt8All);
 const selected=tuning[0].variant;
-const finalBaseline=evaluate(untouchedTest,{tagPosWeight:0,tagFeatureWeight:0});
-const finalSelected=selected.name==="baseline"?finalBaseline:evaluate(untouchedTest,{
- tagPosWeight:selected.tagPosWeight,tagFeatureWeight:selected.tagFeatureWeight
-});
+const finalResults=evaluateMany(untouchedTest,[
+ {name:"baseline",tagPosWeight:0,tagFeatureWeight:0},
+ {name:selected.name,tagPosWeight:selected.tagPosWeight,tagFeatureWeight:selected.tagFeatureWeight}
+]);
+const finalBaseline=finalResults[0],finalSelected=finalResults[1];
 const report={
  corpus:{trainSentences:trainUnique.length,trainSentencesUsed:trainForRanker.length,devSentences:devUnique.length,
   devSampleSentences:devSample.length,testSentences:testUnique.length,previouslyExploredTestSentencesExcluded:priorTestSample.length,

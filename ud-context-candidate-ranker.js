@@ -147,6 +147,27 @@ function create(records,options={}){
   if(numberHint&&numberHint.number)addFeature(["NOUN","PROPN","PRON","VERB","AUX","ADJ"],"Number",[numberHint.number==="plural"?"Plur":"Sing"],.08);
   return{pos,features,numberHint};
  }
+ function rerankCandidates(candidates,tagPrediction,predictOptions={}){
+  const posWeight=Math.max(0,Math.min(.05,Number(predictOptions.tagPosWeight)||0));
+  const featureWeight=Math.max(0,Math.min(.03,Number(predictOptions.tagFeatureWeight)||0));
+  return candidates.map(candidate=>{
+   const baseScore=Number.isFinite(Number(candidate.baseScore))?Number(candidate.baseScore):Number(candidate.score)||0;
+   let score=baseScore;
+   if(posWeight>0){
+    const probability=tagPrediction&&tagPrediction.upos.find(item=>item.label===candidate.upos)?.probability||0;
+    const maximum=tagPrediction&&tagPrediction.upos[0]?.probability||1;
+    if(probability>0)score+=posWeight*Math.log(Math.max(1e-8,probability)/Math.max(1e-8,maximum));
+   }
+   if(featureWeight>0)for(const key of Object.keys(candidate.features||{})){
+    const distribution=tagPrediction&&tagPrediction.morphology[candidate.upos]&&tagPrediction.morphology[candidate.upos][key];
+    if(!distribution||!distribution.length)continue;
+    const probability=distribution.find(item=>item.label===candidate.features[key])?.probability||0;
+    const maximum=distribution[0].probability||1;
+    if(probability>0)score+=featureWeight*Math.log(Math.max(1e-8,probability)/Math.max(1e-8,maximum));
+   }
+   return{...candidate,baseScore,score};
+  }).sort((a,b)=>b.score-a.score||b.support-a.support||a.form.localeCompare(b.form));
+ }
  function predictMasked(text,index,predictOptions={}){
   const parsed=contextFor(text,index);if(parsed.index<0)return{available:false,reason:"empty_input",candidates:[],context:[]};
   if(parsed.context.length<2)return{available:false,reason:"insufficient_context",candidates:[],context:parsed.context};
@@ -159,12 +180,12 @@ function create(records,options={}){
     if(!constraint.upos.includes(t.upos)||!f[constraint.key])continue;
     score+=constraint.values.includes(f[constraint.key])?constraint.weight:-constraint.weight*.75;
    }
-   score=Math.max(0,Math.min(1,score));out.push({form:t.form,surface:t.form,lemma:t.lemma,upos:t.upos,features:{...f},score,support:row.scores.length,matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,lemmaContextMatches:row.best.lemmaMatches,alignedOffsets:row.best.aligned,matchedContext:row.best.evidence});}
-  out.sort((a,b)=>b.score-a.score||b.support-a.support||a.form.localeCompare(b.form));const unique=[],seen=new Set();for(const c of out){const k=c.form+"|"+c.lemma+"|"+c.upos;if(seen.has(k))continue;seen.add(k);unique.push(c);if(unique.length>=Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8))))break;}
+   score=Math.max(0,Math.min(1,score));out.push({form:t.form,surface:t.form,lemma:t.lemma,upos:t.upos,features:{...f},score,support:row.scores.length,matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,lemmaContextMatches:row.best.lemmaMatches,alignedOffsets:row.best.aligned,matchedContext:row.best.evidence,baseScore:score});}
+  const ranked=rerankCandidates(out,tagPrediction,predictOptions),unique=[],seen=new Set();for(const c of ranked){const k=c.form+"|"+c.lemma+"|"+c.upos;if(seen.has(k))continue;seen.add(k);unique.push(c);if(unique.length>=Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8))))break;}
   return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextHints:hints,tagPrediction,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
  }
  const status={sentenceCount:clean.length,annotatedTokenCount:clean.reduce((s,r)=>s+r.tokens.length,0),contextExamples:examples.length,vocabularyForms:analyses.size,vocabularyLemmas:new Set([...analyses.values()].flat().map(a=>a.lemma)).size,windowSize};
- return Object.freeze({predictMasked,status:()=>({...status,tagExamples:taggerRows.length,posLabels:posTagger.labels.length,morphologyHeads:morphologyTaggers.size})});
+ return Object.freeze({predictMasked,rerankCandidates,status:()=>({...status,tagExamples:taggerRows.length,posLabels:posTagger.labels.length,morphologyHeads:morphologyTaggers.size})});
 }
 root.NGUDContextCandidateRanker=Object.freeze({schema:"NG_UD_CONTEXT_CANDIDATE_RANKER_V1",parseConllu,create,tokenize:words});
 })();
