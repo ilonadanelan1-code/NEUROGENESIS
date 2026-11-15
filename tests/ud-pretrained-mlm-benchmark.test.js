@@ -124,7 +124,12 @@ function maskedFormsForExternal(forms, index) {
 }
 
 function normalize(value) {
+  // Remove acute stress marks only; stripping every Unicode mark also destroys
+  // the breve that distinguishes Russian "й" from "и".
   return String(value == null ? "" : value).normalize("NFKD")
-    .replace(/\p{M}/gu, "").normalize("NFKC")
+    .replace(/\u0301/gu, "").normalize("NFKC")
     .toLowerCase().replace(/ё/gu, "е");
 }
+
+assert.equal(normalize("й Й число\u0301 Число\u0301 ё Ё"),
+  "й й число число е е", "normalization must preserve й and remove stress marks");
