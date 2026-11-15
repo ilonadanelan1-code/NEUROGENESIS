@@ -22,8 +22,15 @@ CONTENT_POS = {"NOUN", "PROPN", "VERB", "AUX", "ADJ", "ADV", "PRON", "NUM"}
 
 def normalize(value):
     decomposed = unicodedata.normalize("NFKD", str(value or ""))
-    without_marks = "".join(ch for ch in decomposed if not unicodedata.category(ch).startswith("M"))
-    return unicodedata.normalize("NFKC", without_marks).lower().replace("ё", "е")
+    # Remove acute stress marks only. Removing all combining marks also strips
+    # the breve from Russian "й", incorrectly turning it into "и".
+    without_stress = decomposed.replace("\u0301", "")
+    return unicodedata.normalize("NFKC", without_stress).lower().replace("ё", "е")
+
+
+assert normalize("й Й число\u0301 Число\u0301 ё Ё") == "й й число число е е", (
+    "normalization must preserve й and remove stress marks"
+)
 
 
 def safe_word(tokenizer, token_id):
