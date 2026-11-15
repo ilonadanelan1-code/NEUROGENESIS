@@ -44,7 +44,7 @@ for (const sentence of prepared.testRecords) {
   assert.equal(JSON.stringify(api.tokenize(text)), JSON.stringify(normalized),
     "word positions must remain aligned with the model tokenizer");
   const sourceText = sentence.text || text;
-  const sourceMatches = [...sourceText.matchAll(/[\\p{L}\\p{N}]+/gu)];
+  const sourceMatches = [...sourceText.matchAll(/[\p{L}\p{N}]+/gu)];
   const sourceWords = api.tokenize(sourceText);
   const canPreservePunctuation = sourceMatches.length === forms.length &&
     JSON.stringify(sourceWords) === JSON.stringify(normalized);
