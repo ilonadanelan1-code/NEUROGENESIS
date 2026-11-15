@@ -1,0 +1,47 @@
+name: Validate contextual OOV candidate ranker
+
+on:
+  push:
+    branches:
+      - experiment/contextual-candidate-ranker-v1
+  pull_request:
+    branches:
+      - main
+    paths:
+      - contextual-candidate-ranker.js
+      - contextual-attention-ui.js
+      - index.html
+      - tests/contextual-candidate-ranker.test.js
+      - .github/workflows/contextual-candidate-ranker.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check contextual-candidate-ranker.js
+          node --check contextual-attention-ui.js
+      - name: Test masked-context candidate ranking
+        run: node tests/contextual-candidate-ranker.test.js
+      - name: Check script loading order
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const ranker = html.indexOf('contextual-candidate-ranker.js');
+          const ui = html.indexOf('contextual-attention-ui.js');
+          if (ranker < 0 || ui < 0 || ranker > ui) {
+            throw new Error('Candidate ranker must load after the model and before its UI.');
+          }
+          console.log('Candidate ranker script is loaded before the contextual UI.');
+          NODE
