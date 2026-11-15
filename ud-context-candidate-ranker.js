@@ -68,13 +68,13 @@ function create(records,options={}){
   while(prefix<token.lemma.length&&prefix<token.form.length&&token.lemma[prefix]===token.form[prefix])prefix++;
   if(prefix<2)return;
   const oldSuffix=token.lemma.slice(prefix),replacement=token.form.slice(prefix);
-  if(oldSuffix.length>5||replacement.length>8)return;
+  if(oldSuffix.length>5||replacement.length>8||!replacement)return;
   const rule={oldSuffix,replacement,endingKey:token.lemma.slice(-2),features:{...token.feats},
-   upos:token.upos,count:1,sourceLemma:token.lemma};
+   upos:token.upos,count:1,sourceLemmas:new Set([token.lemma])};
   if(!morphRulesByPOS.has(token.upos))morphRulesByPOS.set(token.upos,new Map());
   const map=morphRulesByPOS.get(token.upos);
   const ruleKey=[rule.oldSuffix,rule.replacement,rule.endingKey,featureKey(rule.features,morphKeysByPOS[token.upos])].join("|");
-  if(map.has(ruleKey))map.get(ruleKey).count++;
+  if(map.has(ruleKey)){const existing=map.get(ruleKey);existing.count++;existing.sourceLemmas.add(token.lemma);}
   else map.set(ruleKey,rule);
  }
  for(const sent of clean){
@@ -135,7 +135,8 @@ function create(records,options={}){
     const known=pairs.filter(([key])=>formRow.features[key]).length;
     const coverage=pairs.length?known/pairs.length:0;
     const exact=pairs.length>0&&matches===pairs.length&&mismatches===0;
-    const score=.34*bundle.probability+.15*matches-.22*mismatches+.018*Math.log1p(formRow.count);
+    const featureAgreement=pairs.length?matches/Math.max(1,known):0;
+    const score=Math.max(0,Math.min(1,.55*bundle.probability+.28*featureAgreement+.12*coverage+.05*Math.min(1,Math.log1p(formRow.count)/Math.log(5))- .18*mismatches/Math.max(1,pairs.length)));
     add({form:formRow.form,lemma,upos,features:{...formRow.features},score,
      method:"observed_paradigm",generated:false,exactFeatureMatch:exact,featureCoverage:coverage,
      matchedFeatures:matches,featureMismatches:mismatches,frequency:formRow.count});
@@ -143,22 +144,27 @@ function create(records,options={}){
   }
   const rules=morphRulesByPOS.get(upos);
   if(rules){
+   const minLemmaSupport=Math.max(2,Math.min(5,Math.floor(Number(surfaceOptions.minRuleLemmaSupport)||2)));
    for(const rule of rules.values()){
-    if(rule.oldSuffix){
-     if(!lemma.endsWith(rule.oldSuffix))continue;
-    }else if(lemma.slice(-2)!==rule.endingKey)continue;
+    const lemmaSupport=rule.sourceLemmas&&rule.sourceLemmas.size||1;
+    if(lemmaSupport<minLemmaSupport)continue;
+    if(!lemma.endsWith(rule.endingKey))continue;
+    if(rule.oldSuffix&&!lemma.endsWith(rule.oldSuffix))continue;
     for(const bundle of bundles){
      const pairs=Object.entries(bundle.features);
-     if(!pairs.length)continue;
+     if(pairs.length<2)continue;
      const matches=pairs.filter(([key,value])=>rule.features[key]===value).length;
      const mismatches=pairs.filter(([key,value])=>rule.features[key]&&rule.features[key]!==value).length;
-     if(!matches||mismatches)continue;
+     const minimumMatches=Math.max(2,Math.ceil(pairs.length*.5));
+     if(matches<minimumMatches||mismatches)continue;
      const form=lemma.slice(0,lemma.length-rule.oldSuffix.length)+rule.replacement;
      if(!form||form===lemma)continue;
-     const score=.46*bundle.probability+.17*matches+.035*Math.log1p(rule.count);
+     const featureAgreement=matches/pairs.length;
+     const supportQuality=Math.min(1,Math.log1p(lemmaSupport)/Math.log(6));
+     const score=Math.max(0,Math.min(1,.55*bundle.probability+.25*featureAgreement+.12*supportQuality+.08));
      add({form,lemma,upos,features:{...bundle.features},score,method:"learned_suffix_rule",
-      generated:true,exactFeatureMatch:true,featureCoverage:1,matchedFeatures:matches,
-      featureMismatches:0,ruleSupport:rule.count,ruleEnding:rule.endingKey});
+      generated:true,exactFeatureMatch:true,featureCoverage:featureAgreement,matchedFeatures:matches,
+      featureMismatches:0,ruleSupport:rule.count,ruleLemmaSupport:lemmaSupport,ruleEnding:rule.endingKey});
     }
    }
   }

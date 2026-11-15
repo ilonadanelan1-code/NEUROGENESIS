@@ -19,7 +19,13 @@ fixture.push(
 "2\tприбора\tприбор\tNOUN\t_\tCase=Gen|Gender=Masc|Number=Sing\t3\tnmod\t_\t_\n"+
 "3\tзавершён\tзавершить\tVERB\t_\tVerbForm=Part|Tense=Past|Voice=Pass|Gender=Masc|Number=Sing\t0\troot\t_\t_\n"
 );
-const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,6);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
+fixture.push(
+"# sent_id = g\n# text = Высота забора большая.\n"+
+"1\tВысота\tвысота\tNOUN\t_\tCase=Nom|Gender=Fem|Number=Sing\t2\tnsubj\t_\t_\n"+
+"2\tзабора\tзабор\tNOUN\t_\tCase=Gen|Gender=Masc|Number=Sing\t1\tnmod\t_\t_\n"+
+"3\tбольшая\tбольшой\tADJ\t_\tCase=Nom|Gender=Fem|Number=Sing\t1\tamod\t_\t_\n"
+);
+const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,7);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
 const modelApi={inferMaskedNumber:(t,i)=>{const l=t[i-1]||"",r=t[i+1]||"";if(/(ые|ие)$/u.test(l)||/(ют|ут|ат|ят)$/u.test(r))return{number:"plural"};if(/(ает|яет|ует|ит|ет)$/u.test(r))return{number:"singular"};return null;}};
 const ranker=api.create(records,{modelApi});
 const lemmaFirst=ranker.predictLemmaMasked("Новые нейроны получают сигнал",1,{limit:8});
@@ -43,7 +49,7 @@ const generatedMotor=ranker.reconstructSurface({lemma:"мотор",upos:"NOUN"},
 assert.ok(generatedMotor.candidates.some(row=>row.form==="мотора"&&row.generated===true&&row.method==="learned_suffix_rule"),
  "the learned -ор → -ора genitive rule should generate a form for a different lemma");
 assert.equal(generatedMotor.targetSurfaceUsed,false);
-assert.equal(ranker.status().sentenceCount,6);assert.ok(ranker.status().contextExamples>0);
+assert.equal(ranker.status().sentenceCount,7);assert.ok(ranker.status().contextExamples>0);
 const tagProbe=ranker.predictMasked("нейрон система сигнал",1);
 assert.ok(tagProbe.tagPrediction&&tagProbe.tagPrediction.upos.length>0,"POS classifier should return a distribution without the hidden target");
 assert.equal(tagProbe.tagPrediction.upos[0].label,"VERB","noun subject + noun object context should favour a verb");

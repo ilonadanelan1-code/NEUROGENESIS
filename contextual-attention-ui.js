@@ -155,7 +155,7 @@
         if(ud.surfaceCandidates.length){
           lines.push("UD · ВОССТАНОВЛЕННЫЕ СЛОВОФОРМЫ: "+
             ud.surfaceCandidates.slice(0,8).map(item=>item.form+" ["+item.lemma+
-              (item.generated?", правило":" , парадигма")+
+              (item.generated?", генерация":", парадигма")+
               (item.features&&item.features.Case?", "+item.features.Case:"")+
               (item.features&&item.features.Number?", "+item.features.Number:"")+
               "] · балл "+Math.round(item.combinedScore*100)+"%").join(" · "));

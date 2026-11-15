@@ -42,4 +42,4 @@ The API exposes three separate operations:
 
 Each reconstructed candidate declares its source: `observed_paradigm` or `learned_suffix_rule`. Rule-generated forms are heuristic hypotheses, not guaranteed grammatical forms. The learned rule table comes from the training partition only. The benchmark reports lemma recall, actual surface recall, and an oracle-lemma diagnostic separately; oracle metrics must not be presented as end-to-end performance.
 
-The initial generator is deliberately bounded: it only applies suffix changes supported by training examples and only when the predicted morphology agrees with the learned rule. It does not claim coverage for truly unseen lemmas or irregular paradigms.
+The initial generator is deliberately bounded: a suffix rule must be supported by at least two distinct training lemmas, match the candidate lemma's two-character ending, and agree with at least half of the predicted morph features. Rules that simply delete an ending are excluded. It does not claim coverage for truly unseen lemmas or irregular paradigms.
