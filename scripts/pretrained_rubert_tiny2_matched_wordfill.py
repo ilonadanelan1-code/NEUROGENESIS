@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import torch
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers import AutoModelForPreTraining, AutoTokenizer
 
 MODEL_ID = "cointegrated/rubert-tiny2"
 BASE_MODEL_ID = "ai-forever/ruBert-base"
@@ -124,7 +124,7 @@ def score_single_piece(model, tokenizer, prepared, start_ids):
                 positions=hits[offset].nonzero(as_tuple=False).flatten()
                 if len(positions)!=1:
                     continue
-                logits=out.logits[offset,int(positions[0])].float()
+                logits=out.prediction_logits[offset,int(positions[0])].float()
                 allowed=logits.index_select(0,ids_allowed)
                 take=min(512,int(allowed.numel()))
                 values,offsets=torch.topk(allowed,k=take)
@@ -199,7 +199,7 @@ def run_multi_piece(model, tokenizer, prepared, start_ids, continuation_ids):
                 out=model(input_ids=batch_ids,attention_mask=batch_att)
                 for r,(idx,beam) in enumerate(chunk):
                     item=rows[idx]
-                    log_probs=torch.log_softmax(out.logits[r,query[r]].float(),dim=-1)
+                    log_probs=torch.log_softmax(out.prediction_logits[r,query[r]].float(),dim=-1)
                     if depth>0:
                         surface=decode_candidate(tokenizer,beam["ids"])
                         if surface:
@@ -263,7 +263,7 @@ def main():
     torch.set_num_threads(max(1,min(4,os.cpu_count() or 1)))
     base_tokenizer=AutoTokenizer.from_pretrained(BASE_MODEL_ID, revision=BASE_MODEL_REVISION)
     tokenizer=AutoTokenizer.from_pretrained(MODEL_ID)
-    model=AutoModelForMaskedLM.from_pretrained(MODEL_ID)
+    model=AutoModelForPreTraining.from_pretrained(MODEL_ID, use_safetensors=True)
     model.to("cpu");model.eval()
     if tokenizer.mask_token is None:
         raise RuntimeError("Model tokenizer has no mask token.")
@@ -315,8 +315,6 @@ def main():
                  "tokenizer_vocab_size":len(tokenizer),"continuation_token_count":int(len(continuation_ids)),
                  "fine_tuned_on_ud_for_this_benchmark":False},
         "methodology":{"matched_sample":"Exactly the 349 targets selected by the previous pinned ruBert-base tokenizer as multi-piece words; identical to the ruRoberta-large challenge set.",
-            "baseline_ruRoberta_large":{"top1":{"correct":78,"total":349,"accuracy":78/349},
-                "recall8":{"correct":118,"total":349,"accuracy":118/349}},
             "gold_target_exposure":"Gold is replaced by MASK tokens. Only tokenizer pieces are used for evaluation and decoding.",
             "decoder":"single-token filtered candidate ranking plus WordPiece ## beam for multi-piece targets.",
             "baseline_ruRoberta_large":baseline},
