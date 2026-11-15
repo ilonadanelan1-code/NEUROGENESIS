@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pretrained-russian-mlm-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rubert-mask-benchmark:
     runs-on: ubuntu-latest
