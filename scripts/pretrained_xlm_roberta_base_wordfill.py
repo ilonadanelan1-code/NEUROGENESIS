@@ -203,6 +203,7 @@ def build_token_pools(tokenizer):
     if not with_space or not without_space or not boundary:
         raise RuntimeError("Unable to identify byte-BPE start, continuation, or boundary token pools.")
     return {
+        "word_start_marker": "Ġ",
         "with_space": torch.tensor(with_space, dtype=torch.long),
         "without_space": torch.tensor(without_space, dtype=torch.long),
         "boundary": torch.tensor(boundary, dtype=torch.long),
