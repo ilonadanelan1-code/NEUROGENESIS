@@ -221,6 +221,9 @@
               <p class="llm-security-note">Локальный обучаемый блок: три независимые головы внимания, окно до четырёх слов слева и справа, обучаемые относительные позиционные смещения, остаточные связи, LayerNorm и feed-forward сеть. Модель предсказывает скрытое слово по контексту. Обучение разделяет предложения на train/validation/test: веса меняются только на train, лучший checkpoint выбирается по validation, test оценивается отдельно после восстановления весов. Покрытие неизвестных слов показывается явно; нужны минимум три разных предложения. Веса и примеры сохраняются в браузере. Это небольшой исследовательский трансформерный блок, а не готовая большая языковая модель.</p>
               <label class="field-label" for="contextual-training-corpus">ПРИМЕРЫ ДЛЯ ОБУЧЕНИЯ · ОДНО ПРЕДЛОЖЕНИЕ НА СТРОКУ</label>
               <textarea class="text-input contextual-corpus" id="contextual-training-corpus" maxlength="12000" rows="7" spellcheck="false"></textarea>
+              <label class="field-label" for="ud-corpus-file">ДОПОЛНИТЕЛЬНЫЙ КОРПУС · UD RUSSIAN-GSD TRAIN (.CONLLU)</label>
+              <input class="text-input" id="ud-corpus-file" type="file" accept=".conllu,.txt,text/plain">
+              <p class="memory-feedback" id="ud-corpus-status" aria-live="polite">Не загружен. Импортируй только файл ru_gsd-ud-train.conllu; dev/test не загружай.</p>
               <div class="llm-settings-actions">
                 <button class="primary-button llm-config-save" id="contextual-train-button" type="button">Обучить контекстную модель</button>
                 <button class="secondary-button llm-config-clear" id="contextual-analyse-button" type="button">Показать внимание</button>
@@ -270,6 +273,7 @@
   <script src="./knowledge.js?v=0.58.104" defer></script>
   <script src="./semantic-core.js?v=0.58.104" defer></script>
   <script src="./contextual-attention.js?v=0.58.104" defer></script>
+  <script src="./ud-context-candidate-ranker.js?v=0.58.105" defer></script>
   <script src="./contextual-candidate-ranker.js?v=0.58.105" defer></script>
   <script src="./phrase-composition.js?v=0.58.104" defer></script>
   <script src="./goals.js?v=0.58.104" defer></script>

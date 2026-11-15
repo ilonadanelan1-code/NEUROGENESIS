@@ -33,6 +33,27 @@ jobs:
           node --check contextual-attention-ui.js
       - name: Test masked-context candidate ranking
         run: node tests/contextual-candidate-ranker.test.js
+
+      - name: Check UD candidate ranker syntax
+        run: node --check ud-context-candidate-ranker.js
+      - name: Test UD candidate ranker fixtures
+        run: node tests/ud-context-candidate-ranker.test.js
+      - name: Download pinned UD Russian-GSD corpus
+        run: |
+          mkdir -p /tmp/ud-russian-gsd
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+      - name: Evaluate UD context ranker on held-out sentences
+        run: node tests/ud-context-candidate-ranker.test.js /tmp/ud-russian-gsd/train.conllu /tmp/ud-russian-gsd/test.conllu
+      - name: Upload UD context ranking report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-ud-context-ranker-v1
+          path: benchmark-reports/ud-context-candidate-ranker-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Check script loading order
         run: |
           node <<'NODE'

@@ -17,3 +17,62 @@ assert.ok(plural.candidates.every(c=>!c.matchedContext.some(x=>x.token==="ней
 assert.ok(ranker.predictMasked("Новый нейрон получает сигнал",1).candidates.some(c=>c.lemma==="нейрон"&&c.form==="нейрон"));
 assert.equal(ranker.predictMasked("",0).reason,"empty_input");assert.equal(ranker.predictMasked("нейрон получает",0).reason,"insufficient_context");
 assert.throws(()=>api.create([]),/annotated training sentences/u);console.log("ud-context-candidate-ranker: fixture tests passed");
+
+const trainPath=process.argv[2],testPath=process.argv[3];
+if(!trainPath&&!testPath){
+ console.log("UD context candidate ranker fixture tests passed; external corpus files not supplied.");
+}else{
+ assert.ok(trainPath&&testPath,"supply both official UD train and test CoNLL-U files");
+ const trainRaw=importer.parseConllu(fs.readFileSync(trainPath,"utf8"));
+ const testRaw=importer.parseConllu(fs.readFileSync(testPath,"utf8"));
+ const trainUnique=importer.uniqueRecords(trainRaw),testUnique=importer.uniqueRecords(testRaw);
+ const trainKeys=new Set(trainUnique.map(row=>row.normalized));
+ const overlap=testUnique.filter(row=>trainKeys.has(row.normalized)).length;
+ assert.equal(overlap,0,"official train and test sentences must not overlap");
+ const modelWindow={};
+ const modelSandbox={window:modelWindow,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
+ vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),modelSandbox,{filename:"contextual-attention.js"});
+ const fullRanker=api.create(trainUnique,{modelApi:modelWindow.NGContextualModel,windowSize:4});
+ const trainingForms=new Set(),trainingLemmas=new Set();
+ for(const row of trainUnique)for(const token of row.tokens){
+  trainingForms.add(String(token.form).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"));
+  if(token.lemma)trainingLemmas.add(String(token.lemma).toLowerCase().replace(/ё/gu,"е"));
+ }
+ const sample=importer.deterministicSample(testUnique,100,20261115);
+ const groups={all:{total:0,covered:0,top1:0,recall8:0},oovForm:{total:0,covered:0,top1:0,recall8:0},oovLemma:{total:0,covered:0,top1:0,recall8:0}};
+ const perPos=Object.create(null);
+ for(const sentence of sample){
+  const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
+  const text=lexical.map(t=>t.form).join(" ");
+  for(let index=0;index<lexical.length;index++){
+   const target=lexical[index];
+   if(!["NOUN","PROPN","VERB","AUX","ADJ","ADV","PRON","NUM"].includes(target.upos))continue;
+   const result=fullRanker.predictMasked(text,index,{limit:8});
+   const form=String(target.form).toLowerCase().replace(/ё/gu,"е");
+   const lemma=String(target.lemma||target.form).toLowerCase().replace(/ё/gu,"е");
+   const oovForm=!trainingForms.has(form),oovLemma=!trainingLemmas.has(lemma);
+   const covered=result.candidates.length>0;
+   const top1=covered&&result.candidates[0].form.toLowerCase().replace(/ё/gu,"е")===form;
+   const recall8=covered&&result.candidates.some(c=>c.form.toLowerCase().replace(/ё/gu,"е")===form);
+   const add=g=>{g.total++;if(covered)g.covered++;if(top1)g.top1++;if(recall8)g.recall8++;};
+   add(groups.all);if(oovForm)add(groups.oovForm);if(oovLemma)add(groups.oovLemma);
+   if(!perPos[target.upos])perPos[target.upos]={total:0,covered:0,top1:0,recall8:0};
+   add(perPos[target.upos]);
+   if(result.available)assert.equal(result.targetSurfaceUsed,false);
+  }
+ }
+ const summary=g=>({total:g.total,coverage:g.total?g.covered/g.total:0,
+  top1AmongCovered:g.covered?g.top1/g.covered:0,recallAt8AmongCovered:g.covered?g.recall8/g.covered:0,
+  top1All:g.total?g.top1/g.total:0,recallAt8All:g.total?g.recall8/g.total:0});
+ const report={
+  corpus:{trainSentences:trainUnique.length,testSentences:testUnique.length,testSampleSentences:sample.length,
+   trainTestSentenceOverlap:overlap,training:fullRanker.status()},
+  metrics:{all:summary(groups.all),oovSurface:summary(groups.oovForm),unseenLemma:summary(groups.oovLemma),
+   byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)]))},
+  methodology:{trainPartitionOnly:true,testSentencesHeldOut:true,maskedTargetSurfaceNotUsedByRanker:true,
+   sampleSeed:20261115,scoreIsCalibratedProbability:false}
+ };
+ fs.mkdirSync("benchmark-reports",{recursive:true});
+ fs.writeFileSync("benchmark-reports/ud-context-candidate-ranker-v1.json",JSON.stringify(report,null,2)+"\n");
+ console.log("UD_CONTEXT_CANDIDATE_RANKER_BENCHMARK "+JSON.stringify(report));
+}

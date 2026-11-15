@@ -41,13 +41,28 @@ function create(records,options={}){
  const post=(map,key,id)=>{if(!key)return;if(!map.has(key))map.set(key,[]);map.get(key).push(id);};
  examples.forEach((ex,id)=>{const sf=new Set(),sl=new Set(),ss=new Set();for(const t of ex.context){if(!sf.has(t.form)){post(forms,t.form,id);sf.add(t.form);}if(!sl.has(t.lemma)){post(lemmas,t.lemma,id);sl.add(t.lemma);}if(!ss.has(t.stem)){post(stems,t.stem,id);ss.add(t.stem);}}for(const l of sl)lemmaDf.set(l,(lemmaDf.get(l)||0)+1);});
  function contextFor(text,index){const tokens=words(text);if(!tokens.length)return{tokens,index:-1,context:[]};const i=Math.max(0,Math.min(tokens.length-1,Math.floor(Number(index)||0))),context=[];for(let off=-windowSize;off<=windowSize;off++){if(!off)continue;const j=i+off;if(j<0||j>=tokens.length)continue;const form=tokens[j];context.push({form,offset:off,stem:stem(form),analyses:analyses.get(form)||[]});}return{tokens,index:i,context};}
- function shortlist(query){const hits=new Map();const add=(ids,qi)=>{for(const id of ids||[]){if(!hits.has(id))hits.set(id,new Set());hits.get(id).add(qi);}};query.forEach((q,qi)=>{add(forms.get(q.form),qi);for(const a of q.analyses)add(lemmas.get(a.lemma),qi);if(!q.analyses.length&&q.stem.length>=3)add(stems.get(q.stem),qi);});return[...hits.entries()].filter(([,v])=>v.size>=2).map(([id])=>id).sort((a,b)=>a-b);}
+ function shortlist(query){
+  const lists=query.map((q,qi)=>{
+   const ids=new Set(forms.get(q.form)||[]);
+   for(const a of q.analyses)for(const id of lemmas.get(a.lemma)||[])ids.add(id);
+   if(!q.analyses.length&&q.stem.length>=3)for(const id of stems.get(q.stem)||[])ids.add(id);
+   return{qi,ids,size:ids.size};
+  }).filter(row=>row.size).sort((a,b)=>a.size-b.size||a.qi-b.qi);
+  const hits=new Map(),selected=lists.slice(0,Math.min(5,lists.length));
+  for(const item of selected){
+   const rarity=1+Math.log((examples.length+1)/(item.size+1));
+   for(const id of item.ids){let row=hits.get(id);if(!row){row={count:0,weight:0};hits.set(id,row);}row.count++;row.weight+=rarity;}
+  }
+  return[...hits.entries()].filter(([,row])=>row.count>=2)
+   .sort((a,b)=>b[1].count-a[1].count||b[1].weight-a[1].weight||a[0]-b[0])
+   .slice(0,1400).map(([id])=>id);
+ }
  function compare(query,ex,allowInversion){
   const used=new Set(),evidence=[];let matched=0,exact=0,lemmaMatches=0,aligned=0,weighted=0,possible=0;
   for(const q of query){const df=lemmaDf.get(q.analyses[0]?.lemma||q.stem)||0,idf=1+Math.log((examples.length+1)/(df+1));possible+=idf;let best=null;
    for(let j=0;j<ex.context.length;j++){if(used.has(j))continue;const r=ex.context[j],isExact=q.form===r.form,isLemma=!isExact&&q.analyses.some(a=>a.lemma===r.lemma),isStem=!isExact&&!isLemma&&!q.analyses.length&&q.stem.length>=3&&q.stem===r.stem;if(!isExact&&!isLemma&&!isStem)continue;
     const same=q.offset===r.offset,inv=q.offset===-r.offset;let pw=same?1:0;if(!same&&allowInversion&&inv)pw=.55;if(!same&&!inv&&Math.sign(q.offset)===Math.sign(r.offset)&&Math.abs(q.offset-r.offset)===1)pw=.72;if(!pw)continue;
-    const lw=isExact?1:isLemma?.86:.62,pos=q.analyses.some(a=>a.upos===r.upos)?.05:0,quality=(lw+pos)*pw*idf;if(!best||quality>best.quality)best={j,quality,isExact,isLemma,same,r};
+    const lw=isExact?1:isLemma ? 0.86 : 0.62,pos=q.analyses.some(a=>a.upos===r.upos)? 0.05 : 0,quality=(lw+pos)*pw*idf;if(!best||quality>best.quality)best={j,quality,isExact,isLemma,same,r};
    }
    if(!best)continue;used.add(best.j);matched++;weighted+=best.quality;if(best.isExact)exact++;else if(best.isLemma)lemmaMatches++;if(best.same)aligned++;
    evidence.push({token:q.form,matched:best.r.form,lemma:best.r.lemma,offset:q.offset,trainingOffset:best.r.offset,kind:best.isExact?"form":best.isLemma?"lemma":"stem"});

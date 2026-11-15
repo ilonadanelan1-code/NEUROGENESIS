@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const root=typeof window!=="undefined"?window:globalThis;
-  const Model=root.NGContextualModel,Composition=root.NGPhraseCompositionModel,CandidateRanker=root.NGContextualCandidateRanker;
+  const Model=root.NGContextualModel,Composition=root.NGPhraseCompositionModel,CandidateRanker=root.NGContextualCandidateRanker,UDRanker=root.NGUDContextCandidateRanker;
   if(!Model||typeof document==="undefined")return;
   const STORAGE_KEY="neurogenesis.contextual-attention.v1";
   const STARTER_CORPUS=[
@@ -20,6 +20,28 @@
   const stateLabel=byId("contextual-model-state"),metrics=byId("contextual-model-metrics");
   const output=byId("contextual-attention-output");
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
+  const udCorpusFile=byId("ud-corpus-file"),udCorpusStatus=byId("ud-corpus-status");
+  let udContextRanker=null;
+  if(udCorpusFile&&udCorpusStatus&&UDRanker){
+    udCorpusFile.addEventListener("change",async()=>{
+      const file=udCorpusFile.files&&udCorpusFile.files[0];
+      if(!file){udContextRanker=null;udCorpusStatus.textContent="Корпус не выбран.";return;}
+      udCorpusStatus.textContent="Читаю и индексирую UD-корпус…";
+      try{
+        const source=await file.text();
+        const records=UDRanker.parseConllu(source);
+        const nextRanker=UDRanker.create(records,{modelApi:Model,windowSize:4});
+        udContextRanker=nextRanker;
+        const stats=nextRanker.status();
+        udCorpusStatus.textContent="ГОТОВО · "+stats.sentenceCount+" предложений · "+stats.annotatedTokenCount+
+          " токенов · "+stats.contextExamples+" контекстов · "+stats.vocabularyLemmas+" лемм. "+
+          "Индекс хранится в памяти текущей вкладки.";
+      }catch(error){
+        udContextRanker=null;
+        udCorpusStatus.textContent="Импорт не выполнен: "+(error&&error.message?error.message:String(error));
+      }
+    });
+  }
   let model=Model.create({dimension:12,windowSize:4,heads:3,seed:9173});
   let phraseModel=Composition?Composition.create({dimension:12,seed:24081}):null;
   let checkpointRequiresRetraining=false;
@@ -121,6 +143,16 @@
             ranked.candidates.slice(0,6).map(item=>item.surface+
               (item.baseToken!==item.surface?" ← "+item.baseToken:"")+
               " · балл "+Math.round(item.score*100)).join(" · "));
+        }
+      }
+      if(udContextRanker){
+        const ud=udContextRanker.predictMasked(text,row.index,{limit:6});
+        if(ud.candidates.length){
+          lines.push("UD · ЛЕММЫ И СЛОВОФОРМЫ: "+
+            ud.candidates.slice(0,6).map(item=>item.form+" ["+item.upos+
+              (item.features&&item.features.Case?", "+item.features.Case:"")+
+              (item.features&&item.features.Number?", "+item.features.Number:"")+
+              "] · балл "+Math.round(item.score*100)).join(" · "));
         }
       }
     }
