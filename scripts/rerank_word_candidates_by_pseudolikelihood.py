@@ -49,14 +49,14 @@ def make_masked_sentence(case):
 
 def prepare_tasks(cases, candidate_rows, tokenizer):
     case_index = {
-        (row.get("sentence_id"), row.get("gold_form"), row.get("upos")): row
+        (row.get("sentence_id"), int(row.get("target_index", -1))): row
         for row in cases
     }
     tasks = []
     per_target = {}
     excluded = []
     for result_index, result in enumerate(candidate_rows):
-        key = (result.get("sentence_id"), result.get("gold_form"), result.get("upos"))
+        key = (result.get("sentence_id"), int(result.get("target_index", -1)))
         case = case_index.get(key)
         candidates = result.get("top_candidates", [])
         if case is None or not candidates:
@@ -276,6 +276,7 @@ def main():
             })
         targets.append({
             "sentence_id": result.get("sentence_id"),
+            "target_index": result.get("target_index"),
             "gold_form": result.get("gold_form"),
             "gold_normalized": result.get("gold_normalized") or normalize(result.get("gold_form")),
             "upos": result.get("upos"),
