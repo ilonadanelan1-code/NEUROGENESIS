@@ -46,12 +46,23 @@ def is_lexical_piece(piece):
 
 def token_ids_for(tokenizer, continuation):
     ids = []
-    for token_id, piece in enumerate(tokenizer.convert_ids_to_tokens(list(range(len(tokenizer))))):
-        if token_id in set(tokenizer.all_special_ids):
+    special_ids = set(tokenizer.all_special_ids)
+    pieces = tokenizer.convert_ids_to_tokens(list(range(len(tokenizer))))
+    for token_id, piece in enumerate(pieces):
+        if token_id in special_ids:
             continue
         if piece.startswith("##") == continuation and is_lexical_piece(piece):
             ids.append(token_id)
     return ids
+
+
+def boundary_token_ids_for(tokenizer):
+    special_ids = set(tokenizer.all_special_ids)
+    pieces = tokenizer.convert_ids_to_tokens(list(range(len(tokenizer))))
+    return [
+        token_id for token_id, piece in enumerate(pieces)
+        if token_id not in special_ids and not piece.startswith("##")
+    ]
 
 
 def decode_candidate(tokenizer, token_ids):
@@ -84,11 +95,13 @@ def run_beam(model, tokenizer, prepared):
     special_ids = set(tokenizer.all_special_ids)
     start_ids = token_ids_for(tokenizer, continuation=False)
     continuation_ids = token_ids_for(tokenizer, continuation=True)
-    if not start_ids or not continuation_ids:
+    boundary_ids = boundary_token_ids_for(tokenizer)
+    if not start_ids or not continuation_ids or not boundary_ids:
         raise RuntimeError("Tokenizer does not expose usable WordPiece start/continuation tokens.")
 
     start_tensor = torch.tensor(start_ids, dtype=torch.long)
     continuation_tensor = torch.tensor(continuation_ids, dtype=torch.long)
+    boundary_tensor = torch.tensor(boundary_ids, dtype=torch.long)
     pad_id = tokenizer.pad_token_id
     if pad_id is None:
         raise RuntimeError("Tokenizer has no pad token.")
@@ -135,7 +148,9 @@ def run_beam(model, tokenizer, prepared):
                 log_probs = torch.log_softmax(logits, dim=-1)
 
                 if depth > 0:
-                    stop_logp = float(torch.logsumexp(log_probs.index_select(0, start_tensor), dim=0).item())
+                    # A word is complete when the next WordPiece is a new word
+                    # or punctuation. Include punctuation in the boundary mass.
+                    stop_logp = float(torch.logsumexp(log_probs.index_select(0, boundary_tensor), dim=0).item())
                     token_ids = list(beam["ids"])
                     surface = decode_candidate(tokenizer, token_ids)
                     if surface:
@@ -311,12 +326,21 @@ def main():
     results, trace, start_vocab, continuation_vocab = run_beam(model, tokenizer, prepared)
 
     piece_groups = {}
-    for piece_count in sorted({row["gold_piece_count"] for row in results}):
-        subset = [row for row in results if row["gold_piece_count"] == piece_count]
+    all_piece_counts = sorted(
+        {row["gold_piece_count"] for row in results} |
+        {row["gold_piece_count"] for row in excluded}
+    )
+    for piece_count in all_piece_counts:
+        supported_subset = [row for row in results if row["gold_piece_count"] == piece_count]
+        excluded_count = sum(row["gold_piece_count"] == piece_count for row in excluded)
+        total_count = len(supported_subset) + excluded_count
         piece_groups[str(piece_count)] = {
-            "targets": len(subset),
-            "top1": metric(sum(row["top1"] for row in subset), len(subset)),
-            "recall8": metric(sum(row["top8"] for row in subset), len(subset)),
+            "targets_all": total_count,
+            "decoder_supported": len(supported_subset),
+            "top1": metric(sum(row["top1"] for row in supported_subset), total_count),
+            "recall8": metric(sum(row["top8"] for row in supported_subset), total_count),
+            "top1_on_supported": metric(sum(row["top1"] for row in supported_subset), len(supported_subset)),
+            "recall8_on_supported": metric(sum(row["top8"] for row in supported_subset), len(supported_subset)),
         }
 
     hit1 = sum(row["top1"] for row in results)
@@ -365,6 +389,7 @@ def main():
         "diagnostics": {
             "start_piece_vocabulary_size": start_vocab,
             "continuation_piece_vocabulary_size": continuation_vocab,
+            "boundary_piece_vocabulary_size": len(boundary_ids),
             "beam_trace": trace,
             "excluded_examples": excluded[:50],
             "top_misses": [
