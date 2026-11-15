@@ -1,5 +1,5 @@
 "use strict";
-const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm");
+const assert=require("node:assert/strict"),fs=require("node:fs"),vm=require("node:vm"),importer=require("../scripts/ud-russian-gsd.js");
 const window={},sandbox={window,Math,Map,Set,Object,Array,String,Number,RegExp};
 vm.runInNewContext(fs.readFileSync("ud-context-candidate-ranker.js","utf8"),sandbox,{filename:"ud-context-candidate-ranker.js"});
 const api=window.NGUDContextCandidateRanker;assert.equal(api.schema,"NG_UD_CONTEXT_CANDIDATE_RANKER_V1");
