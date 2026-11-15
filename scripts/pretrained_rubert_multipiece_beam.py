@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import statistics
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
@@ -90,7 +91,7 @@ def metric(hits, total):
     }
 
 
-def run_beam(model, tokenizer, prepared):
+def run_beam(model, tokenizer, prepared, beam_width=BEAM_WIDTH, branch_size=BRANCH_SIZE):
     vocab_size = len(tokenizer)
     special_ids = set(tokenizer.all_special_ids)
     start_ids = token_ids_for(tokenizer, continuation=False)
@@ -112,6 +113,12 @@ def run_beam(model, tokenizer, prepared):
     }
     completed = [dict() for _ in prepared]
     trace = []
+    path_diagnostics = [{
+        "sentence_id": item["case"].get("sentence_id"),
+        "gold_form": item["case"]["gold_form"],
+        "gold_piece_count": item["gold_piece_count"],
+        "steps": [],
+    } for item in prepared]
 
     for depth in range(MAX_PIECES + 1):
         states = []
@@ -124,6 +131,7 @@ def run_beam(model, tokenizer, prepared):
 
         expansions = defaultdict(list)
         processed_states = 0
+        path_step_for_depth = {}
         for start in range(0, len(states), BATCH_SIZE):
             chunk = states[start:start + BATCH_SIZE]
             max_len = max(len(prepared[item_index]["input_ids"]) for item_index, _ in chunk)
@@ -141,11 +149,26 @@ def run_beam(model, tokenizer, prepared):
                 batch_attention[row_index, :len(ids)] = 1
                 query_positions.append(item["mask_positions"][depth])
 
-            output = model(input_ids=batch_ids, attention_mask=batch_attention)
+            with torch.inference_mode():
+                output = model(input_ids=batch_ids, attention_mask=batch_attention)
             logits_batch = output.logits
             for row_index, (item_index, beam) in enumerate(chunk):
                 logits = logits_batch[row_index, query_positions[row_index]].float()
                 log_probs = torch.log_softmax(logits, dim=-1)
+
+                gold_ids = prepared[item_index]["gold_wordpiece_ids"]
+                if depth < len(gold_ids) and tuple(beam["ids"]) == tuple(gold_ids[:depth]):
+                    allowed_for_gold = start_tensor if depth == 0 else continuation_tensor
+                    allowed_gold_log_probs = log_probs.index_select(0, allowed_for_gold)
+                    gold_logp = float(log_probs[int(gold_ids[depth])].item())
+                    gold_rank = int((allowed_gold_log_probs > gold_logp).sum().item()) + 1
+                    path_step_for_depth[item_index] = {
+                        "depth": depth + 1,
+                        "gold_piece": tokenizer.convert_ids_to_tokens([int(gold_ids[depth])])[0],
+                        "gold_local_rank": gold_rank,
+                        "gold_in_local_branch": gold_rank <= branch_size,
+                        "prefix_active_before_expansion": True,
+                    }
 
                 if depth > 0:
                     # A word is complete when the next WordPiece is a new word
@@ -162,6 +185,8 @@ def run_beam(model, tokenizer, prepared):
                                 "surface": surface,
                                 "normalized": normalized,
                                 "score": score,
+                                "piece_log_probability": float(beam["logp"]),
+                                "boundary_log_probability": stop_logp,
                                 "pieces": len(token_ids),
                             }
 
@@ -170,7 +195,7 @@ def run_beam(model, tokenizer, prepared):
 
                 allowed = start_tensor if depth == 0 else continuation_tensor
                 allowed_log_probs = log_probs.index_select(0, allowed)
-                take = min(BRANCH_SIZE, int(allowed_log_probs.numel()))
+                take = min(branch_size, int(allowed_log_probs.numel()))
                 values, offsets = torch.topk(allowed_log_probs, k=take)
                 for value, offset in zip(values.tolist(), offsets.tolist()):
                     token_id = int(allowed[offset].item())
@@ -192,10 +217,44 @@ def run_beam(model, tokenizer, prepared):
                         continue
                     seen.add(candidate["ids"])
                     keep.append(candidate)
-                    if len(keep) >= BEAM_WIDTH:
+                    if len(keep) >= beam_width:
                         break
                 if keep:
                     next_active[item_index] = keep
+                gold_ids = prepared[item_index]["gold_wordpiece_ids"]
+                if depth < len(gold_ids):
+                    gold_next_prefix = tuple(gold_ids[:depth + 1])
+                    expanded_rank = next((position for position, candidate in enumerate(candidates, start=1)
+                                           if tuple(candidate["ids"]) == gold_next_prefix), None)
+                    step = path_step_for_depth.get(item_index, {
+                        "depth": depth + 1,
+                        "gold_piece": tokenizer.convert_ids_to_tokens([int(gold_ids[depth])])[0],
+                        "gold_local_rank": None,
+                        "gold_in_local_branch": False,
+                        "prefix_active_before_expansion": False,
+                    })
+                    step["expanded_prefix_rank_before_beam_prune"] = expanded_rank
+                    step["survived_global_beam"] = expanded_rank is not None and expanded_rank <= beam_width
+                    step["beam_width"] = beam_width
+                    step["branch_size"] = branch_size
+                    path_diagnostics[item_index]["steps"].append(step)
+
+        for item_index, item in enumerate(prepared):
+            gold_ids = item["gold_wordpiece_ids"]
+            if depth < len(gold_ids) and item_index not in expansions:
+                step = path_step_for_depth.get(item_index, {
+                    "depth": depth + 1,
+                    "gold_piece": tokenizer.convert_ids_to_tokens([int(gold_ids[depth])])[0],
+                    "gold_local_rank": None,
+                    "gold_in_local_branch": False,
+                    "prefix_active_before_expansion": False,
+                })
+                step["expanded_prefix_rank_before_beam_prune"] = None
+                step["survived_global_beam"] = False
+                step["beam_width"] = beam_width
+                step["branch_size"] = branch_size
+                path_diagnostics[item_index]["steps"].append(step)
+
         active = next_active
         trace.append({
             "depth": depth,
@@ -217,6 +276,15 @@ def run_beam(model, tokenizer, prepared):
         gold = item["gold_normalized"]
         rank = next((position for position, row in enumerate(candidates, start=1)
                      if row["normalized"] == gold), None)
+        ranker_ranks = {}
+        for boundary_weight in (0.0, 0.5, 1.0, 2.0):
+            ranked = sorted(
+                candidates,
+                key=lambda row: row["piece_log_probability"] + boundary_weight * row["boundary_log_probability"],
+                reverse=True,
+            )
+            ranker_ranks[str(boundary_weight)] = next((position for position, row in enumerate(ranked, start=1)
+                                                       if row["normalized"] == gold), None)
         results.append({
             "sentence_id": item["case"].get("sentence_id"),
             "gold_form": item["case"]["gold_form"],
@@ -229,9 +297,139 @@ def run_beam(model, tokenizer, prepared):
             "top1": rank == 1,
             "top8": rank is not None and rank <= 8,
             "top_candidates": top,
+            "ranker_ranks_by_boundary_weight": ranker_ranks,
             "masked_input": item["masked_text"],
         })
-    return results, trace, len(start_ids), len(continuation_ids), len(boundary_ids)
+    ranker_sensitivity = {}
+    for boundary_weight in (0.0, 0.5, 1.0, 2.0):
+        key = str(boundary_weight)
+        ranks = [row["ranker_ranks_by_boundary_weight"][key] for row in results]
+        ranker_sensitivity[key] = {
+            "boundary_weight": boundary_weight,
+            "top1": metric(sum(rank == 1 for rank in ranks), len(results)),
+            "recall8": metric(sum(rank is not None and rank <= 8 for rank in ranks), len(results)),
+            "gold_generated_anywhere": sum(rank is not None for rank in ranks),
+        }
+    return results, trace, len(start_ids), len(continuation_ids), len(boundary_ids), path_diagnostics, ranker_sensitivity
+
+
+def run_gold_prefix_diagnostics(model, tokenizer, prepared):
+    """Teacher-forced diagnostic; gold prefixes are used only for measurement."""
+    start_ids = token_ids_for(tokenizer, continuation=False)
+    continuation_ids = token_ids_for(tokenizer, continuation=True)
+    boundary_ids = boundary_token_ids_for(tokenizer)
+    start_tensor = torch.tensor(start_ids, dtype=torch.long)
+    continuation_tensor = torch.tensor(continuation_ids, dtype=torch.long)
+    boundary_tensor = torch.tensor(boundary_ids, dtype=torch.long)
+    tasks = []
+    for item_index, item in enumerate(prepared):
+        gold_ids = item["gold_wordpiece_ids"]
+        for depth, gold_id in enumerate(gold_ids):
+            ids = list(item["input_ids"])
+            for prefix_index, token_id in enumerate(gold_ids[:depth]):
+                ids[item["mask_positions"][prefix_index]] = int(token_id)
+            tasks.append({
+                "item_index": item_index, "depth": depth, "kind": "piece",
+                "ids": ids, "query_position": item["mask_positions"][depth],
+                "gold_id": int(gold_id),
+            })
+        ids = list(item["input_ids"])
+        for prefix_index, token_id in enumerate(gold_ids):
+            ids[item["mask_positions"][prefix_index]] = int(token_id)
+        tasks.append({
+            "item_index": item_index, "depth": len(gold_ids), "kind": "boundary",
+            "ids": ids, "query_position": item["mask_positions"][len(gold_ids)],
+        })
+
+    rows = []
+    for start in range(0, len(tasks), BATCH_SIZE):
+        chunk = tasks[start:start + BATCH_SIZE]
+        max_len = max(len(task["ids"]) for task in chunk)
+        batch_ids = torch.full((len(chunk), max_len), tokenizer.pad_token_id, dtype=torch.long)
+        batch_attention = torch.zeros((len(chunk), max_len), dtype=torch.long)
+        for row_index, task in enumerate(chunk):
+            batch_ids[row_index, :len(task["ids"])] = torch.tensor(task["ids"], dtype=torch.long)
+            batch_attention[row_index, :len(task["ids"])] = 1
+        with torch.inference_mode():
+            output = model(input_ids=batch_ids, attention_mask=batch_attention)
+        logits_batch = output.logits
+        for row_index, task in enumerate(chunk):
+            log_probs = torch.log_softmax(logits_batch[row_index, task["query_position"]].float(), dim=-1)
+            item = prepared[task["item_index"]]
+            if task["kind"] == "piece":
+                allowed = start_tensor if task["depth"] == 0 else continuation_tensor
+                allowed_log_probs = log_probs.index_select(0, allowed)
+                gold_logp = float(log_probs[task["gold_id"]].item())
+                rank = int((allowed_log_probs > gold_logp).sum().item()) + 1
+                take = min(8, int(allowed_log_probs.numel()))
+                values, offsets = torch.topk(allowed_log_probs, k=take)
+                top_tokens = tokenizer.convert_ids_to_tokens([int(allowed[offset].item()) for offset in offsets.tolist()])
+                rows.append({
+                    "sentence_id": item["case"].get("sentence_id"),
+                    "gold_form": item["case"]["gold_form"],
+                    "gold_piece_count": item["gold_piece_count"],
+                    "position": task["depth"] + 1,
+                    "gold_piece": tokenizer.convert_ids_to_tokens([task["gold_id"]])[0],
+                    "gold_rank_given_correct_prefix": rank,
+                    "gold_log_probability": gold_logp,
+                    "gold_in_top1": rank <= 1,
+                    "gold_in_top8": rank <= 8,
+                    "gold_in_top32": rank <= 32,
+                    "top8_piece_tokens": top_tokens,
+                })
+            else:
+                boundary_logp = torch.logsumexp(log_probs.index_select(0, boundary_tensor), dim=0)
+                continuation_logp = torch.logsumexp(log_probs.index_select(0, continuation_tensor), dim=0)
+                denom = torch.logaddexp(boundary_logp, continuation_logp)
+                boundary_probability = float(torch.exp(boundary_logp - denom).item())
+                rows.append({
+                    "sentence_id": item["case"].get("sentence_id"),
+                    "gold_form": item["case"]["gold_form"],
+                    "gold_piece_count": item["gold_piece_count"],
+                    "kind": "gold_prefix_word_boundary",
+                    "boundary_log_probability": float(boundary_logp.item()),
+                    "continuation_log_probability": float(continuation_logp.item()),
+                    "boundary_probability_vs_continuation": boundary_probability,
+                    "model_prefers_boundary": bool(boundary_logp >= continuation_logp),
+                })
+
+    piece_rows = [row for row in rows if "gold_rank_given_correct_prefix" in row]
+    by_position = {}
+    for position in sorted({row["position"] for row in piece_rows}):
+        group = [row for row in piece_rows if row["position"] == position]
+        ranks = [row["gold_rank_given_correct_prefix"] for row in group]
+        by_position[str(position)] = {
+            "targets": len(group),
+            "top1": metric(sum(rank <= 1 for rank in ranks), len(group)),
+            "top8": metric(sum(rank <= 8 for rank in ranks), len(group)),
+            "top32": metric(sum(rank <= 32 for rank in ranks), len(group)),
+            "median_gold_rank": statistics.median(ranks) if ranks else None,
+        }
+    boundary_rows = [row for row in rows if row.get("kind") == "gold_prefix_word_boundary"]
+    boundary_probs = [row["boundary_probability_vs_continuation"] for row in boundary_rows]
+    return {
+        "method": "teacher-forced gold prefix; evaluation-only, never fed into beam predictions",
+        "piece_steps": piece_rows,
+        "by_position": by_position,
+        "word_boundary": {
+            "targets": len(boundary_rows),
+            "model_prefers_boundary": metric(sum(row["model_prefers_boundary"] for row in boundary_rows), len(boundary_rows)),
+            "median_boundary_probability_vs_continuation": statistics.median(boundary_probs) if boundary_probs else None,
+            "boundary_probability_below_0_5": sum(value < 0.5 for value in boundary_probs),
+            "examples": boundary_rows[:30],
+        },
+    }
+
+
+def summarize_search_results(results):
+    return {
+        "targets": len(results),
+        "top1": metric(sum(row["top1"] for row in results), len(results)),
+        "recall8": metric(sum(row["top8"] for row in results), len(results)),
+        "candidate_count_mean": statistics.mean(row["candidate_count"] for row in results) if results else 0.0,
+        "targets_with_no_candidates": sum(row["candidate_count"] == 0 for row in results),
+        "gold_generated_anywhere": sum(row["gold_rank"] is not None for row in results),
+    }
 
 
 def main():
@@ -316,6 +514,7 @@ def main():
             "gold_normalized": case["gold_normalized"],
             "gold_piece_count": len(gold_ids),
             "gold_wordpiece_tokens": pieces,
+            "gold_wordpiece_ids": [int(value) for value in gold_ids],
             "masked_text": masked_text,
             "input_ids": input_ids,
             "mask_positions": mask_positions,
@@ -323,7 +522,61 @@ def main():
 
     if not prepared:
         raise SystemExit("No multi-piece targets were supported by the decoder.")
-    results, trace, start_vocab, continuation_vocab, boundary_vocab = run_beam(model, tokenizer, prepared)
+    gold_prefix_report = run_gold_prefix_diagnostics(model, tokenizer, prepared)
+    search_configs = [
+        {"name": "baseline_w8_b8", "beam_width": 8, "branch_size": 8},
+        {"name": "beam_w16_b8", "beam_width": 16, "branch_size": 8},
+        {"name": "beam_w8_b16", "beam_width": 8, "branch_size": 16},
+    ]
+    search_series = {}
+    baseline_payload = None
+    for config in search_configs:
+        (config_results, config_trace, start_vocab, continuation_vocab,
+         boundary_vocab, config_path_diagnostics, ranker_sensitivity) = run_beam(
+            model, tokenizer, prepared,
+            beam_width=config["beam_width"],
+            branch_size=config["branch_size"],
+        )
+        search_series[config["name"]] = {
+            **config,
+            **summarize_search_results(config_results),
+            "ranker_sensitivity_by_boundary_weight": ranker_sensitivity,
+            "beam_path_survival": {
+                "targets": len(config_path_diagnostics),
+                "gold_prefix_survived_all_steps": sum(
+                    bool(row["steps"]) and all(step["survived_global_beam"] for step in row["steps"])
+                    for row in config_path_diagnostics
+                ),
+                "by_position": {
+                    str(position): {
+                        "targets": sum(len(row["steps"]) >= position for row in config_path_diagnostics),
+                        "prefix_active": sum(
+                            len(row["steps"]) >= position and row["steps"][position - 1]["prefix_active_before_expansion"]
+                            for row in config_path_diagnostics
+                        ),
+                        "survived_global_beam": sum(
+                            len(row["steps"]) >= position and row["steps"][position - 1]["survived_global_beam"]
+                            for row in config_path_diagnostics
+                        ),
+                        "local_branch_miss": sum(
+                            len(row["steps"]) >= position and not row["steps"][position - 1]["gold_in_local_branch"]
+                            for row in config_path_diagnostics
+                        ),
+                    }
+                    for position in range(1, MAX_PIECES + 1)
+                },
+                "examples": config_path_diagnostics[:40],
+            },
+        }
+        if config["name"] == "baseline_w8_b8":
+            baseline_payload = (
+                config_results, config_trace, start_vocab, continuation_vocab,
+                boundary_vocab, config_path_diagnostics, ranker_sensitivity
+            )
+
+    if baseline_payload is None:
+        raise RuntimeError("Baseline search configuration did not run.")
+    results, trace, start_vocab, continuation_vocab, boundary_vocab, baseline_path, baseline_rankers = baseline_payload
 
     piece_groups = {}
     all_piece_counts = sorted(
@@ -354,7 +607,7 @@ def main():
             "id": MODEL_ID,
             "revision": MODEL_REVISION,
             "fine_tuned_on_ud": False,
-            "mode": "zero-shot WordPiece continuation beam with end-boundary probability",
+            "mode": "zero-shot WordPiece continuation beam with end-boundary probability; diagnostic series includes gold-prefix ranks and isolated search variants",
         },
         "methodology": {
             "task": "reconstruct whole target words represented by multiple WordPiece tokens",
@@ -363,6 +616,8 @@ def main():
             "max_generated_word_pieces": MAX_PIECES,
             "beam_width": BEAM_WIDTH,
             "continuation_branches_per_state": BRANCH_SIZE,
+            "diagnostic_search_configs": search_configs,
+            "ranking_sensitivity": "post-hoc reranking of identical generated candidates using boundary log-mass weights 0, 0.5, 1, and 2",
             "candidate_score": "sum of next-piece log probabilities plus log probability mass of a non-## token at the next mask slot as an estimated word boundary",
             "candidate_round_trip": "decoded candidates must re-tokenize to exactly the generated WordPiece IDs",
             "candidate_filter": "lexical Unicode words, numbers and hyphenated forms; continuation pieces must use the WordPiece ## prefix",
@@ -391,6 +646,9 @@ def main():
             "continuation_piece_vocabulary_size": continuation_vocab,
             "boundary_piece_vocabulary_size": boundary_vocab,
             "beam_trace": trace,
+            "gold_prefix_teacher_forced": gold_prefix_report,
+            "beam_path_survival": search_series["baseline_w8_b8"]["beam_path_survival"],
+            "search_series": search_series,
             "excluded_examples": excluded[:50],
             "top_misses": [
                 row for row in results if not row["top1"]
