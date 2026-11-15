@@ -268,14 +268,19 @@ def main():
     one_results=score_single_piece(model,tokenizer,single,start_ids)
     multi_results,multi_diag=run_multi_piece(model,tokenizer,multi,start_ids,continuation_ids)
     by_id={(r["sentence_id"],r["gold_form"]):r for r in one_results+multi_results}
+    excluded_by_id={(r.get("sentence_id"),r.get("gold_form")):r for r in excluded}
     combined=[]
-    for item in prepared:
-        key=(item["case"].get("sentence_id"),item["case"]["gold_form"])
+    for case in source.get("cases",[]):
+        key=(case.get("sentence_id"),case["gold_form"])
         row=by_id.get(key)
         if row is None:
+            reason=excluded_by_id.get(key,{})
+            piece_count=reason.get("piece_count")
             combined.append({"sentence_id":key[0],"gold_form":key[1],
-                "gold_normalized":item["gold_normalized"],"gold_piece_count":item["gold_piece_count"],
-                "top1":False,"top8":False,"gold_rank":None,"candidate_count":0,"top_candidates":[]})
+                "gold_normalized":case["gold_normalized"],"upos":case.get("upos"),
+                "gold_piece_count":piece_count,"top1":False,"top8":False,
+                "gold_rank":None,"candidate_count":0,"top_candidates":[],
+                "excluded_reason":reason.get("reason","no_decoder_result")})
         else:
             combined.append(row)
     def summary(rows):
@@ -284,7 +289,7 @@ def main():
             "recall8":metric(sum(x.get("top8",False) for x in rows),len(rows)),
             "gold_generated_anywhere":sum(x.get("gold_rank") is not None for x in rows)}
     groups={}
-    for n in sorted({x["gold_piece_count"] for x in prepared}):
+    for n in sorted({x["gold_piece_count"] for x in combined if x.get("gold_piece_count") is not None}):
         groups[str(n)]=summary([x for x in combined if x["gold_piece_count"]==n])
     baseline={"top1":{"correct":78,"total":349,"accuracy":78/349},
               "recall8":{"correct":118,"total":349,"accuracy":118/349}}
@@ -295,6 +300,8 @@ def main():
                  "tokenizer_vocab_size":len(tokenizer),"continuation_token_count":int(len(continuation_ids)),
                  "fine_tuned_on_ud_for_this_benchmark":False},
         "methodology":{"matched_sample":"Same 349 UD Russian-GSD targets as ruRoberta-large benchmark.",
+            "baseline_ruRoberta_large":{"top1":{"correct":78,"total":349,"accuracy":78/349},
+                "recall8":{"correct":118,"total":349,"accuracy":118/349}},
             "gold_target_exposure":"Gold is replaced by MASK tokens. Only tokenizer pieces are used for evaluation and decoding.",
             "decoder":"single-token filtered candidate ranking plus WordPiece ## beam for multi-piece targets.",
             "baseline_ruRoberta_large":baseline},
