@@ -126,6 +126,8 @@ def prepare_tasks(cases, candidate_rows, tokenizer):
                     "attention_mask": [int(value) for value in encoded.get("attention_mask", [1] * len(input_ids))],
                     "positions": positions,
                     "gold_normalized": result.get("gold_normalized") or normalize(result.get("gold_form")),
+                    "rrf_score": float(candidate.get("rrf_score", 0.0)),
+                    "source_ranks": candidate.get("source_ranks", {}),
                 }
                 tasks.append(task_row)
                 target_rows.append(task_row)
@@ -195,6 +197,8 @@ def score_tasks(model, tokenizer, tasks):
             "pll_sum": total,
             "pll_mean": mean,
             "generator_score": task["generator_score"],
+            "rrf_score": task["rrf_score"],
+            "source_ranks": task["source_ranks"],
             "sentence": task["sentence"],
         }
         for alpha in LENGTH_ALPHAS:
@@ -204,7 +208,19 @@ def score_tasks(model, tokenizer, tasks):
 
 
 def rank_by(rows, score_field):
-    return sorted(rows, key=lambda row: (-row[score_field], row["original_rank"]))
+    if score_field == "pll_rrf_fusion":
+        pll_order = sorted(rows, key=lambda row: (-row["pll_sum"], row["original_rank"]))
+        rrf_order = sorted(rows, key=lambda row: (-row.get("rrf_score", 0.0), row["original_rank"]))
+        pll_rank = {row["normalized"]: rank for rank, row in enumerate(pll_order, 1)}
+        rrf_rank = {row["normalized"]: rank for rank, row in enumerate(rrf_order, 1)}
+        def fused_score(row):
+            key = row["normalized"]
+            return 1.0 / (60 + rrf_rank[key]) + 1.0 / (60 + pll_rank[key])
+        return sorted(rows, key=lambda row: (-fused_score(row), row["original_rank"]))
+    return sorted(
+        rows,
+        key=lambda row: (-float(row.get(score_field, 0.0) or 0.0), row["original_rank"]),
+    )
 
 
 def summarize_targets(target_results, score_field):
@@ -279,6 +295,8 @@ def main():
                 "pll_length_alpha_0.0": task["pll_length_alpha_0.0"],
                 "pll_length_alpha_0.5": task["pll_length_alpha_0.5"],
                 "pll_length_alpha_1.0": task["pll_length_alpha_1.0"],
+                "rrf_score": task["rrf_score"],
+                "source_ranks": task["source_ranks"],
             })
         targets.append({
             "sentence_id": result.get("sentence_id"),
@@ -295,8 +313,8 @@ def main():
         })
 
     reports = {}
-    for score_field in ("pll_sum", "pll_mean",
-                        "pll_length_alpha_0.5", "pll_length_alpha_1.0"):
+    for score_field in ("rrf_score", "pll_sum", "pll_mean",
+                        "pll_length_alpha_0.5", "pll_length_alpha_1.0", "pll_rrf_fusion"):
         reranked = summarize_targets(targets, score_field)
         total = len(reranked)
         hits1 = sum(bool(row["top1"]) for row in reranked)
@@ -320,7 +338,7 @@ def main():
     }
 
     report = {
-        "schema": "NEUROGENESIS_RUROBERTA_PSEUDO_LOG_LIKELIHOOD_RERANKER_V1",
+        "schema": "NEUROGENESIS_RUROBERTA_FRED_RRF_PLL_ENSEMBLE_V1",
         "model": {
             "id": MODEL_ID,
             "resolved_revision": getattr(model.config, "_commit_hash", None),
@@ -328,15 +346,16 @@ def main():
             "license": "apache-2.0",
         },
         "methodology": {
-            "candidate_generator": "ai-forever/ruRoberta-large, fixed Top-32 whole-word pool per target.",
-            "reranking": "Insert each generated candidate into the original masked sentence. Identify its byte-BPE token span via offset_mapping. Mask each candidate subtoken independently and sum the log probability assigned to the original subtoken.",
+            "candidate_generator": "Deduplicated union of ruRoBERTa-large Top-32 and FRED-T5-large Top-8 candidates, ordered by reciprocal-rank fusion (RRF, k=60).",
+            "reranking": "Insert every union candidate into the original masked sentence. Identify its byte-BPE token span via offset_mapping. Mask each candidate subtoken independently and score it with ruRoBERTa-large pseudo-log-likelihood. Compare RRF-only, PLL-only, and fixed RRF+PLL rank fusion.",
             "gold_target_exposure": "Gold words are used only for final evaluation. They are never inserted into a candidate sentence or passed to the scorer.",
             "length_bias": "Reports PLL sum, mean per subtoken, and sum divided by token-count^alpha for alpha 0.5 and 1.0.",
-            "limitation": "The scorer can reorder only candidates already present in the generator's Top-32 pool.",
+            "limitation": "The scorer can reorder only candidates present in the fixed ruRoBERTa Top-32 union FRED-T5 Top-8 pool. It cannot recover candidates absent from both generators.",
             "baseline": "The candidate generator's original order is reported beside each PLL-based ranker.",
         },
         "metrics": {
             "generator": generator_summary,
+            "candidate_pool": candidate_report.get("metrics", {}),
             "pseudo_log_likelihood_rerankers": reports,
             "targets": len(candidate_rows),
             "candidate_sentences_scored": len(tasks),
