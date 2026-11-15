@@ -34,7 +34,7 @@
         udContextRanker=nextRanker;
         const stats=nextRanker.status();
         udCorpusStatus.textContent="ГОТОВО · "+stats.sentenceCount+" предложений · "+stats.annotatedTokenCount+
-          " токенов · "+stats.contextExamples+" контекстов · "+stats.vocabularyLemmas+" лемм. "+
+          " токенов · "+stats.contextExamples+" контекстов · "+stats.vocabularyLemmas+" лемм · POS-классов "+stats.posLabels+" · морфологических голов "+stats.morphologyHeads+". "+
           "Индекс хранится в памяти текущей вкладки.";
       }catch(error){
         udContextRanker=null;
@@ -153,6 +153,10 @@
               (item.features&&item.features.Case?", "+item.features.Case:"")+
               (item.features&&item.features.Number?", "+item.features.Number:"")+
               "] · балл "+Math.round(item.score*100)).join(" · "));
+          if(ud.tagPrediction&&ud.tagPrediction.upos.length){
+            lines.push("UD · ПРОГНОЗ ЧАСТИ РЕЧИ: "+
+              ud.tagPrediction.upos.slice(0,3).map(item=>item.label+" "+Math.round(item.probability*100)+"%").join(" · "));
+          }
         }
       }
     }

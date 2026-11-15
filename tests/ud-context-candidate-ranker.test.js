@@ -11,6 +11,9 @@ const fixture=[
 const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,4);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
 const modelApi={inferMaskedNumber:(t,i)=>{const l=t[i-1]||"",r=t[i+1]||"";if(/(ые|ие)$/u.test(l)||/(ют|ут|ат|ят)$/u.test(r))return{number:"plural"};if(/(ает|яет|ует|ит|ет)$/u.test(r))return{number:"singular"};return null;}};
 const ranker=api.create(records,{modelApi});assert.equal(ranker.status().sentenceCount,4);assert.ok(ranker.status().contextExamples>0);
+const tagProbe=ranker.predictMasked("нейрон система сигнал",1);
+assert.ok(tagProbe.tagPrediction&&tagProbe.tagPrediction.upos.length>0,"POS classifier should return a distribution without the hidden target");
+assert.equal(tagProbe.tagPrediction.upos[0].label,"VERB","noun subject + noun object context should favour a verb");
 const plural=ranker.predictMasked("Новые нейроны получают сигнал",1);assert.equal(plural.targetSurfaceUsed,false);assert.ok(plural.candidates.some(c=>c.lemma==="нейрон"&&c.form==="нейроны"&&c.features.Number==="Plur"));assert.equal(plural.morphologyHint.number,"plural");
 const altered=ranker.predictMasked("Новые механизмы получают сигнал",1);assert.deepEqual(JSON.parse(JSON.stringify(plural.candidates)),JSON.parse(JSON.stringify(altered.candidates)),"masked token surface must not influence candidates");
 assert.ok(plural.candidates.every(c=>!c.matchedContext.some(x=>x.token==="нейроны")),"hidden surface must not occur in context evidence");
@@ -46,7 +49,7 @@ if(!trainPath&&!testPath){
  }
  const sample=importer.deterministicSample(testUnique,100,20261115);
  const groups={all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovForm:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovLemma:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0}};
- const perPos=Object.create(null),errorExamples=[];
+ const perPos=Object.create(null),errorExamples=[],uposMetrics={total:0,correct:0},morphMetrics=Object.create(null);
  for(const sentence of sample){
   const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
   const text=lexical.map(t=>t.form).join(" ");
@@ -54,6 +57,15 @@ if(!trainPath&&!testPath){
    const target=lexical[index];
    if(!["NOUN","PROPN","VERB","AUX","ADJ","ADV","PRON","NUM"].includes(target.upos))continue;
    const result=fullRanker.predictMasked(text,index,{limit:8});
+   const predictedUPOS=result.tagPrediction&&result.tagPrediction.upos[0]&&result.tagPrediction.upos[0].label;
+   uposMetrics.total++;if(predictedUPOS===target.upos)uposMetrics.correct++;
+   for(const key of ["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"]){
+    const expected=target.feats&&target.feats[key];if(!expected)continue;
+    const distribution=result.tagPrediction&&result.tagPrediction.morphology[target.upos]&&result.tagPrediction.morphology[target.upos][key];
+    if(!distribution||!distribution.length)continue;
+    if(!morphMetrics[key])morphMetrics[key]={total:0,correct:0};
+    morphMetrics[key].total++;if(distribution[0].label===expected)morphMetrics[key].correct++;
+   }
    const form=String(target.form).toLowerCase().replace(/ё/gu,"е");
    const lemma=String(target.lemma||target.form).toLowerCase().replace(/ё/gu,"е");
    const oovForm=!trainingForms.has(form),oovLemma=!trainingLemmas.has(lemma);
@@ -79,7 +91,9 @@ if(!trainPath&&!testPath){
   corpus:{trainSentences:trainUnique.length,trainSentencesUsed:trainForIndex.length,testSentences:testUnique.length,testSampleSentences:sample.length,
    overlapSentencesExcludedFromTrain:overlap,remainingTrainTestSentenceOverlap:remainingOverlap,training:fullRanker.status()},
   metrics:{all:summary(groups.all),oovSurface:summary(groups.oovForm),unseenLemma:summary(groups.oovLemma),
-   byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)]))},
+   byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)])),
+   contextClassifier:{upos:{...uposMetrics,accuracy:uposMetrics.total?uposMetrics.correct/uposMetrics.total:0},
+    morphology:Object.fromEntries(Object.entries(morphMetrics).map(([k,v])=>[k,{...v,accuracy:v.total?v.correct/v.total:0}]))}},
   errorExamples,
   methodology:{trainPartitionOnly:true,testSentencesHeldOut:true,maskedTargetSurfaceNotUsedByRanker:true,
    sampleSeed:20261115,scoreIsCalibratedProbability:false}

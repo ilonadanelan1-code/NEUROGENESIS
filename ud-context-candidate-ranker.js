@@ -22,6 +22,24 @@ function parseConllu(content){
  }
  flush();return result;
 }
+function buildNaiveBayes(rows,labelOf,featuresOf){
+ const labelCounts=new Map(),featureCounts=new Map(),featureTotals=new Map(),vocabulary=new Set();let total=0;
+ for(const row of rows){const label=labelOf(row);if(!label)continue;const features=featuresOf(row);if(!features.length)continue;total++;labelCounts.set(label,(labelCounts.get(label)||0)+1);if(!featureCounts.has(label))featureCounts.set(label,new Map());const counts=featureCounts.get(label),seen=new Set(features);for(const feature of seen){vocabulary.add(feature);counts.set(feature,(counts.get(feature)||0)+1);featureTotals.set(label,(featureTotals.get(label)||0)+1);}}
+ return{labelCounts,featureCounts,featureTotals,vocabularySize:Math.max(1,vocabulary.size),total,labels:[...labelCounts.keys()]};
+}
+function scoreNaiveBayes(model,features){
+ if(!model||!model.total)return[];const rows=[],alpha=.5,V=model.vocabularySize;
+ for(const label of model.labels){const count=model.labelCounts.get(label)||0,counts=model.featureCounts.get(label)||new Map(),denom=(model.featureTotals.get(label)||0)+alpha*V;let score=Math.log((count+.5)/(model.total+.5*model.labels.length));for(const feature of features)score+=Math.log(((counts.get(feature)||0)+alpha)/denom);rows.push({label,logScore:score});}
+ if(!rows.length)return[];const max=Math.max(...rows.map(r=>r.logScore)),values=rows.map(r=>Math.exp(r.logScore-max)),sum=values.reduce((a,b)=>a+b,0)||1;return rows.map((r,i)=>({label:r.label,probability:values[i]/sum})).sort((a,b)=>b.probability-a.probability);
+}
+function makeTagFeatures(context){
+ const out=new Set();
+ for(const row of context){const side=row.offset<0?"L":"R",offset=String(row.offset),form=norm(row.form||"");if(form){out.add("F:"+offset+":"+form);out.add("F:"+side+":"+form);}
+  const analyses=Array.isArray(row.analyses)&&row.analyses.length?row.analyses:[{lemma:row.lemma,upos:row.upos,feats:row.feats||{}}];
+  for(const a of analyses){const lemma=norm(a.lemma||""),upos=a.upos||"X",feats=a.feats||{};if(lemma){out.add("L:"+offset+":"+lemma);out.add("L:"+side+":"+lemma);}if(upos!=="X"){out.add("P:"+offset+":"+upos);out.add("P:"+side+":"+upos);}for(const key of ["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"])if(feats[key])out.add("M:"+offset+":"+key+"="+feats[key]);}
+ }
+ return[...out];
+}
 function create(records,options={}){
  if(!Array.isArray(records)||!records.length)throw new TypeError("A non-empty array of annotated training sentences is required.");
  const windowSize=Math.max(1,Math.min(8,Math.floor(Number(options.windowSize)||WIN))),modelApi=options.modelApi||root.NGContextualModel||null;
@@ -32,11 +50,20 @@ function create(records,options={}){
   for(const t of sent.tokens){if(!analyses.has(t.form))analyses.set(t.form,[]);const list=analyses.get(t.form),k=t.lemma+"|"+t.upos;if(!list.some(x=>x.key===k))list.push({key:k,lemma:t.lemma,upos:t.upos,feats:t.feats});}
   for(let i=0;i<sent.tokens.length;i++){
    const target=sent.tokens[i];if(!POS.has(target.upos))continue;const context=[];
-   for(let off=-windowSize;off<=windowSize;off++){if(!off)continue;const j=i+off;if(j<0||j>=sent.tokens.length)continue;const t=sent.tokens[j];context.push({form:t.form,lemma:t.lemma,upos:t.upos,offset:off,stem:stem(t.lemma)});}
+   for(let off=-windowSize;off<=windowSize;off++){if(!off)continue;const j=i+off;if(j<0||j>=sent.tokens.length)continue;const t=sent.tokens[j];context.push({form:t.form,lemma:t.lemma,upos:t.upos,feats:t.feats||Object.create(null),offset:off,stem:stem(t.lemma)});}
    if(context.length>=2)examples.push({target:{form:target.form,lemma:target.lemma,upos:target.upos,feats:target.feats},context});
   }
  }
  if(!examples.length)throw new TypeError("The annotated corpus produced no context examples.");
+ const taggerRows=examples.map(example=>({target:example.target,context:example.context}));
+ const posTagger=buildNaiveBayes(taggerRows,row=>row.target.upos,row=>makeTagFeatures(row.context));
+ const morphologyTaggers=new Map();
+ for(const key of ["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"]){
+  const groups=new Map();for(const row of taggerRows){const value=row.target.feats&&row.target.feats[key],upos=row.target.upos;if(!value)continue;const groupKey=upos+"|"+key;if(!groups.has(groupKey))groups.set(groupKey,[]);groups.get(groupKey).push({target:value,context:row.context});}
+  for(const [groupKey,rows] of groups)morphologyTaggers.set(groupKey,buildNaiveBayes(rows,row=>row.target,row=>makeTagFeatures(row.context)));
+ }
+ function predictTags(context){const features=makeTagFeatures(context),upos=scoreNaiveBayes(posTagger,features),morphology=Object.create(null);for(const [key,model] of morphologyTaggers){const [pos,feature]=key.split("|");if(!morphology[pos])morphology[pos]=Object.create(null);morphology[pos][feature]=scoreNaiveBayes(model,features);}return{upos,morphology,featureCount:features.length};}
+
  const forms=new Map(),lemmas=new Map(),stems=new Map(),lemmaDf=new Map();
  const post=(map,key,id)=>{if(!key)return;if(!map.has(key))map.set(key,[]);map.get(key).push(id);};
  examples.forEach((ex,id)=>{const sf=new Set(),sl=new Set(),ss=new Set();for(const t of ex.context){if(!sf.has(t.form)){post(forms,t.form,id);sf.add(t.form);}if(!sl.has(t.lemma)){post(lemmas,t.lemma,id);sl.add(t.lemma);}if(!ss.has(t.stem)){post(stems,t.stem,id);ss.add(t.stem);}}for(const l of sl)lemmaDf.set(l,(lemmaDf.get(l)||0)+1);});
@@ -123,21 +150,24 @@ function create(records,options={}){
  function predictMasked(text,index,predictOptions={}){
   const parsed=contextFor(text,index);if(parsed.index<0)return{available:false,reason:"empty_input",candidates:[],context:[]};
   if(parsed.context.length<2)return{available:false,reason:"insufficient_context",candidates:[],context:parsed.context};
-  const ids=shortlist(parsed.context);if(!ids.length)return{available:false,reason:"no_context_match",candidates:[],context:parsed.context,targetSurfaceUsed:false};
+  const tagPrediction=predictTags(parsed.context),ids=shortlist(parsed.context);if(!ids.length)return{available:false,reason:"no_context_match",candidates:[],context:parsed.context,targetSurfaceUsed:false,tagPrediction};
   const numberHint=modelApi&&typeof modelApi.inferMaskedNumber==="function"?modelApi.inferMaskedNumber(parsed.tokens,parsed.index):null,hints=inferHints(parsed,numberHint),hint=numberHint,byTarget=new Map();
   for(const id of ids){const ex=examples[id],m=compare(parsed.context,ex,predictOptions.allowOrderInversion===true);if(m.matched<2||m.coverage<.25)continue;const t=ex.target,k=t.form+"|"+t.lemma+"|"+t.upos;if(!byTarget.has(k))byTarget.set(k,{target:t,scores:[],best:null});const row=byTarget.get(k);row.scores.push(m.score);if(!row.best||m.score>row.best.score)row.best=m;}
   const out=[];for(const row of byTarget.values()){const avg=row.scores.reduce((s,v)=>s+v,0)/row.scores.length,t=row.target,f=t.feats||{};let score=Math.min(1,row.best.score*.82+avg*.12+Math.min(.06,Math.max(0,row.scores.length-1)*.015));
    score+=hints.pos[t.upos]||0;
+   const posProbability=tagPrediction.upos.find(item=>item.label===t.upos)?.probability||0,maxPosProbability=tagPrediction.upos[0]?.probability||1;
+   if(posProbability>0)score+=.045*Math.log(Math.max(1e-8,posProbability)/Math.max(1e-8,maxPosProbability));
+   for(const key of Object.keys(f)){const distribution=tagPrediction.morphology[t.upos]&&tagPrediction.morphology[t.upos][key];if(!distribution||!distribution.length)continue;const predicted=distribution.find(item=>item.label===f[key])?.probability||0,maximum=distribution[0].probability||1;if(predicted>0)score+=.022*Math.log(Math.max(1e-8,predicted)/Math.max(1e-8,maximum));}
    for(const constraint of hints.features){
     if(!constraint.upos.includes(t.upos)||!f[constraint.key])continue;
     score+=constraint.values.includes(f[constraint.key])?constraint.weight:-constraint.weight*.75;
    }
    score=Math.max(0,Math.min(1,score));out.push({form:t.form,surface:t.form,lemma:t.lemma,upos:t.upos,features:{...f},score,support:row.scores.length,matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,lemmaContextMatches:row.best.lemmaMatches,alignedOffsets:row.best.aligned,matchedContext:row.best.evidence});}
   out.sort((a,b)=>b.score-a.score||b.support-a.support||a.form.localeCompare(b.form));const unique=[],seen=new Set();for(const c of out){const k=c.form+"|"+c.lemma+"|"+c.upos;if(seen.has(k))continue;seen.add(k);unique.push(c);if(unique.length>=Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8))))break;}
-  return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextHints:hints,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
+  return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextHints:hints,tagPrediction,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
  }
  const status={sentenceCount:clean.length,annotatedTokenCount:clean.reduce((s,r)=>s+r.tokens.length,0),contextExamples:examples.length,vocabularyForms:analyses.size,vocabularyLemmas:new Set([...analyses.values()].flat().map(a=>a.lemma)).size,windowSize};
- return Object.freeze({predictMasked,status:()=>({...status})});
+ return Object.freeze({predictMasked,status:()=>({...status,tagExamples:taggerRows.length,posLabels:posTagger.labels.length,morphologyHeads:morphologyTaggers.size})});
 }
 root.NGUDContextCandidateRanker=Object.freeze({schema:"NG_UD_CONTEXT_CANDIDATE_RANKER_V1",parseConllu,create,tokenize:words});
 })();

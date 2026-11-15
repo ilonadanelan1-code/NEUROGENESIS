@@ -26,3 +26,7 @@ Use the train partition only; never add dev or test records to the candidate ind
 
 Pinned upstream training corpus:
 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu
+
+## Independent tag prediction
+
+The ranker also trains a sparse multinomial Naive Bayes tagger from the same train-only context examples. It predicts UPOS independently and maintains per-UPOS classifiers for selected UD FEATS such as Case, Number, Gender, Tense, Aspect and VerbForm. These tag distributions are exposed as tagPrediction and softly influence candidate reranking. The benchmark reports POS and morphology accuracy separately from lexical candidate recall. Tag confidence is an internal ranking distribution, not a calibrated probability.
