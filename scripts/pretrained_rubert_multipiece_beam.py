@@ -231,7 +231,7 @@ def run_beam(model, tokenizer, prepared):
             "top_candidates": top,
             "masked_input": item["masked_text"],
         })
-    return results, trace, len(start_ids), len(continuation_ids)
+    return results, trace, len(start_ids), len(continuation_ids), len(boundary_ids)
 
 
 def main():
@@ -323,7 +323,7 @@ def main():
 
     if not prepared:
         raise SystemExit("No multi-piece targets were supported by the decoder.")
-    results, trace, start_vocab, continuation_vocab = run_beam(model, tokenizer, prepared)
+    results, trace, start_vocab, continuation_vocab, boundary_vocab = run_beam(model, tokenizer, prepared)
 
     piece_groups = {}
     all_piece_counts = sorted(
@@ -389,7 +389,7 @@ def main():
         "diagnostics": {
             "start_piece_vocabulary_size": start_vocab,
             "continuation_piece_vocabulary_size": continuation_vocab,
-            "boundary_piece_vocabulary_size": len(boundary_ids),
+            "boundary_piece_vocabulary_size": boundary_vocab,
             "beam_trace": trace,
             "excluded_examples": excluded[:50],
             "top_misses": [
