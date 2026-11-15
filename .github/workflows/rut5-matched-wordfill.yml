@@ -1,0 +1,72 @@
+name: Evaluate ruT5-base on the exact 349-word challenge set
+
+on:
+  push:
+    branches:
+      - experiment/wordfill-rut5-base-matched-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rut5-matched-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matched-rut5-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download pinned UD Russian-GSD and build test input
+        run: |
+          mkdir -p /tmp/ud-russian-gsd benchmark-inputs benchmark-reports
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-inputs/ud-pretrained-mlm-input.json
+
+      - name: Install safe CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.6.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3 sentencepiece protobuf
+
+      - name: Validate matched ruT5 runner
+        run: |
+          python -m py_compile scripts/pretrained_rut5_base_matched_wordfill.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+
+      - name: Run ruT5-base matched infilling benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_rut5_base_matched_wordfill.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --output benchmark-reports/ud-rut5-base-matched-wordfill-v1.json
+
+      - name: Upload matched ruT5 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-rut5-base-matched-wordfill-v1
+          path: benchmark-reports/ud-rut5-base-matched-wordfill-v1.json
+          if-no-files-found: warn
+          retention-days: 30
