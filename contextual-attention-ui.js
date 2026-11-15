@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const root=typeof window!=="undefined"?window:globalThis;
-  const Model=root.NGContextualModel,Composition=root.NGPhraseCompositionModel;
+  const Model=root.NGContextualModel,Composition=root.NGPhraseCompositionModel,CandidateRanker=root.NGContextualCandidateRanker;
   if(!Model||typeof document==="undefined")return;
   const STORAGE_KEY="neurogenesis.contextual-attention.v1";
   const STARTER_CORPUS=[
@@ -90,7 +90,7 @@
     const text=queryInput.value.trim();
     if(!text){output.textContent="Введи фразу для анализа.";return;}
     if(!model.status().trained){output.textContent="Сначала обучи модель на нескольких примерах.";return;}
-    const analysis=model.analyse(text),lines=[];
+    const analysis=model.analyse(text),lines=[],candidateRanker=CandidateRanker?CandidateRanker.create(model):null;
     lines.push("ТОЧНЫЙ СЛОВАРЬ: "+analysis.knownTokenCount+"/"+analysis.tokens.length+
       " · морфологическое покрытие: "+analysis.morphologyCoveredTokenCount+"/"+analysis.tokens.length+
       " · распознано основ в контексте: "+analysis.contextMorphologyBackoffCount);
@@ -113,6 +113,15 @@
           generated.retrievalPrediction.baseToken+" → "+generated.retrievalPrediction.surface+
           " · совпадения: "+generated.retrievalPrediction.matchedContextTokens.join(", "));
       }
+      }
+      if(candidateRanker){
+        const ranked=candidateRanker.predictMasked(text,row.index,{limit:6});
+        if(ranked.candidates.length){
+          lines.push("РАНЖИРОВАННЫЕ КОНТЕКСТНЫЕ КАНДИДАТЫ: "+
+            ranked.candidates.slice(0,6).map(item=>item.surface+
+              (item.baseToken!==item.surface?" ← "+item.baseToken:"")+
+              " "+Math.round(item.score*100)+"%").join(" · "));
+        }
       }
     }
     for(const row of analysis.positions){
