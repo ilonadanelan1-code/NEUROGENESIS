@@ -55,6 +55,16 @@ def make_metrics(rows):
                     "total": denom,
                     "accuracy": hits / denom if denom else 0.0,
                 }
+        for metric, field in (
+            ("rubert_standalone_word_top1", "rubert_standalone_word_top1"),
+            ("rubert_standalone_word_recall8", "rubert_standalone_word_recall8"),
+        ):
+            hits = sum(bool(row[field]) for row in subset)
+            result[f"{metric}_{name}"] = {
+                "correct": hits,
+                "total": denom,
+                "accuracy": hits / denom if denom else 0.0,
+            }
     result["rubert_mask_available"] = sum(row["rubert_mask_available"] for row in rows)
     result["internal_prediction_available"] = sum(row["internal_prediction_available"] for row in rows)
     result["internal_train_vocab_oov_targets"] = sum(
@@ -166,6 +176,8 @@ def main():
 
                 rubert_top1 = supported and gold_rank == 0
                 rubert_top8 = supported and gold_rank is not None and gold_rank < 8
+                standalone_top1 = supported and bool(candidates) and candidates[0] == gold
+                standalone_recall8 = supported and gold in candidates[:8]
                 rows.append({
                     "sentence_id": case.get("sentence_id"),
                     "gold_form": case["gold_form"],
@@ -178,6 +190,8 @@ def main():
                     "rubert_candidates": candidates,
                     "rubert_top1": bool(rubert_top1),
                     "rubert_top8": bool(rubert_top8),
+                    "rubert_standalone_word_top1": bool(standalone_top1),
+                    "rubert_standalone_word_recall8": bool(standalone_recall8),
                     "internal_candidates": internal[:8],
                     "internal_prediction_available": internal_available,
                     "internal_top1": internal_top1,
@@ -222,7 +236,7 @@ def main():
             "subword_constraint": "Primary comparable MLM accuracy is reported on targets represented by exactly one non-UNK BPE token. Multi-piece target words count as misses in all-target accuracy and are excluded only from the supported-single-piece metric.",
             "max_sequence_length": MAX_LENGTH,
             "batch_size": BATCH_SIZE,
-            "top_candidate_filter": "Top 512 vocabulary logits are filtered to standalone round-trip single-token words; metrics use exact gold-token rank in the full vocabulary logits.",
+            "top_candidate_filter": "Top 512 vocabulary logits are filtered to standalone round-trip single-token words. The report separates exact target-token rank in the full vocabulary from top-1/recall@8 of the filtered whole-word candidate list.",
             "internal_baseline": "The existing word-level contextual-attention model trained on the same sampled UD train partition; its target slot is replaced by a placeholder and is excluded from its context.",
         },
         "internal_model_training": source["internal_model"]["training"],
