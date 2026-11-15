@@ -164,6 +164,7 @@ def run_single_piece(model, tokenizer, prepared):
                         break
                 rows.append({
                     "sentence_id": case.get("sentence_id"),
+                    "target_index": int(case.get("target_index", -1)),
                     "gold_form": case["gold_form"],
                     "gold_normalized": gold,
                     "upos": case.get("upos"),
@@ -464,6 +465,7 @@ def run_beam(model, tokenizer, prepared, pools):
         rank = ranks["1.0"]
         results.append({
             "sentence_id": item["case"].get("sentence_id"),
+            "target_index": int(item["case"].get("target_index", -1)),
             "gold_form": item["case"]["gold_form"],
             "gold_normalized": gold,
             "upos": item["case"].get("upos"),
