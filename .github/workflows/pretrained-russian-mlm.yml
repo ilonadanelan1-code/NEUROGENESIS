@@ -48,7 +48,6 @@ jobs:
           node --check contextual-attention.js
           node --check tests/ud-pretrained-mlm-benchmark.test.js
           python -m py_compile scripts/pretrained_masked_lm_benchmark.py scripts/pretrained_rubert_multipiece_beam.py
-          python -m py_compile scripts/pretrained_masked_lm_benchmark.py scripts/pretrained_rubert_multipiece_beam.py
           node tests/ud-pretrained-mlm-benchmark.test.js \
             /tmp/ud-russian-gsd/train.conllu \
             /tmp/ud-russian-gsd/test.conllu \
