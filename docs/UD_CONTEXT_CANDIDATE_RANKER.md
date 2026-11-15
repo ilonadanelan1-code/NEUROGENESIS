@@ -30,3 +30,16 @@ https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677
 ## Independent tag prediction
 
 The ranker also trains a sparse multinomial Naive Bayes tagger from the same train-only context examples. It predicts UPOS independently and maintains per-UPOS classifiers for selected UD FEATS such as Case, Number, Gender, Tense, Aspect and VerbForm. These tag distributions are exposed as tagPrediction. Optional reranking weights are disabled by default and may be enabled only after selection on the official dev split. The benchmark reports POS and morphology accuracy separately from lexical candidate recall. Tag confidence is an internal ranking distribution, not a calibrated probability.
+
+
+## Lemma-first prediction and surface reconstruction
+
+The API exposes three separate operations:
+
+- `predictLemmaMasked(text, tokenIndex, options)` retrieves and ranks lemmas from visible context only. It does not read the surface string at the masked index.
+- `reconstructSurface(lemmaCandidate, tagPrediction, options)` combines a candidate lemma with predicted UD morphology. It first ranks forms observed for that lemma, then tries train-derived suffix rules grouped by UPOS, compatible FEATS and lemma ending.
+- `predictMasked` remains available as the previous surface-form retrieval baseline.
+
+Each reconstructed candidate declares its source: `observed_paradigm` or `learned_suffix_rule`. Rule-generated forms are heuristic hypotheses, not guaranteed grammatical forms. The learned rule table comes from the training partition only. The benchmark reports lemma recall, actual surface recall, and an oracle-lemma diagnostic separately; oracle metrics must not be presented as end-to-end performance.
+
+The initial generator is deliberately bounded: it only applies suffix changes supported by training examples and only when the predicted morphology agrees with the learned rule. It does not claim coverage for truly unseen lemmas or irregular paradigms.

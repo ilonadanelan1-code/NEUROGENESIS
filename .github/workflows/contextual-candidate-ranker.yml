@@ -15,6 +15,7 @@ on:
       - tests/ud-context-candidate-ranker.test.js
       - tests/ud-context-ranker-holdout-benchmark.test.js
       - tests/ud-context-ranker-retrieval-tuning.test.js
+      - tests/ud-lemma-surface-benchmark.test.js
       - scripts/ud-russian-gsd.js
       - ud-context-candidate-ranker.js
       - .github/workflows/contextual-candidate-ranker.yml
@@ -56,6 +57,17 @@ jobs:
         with:
           name: neurogenesis-ud-context-ranker-retrieval-tuning-v1
           path: benchmark-reports/ud-context-ranker-retrieval-tuning-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Benchmark lemma-first surface reconstruction on UD dev
+        run: node tests/ud-lemma-surface-benchmark.test.js /tmp/ud-russian-gsd/train.conllu /tmp/ud-russian-gsd/dev.conllu
+      - name: Upload lemma and surface reconstruction report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-ud-lemma-surface-v1
+          path: benchmark-reports/ud-lemma-surface-v1.json
           if-no-files-found: warn
           retention-days: 30
 

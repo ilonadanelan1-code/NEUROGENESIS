@@ -34,7 +34,7 @@
         udContextRanker=nextRanker;
         const stats=nextRanker.status();
         udCorpusStatus.textContent="ГОТОВО · "+stats.sentenceCount+" предложений · "+stats.annotatedTokenCount+
-          " токенов · "+stats.contextExamples+" контекстов · "+stats.vocabularyLemmas+" лемм · POS-классов "+stats.posLabels+" · морфологических голов "+stats.morphologyHeads+". "+
+          " токенов · "+stats.contextExamples+" контекстов · "+stats.vocabularyLemmas+" лемм · POS-классов "+stats.posLabels+" · морфологических голов "+stats.morphologyHeads+" · парадигм "+stats.lemmaParadigms+" · правил словообразования "+stats.morphologyRules+". "+
           "Индекс хранится в памяти текущей вкладки.";
       }catch(error){
         udContextRanker=null;
@@ -146,17 +146,23 @@
         }
       }
       if(udContextRanker){
-        const ud=udContextRanker.predictMasked(text,row.index,{limit:6});
-        if(ud.candidates.length){
-          lines.push("UD · ЛЕММЫ И СЛОВОФОРМЫ: "+
-            ud.candidates.slice(0,6).map(item=>item.form+" ["+item.upos+
+        const ud=udContextRanker.predictLemmaMasked(text,row.index,{limit:6,surfaceLemmaLimit:5,surfaceLimit:4});
+        if(ud.lemmaCandidates.length){
+          lines.push("UD · ПРЕДСКАЗАННЫЕ ЛЕММЫ: "+
+            ud.lemmaCandidates.slice(0,6).map(item=>item.lemma+" ["+item.upos+
+              ", поддержка "+item.support+", балл "+Math.round(item.score*100)+"%]").join(" · "));
+        }
+        if(ud.surfaceCandidates.length){
+          lines.push("UD · ВОССТАНОВЛЕННЫЕ СЛОВОФОРМЫ: "+
+            ud.surfaceCandidates.slice(0,8).map(item=>item.form+" ["+item.lemma+
+              (item.generated?", правило":" , парадигма")+
               (item.features&&item.features.Case?", "+item.features.Case:"")+
               (item.features&&item.features.Number?", "+item.features.Number:"")+
-              "] · балл "+Math.round(item.score*100)).join(" · "));
-          if(ud.tagPrediction&&ud.tagPrediction.upos.length){
-            lines.push("UD · ПРОГНОЗ ЧАСТИ РЕЧИ: "+
-              ud.tagPrediction.upos.slice(0,3).map(item=>item.label+" "+Math.round(item.probability*100)+"%").join(" · "));
-          }
+              "] · балл "+Math.round(item.combinedScore*100)+"%").join(" · "));
+        }
+        if(ud.tagPrediction&&ud.tagPrediction.upos.length){
+          lines.push("UD · ПРОГНОЗ ЧАСТИ РЕЧИ: "+
+            ud.tagPrediction.upos.slice(0,3).map(item=>item.label+" "+Math.round(item.probability*100)+"%").join(" · "));
         }
       }
     }

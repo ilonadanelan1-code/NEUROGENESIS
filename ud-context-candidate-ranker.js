@@ -45,8 +45,40 @@ function create(records,options={}){
  const windowSize=Math.max(1,Math.min(8,Math.floor(Number(options.windowSize)||WIN))),modelApi=options.modelApi||root.NGContextualModel||null;
  const clean=records.map(r=>{if(!r||!Array.isArray(r.tokens))return null;const tokens=r.tokens.filter(t=>t&&typeof t.form==="string"&&words(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM").map(t=>({form:norm(t.form),lemma:norm(t.lemma||t.form),upos:t.upos||"X",feats:t.feats||Object.create(null)})).filter(t=>t.form&&t.lemma);return tokens.length?{text:r.text||tokens.map(t=>t.form).join(" "),tokens}:null;}).filter(Boolean);
  if(!clean.length)throw new TypeError("No usable annotated tokens were found.");
- const examples=[],analyses=new Map();
+ const examples=[],analyses=new Map(),formsByLemma=new Map(),morphRulesByPOS=new Map(),lemmaFrequency=new Map();
+ const morphKeysByPOS={
+  NOUN:["Case","Number","Gender","Animacy"],PROPN:["Case","Number","Gender","Animacy"],
+  PRON:["Case","Number","Gender","Animacy","Person"],ADJ:["Case","Number","Gender","Animacy","Degree"],
+  VERB:["VerbForm","Tense","Aspect","Person","Number","Gender","Mood","Voice"],
+  AUX:["VerbForm","Tense","Aspect","Person","Number","Gender","Mood","Voice"],
+  ADV:["Degree"],NUM:["NumType","Case","Number","Gender"]
+ };
+ function featureKey(feats,keys){
+  return(keys||[]).filter(key=>feats&&feats[key]).sort().map(key=>key+"="+feats[key]).join("|");
+ }
+ function addParadigmToken(token){
+  const lemmaKey=token.lemma+"|"+token.upos;
+  if(!formsByLemma.has(lemmaKey))formsByLemma.set(lemmaKey,new Map());
+  const forms=formsByLemma.get(lemmaKey);
+  if(!forms.has(token.form))forms.set(token.form,{form:token.form,count:0,features:{...token.feats}});
+  forms.get(token.form).count++;
+  lemmaFrequency.set(lemmaKey,(lemmaFrequency.get(lemmaKey)||0)+1);
+  if(!POS.has(token.upos)||token.lemma.length<3)return;
+  let prefix=0;
+  while(prefix<token.lemma.length&&prefix<token.form.length&&token.lemma[prefix]===token.form[prefix])prefix++;
+  if(prefix<2)return;
+  const oldSuffix=token.lemma.slice(prefix),replacement=token.form.slice(prefix);
+  if(oldSuffix.length>5||replacement.length>8)return;
+  const rule={oldSuffix,replacement,endingKey:token.lemma.slice(-2),features:{...token.feats},
+   upos:token.upos,count:1,sourceLemma:token.lemma};
+  if(!morphRulesByPOS.has(token.upos))morphRulesByPOS.set(token.upos,new Map());
+  const map=morphRulesByPOS.get(token.upos);
+  const ruleKey=[rule.oldSuffix,rule.replacement,rule.endingKey,featureKey(rule.features,morphKeysByPOS[token.upos])].join("|");
+  if(map.has(ruleKey))map.get(ruleKey).count++;
+  else map.set(ruleKey,rule);
+ }
  for(const sent of clean){
+  for(const token of sent.tokens)addParadigmToken(token);
   for(const t of sent.tokens){if(!analyses.has(t.form))analyses.set(t.form,[]);const list=analyses.get(t.form),k=t.lemma+"|"+t.upos;if(!list.some(x=>x.key===k))list.push({key:k,lemma:t.lemma,upos:t.upos,feats:t.feats});}
   for(let i=0;i<sent.tokens.length;i++){
    const target=sent.tokens[i];if(!POS.has(target.upos))continue;const context=[];
@@ -67,6 +99,116 @@ function create(records,options={}){
  const forms=new Map(),lemmas=new Map(),stems=new Map(),lemmaDf=new Map();
  const post=(map,key,id)=>{if(!key)return;if(!map.has(key))map.set(key,[]);map.get(key).push(id);};
  examples.forEach((ex,id)=>{const sf=new Set(),sl=new Set(),ss=new Set();for(const t of ex.context){if(!sf.has(t.form)){post(forms,t.form,id);sf.add(t.form);}if(!sl.has(t.lemma)){post(lemmas,t.lemma,id);sl.add(t.lemma);}if(!ss.has(t.stem)){post(stems,t.stem,id);ss.add(t.stem);}}for(const l of sl)lemmaDf.set(l,(lemmaDf.get(l)||0)+1);});
+ function predictedFeatureBundles(tagPrediction,upos,options={}){
+  const keys=morphKeysByPOS[upos]||[];
+  let beam=[{features:Object.create(null),probability:1}];
+  for(const key of keys){
+   const distribution=tagPrediction&&tagPrediction.morphology&&tagPrediction.morphology[upos]&&tagPrediction.morphology[upos][key];
+   if(!distribution||!distribution.length)continue;
+   const choices=distribution.slice(0,Math.max(1,Math.min(3,Math.floor(Number(options.featureChoices)||2))));
+   const expanded=[];
+   for(const state of beam)for(const choice of choices){
+    const probability=Number(choice.probability)||0;
+    if(probability<=0)continue;
+    expanded.push({features:{...state.features,[key]:choice.label},probability:state.probability*probability});
+   }
+   if(expanded.length)beam=expanded.sort((a,b)=>b.probability-a.probability)
+    .slice(0,Math.max(1,Math.min(24,Math.floor(Number(options.featureBeam)||12))));
+  }
+  return beam.length?beam:[{features:Object.create(null),probability:1}];
+ }
+ function reconstructSurface(lemmaCandidate,tagPrediction,surfaceOptions={}){
+  const lemma=norm(typeof lemmaCandidate==="string"?lemmaCandidate:lemmaCandidate&&lemmaCandidate.lemma);
+  const upos=typeof lemmaCandidate==="object"&&lemmaCandidate&&lemmaCandidate.upos?lemmaCandidate.upos:
+   tagPrediction&&tagPrediction.upos&&tagPrediction.upos[0]?tagPrediction.upos[0].label:null;
+  if(!lemma||!upos)return{available:false,reason:"missing_lemma_or_upos",lemma,upos,candidates:[],targetSurfaceUsed:false};
+  const bundles=predictedFeatureBundles(tagPrediction,upos,surfaceOptions),observed=formsByLemma.get(lemma+"|"+upos)||new Map();
+  const results=new Map();
+  const add=(row)=>{
+   const existing=results.get(row.form);
+   if(!existing||row.score>existing.score)results.set(row.form,row);
+  };
+  for(const formRow of observed.values()){
+   for(const bundle of bundles){
+    const pairs=Object.entries(bundle.features),matches=pairs.filter(([key,value])=>formRow.features[key]===value).length;
+    const mismatches=pairs.filter(([key,value])=>formRow.features[key]&&formRow.features[key]!==value).length;
+    const known=pairs.filter(([key])=>formRow.features[key]).length;
+    const coverage=pairs.length?known/pairs.length:0;
+    const exact=pairs.length>0&&matches===pairs.length&&mismatches===0;
+    const score=.34*bundle.probability+.15*matches-.22*mismatches+.018*Math.log1p(formRow.count);
+    add({form:formRow.form,lemma,upos,features:{...formRow.features},score,
+     method:"observed_paradigm",generated:false,exactFeatureMatch:exact,featureCoverage:coverage,
+     matchedFeatures:matches,featureMismatches:mismatches,frequency:formRow.count});
+   }
+  }
+  const rules=morphRulesByPOS.get(upos);
+  if(rules){
+   for(const rule of rules.values()){
+    if(rule.oldSuffix){
+     if(!lemma.endsWith(rule.oldSuffix))continue;
+    }else if(lemma.slice(-2)!==rule.endingKey)continue;
+    for(const bundle of bundles){
+     const pairs=Object.entries(bundle.features);
+     if(!pairs.length)continue;
+     const matches=pairs.filter(([key,value])=>rule.features[key]===value).length;
+     const mismatches=pairs.filter(([key,value])=>rule.features[key]&&rule.features[key]!==value).length;
+     if(!matches||mismatches)continue;
+     const form=lemma.slice(0,lemma.length-rule.oldSuffix.length)+rule.replacement;
+     if(!form||form===lemma)continue;
+     const score=.46*bundle.probability+.17*matches+.035*Math.log1p(rule.count);
+     add({form,lemma,upos,features:{...bundle.features},score,method:"learned_suffix_rule",
+      generated:true,exactFeatureMatch:true,featureCoverage:1,matchedFeatures:matches,
+      featureMismatches:0,ruleSupport:rule.count,ruleEnding:rule.endingKey});
+    }
+   }
+  }
+  const candidates=[...results.values()].sort((a,b)=>b.score-a.score||Number(b.exactFeatureMatch)-Number(a.exactFeatureMatch)||a.form.localeCompare(b.form))
+   .slice(0,Math.max(1,Math.min(12,Math.floor(Number(surfaceOptions.limit)||6))));
+  return{available:candidates.length>0,reason:candidates.length?null:"no_paradigm_or_rule",
+   lemma,upos,predictedFeatures:bundles.slice(0,6),candidateCount:candidates.length,candidates,targetSurfaceUsed:false};
+ }
+ function predictLemmaMasked(text,index,predictOptions={}){
+  const parsed=contextFor(text,index);
+  if(parsed.index<0)return{available:false,reason:"empty_input",lemmaCandidates:[],surfaceCandidates:[],targetSurfaceUsed:false};
+  if(parsed.context.length<2)return{available:false,reason:"insufficient_context",lemmaCandidates:[],surfaceCandidates:[],targetSurfaceUsed:false};
+  const tagPrediction=predictTags(parsed.context),ids=shortlist(parsed.context,predictOptions);
+  if(!ids.length)return{available:false,reason:"no_context_match",lemmaCandidates:[],surfaceCandidates:[],tagPrediction,targetSurfaceUsed:false};
+  const byLemma=new Map();
+  for(const id of ids){
+   const example=examples[id],match=compare(parsed.context,example,predictOptions.allowOrderInversion===true);
+   if(match.matched<Math.max(2,Math.min(6,Math.floor(Number(predictOptions.minContextMatches)||2)))||
+      match.coverage<Math.max(.1,Math.min(.9,Number(predictOptions.minContextCoverage)||.25)))continue;
+   const target=example.target,key=target.lemma+"|"+target.upos;
+   if(!byLemma.has(key))byLemma.set(key,{lemma:target.lemma,upos:target.upos,scores:[],best:null,forms:formsByLemma.get(key)?.size||0});
+   const row=byLemma.get(key);row.scores.push(match.score);
+   if(!row.best||match.score>row.best.score)row.best=match;
+  }
+  const lemmaCandidates=[];
+  for(const row of byLemma.values()){
+   const average=row.scores.reduce((sum,value)=>sum+value,0)/row.scores.length;
+   const score=Math.max(0,Math.min(1,row.best.score*.82+average*.12+
+    Math.min(.06,Math.max(0,row.scores.length-1)*.015)));
+   lemmaCandidates.push({lemma:row.lemma,upos:row.upos,score,support:row.scores.length,
+    matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,
+    lemmaContextMatches:row.best.lemmaMatches,knownParadigmForms:row.forms,
+    matchedContext:row.best.evidence});
+  }
+  lemmaCandidates.sort((a,b)=>b.score-a.score||b.support-a.support||a.lemma.localeCompare(b.lemma));
+  const limited=lemmaCandidates.slice(0,Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8))));
+  const surfaceCandidates=[];
+  for(const candidate of limited.slice(0,Math.max(1,Math.min(8,Math.floor(Number(predictOptions.surfaceLemmaLimit)||5))))){
+   const reconstructed=reconstructSurface(candidate,tagPrediction,{...predictOptions,limit:Math.max(2,Math.min(8,Math.floor(Number(predictOptions.surfaceLimit)||4)))});
+   for(const surface of reconstructed.candidates)surfaceCandidates.push({...surface,lemmaScore:candidate.score,
+    combinedScore:surface.score*.62+candidate.score*.38});
+  }
+  surfaceCandidates.sort((a,b)=>b.combinedScore-a.combinedScore||b.score-a.score||a.form.localeCompare(b.form));
+  const uniqueSurfaces=[],seenSurfaces=new Set();
+  for(const candidate of surfaceCandidates){const key=candidate.form+"|"+candidate.lemma+"|"+candidate.upos;if(seenSurfaces.has(key))continue;seenSurfaces.add(key);uniqueSurfaces.push(candidate);}
+  return{available:limited.length>0,reason:limited.length?null:"no_lemma_candidate",
+   maskedTokenIndex:parsed.index,lemmaCandidateCount:limited.length,lemmaCandidates:limited,
+   surfaceCandidates:uniqueSurfaces.slice(0,Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8)))),
+   tagPrediction,method:"ud_context_lemma_then_surface",targetSurfaceUsed:false};
+ }
  function contextFor(text,index){const tokens=words(text);if(!tokens.length)return{tokens,index:-1,context:[]};const i=Math.max(0,Math.min(tokens.length-1,Math.floor(Number(index)||0))),context=[];for(let off=-windowSize;off<=windowSize;off++){if(!off)continue;const j=i+off;if(j<0||j>=tokens.length)continue;const form=tokens[j];context.push({form,offset:off,stem:stem(form),analyses:analyses.get(form)||[]});}return{tokens,index:i,context};}
  function shortlist(query,predictOptions={}){
   const maxFeatures=Math.max(2,Math.min(8,Math.floor(Number(predictOptions.maxContextFeatures)||5)));
@@ -188,7 +330,7 @@ function create(records,options={}){
   return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextHints:hints,tagPrediction,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
  }
  const status={sentenceCount:clean.length,annotatedTokenCount:clean.reduce((s,r)=>s+r.tokens.length,0),contextExamples:examples.length,vocabularyForms:analyses.size,vocabularyLemmas:new Set([...analyses.values()].flat().map(a=>a.lemma)).size,windowSize};
- return Object.freeze({predictMasked,rerankCandidates,status:()=>({...status,tagExamples:taggerRows.length,posLabels:posTagger.labels.length,morphologyHeads:morphologyTaggers.size})});
+ return Object.freeze({predictMasked,predictLemmaMasked,reconstructSurface,rerankCandidates,status:()=>({...status,tagExamples:taggerRows.length,posLabels:posTagger.labels.length,morphologyHeads:morphologyTaggers.size,lemmaParadigms:formsByLemma.size,morphologyRules:[...morphRulesByPOS.values()].reduce((sum,map)=>sum+map.size,0)})});
 }
 root.NGUDContextCandidateRanker=Object.freeze({schema:"NG_UD_CONTEXT_CANDIDATE_RANKER_V1",parseConllu,create,tokenize:words});
 })();

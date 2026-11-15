@@ -8,9 +8,42 @@ const fixture=[
 "# sent_id = b\n# text = Новые нейроны получают сигнал.\n1\tНовые\tновый\tADJ\t_\tCase=Nom|Number=Plur\t2\tamod\t_\t_\n2\tнейроны\tнейрон\tNOUN\t_\tCase=Nom|Gender=Masc|Number=Plur\t3\tnsubj\t_\t_\n3\tполучают\tполучать\tVERB\t_\tNumber=Plur|Person=3|Tense=Pres\t0\troot\t_\t_\n4\tсигнал\tсигнал\tNOUN\t_\tCase=Acc|Number=Sing\t3\tobj\t_\t_\n\n"+
 "# sent_id = c\n# text = Новые датчики измеряют сигнал.\n1\tНовые\tновый\tADJ\t_\tCase=Nom|Number=Plur\t2\tamod\t_\t_\n2\tдатчики\tдатчик\tNOUN\t_\tCase=Nom|Gender=Masc|Number=Plur\t3\tnsubj\t_\t_\n3\tизмеряют\tизмерять\tVERB\t_\tNumber=Plur|Person=3|Tense=Pres\t0\troot\t_\t_\n4\tсигнал\tсигнал\tNOUN\t_\tCase=Acc|Number=Sing\t3\tobj\t_\t_\n\n"+
 "# sent_id = d\n# text = Система хранит данные.\n1\tСистема\tсистема\tNOUN\t_\tCase=Nom|Gender=Fem|Number=Sing\t2\tnsubj\t_\t_\n2\tхранит\tхранить\tVERB\t_\tNumber=Sing|Person=3|Tense=Pres\t0\troot\t_\t_\n3\tданные\tданные\tNOUN\t_\tCase=Acc|Number=Plur\t2\tobj\t_\t_\n"];
+
+fixture.push(
+"# sent_id = e\n# text = Мотор гудит громко.\n"+
+"1\tМотор\tмотор\tNOUN\t_\tCase=Nom|Gender=Masc|Number=Sing\t2\tnsubj\t_\t_\n"+
+"2\tгудит\tгудеть\tVERB\t_\tNumber=Sing|Person=3|Tense=Pres\t0\troot\t_\t_\n"+
+"3\tгромко\tгромко\tADV\t_\t_\t2\tadvmod\t_\t_\n",
+"# sent_id = f\n# text = Ремонт прибора завершён.\n"+
+"1\tРемонт\tремонт\tNOUN\t_\tCase=Nom|Gender=Masc|Number=Sing\t2\tnsubj\t_\t_\n"+
+"2\tприбора\tприбор\tNOUN\t_\tCase=Gen|Gender=Masc|Number=Sing\t3\tnmod\t_\t_\n"+
+"3\tзавершён\tзавершить\tVERB\t_\tVerbForm=Part|Tense=Past|Voice=Pass|Gender=Masc|Number=Sing\t0\troot\t_\t_\n"
+);
 const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,4);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
 const modelApi={inferMaskedNumber:(t,i)=>{const l=t[i-1]||"",r=t[i+1]||"";if(/(ые|ие)$/u.test(l)||/(ют|ут|ат|ят)$/u.test(r))return{number:"plural"};if(/(ает|яет|ует|ит|ет)$/u.test(r))return{number:"singular"};return null;}};
-const ranker=api.create(records,{modelApi});assert.equal(ranker.status().sentenceCount,4);assert.ok(ranker.status().contextExamples>0);
+const ranker=api.create(records,{modelApi});
+const lemmaFirst=ranker.predictLemmaMasked("Новые нейроны получают сигнал",1,{limit:8});
+assert.equal(lemmaFirst.targetSurfaceUsed,false);
+assert.ok(lemmaFirst.lemmaCandidates.some(row=>row.lemma==="нейрон"&&row.upos==="NOUN"),
+ "lemma-first predictor should retrieve the noun lemma without reading the hidden form");
+const changedHidden=ranker.predictLemmaMasked("Новые устройства получают сигнал",1,{limit:8});
+assert.deepEqual(
+ JSON.parse(JSON.stringify(lemmaFirst.lemmaCandidates.map(row=>({lemma:row.lemma,upos:row.upos,score:row.score})))),
+ JSON.parse(JSON.stringify(changedHidden.lemmaCandidates.map(row=>({lemma:row.lemma,upos:row.upos,score:row.score})))),
+ "replacing the hidden surface must not change lemma candidates"
+);
+assert.ok(lemmaFirst.surfaceCandidates.some(row=>row.lemma==="нейрон"),
+ "surface reconstruction must follow candidate lemmas");
+const forcedMorphology={upos:[{label:"NOUN",probability:.99}],morphology:{NOUN:{
+ Case:[{label:"Gen",probability:.97},{label:"Nom",probability:.03}],
+ Number:[{label:"Sing",probability:.98},{label:"Plur",probability:.02}],
+ Gender:[{label:"Masc",probability:.99}]
+}}};
+const generatedMotor=ranker.reconstructSurface({lemma:"мотор",upos:"NOUN"},forcedMorphology,{limit:8});
+assert.ok(generatedMotor.candidates.some(row=>row.form==="мотора"&&row.generated===true&&row.method==="learned_suffix_rule"),
+ "the learned -ор → -ора genitive rule should generate a form for a different lemma");
+assert.equal(generatedMotor.targetSurfaceUsed,false);
+assert.equal(ranker.status().sentenceCount,4);assert.ok(ranker.status().contextExamples>0);
 const tagProbe=ranker.predictMasked("нейрон система сигнал",1);
 assert.ok(tagProbe.tagPrediction&&tagProbe.tagPrediction.upos.length>0,"POS classifier should return a distribution without the hidden target");
 assert.equal(tagProbe.tagPrediction.upos[0].label,"VERB","noun subject + noun object context should favour a verb");
