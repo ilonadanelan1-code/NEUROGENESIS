@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wordfill-rumorph-\${{ github.ref }}
+  group: wordfill-rumorph-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
