@@ -43,7 +43,7 @@ const generatedMotor=ranker.reconstructSurface({lemma:"мотор",upos:"NOUN"},
 assert.ok(generatedMotor.candidates.some(row=>row.form==="мотора"&&row.generated===true&&row.method==="learned_suffix_rule"),
  "the learned -ор → -ора genitive rule should generate a form for a different lemma");
 assert.equal(generatedMotor.targetSurfaceUsed,false);
-assert.equal(ranker.status().sentenceCount,4);assert.ok(ranker.status().contextExamples>0);
+assert.equal(ranker.status().sentenceCount,6);assert.ok(ranker.status().contextExamples>0);
 const tagProbe=ranker.predictMasked("нейрон система сигнал",1);
 assert.ok(tagProbe.tagPrediction&&tagProbe.tagPrediction.upos.length>0,"POS classifier should return a distribution without the hidden target");
 assert.equal(tagProbe.tagPrediction.upos[0].label,"VERB","noun subject + noun object context should favour a verb");
