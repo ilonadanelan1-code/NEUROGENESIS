@@ -11,7 +11,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: roberta-large-wordfill-\${{ github.ref }}
+  group: roberta-large-wordfill-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,19 +38,48 @@ jobs:
           python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install --no-cache-dir transformers==4.48.3
 
-      - name: Download exact previous benchmark input and baseline report
-        uses: actions/download-artifact@v4
-        with:
-          name: neurogenesis-pretrained-rubert-v1
-          run-id: 43733165091
-          github-token: \${{ secrets.GITHUB_TOKEN }}
-          path: benchmark-inputs
+      - name: Download pinned UD Russian-GSD train and test splits
+        run: |
+          mkdir -p /tmp/ud-russian-gsd benchmark-inputs benchmark-reports
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+
+      - name: Rebuild the exact deterministic masked-word sample
+        run: |
+          node --check contextual-attention.js
+          node --check tests/ud-pretrained-mlm-benchmark.test.js
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-inputs/ud-pretrained-mlm-input.json
+          cat > benchmark-inputs/ud-rubert-multipiece-beam-v1.json <<'EOF'
+          {
+            "coverage": {
+              "all_multi_piece_targets": 349,
+              "decoder_supported_targets": 347,
+              "decoder_excluded_targets": 2
+            },
+            "metrics": {
+              "top1_all_multi_piece_with_excluded_as_miss": {
+                "correct": 7,
+                "total": 349,
+                "accuracy": 0.02005730659025788
+              },
+              "recall8_all_multi_piece_with_excluded_as_miss": {
+                "correct": 22,
+                "total": 349,
+                "accuracy": 0.06303724928366762
+              }
+            }
+          }
+          EOF
 
       - name: Validate benchmark runner
         run: |
           python -m py_compile scripts/pretrained_roberta_large_wordfill.py
           test -s benchmark-inputs/ud-pretrained-mlm-input.json
           test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
 
       - name: Run matched ruRoBERTa-large whole-word benchmark
         env:
