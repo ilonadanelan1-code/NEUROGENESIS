@@ -87,6 +87,7 @@ def main():
             if target_index < 0 or target_index >= len(tokens):
                 results.append({
                     "sentence_id": case.get("sentence_id"),
+                    "target_index": case.get("target_index"),
                     "gold_form": case.get("gold_form"),
                     "gold_normalized": case.get("gold_normalized"),
                     "top_candidates": [],
@@ -152,6 +153,7 @@ def main():
         model_piece_count = len(tokenizer(case["gold_form"], add_special_tokens=False)["input_ids"])
         results.append({
             "sentence_id": case.get("sentence_id"),
+            "target_index": case.get("target_index"),
             "gold_form": case["gold_form"],
             "model_piece_count": model_piece_count,
             "gold_normalized": gold,
