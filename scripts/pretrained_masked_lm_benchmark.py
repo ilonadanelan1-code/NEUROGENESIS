@@ -21,7 +21,9 @@ CONTENT_POS = {"NOUN", "PROPN", "VERB", "AUX", "ADJ", "ADV", "PRON", "NUM"}
 
 
 def normalize(value):
-    return unicodedata.normalize("NFKC", str(value or "")).lower().replace("ё", "е")
+    decomposed = unicodedata.normalize("NFKD", str(value or ""))
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.category(ch).startswith("M"))
+    return unicodedata.normalize("NFKC", without_marks).lower().replace("ё", "е")
 
 
 def safe_word(tokenizer, token_id):
