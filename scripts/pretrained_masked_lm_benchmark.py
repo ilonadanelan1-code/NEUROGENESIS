@@ -99,9 +99,14 @@ def main():
             len(encoded_gold) == 1 and normalize(decoded_gold) == case["gold_normalized"]
             and int(encoded_gold[0]) != tokenizer.unk_token_id
         )
+        masked_text = str(case.get("masked_sentence") or "")
+        if masked_text.count("[MASK]") != 1:
+            masked = tokens[:]
+            masked[target_index] = mask_token
+            masked_text = " ".join(masked)
         prepared.append({
             "case": case,
-            "masked_text": " ".join(masked),
+            "masked_text": masked_text,
             "gold_token_id": int(encoded_gold[0]) if exact_single_piece else None,
             "single_piece": exact_single_piece,
         })
