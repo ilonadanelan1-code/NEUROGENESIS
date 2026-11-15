@@ -124,6 +124,7 @@ function maskedFormsForExternal(forms, index) {
 }
 
 function normalize(value) {
-  return String(value == null ? "" : value).normalize("NFKC")
+  return String(value == null ? "" : value).normalize("NFKD")
+    .replace(/\\p{M}/gu, "").normalize("NFKC")
     .toLowerCase().replace(/ё/gu, "е");
 }
