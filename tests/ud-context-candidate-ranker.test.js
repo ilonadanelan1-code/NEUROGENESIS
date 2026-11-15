@@ -42,8 +42,8 @@ if(!trainPath&&!testPath){
   if(token.lemma)trainingLemmas.add(String(token.lemma).toLowerCase().replace(/ё/gu,"е"));
  }
  const sample=importer.deterministicSample(testUnique,100,20261115);
- const groups={all:{total:0,covered:0,top1:0,recall8:0},oovForm:{total:0,covered:0,top1:0,recall8:0},oovLemma:{total:0,covered:0,top1:0,recall8:0}};
- const perPos=Object.create(null);
+ const groups={all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovForm:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovLemma:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0}};
+ const perPos=Object.create(null),errorExamples=[];
  for(const sentence of sample){
   const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
   const text=lexical.map(t=>t.form).join(" ");
@@ -57,21 +57,27 @@ if(!trainPath&&!testPath){
    const covered=result.candidates.length>0;
    const top1=covered&&result.candidates[0].form.toLowerCase().replace(/ё/gu,"е")===form;
    const recall8=covered&&result.candidates.some(c=>c.form.toLowerCase().replace(/ё/gu,"е")===form);
-   const add=g=>{g.total++;if(covered)g.covered++;if(top1)g.top1++;if(recall8)g.recall8++;};
+   const lemmaTop1=covered&&result.candidates[0].lemma.toLowerCase().replace(/ё/gu,"е")===lemma;
+   const lemmaRecall8=covered&&result.candidates.some(c=>c.lemma.toLowerCase().replace(/ё/gu,"е")===lemma);
+   const add=g=>{g.total++;if(covered)g.covered++;if(top1)g.top1++;if(recall8)g.recall8++;if(lemmaTop1)g.lemmaTop1++;if(lemmaRecall8)g.lemmaRecall8++;};
    add(groups.all);if(oovForm)add(groups.oovForm);if(oovLemma)add(groups.oovLemma);
-   if(!perPos[target.upos])perPos[target.upos]={total:0,covered:0,top1:0,recall8:0};
+   if(!perPos[target.upos])perPos[target.upos]={total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0};
    add(perPos[target.upos]);
+   if(!top1&&errorExamples.length<40)errorExamples.push({text:sentence.text,target:target.form,lemma,upos:target.upos,oovForm,oovLemma,context:lexical.slice(Math.max(0,index-4),index).map(t=>t.form).concat(["[MASK]"],lexical.slice(index+1,index+5).map(t=>t.form)),candidates:result.candidates.slice(0,5).map(c=>({form:c.form,lemma:c.lemma,upos:c.upos,score:Number(c.score.toFixed(3)),features:c.features}))});
    if(result.available)assert.equal(result.targetSurfaceUsed,false);
   }
  }
  const summary=g=>({total:g.total,coverage:g.total?g.covered/g.total:0,
   top1AmongCovered:g.covered?g.top1/g.covered:0,recallAt8AmongCovered:g.covered?g.recall8/g.covered:0,
-  top1All:g.total?g.top1/g.total:0,recallAt8All:g.total?g.recall8/g.total:0});
+  lemmaTop1AmongCovered:g.covered?g.lemmaTop1/g.covered:0,lemmaRecallAt8AmongCovered:g.covered?g.lemmaRecall8/g.covered:0,
+  top1All:g.total?g.top1/g.total:0,recallAt8All:g.total?g.recall8/g.total:0,
+  lemmaTop1All:g.total?g.lemmaTop1/g.total:0,lemmaRecallAt8All:g.total?g.lemmaRecall8/g.total:0});
  const report={
   corpus:{trainSentences:trainUnique.length,trainSentencesUsed:trainForIndex.length,testSentences:testUnique.length,testSampleSentences:sample.length,
    overlapSentencesExcludedFromTrain:overlap,remainingTrainTestSentenceOverlap:remainingOverlap,training:fullRanker.status()},
   metrics:{all:summary(groups.all),oovSurface:summary(groups.oovForm),unseenLemma:summary(groups.oovLemma),
    byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)]))},
+  errorExamples,
   methodology:{trainPartitionOnly:true,testSentencesHeldOut:true,maskedTargetSurfaceNotUsedByRanker:true,
    sampleSeed:20261115,scoreIsCalibratedProbability:false}
  };
