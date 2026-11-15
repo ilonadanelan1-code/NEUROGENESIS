@@ -268,10 +268,14 @@ def main():
     if tokenizer.mask_token is None:
         raise RuntimeError("Model tokenizer has no mask token.")
     start_ids,continuation_ids=token_pools(tokenizer)
-    prepared,excluded=prepare(tokenizer,base_tokenizer,source.get("cases",[]))
-    expected_targets=349
-    if len(prepared)!=expected_targets:
-        raise RuntimeError(f"Matched sample drift: selected {len(prepared)} cases, expected {expected_targets}.")
+    matched_cases = [
+        case for case in source.get("cases",[])
+        if len(base_tokenizer(str(case["gold_form"]), add_special_tokens=False)["input_ids"]) > 1
+    ]
+    expected_targets = 349
+    if len(matched_cases) != expected_targets:
+        raise RuntimeError(f"Matched sample drift: selected {len(matched_cases)} old-ruBert multi-piece cases, expected {expected_targets}.")
+    prepared,excluded=prepare(tokenizer,base_tokenizer,matched_cases)
     single=[x for x in prepared if x["gold_piece_count"]==1]
     multi=[x for x in prepared if x["gold_piece_count"]>1]
     one_results=score_single_piece(model,tokenizer,single,start_ids)
@@ -279,7 +283,7 @@ def main():
     by_id={(r["sentence_id"],r["gold_form"]):r for r in one_results+multi_results}
     excluded_by_id={(r.get("sentence_id"),r.get("gold_form")):r for r in excluded}
     combined=[]
-    for case in source.get("cases",[]):
+    for case in matched_cases:
         key=(case.get("sentence_id"),case["gold_form"])
         row=by_id.get(key)
         if row is None:
@@ -303,7 +307,7 @@ def main():
     baseline={"top1":{"correct":78,"total":349,"accuracy":78/349},
               "recall8":{"correct":118,"total":349,"accuracy":118/349}}
     report={
-        "schema":"NEUROGENESIS_RUBERT_LARGE_WORDFILL_V1",
+        "schema":"NEUROGENESIS_RUBERT_LARGE_MATCHED_WORDFILL_V1",
         "model":{"id":MODEL_ID,"parameters":427000000,"weights_size_hugging_face":"1.71 GB",
                  "task":"fill-mask","tokenizer_class":type(tokenizer).__name__,
                  "tokenizer_vocab_size":len(tokenizer),"continuation_token_count":int(len(continuation_ids)),
@@ -314,9 +318,9 @@ def main():
             "gold_target_exposure":"Gold is replaced by MASK tokens. Only tokenizer pieces are used for evaluation and decoding.",
             "decoder":"single-token filtered candidate ranking plus WordPiece ## beam for multi-piece targets.",
             "baseline_ruRoberta_large":baseline},
-        "coverage":{"input_targets":len(source.get("cases",[])),"matched_old_multi_piece_targets":len(prepared),"prepared_targets":len(prepared),
+        "coverage":{"input_targets":len(source.get("cases",[])),"matched_old_multi_piece_targets":len(matched_cases),"prepared_targets":len(prepared),
             "excluded_targets":len(excluded),"single_piece_targets":len(single),
-            "multi_piece_targets":len(multi),"multi_piece_decoded":len(multi_results)},
+            "multi_piece_targets":sum(1 for case in matched_cases if len(tokenizer(case["gold_form"],add_special_tokens=False)["input_ids"])>1),"multi_piece_decoded":len(multi_results)},
         "metrics":{"all_targets":summary(combined),"by_gold_piece_count":groups,
             "single_piece":summary(one_results),"multi_piece":summary(multi_results)},
         "diagnostics":{"multi_piece_decoder":multi_diag,"excluded":excluded[:60]},
