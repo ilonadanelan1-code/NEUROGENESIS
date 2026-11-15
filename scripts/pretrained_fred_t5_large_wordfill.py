@@ -29,7 +29,7 @@ def first_word_from_fill(decoded, tokenizer):
     text = str(decoded or "")
     # GPT2Tokenizer's decoder sequence starts with the T5 pad/decoder-start
     # token. Drop it from the left; never split at it (that would erase fills).
-    text = re.sub(r"^<pad>\\s*", "", text)
+    text = re.sub(r"^<pad>\s*", "", text)
     if "<extra_id_0>" in text:
         text = text.split("<extra_id_0>", 1)[1]
     for sentinel in ("<extra_id_1>", "</s>"):
