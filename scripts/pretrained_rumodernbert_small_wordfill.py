@@ -572,9 +572,6 @@ def main():
         "parameters": 35000000,
         "weights_size_on_hugging_face": "143 MB",
         "license": "apache-2.0",
-        "parameters": 355000000,
-        "weights_size_on_hugging_face": "1.42 GB",
-        "license": "See the model card and repository files on Hugging Face before redistribution.",
         "pretrained_task": "masked language modeling / fill-mask",
         "training_data_volume": "approximately 2 trillion tokens, Russian / English / code",
         "tokenizer": type(tokenizer).__name__,
@@ -599,6 +596,7 @@ def main():
             "word_decoder": "One-piece RuRoBERTa words use a single-mask filtered token ranking; multi-piece words use an 8-wide beam with 8 branches and a next-token word-boundary probability.",
             "byte_bpe_rules": "Word starts are selected using the tokenizer's Ġ prefix when the masked position follows whitespace; continuation pieces do not use Ġ. Candidate surfaces must round-trip to the exact generated token IDs.",
             "max_generated_pieces": MAX_PIECES,
+            "tokenizer_note": "Uses the patched-tokenizer revision that makes six frequent Russian lowercase letters single tokens."
             "beam_width": BEAM_WIDTH,
             "branch_size": BRANCH_SIZE,
             "max_sequence_length": MAX_LENGTH,
