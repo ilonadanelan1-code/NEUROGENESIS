@@ -68,21 +68,24 @@ function create(records,options={}){
  const post=(map,key,id)=>{if(!key)return;if(!map.has(key))map.set(key,[]);map.get(key).push(id);};
  examples.forEach((ex,id)=>{const sf=new Set(),sl=new Set(),ss=new Set();for(const t of ex.context){if(!sf.has(t.form)){post(forms,t.form,id);sf.add(t.form);}if(!sl.has(t.lemma)){post(lemmas,t.lemma,id);sl.add(t.lemma);}if(!ss.has(t.stem)){post(stems,t.stem,id);ss.add(t.stem);}}for(const l of sl)lemmaDf.set(l,(lemmaDf.get(l)||0)+1);});
  function contextFor(text,index){const tokens=words(text);if(!tokens.length)return{tokens,index:-1,context:[]};const i=Math.max(0,Math.min(tokens.length-1,Math.floor(Number(index)||0))),context=[];for(let off=-windowSize;off<=windowSize;off++){if(!off)continue;const j=i+off;if(j<0||j>=tokens.length)continue;const form=tokens[j];context.push({form,offset:off,stem:stem(form),analyses:analyses.get(form)||[]});}return{tokens,index:i,context};}
- function shortlist(query){
+ function shortlist(query,predictOptions={}){
+  const maxFeatures=Math.max(2,Math.min(8,Math.floor(Number(predictOptions.maxContextFeatures)||5)));
+  const minCandidateMatches=Math.max(1,Math.min(maxFeatures,Math.floor(Number(predictOptions.minCandidateMatches)||2)));
+  const maxExamples=Math.max(100,Math.min(4000,Math.floor(Number(predictOptions.maxCandidateExamples)||1400)));
   const lists=query.map((q,qi)=>{
    const ids=new Set(forms.get(q.form)||[]);
    for(const a of q.analyses)for(const id of lemmas.get(a.lemma)||[])ids.add(id);
    if(!q.analyses.length&&q.stem.length>=3)for(const id of stems.get(q.stem)||[])ids.add(id);
    return{qi,ids,size:ids.size};
   }).filter(row=>row.size).sort((a,b)=>a.size-b.size||a.qi-b.qi);
-  const hits=new Map(),selected=lists.slice(0,Math.min(5,lists.length));
+  const hits=new Map(),selected=lists.slice(0,Math.min(maxFeatures,lists.length));
   for(const item of selected){
    const rarity=1+Math.log((examples.length+1)/(item.size+1));
    for(const id of item.ids){let row=hits.get(id);if(!row){row={count:0,weight:0};hits.set(id,row);}row.count++;row.weight+=rarity;}
   }
-  return[...hits.entries()].filter(([,row])=>row.count>=2)
+  return[...hits.entries()].filter(([,row])=>row.count>=minCandidateMatches)
    .sort((a,b)=>b[1].count-a[1].count||b[1].weight-a[1].weight||a[0]-b[0])
-   .slice(0,1400).map(([id])=>id);
+   .slice(0,maxExamples).map(([id])=>id);
  }
  function compare(query,ex,allowInversion){
   const used=new Set(),evidence=[];let matched=0,exact=0,lemmaMatches=0,aligned=0,weighted=0,possible=0;
@@ -171,9 +174,9 @@ function create(records,options={}){
  function predictMasked(text,index,predictOptions={}){
   const parsed=contextFor(text,index);if(parsed.index<0)return{available:false,reason:"empty_input",candidates:[],context:[]};
   if(parsed.context.length<2)return{available:false,reason:"insufficient_context",candidates:[],context:parsed.context};
-  const tagPrediction=predictTags(parsed.context),ids=shortlist(parsed.context);if(!ids.length)return{available:false,reason:"no_context_match",candidates:[],context:parsed.context,targetSurfaceUsed:false,tagPrediction};
+  const tagPrediction=predictTags(parsed.context),ids=shortlist(parsed.context,predictOptions);if(!ids.length)return{available:false,reason:"no_context_match",candidates:[],context:parsed.context,targetSurfaceUsed:false,tagPrediction};
   const numberHint=modelApi&&typeof modelApi.inferMaskedNumber==="function"?modelApi.inferMaskedNumber(parsed.tokens,parsed.index):null,hints=inferHints(parsed,numberHint),hint=numberHint,byTarget=new Map();
-  for(const id of ids){const ex=examples[id],m=compare(parsed.context,ex,predictOptions.allowOrderInversion===true);if(m.matched<2||m.coverage<.25)continue;const t=ex.target,k=t.form+"|"+t.lemma+"|"+t.upos;if(!byTarget.has(k))byTarget.set(k,{target:t,scores:[],best:null});const row=byTarget.get(k);row.scores.push(m.score);if(!row.best||m.score>row.best.score)row.best=m;}
+  for(const id of ids){const ex=examples[id],m=compare(parsed.context,ex,predictOptions.allowOrderInversion===true);if(m.matched<Math.max(2,Math.min(6,Math.floor(Number(predictOptions.minContextMatches)||2)))||m.coverage<Math.max(.1,Math.min(.9,Number(predictOptions.minContextCoverage)||.25)))continue;const t=ex.target,k=t.form+"|"+t.lemma+"|"+t.upos;if(!byTarget.has(k))byTarget.set(k,{target:t,scores:[],best:null});const row=byTarget.get(k);row.scores.push(m.score);if(!row.best||m.score>row.best.score)row.best=m;}
   const out=[];for(const row of byTarget.values()){const avg=row.scores.reduce((s,v)=>s+v,0)/row.scores.length,t=row.target,f=t.feats||{};let score=Math.min(1,row.best.score*.82+avg*.12+Math.min(.06,Math.max(0,row.scores.length-1)*.015));
    score+=hints.pos[t.upos]||0;
    for(const constraint of hints.features){

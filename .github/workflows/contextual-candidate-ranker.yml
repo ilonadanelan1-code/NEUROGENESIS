@@ -14,6 +14,7 @@ on:
       - tests/contextual-candidate-ranker.test.js
       - tests/ud-context-candidate-ranker.test.js
       - tests/ud-context-ranker-holdout-benchmark.test.js
+      - tests/ud-context-ranker-retrieval-tuning.test.js
       - scripts/ud-russian-gsd.js
       - ud-context-candidate-ranker.js
       - .github/workflows/contextual-candidate-ranker.yml
@@ -47,15 +48,14 @@ jobs:
           mkdir -p /tmp/ud-russian-gsd
           curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
           curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-dev.conllu --output /tmp/ud-russian-gsd/dev.conllu
-          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
-      - name: Tune tag reranking on UD dev and evaluate untouched test remainder
-        run: node tests/ud-context-ranker-holdout-benchmark.test.js /tmp/ud-russian-gsd/train.conllu /tmp/ud-russian-gsd/dev.conllu /tmp/ud-russian-gsd/test.conllu
-      - name: Upload dev-tuning and untouched-test report
+      - name: Tune context retrieval settings on UD dev only
+        run: node tests/ud-context-ranker-retrieval-tuning.test.js /tmp/ud-russian-gsd/train.conllu /tmp/ud-russian-gsd/dev.conllu
+      - name: Upload dev-only context retrieval tuning report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neurogenesis-ud-context-ranker-holdout-v1
-          path: benchmark-reports/ud-context-ranker-holdout-v1.json
+          name: neurogenesis-ud-context-ranker-retrieval-tuning-v1
+          path: benchmark-reports/ud-context-ranker-retrieval-tuning-v1.json
           if-no-files-found: warn
           retention-days: 30
 
