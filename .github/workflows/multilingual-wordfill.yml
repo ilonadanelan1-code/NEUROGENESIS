@@ -1,0 +1,177 @@
+name: Evaluate multilingual Russian fill-mask models on matched word cases
+
+on:
+  push:
+    branches:
+      - experiment/wordfill-multilingual-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wordfill-multilingual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare-matched-sample:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download pinned UD Russian-GSD
+        run: |
+          mkdir -p /tmp/ud-russian-gsd benchmark-inputs
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+
+      - name: Rebuild deterministic matched targets
+        run: |
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-inputs/ud-pretrained-mlm-input.json
+          cat > benchmark-inputs/ud-rubert-multipiece-beam-v1.json <<'EOF'
+          {
+            "coverage": {
+              "all_multi_piece_targets": 349,
+              "decoder_supported_targets": 347,
+              "decoder_excluded_targets": 2
+            },
+            "metrics": {
+              "top1_all_multi_piece_with_excluded_as_miss": {
+                "correct": 7,
+                "total": 349,
+                "accuracy": 0.02005730659025788
+              },
+              "recall8_all_multi_piece_with_excluded_as_miss": {
+                "correct": 22,
+                "total": 349,
+                "accuracy": 0.06303724928366762
+              }
+            }
+          }
+          EOF
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("benchmark-inputs/ud-pretrained-mlm-input.json").read_text())
+          assert len(data["cases"]) >= 500
+          assert data["corpus"]["normalizedSampleTrainTestOverlaps"] == 0
+          print({"targets":len(data["cases"]),"overlap":data["corpus"]["normalizedSampleTrainTestOverlaps"]})
+          PY
+
+      - name: Upload matched benchmark input
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-multilingual-wordfill-input-v1
+          path: benchmark-inputs
+          retention-days: 30
+
+  mdeberta-v3-base:
+    needs: prepare-matched-sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.52.4 sentencepiece protobuf
+
+      - name: Download matched benchmark input
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-multilingual-wordfill-input-v1
+          path: benchmark-inputs
+
+      - name: Validate mDeBERTa runner
+        run: |
+          python -m py_compile scripts/pretrained_mdeberta_v3_wordfill.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
+      - name: Run matched mDeBERTa-v3-base whole-word benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_mdeberta_v3_wordfill.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --baseline-report benchmark-inputs/ud-rubert-multipiece-beam-v1.json \
+            --output benchmark-reports/ud-mdeberta-v3-base-wordfill-v1.json
+
+      - name: Upload mDeBERTa report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-mdeberta-v3-base-wordfill-v1
+          path: benchmark-reports/ud-mdeberta-v3-base-wordfill-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  xlm-roberta-base:
+    needs: prepare-matched-sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.52.4 sentencepiece protobuf
+
+      - name: Download matched benchmark input
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-multilingual-wordfill-input-v1
+          path: benchmark-inputs
+
+      - name: Validate XLM-RoBERTa runner
+        run: |
+          python -m py_compile scripts/pretrained_xlm_roberta_base_wordfill.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
+      - name: Run matched XLM-RoBERTa-base whole-word benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_xlm_roberta_base_wordfill.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --baseline-report benchmark-inputs/ud-rubert-multipiece-beam-v1.json \
+            --output benchmark-reports/ud-xlm-roberta-base-wordfill-v1.json
+
+      - name: Upload XLM-RoBERTa report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-xlm-roberta-base-wordfill-v1
+          path: benchmark-reports/ud-xlm-roberta-base-wordfill-v1.json
+          if-no-files-found: warn
+          retention-days: 30
