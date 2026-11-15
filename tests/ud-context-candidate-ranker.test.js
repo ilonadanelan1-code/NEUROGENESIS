@@ -19,7 +19,7 @@ fixture.push(
 "2\tприбора\tприбор\tNOUN\t_\tCase=Gen|Gender=Masc|Number=Sing\t3\tnmod\t_\t_\n"+
 "3\tзавершён\tзавершить\tVERB\t_\tVerbForm=Part|Tense=Past|Voice=Pass|Gender=Masc|Number=Sing\t0\troot\t_\t_\n"
 );
-const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,4);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
+const records=api.parseConllu(fixture.join("\n"));assert.equal(records.length,6);assert.equal(records[1].tokens[1].lemma,"нейрон");assert.equal(records[1].tokens[1].feats.Number,"Plur");
 const modelApi={inferMaskedNumber:(t,i)=>{const l=t[i-1]||"",r=t[i+1]||"";if(/(ые|ие)$/u.test(l)||/(ют|ут|ат|ят)$/u.test(r))return{number:"plural"};if(/(ает|яет|ует|ит|ет)$/u.test(r))return{number:"singular"};return null;}};
 const ranker=api.create(records,{modelApi});
 const lemmaFirst=ranker.predictLemmaMasked("Новые нейроны получают сигнал",1,{limit:8});
