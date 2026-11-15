@@ -141,12 +141,13 @@ def main():
                 break
 
         gold = case["gold_normalized"]
+        model_piece_count = len(tokenizer(case["gold_form"], add_special_tokens=False)["input_ids"])
         results.append({
             "sentence_id": case.get("sentence_id"),
             "gold_form": case["gold_form"],
+            "model_piece_count": model_piece_count,
             "gold_normalized": gold,
             "upos": case.get("upos"),
-            "ruBert_base_piece_count": len(case.get("gold_form", "").split()),
             "top_candidates": candidates,
             "candidate_count": len(candidates),
             "gold_rank": next((rank for rank, row in enumerate(candidates, 1)
@@ -177,6 +178,22 @@ def main():
         "candidate_count_mean": statistics.mean(row.get("candidate_count", 0) for row in results) if results else 0.0,
         "targets_with_no_candidates": sum(row.get("candidate_count", 0) == 0 for row in results),
     }
+    by_piece_count = {}
+    for piece_count in sorted({row["model_piece_count"] for row in results}):
+        subset = [row for row in results if row["model_piece_count"] == piece_count]
+        by_piece_count[str(piece_count)] = {
+            "targets": len(subset),
+            "top1": metric("top1") if subset == results else {
+                "correct": sum(bool(row.get("top1")) for row in subset),
+                "total": len(subset),
+                "accuracy": sum(bool(row.get("top1")) for row in subset) / len(subset)
+            },
+            "recall8": {
+                "correct": sum(bool(row.get("top8")) for row in subset),
+                "total": len(subset),
+                "accuracy": sum(bool(row.get("top8")) for row in subset) / len(subset)
+            }
+        }
     report = {
         "schema": "NEUROGENESIS_FRED_T5_LARGE_WORDFILL_V1",
         "model": {
@@ -206,7 +223,7 @@ def main():
                 "ruRoBERTa_large_recall8": {"correct": 118, "total": 349, "accuracy": 118 / 349},
             },
         },
-        "metrics": summary,
+        "metrics": {"all_targets": summary, "by_fred_token_piece_count": by_piece_count},
         "debug_examples": debug_examples,
         "results": results,
     }
