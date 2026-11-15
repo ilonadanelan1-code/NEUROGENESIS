@@ -58,10 +58,7 @@ def main():
 
     torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
     tokenizer = GPT2Tokenizer.from_pretrained(MODEL_ID, eos_token="</s>")
-    model = T5ForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        low_cpu_mem_usage=True,
-    )
+    model = T5ForConditionalGeneration.from_pretrained(MODEL_ID)
     model.to("cpu")
     model.eval()
 
