@@ -15,6 +15,9 @@ const plural=ranker.predictMasked("Новые нейроны получают с
 const altered=ranker.predictMasked("Новые механизмы получают сигнал",1);assert.deepEqual(JSON.parse(JSON.stringify(plural.candidates)),JSON.parse(JSON.stringify(altered.candidates)),"masked token surface must not influence candidates");
 assert.ok(plural.candidates.every(c=>!c.matchedContext.some(x=>x.token==="нейроны")),"hidden surface must not occur in context evidence");
 assert.ok(ranker.predictMasked("Новый нейрон получает сигнал",1).candidates.some(c=>c.lemma==="нейрон"&&c.form==="нейрон"));
+const verbContext=ranker.predictMasked("нейрон получает сигнал",1);
+assert.equal(verbContext.candidates[0].upos,"VERB","nominative subject + accusative object should raise a verb candidate");
+assert.ok(verbContext.contextHints.pos.VERB>0);
 assert.equal(ranker.predictMasked("",0).reason,"empty_input");assert.equal(ranker.predictMasked("нейрон получает",0).reason,"insufficient_context");
 assert.throws(()=>api.create([]),/annotated training sentences/u);console.log("ud-context-candidate-ranker: fixture tests passed");
 

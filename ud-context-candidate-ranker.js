@@ -70,15 +70,71 @@ function create(records,options={}){
   const coverage=query.length?matched/query.length:0,exactRatio=matched?exact/matched:0,alignment=matched?aligned/matched:0;
   return{matched,coverage,score:.72*(possible?weighted/possible:0)+.18*coverage+.06*exactRatio+.04*alignment,exact,lemmaMatches,aligned,evidence};
  }
+ function inferHints(parsed,numberHint){
+  const byOffset=new Map(parsed.context.map(row=>[row.offset,row]));
+  const left=byOffset.get(-1),right=byOffset.get(1);
+  const analyses=row=>row&&Array.isArray(row.analyses)?row.analyses:[];
+  const has=(row,upos)=>analyses(row).some(a=>a.upos===upos);
+  const hasAny=(row,upos)=>analyses(row).some(a=>upos.includes(a.upos));
+  const featureValues=(row,upos,key)=>{
+   const values=analyses(row).filter(a=>!upos||upos.includes(a.upos)).map(a=>a.feats&&a.feats[key]).filter(Boolean);
+   const counts=new Map();for(const value of values)counts.set(value,(counts.get(value)||0)+1);
+   if(!counts.size)return[];
+   const max=Math.max(...counts.values());return[...counts.entries()].filter(([,count])=>count===max).map(([value])=>value);
+  };
+  const pos=Object.create(null),features=[];
+  const addPos=(name,value)=>{pos[name]=(pos[name]||0)+value;};
+  const addFeature=(upos,key,values,weight)=>{if(values&&values.length)features.push({upos,key,values:[...new Set(values)],weight});};
+  if(has(left,"ADP")){
+   addPos("NOUN",.12);addPos("PROPN",.08);addPos("PRON",.08);addPos("ADJ",.04);addPos("VERB",-.12);addPos("AUX",-.08);
+   const prep=left.form;
+   const prepCases={"к":["Dat"],"ко":["Dat"],"из":["Gen"],"изо":["Gen"],"от":["Gen"],"ото":["Gen"],"у":["Gen"],"без":["Gen"],"до":["Gen"],"для":["Gen"],"после":["Gen"],"около":["Gen"],"вокруг":["Gen"],"о":["Loc"],"об":["Loc"],"обо":["Loc"],"над":["Ins"],"перед":["Ins"],"между":["Ins"],"при":["Loc"],"с":["Ins","Gen"]};
+   addFeature(["NOUN","PROPN","PRON","ADJ"],"Case",prepCases[prep],.11);
+  }
+  if(has(left,"ADJ")){
+   addPos("NOUN",.13);addPos("PROPN",.07);
+   addFeature(["NOUN","PROPN"],"Number",featureValues(left,["ADJ"],"Number"),.07);
+   addFeature(["NOUN","PROPN"],"Case",featureValues(left,["ADJ"],"Case"),.07);
+   addFeature(["NOUN","PROPN"],"Gender",featureValues(left,["ADJ"],"Gender"),.05);
+  }
+  if(has(left,"NUM")){addPos("NOUN",.10);addPos("PROPN",.04);addFeature(["NOUN","PROPN"],"Number",["Sing","Plur"],.015);}
+  if(has(right,"NOUN")||has(right,"PROPN")){
+   addFeature(["ADJ"],"Number",featureValues(right,["NOUN","PROPN"],"Number"),.07);
+   addFeature(["ADJ"],"Case",featureValues(right,["NOUN","PROPN"],"Case"),.07);
+   addFeature(["ADJ"],"Gender",featureValues(right,["NOUN","PROPN"],"Gender"),.05);
+  }
+  const leftSubject=analyses(left).filter(a=>["NOUN","PROPN","PRON"].includes(a.upos)&&a.feats&&a.feats.Case==="Nom");
+  const rightObject=analyses(right).filter(a=>["NOUN","PROPN","PRON"].includes(a.upos)&&a.feats&&a.feats.Case==="Acc");
+  if(leftSubject.length&&rightObject.length){
+   addPos("VERB",.24);addPos("AUX",.08);addPos("NOUN",-.10);addPos("ADJ",-.08);addPos("PRON",-.06);
+  }else if(leftSubject.length&&hasAny(right,["NOUN","PROPN","PRON"])){
+   addPos("VERB",.14);addPos("AUX",.05);
+  }
+  if(hasAny(right,["VERB","AUX"])&&hasAny(left,["NOUN","PROPN","PRON"])){
+   const leftCase=featureValues(left,["NOUN","PROPN","PRON"],"Case");
+   if(leftCase.includes("Ins")||leftCase.includes("Gen")||leftCase.includes("Dat")){
+    addPos("PRON",.11);addPos("NOUN",.08);addPos("PROPN",.05);
+    addFeature(["NOUN","PROPN","PRON"],"Case",leftCase,.04);
+   }
+  }
+  if(numberHint&&numberHint.number)addFeature(["NOUN","PROPN","PRON","VERB","AUX","ADJ"],"Number",[numberHint.number==="plural"?"Plur":"Sing"],.08);
+  return{pos,features,numberHint};
+ }
  function predictMasked(text,index,predictOptions={}){
   const parsed=contextFor(text,index);if(parsed.index<0)return{available:false,reason:"empty_input",candidates:[],context:[]};
   if(parsed.context.length<2)return{available:false,reason:"insufficient_context",candidates:[],context:parsed.context};
   const ids=shortlist(parsed.context);if(!ids.length)return{available:false,reason:"no_context_match",candidates:[],context:parsed.context,targetSurfaceUsed:false};
-  const hint=modelApi&&typeof modelApi.inferMaskedNumber==="function"?modelApi.inferMaskedNumber(parsed.tokens,parsed.index):null,byTarget=new Map();
+  const numberHint=modelApi&&typeof modelApi.inferMaskedNumber==="function"?modelApi.inferMaskedNumber(parsed.tokens,parsed.index):null,hints=inferHints(parsed,numberHint),hint=numberHint,byTarget=new Map();
   for(const id of ids){const ex=examples[id],m=compare(parsed.context,ex,predictOptions.allowOrderInversion===true);if(m.matched<2||m.coverage<.25)continue;const t=ex.target,k=t.form+"|"+t.lemma+"|"+t.upos;if(!byTarget.has(k))byTarget.set(k,{target:t,scores:[],best:null});const row=byTarget.get(k);row.scores.push(m.score);if(!row.best||m.score>row.best.score)row.best=m;}
-  const out=[];for(const row of byTarget.values()){const avg=row.scores.reduce((s,v)=>s+v,0)/row.scores.length,t=row.target,f=t.feats||{};let score=Math.min(1,row.best.score*.82+avg*.12+Math.min(.06,Math.max(0,row.scores.length-1)*.015));if(hint?.number==="plural"&&f.Number)score+=f.Number==="Plur"?.08:-.08;if(hint?.number==="singular"&&f.Number)score+=f.Number==="Sing"?.08:-.08;score=Math.max(0,Math.min(1,score));out.push({form:t.form,surface:t.form,lemma:t.lemma,upos:t.upos,features:{...f},score,support:row.scores.length,matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,lemmaContextMatches:row.best.lemmaMatches,alignedOffsets:row.best.aligned,matchedContext:row.best.evidence});}
+  const out=[];for(const row of byTarget.values()){const avg=row.scores.reduce((s,v)=>s+v,0)/row.scores.length,t=row.target,f=t.feats||{};let score=Math.min(1,row.best.score*.82+avg*.12+Math.min(.06,Math.max(0,row.scores.length-1)*.015));
+   score+=hints.pos[t.upos]||0;
+   for(const constraint of hints.features){
+    if(!constraint.upos.includes(t.upos)||!f[constraint.key])continue;
+    score+=constraint.values.includes(f[constraint.key])?constraint.weight:-constraint.weight*.75;
+   }
+   score=Math.max(0,Math.min(1,score));out.push({form:t.form,surface:t.form,lemma:t.lemma,upos:t.upos,features:{...f},score,support:row.scores.length,matchedCount:row.best.matched,contextCoverage:row.best.coverage,exactContextMatches:row.best.exact,lemmaContextMatches:row.best.lemmaMatches,alignedOffsets:row.best.aligned,matchedContext:row.best.evidence});}
   out.sort((a,b)=>b.score-a.score||b.support-a.support||a.form.localeCompare(b.form));const unique=[],seen=new Set();for(const c of out){const k=c.form+"|"+c.lemma+"|"+c.upos;if(seen.has(k))continue;seen.add(k);unique.push(c);if(unique.length>=Math.max(1,Math.min(12,Math.floor(Number(predictOptions.limit)||8))))break;}
-  return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
+  return{available:unique.length>0,reason:unique.length?null:"no_context_match",maskedTokenIndex:parsed.index,candidateCount:unique.length,candidates:unique,morphologyHint:hint,contextHints:hints,contextTokenCount:parsed.context.length,method:"ud_annotated_context_retrieval",targetSurfaceUsed:false};
  }
  const status={sentenceCount:clean.length,annotatedTokenCount:clean.reduce((s,r)=>s+r.tokens.length,0),contextExamples:examples.length,vocabularyForms:analyses.size,vocabularyLemmas:new Set([...analyses.values()].flat().map(a=>a.lemma)).size,windowSize};
  return Object.freeze({predictMasked,status:()=>({...status})});
