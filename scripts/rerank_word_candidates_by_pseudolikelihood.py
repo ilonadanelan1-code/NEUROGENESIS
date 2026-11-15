@@ -258,8 +258,14 @@ def main():
 
     targets = []
     for result in candidate_rows:
-        key = (result.get("sentence_id"), result.get("gold_form"), result.get("upos"))
+        # Candidate groups are keyed by the stable case identity (sentence_id, target_index).
+        # Gold form and UPOS are evaluation metadata, not the key used by prepare_tasks().
+        key = (result.get("sentence_id"), int(result.get("target_index", -1)))
         target_tasks = grouped.get(key, [])
+        if result.get("top_candidates") and not target_tasks:
+            raise RuntimeError(
+                f"Candidate pool failed to join for sentence_id={key[0]} target_index={key[1]}"
+            )
         candidate_rows_scored = []
         for task in target_tasks:
             candidate_rows_scored.append({
