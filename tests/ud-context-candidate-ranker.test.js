@@ -26,15 +26,18 @@ if(!trainPath&&!testPath){
  const trainRaw=importer.parseConllu(fs.readFileSync(trainPath,"utf8"));
  const testRaw=importer.parseConllu(fs.readFileSync(testPath,"utf8"));
  const trainUnique=importer.uniqueRecords(trainRaw),testUnique=importer.uniqueRecords(testRaw);
- const trainKeys=new Set(trainUnique.map(row=>row.normalized));
- const overlap=testUnique.filter(row=>trainKeys.has(row.normalized)).length;
- assert.equal(overlap,0,"official train and test sentences must not overlap");
+ const testKeys=new Set(testUnique.map(row=>row.normalized));
+ const overlap=trainUnique.filter(row=>testKeys.has(row.normalized)).length;
+ const trainForIndex=trainUnique.filter(row=>!testKeys.has(row.normalized));
+ assert.equal(trainForIndex.length+overlap,trainUnique.length,"all overlapping train rows must be excluded");
+ const remainingOverlap=trainForIndex.filter(row=>testKeys.has(row.normalized)).length;
+ assert.equal(remainingOverlap,0,"no train/test sentence may remain in the context index");
  const modelWindow={};
  const modelSandbox={window:modelWindow,Date,Math,Map,Set,JSON,RegExp,Object,Array,String,Number};
  vm.runInNewContext(fs.readFileSync("contextual-attention.js","utf8"),modelSandbox,{filename:"contextual-attention.js"});
- const fullRanker=api.create(trainUnique,{modelApi:modelWindow.NGContextualModel,windowSize:4});
+ const fullRanker=api.create(trainForIndex,{modelApi:modelWindow.NGContextualModel,windowSize:4});
  const trainingForms=new Set(),trainingLemmas=new Set();
- for(const row of trainUnique)for(const token of row.tokens){
+ for(const row of trainForIndex)for(const token of row.tokens){
   trainingForms.add(String(token.form).normalize("NFKC").toLowerCase().replace(/ё/gu,"е"));
   if(token.lemma)trainingLemmas.add(String(token.lemma).toLowerCase().replace(/ё/gu,"е"));
  }
@@ -65,8 +68,8 @@ if(!trainPath&&!testPath){
   top1AmongCovered:g.covered?g.top1/g.covered:0,recallAt8AmongCovered:g.covered?g.recall8/g.covered:0,
   top1All:g.total?g.top1/g.total:0,recallAt8All:g.total?g.recall8/g.total:0});
  const report={
-  corpus:{trainSentences:trainUnique.length,testSentences:testUnique.length,testSampleSentences:sample.length,
-   trainTestSentenceOverlap:overlap,training:fullRanker.status()},
+  corpus:{trainSentences:trainUnique.length,trainSentencesUsed:trainForIndex.length,testSentences:testUnique.length,testSampleSentences:sample.length,
+   overlapSentencesExcludedFromTrain:overlap,remainingTrainTestSentenceOverlap:remainingOverlap,training:fullRanker.status()},
   metrics:{all:summary(groups.all),oovSurface:summary(groups.oovForm),unseenLemma:summary(groups.oovLemma),
    byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)]))},
   methodology:{trainPartitionOnly:true,testSentencesHeldOut:true,maskedTargetSurfaceNotUsedByRanker:true,
