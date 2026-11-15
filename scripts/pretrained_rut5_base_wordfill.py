@@ -10,7 +10,7 @@ import unicodedata
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer, T5ForConditionalGeneration
+from transformers import T5Tokenizer, T5ForConditionalGeneration
 
 MODEL_ID = "ai-forever/ruT5-base"
 BATCH_LOG_EVERY = 10
@@ -57,7 +57,7 @@ def main():
         raise SystemExit("No benchmark cases found.")
 
     torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer = T5Tokenizer.from_pretrained(MODEL_ID)
     model = T5ForConditionalGeneration.from_pretrained(MODEL_ID)
     model.to("cpu")
     model.eval()
