@@ -49,7 +49,17 @@ if(!trainPath&&!testPath){
  }
  const sample=importer.deterministicSample(testUnique,100,20261115);
  const groups={all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovForm:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},oovLemma:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0}};
- const perPos=Object.create(null),errorExamples=[],uposMetrics={total:0,correct:0},morphMetrics=Object.create(null);
+ const perPos=Object.create(null),errorExamples=[],uposMetrics={total:0,correct:0},morphMetrics=Object.create(null),morphBaselineMetrics=Object.create(null);
+ const trainPosCounts=new Map(),trainFeatureCounts=new Map();
+ for(const row of trainForIndex)for(const token of row.tokens){
+  const upos=token.upos;if(!upos)continue;trainPosCounts.set(upos,(trainPosCounts.get(upos)||0)+1);
+  for(const key of ["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"]){
+   const value=token.feats&&token.feats[key];if(!value)continue;const group=upos+"|"+key;if(!trainFeatureCounts.has(group))trainFeatureCounts.set(group,new Map());const counts=trainFeatureCounts.get(group);counts.set(value,(counts.get(value)||0)+1);
+  }
+ }
+ const majorityPos=[...trainPosCounts.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+ const majorityFeature=new Map([...trainFeatureCounts.entries()].map(([key,counts])=>[key,[...counts.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0]||null]));
+ let posBaseline={total:0,correct:0};
  for(const sentence of sample){
   const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
   const text=lexical.map(t=>t.form).join(" ");
@@ -58,13 +68,15 @@ if(!trainPath&&!testPath){
    if(!["NOUN","PROPN","VERB","AUX","ADJ","ADV","PRON","NUM"].includes(target.upos))continue;
    const result=fullRanker.predictMasked(text,index,{limit:8});
    const predictedUPOS=result.tagPrediction&&result.tagPrediction.upos[0]&&result.tagPrediction.upos[0].label;
-   uposMetrics.total++;if(predictedUPOS===target.upos)uposMetrics.correct++;
+   uposMetrics.total++;if(predictedUPOS===target.upos)uposMetrics.correct++;posBaseline.total++;if(majorityPos===target.upos)posBaseline.correct++;
    for(const key of ["Case","Number","Gender","Animacy","Tense","Aspect","Person","VerbForm","Mood","Voice","Degree","NumType"]){
     const expected=target.feats&&target.feats[key];if(!expected)continue;
     const distribution=result.tagPrediction&&result.tagPrediction.morphology[target.upos]&&result.tagPrediction.morphology[target.upos][key];
     if(!distribution||!distribution.length)continue;
     if(!morphMetrics[key])morphMetrics[key]={total:0,correct:0};
     morphMetrics[key].total++;if(distribution[0].label===expected)morphMetrics[key].correct++;
+    if(!morphBaselineMetrics[key])morphBaselineMetrics[key]={total:0,correct:0};
+    morphBaselineMetrics[key].total++;if(majorityFeature.get(target.upos+"|"+key)===expected)morphBaselineMetrics[key].correct++;
    }
    const form=String(target.form).toLowerCase().replace(/ё/gu,"е");
    const lemma=String(target.lemma||target.form).toLowerCase().replace(/ё/gu,"е");
@@ -92,8 +104,12 @@ if(!trainPath&&!testPath){
    overlapSentencesExcludedFromTrain:overlap,remainingTrainTestSentenceOverlap:remainingOverlap,training:fullRanker.status()},
   metrics:{all:summary(groups.all),oovSurface:summary(groups.oovForm),unseenLemma:summary(groups.oovLemma),
    byUPOS:Object.fromEntries(Object.entries(perPos).map(([k,v])=>[k,summary(v)])),
-   contextClassifier:{upos:{...uposMetrics,accuracy:uposMetrics.total?uposMetrics.correct/uposMetrics.total:0},
-    morphology:Object.fromEntries(Object.entries(morphMetrics).map(([k,v])=>[k,{...v,accuracy:v.total?v.correct/v.total:0}]))}},
+   contextClassifier:{
+    upos:{...uposMetrics,accuracy:uposMetrics.total?uposMetrics.correct/uposMetrics.total:0,
+      majorityBaseline:{...posBaseline,accuracy:posBaseline.total?posBaseline.correct/posBaseline.total:0},majorityLabel:majorityPos},
+    morphology:Object.fromEntries(Object.entries(morphMetrics).map(([k,v])=>[k,{...v,accuracy:v.total?v.correct/v.total:0,
+      majorityBaseline:{...morphBaselineMetrics[k],accuracy:morphBaselineMetrics[k].total?morphBaselineMetrics[k].correct/morphBaselineMetrics[k].total:0}}]))
+   }},
   errorExamples,
   methodology:{trainPartitionOnly:true,testSentencesHeldOut:true,maskedTargetSurfaceNotUsedByRanker:true,
    sampleSeed:20261115,scoreIsCalibratedProbability:false}

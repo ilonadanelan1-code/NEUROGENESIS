@@ -155,9 +155,6 @@ function create(records,options={}){
   for(const id of ids){const ex=examples[id],m=compare(parsed.context,ex,predictOptions.allowOrderInversion===true);if(m.matched<2||m.coverage<.25)continue;const t=ex.target,k=t.form+"|"+t.lemma+"|"+t.upos;if(!byTarget.has(k))byTarget.set(k,{target:t,scores:[],best:null});const row=byTarget.get(k);row.scores.push(m.score);if(!row.best||m.score>row.best.score)row.best=m;}
   const out=[];for(const row of byTarget.values()){const avg=row.scores.reduce((s,v)=>s+v,0)/row.scores.length,t=row.target,f=t.feats||{};let score=Math.min(1,row.best.score*.82+avg*.12+Math.min(.06,Math.max(0,row.scores.length-1)*.015));
    score+=hints.pos[t.upos]||0;
-   const posProbability=tagPrediction.upos.find(item=>item.label===t.upos)?.probability||0,maxPosProbability=tagPrediction.upos[0]?.probability||1;
-   if(posProbability>0)score+=.045*Math.log(Math.max(1e-8,posProbability)/Math.max(1e-8,maxPosProbability));
-   for(const key of Object.keys(f)){const distribution=tagPrediction.morphology[t.upos]&&tagPrediction.morphology[t.upos][key];if(!distribution||!distribution.length)continue;const predicted=distribution.find(item=>item.label===f[key])?.probability||0,maximum=distribution[0].probability||1;if(predicted>0)score+=.022*Math.log(Math.max(1e-8,predicted)/Math.max(1e-8,maximum));}
    for(const constraint of hints.features){
     if(!constraint.upos.includes(t.upos)||!f[constraint.key])continue;
     score+=constraint.values.includes(f[constraint.key])?constraint.weight:-constraint.weight*.75;
