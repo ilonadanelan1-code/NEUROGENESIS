@@ -170,6 +170,9 @@ def run_single_piece(model, tokenizer, prepared):
                     "ruRoberta_piece_count": 1,
                     "gold_token_rank_full_vocab": rank,
                     "top_candidates": candidates,
+                    "candidate_count": len(candidates),
+                    "gold_rank": next((rank for rank, candidate in enumerate(candidates, 1)
+                                       if candidate["normalized"] == gold), None),
                     "top1": bool(candidates and candidates[0]["normalized"] == gold),
                     "top8": any(row["normalized"] == gold for row in candidates[:8]),
                     "masked_input": item["masked_text_one"],
@@ -525,13 +528,24 @@ def main():
     gold_prefix = run_gold_prefix_diagnostics(model, tokenizer, multi_prepared, pools)
     multi_results, path_rows = run_beam(model, tokenizer, multi_prepared, pools)
 
-    by_key = {
-        (row["sentence_id"], row["gold_form"], row["upos"]): row for row in one_results
-    }
-    by_key.update({
-        (row["sentence_id"], row["gold_form"], row["upos"]): row for row in multi_results
-    })
-    combined = list(by_key.values())
+    if len(one_results) != len(one_piece):
+        raise RuntimeError(f"Single-mask evaluation lost cases: {len(one_results)} of {len(one_piece)}")
+    excluded_combined = [{
+        "sentence_id": row.get("sentence_id"),
+        "gold_form": row.get("gold_form"),
+        "gold_normalized": normalize(row.get("gold_form")),
+        "upos": None,
+        "ruRoberta_piece_count": row.get("piece_count"),
+        "candidate_count": 0,
+        "gold_rank": None,
+        "top1": False,
+        "top8": False,
+        "top_candidates": [],
+        "excluded_reason": row.get("reason"),
+    } for row in multi_excluded]
+    combined = one_results + multi_results + excluded_combined
+    if len(combined) != len(prepared):
+        raise RuntimeError(f"Combined output count mismatch: {len(combined)} != {len(prepared)}")
     combined_summary = summarize(combined)
     piece_summary = {}
     for piece_count in sorted({item["piece_count"] for item in prepared}):
