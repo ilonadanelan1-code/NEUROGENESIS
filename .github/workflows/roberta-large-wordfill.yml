@@ -1,0 +1,102 @@
+name: Compare ruRoBERTa-large on matched word prediction cases
+
+on:
+  push:
+    branches:
+      - experiment/roberta-large-wordfill-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: roberta-large-wordfill-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  roberta-large-wordfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download pinned UD Russian-GSD train and test splits
+        run: |
+          mkdir -p /tmp/ud-russian-gsd benchmark-inputs benchmark-reports
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+
+      - name: Rebuild the exact deterministic masked-word sample
+        run: |
+          node --check contextual-attention.js
+          node --check tests/ud-pretrained-mlm-benchmark.test.js
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-inputs/ud-pretrained-mlm-input.json
+          cat > benchmark-inputs/ud-rubert-multipiece-beam-v1.json <<'EOF'
+          {
+            "coverage": {
+              "all_multi_piece_targets": 349,
+              "decoder_supported_targets": 347,
+              "decoder_excluded_targets": 2
+            },
+            "metrics": {
+              "top1_all_multi_piece_with_excluded_as_miss": {
+                "correct": 7,
+                "total": 349,
+                "accuracy": 0.02005730659025788
+              },
+              "recall8_all_multi_piece_with_excluded_as_miss": {
+                "correct": 22,
+                "total": 349,
+                "accuracy": 0.06303724928366762
+              }
+            }
+          }
+          EOF
+
+      - name: Validate benchmark runner
+        run: |
+          python -m py_compile scripts/pretrained_roberta_large_wordfill.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
+
+      - name: Run matched ruRoBERTa-large whole-word benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_roberta_large_wordfill.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --baseline-report benchmark-inputs/ud-rubert-multipiece-beam-v1.json \
+            --output benchmark-reports/ud-roberta-large-wordfill-v1.json
+
+      - name: Upload ruRoBERTa-large report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-roberta-large-wordfill-v1
+          path: benchmark-reports/ud-roberta-large-wordfill-v1.json
+          if-no-files-found: warn
+          retention-days: 30
