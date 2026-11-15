@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - experiment/pretrained-rubert-mask-v1
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/pretrained-russian-mlm.yml
+      - contextual-attention.js
+      - scripts/ud-russian-gsd.js
+      - scripts/pretrained_masked_lm_benchmark.py
+      - tests/ud-pretrained-mlm-benchmark.test.js
   workflow_dispatch:
 
 permissions:
