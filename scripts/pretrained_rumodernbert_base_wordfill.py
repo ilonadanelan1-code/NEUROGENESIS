@@ -476,6 +476,7 @@ def run_beam(model, tokenizer, prepared, pools):
         rank = ranks["1.0"]
         results.append({
             "sentence_id": item["case"].get("sentence_id"),
+            "target_index": item["case"].get("target_index"),
             "gold_form": item["case"]["gold_form"],
             "gold_normalized": gold,
             "upos": item["case"].get("upos"),
