@@ -45,23 +45,31 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: benchmark-inputs/roberta
 
-      - name: Download matched FRED-T5 report
-        uses: actions/download-artifact@v4
-        with:
-          name: neurogenesis-fred-t5-large-matched-wordfill-v1
-          repository: ilonadanel1-code/NEUROGENESIS
-          run-id: 43766951614
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: benchmark-inputs/fred
-
       - name: Validate fixed benchmark inputs and merger
         run: |
           test -s benchmark-inputs/sample/ud-pretrained-mlm-input.json
           test -s benchmark-inputs/roberta/ud-roberta-pll-reranked-v1.json
-          test -s benchmark-inputs/fred/ud-fred-t5-large-matched-wordfill-v1.json
           python -m py_compile scripts/merge_wordfill_candidate_pools.py
+          python -m py_compile scripts/pretrained_fred_t5_large_matched_wordfill.py
           python -m py_compile scripts/rerank_word_candidates_by_pseudolikelihood.py
           python tests/wordfill_ensemble_merge_test.py
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.52.4 sentencepiece protobuf
+
+      - name: Run FRED-T5-large on the same immutable matched input
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          mkdir -p benchmark-inputs/fred
+          python scripts/pretrained_fred_t5_large_matched_wordfill.py \
+            --input benchmark-inputs/sample/ud-pretrained-mlm-input.json \
+            --output benchmark-inputs/fred/ud-fred-t5-large-matched-wordfill-v1.json
 
       - name: Merge RoBERTa Top-32 and FRED Top-8 using fixed RRF
         run: |
@@ -71,12 +79,6 @@ jobs:
             --rrf-k 60 \
             --expected-targets 349 \
             --output benchmark-inputs/ud-roberta-fred-rrf-candidate-pool-v1.json
-
-      - name: Install CPU PLL scoring dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --no-cache-dir torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install --no-cache-dir transformers==4.52.4
 
       - name: Score every union candidate with ruRoBERTa PLL
         env:
