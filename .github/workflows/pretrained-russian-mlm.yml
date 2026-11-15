@@ -12,6 +12,7 @@ on:
       - contextual-attention.js
       - scripts/ud-russian-gsd.js
       - scripts/pretrained_masked_lm_benchmark.py
+      - scripts/pretrained_rubert_multipiece_beam.py
       - tests/ud-pretrained-mlm-benchmark.test.js
   workflow_dispatch:
 
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   rubert-mask-benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,6 +71,16 @@ jobs:
           python scripts/pretrained_masked_lm_benchmark.py \
             --input benchmark-reports/ud-pretrained-mlm-input.json \
             --output benchmark-reports/ud-pretrained-mlm-v1.json
+
+      - name: Run zero-shot multi-piece WordPiece beam benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+        run: |
+          python -m py_compile scripts/pretrained_rubert_multipiece_beam.py
+          python scripts/pretrained_rubert_multipiece_beam.py \
+            --input benchmark-reports/ud-pretrained-mlm-input.json \
+            --output benchmark-reports/ud-rubert-multipiece-beam-v1.json
 
       - name: Upload benchmark report
         if: always()
