@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
+import sys
 import unittest
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.merge_wordfill_candidate_pools import merge_reports
 
 class EnsembleMergeTests(unittest.TestCase):
