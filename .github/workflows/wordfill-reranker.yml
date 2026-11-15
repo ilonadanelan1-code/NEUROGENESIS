@@ -1,0 +1,228 @@
+name: Test Russian acceptability rerankers on ruRoBERTa candidates
+
+on:
+  push:
+    branches:
+      - experiment/wordfill-reranker-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wordfill-reranker-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare-matched-sample:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download pinned UD Russian-GSD
+        run: |
+          mkdir -p /tmp/ud-russian-gsd benchmark-inputs
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+
+      - name: Rebuild deterministic test cases and baseline metrics
+        run: |
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-inputs/ud-pretrained-mlm-input.json
+          cat > benchmark-inputs/ud-rubert-multipiece-beam-v1.json <<'EOF'
+          {
+            "coverage": {
+              "all_multi_piece_targets": 349,
+              "decoder_supported_targets": 347,
+              "decoder_excluded_targets": 2
+            },
+            "metrics": {
+              "top1_all_multi_piece_with_excluded_as_miss": {
+                "correct": 7,
+                "total": 349,
+                "accuracy": 0.02005730659025788
+              },
+              "recall8_all_multi_piece_with_excluded_as_miss": {
+                "correct": 22,
+                "total": 349,
+                "accuracy": 0.06303724928366762
+              }
+            }
+          }
+          EOF
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("benchmark-inputs/ud-pretrained-mlm-input.json").read_text())
+          assert len(data["cases"]) >= 500
+          assert data["corpus"]["normalizedSampleTrainTestOverlaps"] == 0
+          print({"targets":len(data["cases"]),"overlap":data["corpus"]["normalizedSampleTrainTestOverlaps"]})
+          PY
+
+      - name: Upload matched benchmark input
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-wordfill-reranker-input-v1
+          path: benchmark-inputs
+          retention-days: 30
+
+  generate-roberta-candidates:
+    needs: prepare-matched-sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download matched input
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-wordfill-reranker-input-v1
+          path: benchmark-inputs
+
+      - name: Validate candidate generator
+        run: |
+          python -m py_compile scripts/pretrained_roberta_large_candidate_pool.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
+      - name: Generate Top-32 whole-word candidate pools
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_roberta_large_candidate_pool.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --baseline-report benchmark-inputs/ud-rubert-multipiece-beam-v1.json \
+            --output benchmark-inputs/ud-roberta-large-candidate-pool-v1.json
+
+      - name: Upload candidate pools and matched test input
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-roberta-large-candidate-pool-v1
+          path: benchmark-inputs
+          retention-days: 30
+
+  rucola-acceptability:
+    needs: generate-roberta-candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download candidate pools
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-roberta-large-candidate-pool-v1
+          path: benchmark-inputs
+
+      - name: Validate acceptability reranker
+        run: |
+          python -m py_compile scripts/rerank_word_candidates_by_acceptability.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-roberta-large-candidate-pool-v1.json
+
+      - name: Rerank candidates with RuCoLA
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/rerank_word_candidates_by_acceptability.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --candidates benchmark-inputs/ud-roberta-large-candidate-pool-v1.json \
+            --model s-nlp/ruRoberta-large-RuCoLa-v1 \
+            --output benchmark-reports/ud-rucola-reranked-roberta-v1.json
+
+      - name: Upload RuCoLA reranker report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-rucola-reranker-v1
+          path: benchmark-reports/ud-rucola-reranked-roberta-v1.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  corruption-detector:
+    needs: generate-roberta-candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download candidate pools
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-roberta-large-candidate-pool-v1
+          path: benchmark-inputs
+
+      - name: Validate naturalness reranker
+        run: |
+          python -m py_compile scripts/rerank_word_candidates_by_acceptability.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-roberta-large-candidate-pool-v1.json
+
+      - name: Rerank candidates with corruption detector
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/rerank_word_candidates_by_acceptability.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --candidates benchmark-inputs/ud-roberta-large-candidate-pool-v1.json \
+            --model s-nlp/rubert-base-corruption-detector \
+            --output benchmark-reports/ud-corruption-reranked-roberta-v1.json
+
+      - name: Upload corruption detector report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-corruption-reranker-v1
+          path: benchmark-reports/ud-corruption-reranked-roberta-v1.json
+          if-no-files-found: warn
+          retention-days: 30
