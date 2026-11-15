@@ -1,0 +1,70 @@
+name: Benchmark pretrained Russian masked LM
+
+on:
+  push:
+    branches:
+      - experiment/pretrained-rubert-mask-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rubert-mask-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download pinned UD Russian-GSD train and test splits
+        run: |
+          mkdir -p /tmp/ud-russian-gsd
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-train.conllu --output /tmp/ud-russian-gsd/train.conllu
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/UniversalDependencies/UD_Russian-GSD/9acc9d677327043bd416fcc89e4b3407c620d885/ru_gsd-ud-test.conllu --output /tmp/ud-russian-gsd/test.conllu
+
+      - name: Build target-hidden benchmark cases and train existing baseline
+        run: |
+          node --check contextual-attention.js
+          node --check tests/ud-pretrained-mlm-benchmark.test.js
+          node tests/ud-pretrained-mlm-benchmark.test.js \
+            /tmp/ud-russian-gsd/train.conllu \
+            /tmp/ud-russian-gsd/test.conllu \
+            benchmark-reports/ud-pretrained-mlm-input.json
+
+      - name: Run zero-shot ruBert masked-token inference
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+        run: |
+          python -m py_compile scripts/pretrained_masked_lm_benchmark.py
+          python scripts/pretrained_masked_lm_benchmark.py \
+            --input benchmark-reports/ud-pretrained-mlm-input.json \
+            --output benchmark-reports/ud-pretrained-mlm-v1.json
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-pretrained-rubert-v1
+          path: |
+            benchmark-reports/ud-pretrained-mlm-v1.json
+            benchmark-reports/ud-pretrained-mlm-input.json
+          if-no-files-found: warn
+          retention-days: 30
