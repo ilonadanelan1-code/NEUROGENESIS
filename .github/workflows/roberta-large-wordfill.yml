@@ -1,0 +1,68 @@
+name: Compare ruRoBERTa-large on matched word prediction cases
+
+on:
+  push:
+    branches:
+      - experiment/roberta-large-wordfill-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: roberta-large-wordfill-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  roberta-large-wordfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU inference dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir transformers==4.48.3
+
+      - name: Download exact previous benchmark input and baseline report
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-pretrained-rubert-v1
+          run-id: 43733165091
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+          path: benchmark-inputs
+
+      - name: Validate benchmark runner
+        run: |
+          python -m py_compile scripts/pretrained_roberta_large_wordfill.py
+          test -s benchmark-inputs/ud-pretrained-mlm-input.json
+          test -s benchmark-inputs/ud-rubert-multipiece-beam-v1.json
+
+      - name: Run matched ruRoBERTa-large whole-word benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          HF_HUB_DISABLE_XET: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python scripts/pretrained_roberta_large_wordfill.py \
+            --input benchmark-inputs/ud-pretrained-mlm-input.json \
+            --baseline-report benchmark-inputs/ud-rubert-multipiece-beam-v1.json \
+            --output benchmark-reports/ud-roberta-large-wordfill-v1.json
+
+      - name: Upload ruRoBERTa-large report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-roberta-large-wordfill-v1
+          path: benchmark-reports/ud-roberta-large-wordfill-v1.json
+          if-no-files-found: warn
+          retention-days: 30
