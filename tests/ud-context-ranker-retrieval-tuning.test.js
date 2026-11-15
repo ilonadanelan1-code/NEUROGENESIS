@@ -29,12 +29,12 @@ const normalise=v=>String(v==null?"":v).normalize("NFKC").toLowerCase().replace(
 const trainForms=new Set(),trainLemmas=new Set();
 for(const row of cleanTrain)for(const token of row.tokens){trainForms.add(normalise(token.form));trainLemmas.add(normalise(token.lemma||token.form));}
 const contentPOS=new Set(["NOUN","PROPN","VERB","AUX","ADJ","ADV","PRON","NUM"]);
-function evaluate(options){
+function evaluate(options,records=sample){
  const groups={all:{total:0,covered:0,top1:0,recall8:0,lemmaTop1:0,lemmaRecall8:0},
   oovSurface:{total:0,covered:0,top1:0,recall8:0,lemmaRecall8:0},
   unseenLemma:{total:0,covered:0,top1:0,recall8:0,lemmaRecall8:0}};
  const pos={total:0,correct:0};
- for(const sentence of sample){
+ for(const sentence of records){
   const lexical=sentence.tokens.filter(t=>api.tokenize(t.form).length===1&&t.upos!=="PUNCT"&&t.upos!=="SYM");
   const text=lexical.map(t=>t.form).join(" ");
   for(let index=0;index<lexical.length;index++){
@@ -61,12 +61,22 @@ function evaluate(options){
 }
 const rows=variants.map(variant=>({variant,result:evaluate(variant.options)}));
 rows.sort((a,b)=>b.result.objective-a.result.objective||b.result.metrics.all.recallAt8All-a.result.metrics.all.recallAt8All);
+const tuningKeys=new Set(sample.map(row=>row.normalized));
+const devRemainder=dev.filter(row=>!tuningKeys.has(row.normalized));
+const holdoutSample=importer.deterministicSample(devRemainder,120,20261118);
+const selected=rows[0].variant;
+const holdoutBaseline=evaluate({},holdoutSample);
+const holdoutSelected=evaluate(selected.options,holdoutSample);
 const report={corpus:{trainSentences:train.length,trainSentencesUsed:cleanTrain.length,devSentences:dev.length,
- devSampleSentences:sample.length,trainDevOverlapExcluded:overlap,remainingTrainDevOverlap:0,training:ranker.status()},
- method:{selectionSplit:"official UD dev only",sampleSeed:20261117,objective:"top1All + 0.2 * recallAt8All",
+ devTuningSampleSentences:sample.length,devHoldoutPoolSentences:devRemainder.length,devHoldoutSampleSentences:holdoutSample.length,
+ trainDevOverlapExcluded:overlap,remainingTrainDevOverlap:0,training:ranker.status()},
+ method:{selectionSplit:"official UD dev tuning sample only",sampleSeed:20261117,objective:"top1All + 0.2 * recallAt8All",
   variants:rows.map(row=>({name:row.variant.name,options:row.variant.options,objective:row.result.objective,metrics:row.result.metrics})),
-  selected:rows[0].variant},
- warning:"Development-only tuning result. Do not deploy a non-baseline setting without a separate untouched external test."};
+  selected},
+ confirmatoryDevHoldout:{selectionUsed:false,sampleSeed:20261118,baseline:holdoutBaseline.metrics,
+  selected:holdoutSelected.metrics,selectedVariant:selected,
+  disjointFromTuningSample:holdoutSample.every(row=>!tuningKeys.has(row.normalized))},
+ warning:"The confirmation is a disjoint sample from official dev, not the official test split. Do not deploy a non-baseline setting as production without a new untouched external test."};
 fs.mkdirSync("benchmark-reports",{recursive:true});
 fs.writeFileSync("benchmark-reports/ud-context-ranker-retrieval-tuning-v1.json",JSON.stringify(report,null,2)+"\n");
 console.log("UD_CONTEXT_RANKER_RETRIEVAL_TUNING "+JSON.stringify(report));
