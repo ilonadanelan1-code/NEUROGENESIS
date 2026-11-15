@@ -43,6 +43,11 @@ for (const sentence of prepared.testRecords) {
   const text = forms.join(" ");
   assert.equal(JSON.stringify(api.tokenize(text)), JSON.stringify(normalized),
     "word positions must remain aligned with the model tokenizer");
+  const sourceText = sentence.text || text;
+  const sourceMatches = [...sourceText.matchAll(/[\\p{L}\\p{N}]+/gu)];
+  const sourceWords = api.tokenize(sourceText);
+  const canPreservePunctuation = sourceMatches.length === forms.length &&
+    JSON.stringify(sourceWords) === JSON.stringify(normalized);
   sentenceCount++;
 
   for (let index = 0; index < lexical.length; index++) {
@@ -58,6 +63,10 @@ for (const sentence of prepared.testRecords) {
     cases.push({
       sentence_id: sentence.sentenceId || null,
       tokens: forms,
+      masked_sentence: canPreservePunctuation
+        ? sourceText.slice(0, sourceMatches[index].index) + "[MASK]" +
+          sourceText.slice(sourceMatches[index].index + sourceMatches[index][0].length)
+        : maskedFormsForExternal(forms, index),
       target_index: index,
       gold_form: target.form,
       gold_normalized: gold,
@@ -107,6 +116,12 @@ console.log(JSON.stringify({
   train_test_overlap: prepared.stats.normalizedSampleTrainTestOverlaps,
   model_training: training
 }, null, 2));
+
+function maskedFormsForExternal(forms, index) {
+  const copy = forms.slice();
+  copy[index] = "[MASK]";
+  return copy.join(" ");
+}
 
 function normalize(value) {
   return String(value == null ? "" : value).normalize("NFKC")
