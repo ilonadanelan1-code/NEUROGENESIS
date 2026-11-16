@@ -33,12 +33,20 @@ assert.match(__test.everydayDialogueText({
   assistant: "Вон за перекрёстком, справа.",
 }), /<\|user\|>[\s\S]*<\|assistant\|>/u);
 assert.equal(__test.everydayDialogueText({ user: "Вопрос без ответа", assistant: "" }), "");
-assert.equal(__test.assignSplit("stable row"), __test.assignSplit("stable row"));
+assert.equal(
+  __test.splitRows("stable-source", ["a", "b", "c"]).validation.length, 1,
+  "small sources should always get at least one validation item",
+);
+assert.equal(
+  __test.splitRows("stable-source", ["a", "b", "c"]).test.length, 1,
+  "small sources should always get at least one test item",
+);
 
 const bookSource = {
-  id: "book-test", dataset: "fixture/books", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "CC0-1.0", url: "https://example.test/books",
-  role: "literature",
+  id: "book-test", dataset: "fixture/books", maxRows: 100,
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "CC0-1.0", url: "https://example.test/books",
+  rawTextUrl: "https://example.test/books.txt", role: "literature",
 };
 const instructionSource = {
   id: "instruction-test", dataset: "fixture/instruction", pageLimit: 2, maxRows: 100,
@@ -53,11 +61,10 @@ const everydaySource = {
 };
 const fixtures = {
   "fixture/books": {
-    splits: [{ config: "default", split: "train" }],
-    rows: Array.from({ length: 60 }, (_, index) => ({
-      text: "Литературный фрагмент номер " + index +
-        " содержит достаточно длинное предложение для проверки обучающего корпуса. ".repeat(2),
-    })),
+    text: Array.from({ length: 60 }, (_, index) =>
+      "Литературный фрагмент номер " + index +
+      " содержит достаточно длинное предложение для проверки обучающего корпуса. ".repeat(2)
+    ).join("\n\n"),
   },
   "fixture/instruction": {
     splits: [{ config: "default", split: "train" }],
@@ -78,6 +85,9 @@ const fixtures = {
 };
 const fetchImpl = async url => {
   const parsed = new URL(url);
+  if (parsed.pathname.endsWith("/books.txt")) {
+    return { ok: true, text: async () => fixtures["fixture/books"].text };
+  }
   if (parsed.pathname.endsWith("/everyday.jsonl")) {
     return {
       ok: true,
@@ -104,6 +114,12 @@ assert.ok(result.buckets.train.length > 0);
 assert.ok(result.buckets.validation.length > 0);
 assert.ok(result.buckets.test.length > 0);
 assert.ok(result.buckets.train.some(row => row.includes("<|assistant|>")));
+assert.ok(result.buckets.train.some(row => row.includes("Литературный фрагмент")));
+for (const source of result.manifest.sources) {
+  assert.ok(source.localSplitCounts.train > 0, source.id + " needs train rows");
+  assert.ok(source.localSplitCounts.validation > 0, source.id + " needs validation rows");
+  assert.ok(source.localSplitCounts.test > 0, source.id + " needs test rows");
+}
 assert.equal(result.manifest.sources[1].license, "Apache-2.0");
 assert.equal(result.manifest.sources[2].license, "CC-BY-4.0");
 assert.equal(result.manifest.sources[0].license, "CC0-1.0");
@@ -122,5 +138,7 @@ assert.equal(
   60,
   "all 60 well-formed everyday dialogue examples should remain",
 );
+assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
+assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 
 console.log("Open Russian corpus preparation contract passed.");
