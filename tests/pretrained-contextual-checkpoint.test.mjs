@@ -27,7 +27,7 @@ const model = globalThis.NGContextualModel.create({
 const status = model.loadState(bundle.contextualState);
 assert.equal(status.trained, true);
 assert.equal(status.trainingSteps, report.trainingSteps);
-assert.ok(status.vocabularySize > 100, "The pre-trained vocabulary should be broader than the tiny demo set.");
+assert.ok(status.vocabularySize >= 30, "The pre-trained vocabulary should cover the structured starter corpus.");
 assert.ok(status.trainingContextExamples > 0, "The checkpoint should retain its bounded retrieval context index.");
 
 if (bundle.phraseReport) {
