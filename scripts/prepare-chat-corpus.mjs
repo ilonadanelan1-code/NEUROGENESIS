@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -44,12 +46,12 @@ const SOURCES = [
   {
     id: "openassistant-ru",
     dataset: "OpenAssistant/oasst1",
-    pageLimit: 10,
-    maxRows: 1000,
-    maxCharacters: 1_000_000,
+    maxRows: 30000,
+    maxCharacters: 1_500_000,
+    maxDownloadBytes: 40 * 1024 * 1024,
     license: "Apache-2.0",
     url: "https://huggingface.co/datasets/OpenAssistant/oasst1",
-    where: "\"lang\"='ru' AND \"deleted\"=false",
+    rawGzipJsonlUrl: "https://huggingface.co/datasets/OpenAssistant/oasst1/resolve/main/2023-04-12_oasst_ready.messages.jsonl.gz",
     role: "oasst",
     optional: true,
   },
@@ -499,6 +501,91 @@ async function collectLiteratureFile(fetchImpl, source) {
   };
 }
 
+async function collectOpenAssistantGzip(fetchImpl, source) {
+  const response = await fetchImpl(source.rawGzipJsonlUrl, {
+    headers: {
+      Accept: "application/gzip, application/octet-stream",
+      "User-Agent": "NEUROGENESIS-open-corpus-preparer/1.0",
+    },
+  });
+  if (!response.ok) throw responseError(response, source.rawGzipJsonlUrl);
+  if (!response.body || typeof response.body.getReader !== "function") {
+    throw new Error("OpenAssistant gzip response has no streaming body.");
+  }
+
+  const compressed = Readable.fromWeb(response.body);
+  const gunzip = createGunzip();
+  let downloadedBytes = 0;
+  compressed.on("data", chunk => {
+    downloadedBytes += chunk.length;
+    if (downloadedBytes > source.maxDownloadBytes) {
+      compressed.destroy(new Error("OpenAssistant gzip file exceeded the configured download limit."));
+    }
+  });
+  const decoded = compressed.pipe(gunzip);
+  const decoder = new TextDecoder("utf-8");
+  let pending = "";
+  let rawRows = 0;
+  const russianMessages = [];
+  const acceptLine = line => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    rawRows += 1;
+    let row;
+    try { row = JSON.parse(trimmed); } catch { return; }
+    if (row?.lang !== "ru" || row.deleted === true || row.synthetic === true) return;
+    if (!["prompter", "assistant"].includes(row.role)) return;
+    if (typeof row.message_id !== "string" || typeof row.text !== "string") return;
+    russianMessages.push({
+      message_id: row.message_id,
+      parent_id: row.parent_id,
+      role: row.role,
+      lang: row.lang,
+      text: row.text,
+      deleted: row.deleted,
+      synthetic: row.synthetic,
+      review_result: row.review_result,
+    });
+  };
+
+  for await (const chunk of decoded) {
+    pending += decoder.decode(chunk, { stream: true });
+    const lines = pending.split("\n");
+    pending = lines.pop() || "";
+    for (const line of lines) acceptLine(line);
+    if (russianMessages.length >= source.maxRows) break;
+  }
+  pending += decoder.decode();
+  if (pending.trim()) acceptLine(pending);
+
+  const pairs = openAssistantRowsToPairs(russianMessages, source);
+  if (pairs.length < 3) {
+    throw new Error("Fewer than three Russian parent/assistant pairs were reconstructed from " +
+      source.dataset + ". Check the ready.messages export and message-tree fields.");
+  }
+  const rows = [];
+  let characters = 0;
+  for (const pair of pairs) {
+    if (characters + pair.length > source.maxCharacters) break;
+    rows.push(pair);
+    characters += pair.length;
+  }
+  if (rows.length < 3) {
+    throw new Error("OpenAssistant Russian pairs did not meet the minimum corpus size.");
+  }
+  return {
+    source,
+    config: "ready.messages.jsonl.gz",
+    split: "ready_for_export",
+    rows,
+    rawRows,
+    requests: 1,
+    characters,
+    uniqueRows: rows.length,
+    downloadedBytes,
+  };
+}
+
 async function collectOpenAssistant(fetchImpl, source) {
   const splitsPayload = await fetchJson(fetchImpl,
     API + "/splits?dataset=" + encodeURIComponent(source.dataset));
@@ -534,6 +621,7 @@ async function collectOpenAssistant(fetchImpl, source) {
 }
 
 async function collectSource(fetchImpl, source) {
+  if (source.rawGzipJsonlUrl) return collectOpenAssistantGzip(fetchImpl, source);
   if (source.role === "oasst") return collectOpenAssistant(fetchImpl, source);
   if (source.rawTextUrl) return collectLiteratureFile(fetchImpl, source);
   if (source.rawCsvUrl) return collectCsvDialogue(fetchImpl, source);
@@ -667,6 +755,7 @@ export async function prepareCorpus(options = {}) {
       config: result.config,
       upstreamSplit: result.split,
       rawFileUrl: result.source.rawFileUrl || null,
+      rawGzipJsonlUrl: result.source.rawGzipJsonlUrl || null,
       rawCsvUrl: result.source.rawCsvUrl || null,
       rawTextUrl: result.source.rawTextUrl || null,
       downloadedBytes: result.downloadedBytes ?? null,
@@ -684,8 +773,8 @@ export async function prepareCorpus(options = {}) {
         : result.source.rawCsvUrl
           ? ["stream bounded CSV rows from the upstream file", "parse quoted q/a columns", "remove exact duplicates"]
         : result.source.role === "oasst"
-          ? ["filter lang == ru and deleted == false", "reconstruct assistant replies from parent prompter messages",
-            "exclude deleted, synthetic and review_result == false rows"]
+          ? ["stream OpenAssistant ready.messages.jsonl.gz", "keep Russian non-deleted, non-synthetic prompter/assistant messages",
+            "reconstruct direct parent/reply pairs", "exclude messages reviewed negatively"]
         : result.source.role === "qa"
           ? ["one q/a pair per row", "strip any <think> blocks", "remove exact duplicates"]
         : result.source.role === "everyday"
@@ -701,7 +790,7 @@ export async function prepareCorpus(options = {}) {
         : result.source.id === "tiny-russian-dialogs"
           ? "Fmluder, Tiny-Russian-Dialogs, CC0-1.0; adapted as user/assistant turns."
           : result.source.id === "openassistant-ru"
-            ? "OpenAssistant, OASST1, Apache-2.0; adapted by filtering Russian messages and reconstructing parent/reply pairs."
+            ? "OpenAssistant, OASST1, Apache-2.0; adapted from the ready messages export by filtering Russian messages and reconstructing direct parent/reply pairs."
         : result.source.id === "russian-everyday-dialogues"
         ? "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0; adapted by adding role markers."
         : result.source.id === "ru-dataset-small"
