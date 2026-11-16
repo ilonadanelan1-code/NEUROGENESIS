@@ -1030,12 +1030,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
   assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
   assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
-  const defaultChatInput = document.getElementById("memory-input");
-  defaultChatInput.value = "Привет";
-  const defaultChatButton = document.getElementById("ask-button");
-  await defaultChatButton.dispatch("click");
-  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u,
-    "the primary Send button must use the conversational language model instead of only searching local memory");
+
   const successfulLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
   assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLM + 1,
     "a completed external model request must create exactly one cognitive cycle");
@@ -1048,6 +1043,15 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     /не считается независимой проверкой/u);
   assert.match(successfulLLMCycle.phases.find(item => item.name === "memory").summary,
     /долговременная память и структурированные знания не изменялись/u);
+  const defaultChatCycleCount = window.NGMemory.cognitiveCycles().length;
+  const defaultChatInput = document.getElementById("memory-input");
+  defaultChatInput.value = "Привет";
+  const defaultChatButton = document.getElementById("ask-button");
+  await defaultChatButton.dispatch("click");
+  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u,
+    "the primary Send button must use the conversational language model instead of only searching local memory");
+  assert.equal(window.NGMemory.cognitiveCycles().length, defaultChatCycleCount + 1,
+    "the primary chat action must record exactly one LLM cycle");
 
   let releaseChat = null;
   let concurrentChatCalls = 0;
