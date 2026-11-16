@@ -223,7 +223,7 @@ assert.equal(sidePanel.scrollTop,147,"the original side-panel position should be
 const associationCallsBeforeRecall = associationCalls.length;
 const input = document.getElementById("memory-input");
 input.value = "Что ты знаешь о музыке?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const feed = document.getElementById("memory-feed");
 
 const reply = feed.children[feed.children.length - 1].textContent;
@@ -235,12 +235,12 @@ assert.match(document.getElementById("memory-feedback").textContent,/\d+ СЛЕ�
 
 assert.ok(window.NGMemory.search("телефон").some(item=>item.text==="У меня есть смартфон"),"memory search should retrieve smartphone notes for a phone query through association");
 input.value = "Что ты знаешь о телефоне?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/смартфон/u,"the dialog should find related phone concepts instead of requiring an exact word match");
 assert.match(document.getElementById("memory-feedback").textContent,/АСОЦИАТИВНЫЙ ПОИСК/u,"the interface should disclose when recall used an associative match");
 
 input.value = "Кто ты?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const identityReply = feed.children[feed.children.length - 1].textContent;
 assert.match(identityReply,/я — ассистент/u,"the dialog should answer identity questions from stored role memories");
 assert.match(identityReply,/Ты мой оссистент/u,"the identity answer should show its original source");
@@ -252,12 +252,12 @@ const roleClaims = window.NGMemory.claims().filter(claim=>claim.kind==="identity
 assert.equal(roleClaims.filter(claim=>claim.status==="current").length,1,"only the explicitly updated assistant role should stay current");
 assert.equal(roleClaims.find(claim=>claim.object==="ассистент").status,"superseded","the previous role should remain saved as history");
 input.value = "Кто ты?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const updatedIdentityReply = feed.children[feed.children.length - 1].textContent;
 assert.match(updatedIdentityReply,/я — советник/u,"the assistant should answer with the latest explicitly assigned role");
 assert.match(updatedIdentityReply,/Ранее ты называл меня ассистент/u,"the answer should preserve the previous role as history");
 input.value = "Кем ты был раньше?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length - 1].textContent,/роль «ассистент»/u,"the dialog should retrieve the superseded role");
 
 input.value = "Я живу в Сочи";
@@ -268,15 +268,15 @@ const locationClaims = window.NGMemory.claims().filter(claim=>claim.kind==="fact
 assert.equal(locationClaims.find(claim=>claim.object==="Сочи").status,"superseded","a previously saved location should become historical after an explicit update");
 assert.equal(locationClaims.find(claim=>claim.object==="Париже").status,"current","the corrected location should become current");
 input.value = "Где я живу?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/живёшь в Париже/u,"the dialog should answer with the current location");
 input.value = "Что ты знаешь обо мне?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/Сочи/u,"the user profile should preserve the historical location");
 assert.match(feed.children[feed.children.length-1].textContent,/историческое самоописание/u,"the user profile should label the old location as historical");
 
 input.value = "Кто твой создатель?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const creatorReply = feed.children[feed.children.length - 1].textContent;
 assert.match(creatorReply,/моего создателя зовут Сергей/u,"the dialog should retrieve the creator fact");
 assert.match(creatorReply,/Твоего создателя зовут Сергей/u,"the creator answer should show its original source");
@@ -286,7 +286,7 @@ document.getElementById("remember-button").dispatch("click");
 input.value = "Усталость приводит к снижению концентрации";
 document.getElementById("remember-button").dispatch("click");
 input.value = "Как недостаток сна влияет на снижение концентрации?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const causalReply=feed.children[feed.children.length-1].textContent;
 assert.match(causalReply,/Недостаток сна → усталости → снижению концентрации/u,"the dialog should derive a two-step causal chain from separate memories");
 assert.match(causalReply,/Исходные записи:/u,"the inference should expose its exact source memories");
@@ -295,7 +295,7 @@ assert.match(document.getElementById("memory-feedback").textContent,/ПРИЧИ�
 input.value = "Обезвоживание может приводить к усталости";
 document.getElementById("remember-button").dispatch("click");
 input.value = "Почему возникает усталость?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const alternativesReply=feed.children[feed.children.length-1].textContent;
 assert.match(alternativesReply,/несколько возможных объяснений/u,"the dialog should disclose competing causal explanations");
 assert.match(alternativesReply,/Обезвоживание → усталости/u,"the alternative explanation should cite its causal route");
@@ -311,14 +311,14 @@ assert.match(feed.children[feed.children.length-1].textContent,/ПЕРЕСМОТ
 assert.match(feed.children[feed.children.length-1].textContent,/При недостатке сна не наблюдалась усталость/u,"the review should cite the exact new observation");
 
 input.value = "Проверь гипотезу: если недостаток сна, то усталость";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const hypothesisCheckReply=feed.children[feed.children.length-1].textContent;
 assert.match(hypothesisCheckReply,/Потенциальные контрпримеры/u,"the dialog should identify a stored observation that challenges the rule");
 assert.match(hypothesisCheckReply,/При недостатке сна не наблюдалась усталость/u,"the check should cite the exact observation");
 assert.match(hypothesisCheckReply,/Что ещё нужно для проверки/u,"the answer should identify missing evidence");
 assert.match(document.getElementById("memory-feedback").textContent,/КОНТРПРИМЕР В ПАМЯТИ/u,"the interface should identify a counterexample-based hypothesis check");
 input.value = "Как различить причины усталости?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const experimentPlanReply=feed.children[feed.children.length-1].textContent;
 assert.match(experimentPlanReply,/План различающей проверки/u,"the dialog should build a plan for comparing alternative causes");
 assert.match(experimentPlanReply,/Недостаток сна/u);
@@ -326,7 +326,7 @@ assert.match(experimentPlanReply,/Обезвоживание/u);
 assert.match(experimentPlanReply,/Не нужно специально создавать вредные условия/u,"the plan should recommend only safe observations");
 assert.match(document.getElementById("memory-feedback").textContent,/ПЛАН СРАВНЕНИЯ ГИПОТЕЗ/u);
 input.value = "Выведи новые гипотезы из памяти";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const derivedReply=feed.children[feed.children.length-1].textContent;
 assert.match(derivedReply,/Недостаток сна ⇢ снижению концентрации/u,"the dialog should derive a candidate connection from two causal memories");
 assert.match(derivedReply,/Обезвоживание ⇢ снижению концентрации/u,"the dialog should derive other mediated candidate connections");
@@ -340,7 +340,7 @@ assert.ok(derivedEntry.reasoning.reviews.some(item=>item.kind==="counterexample"
 assert.match(document.getElementById("memory-feedback").textContent,/НОВЫЕ ГИПОТЕЗЫ/u);
 
 input.value = "Какую гипотезу проверять первой?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const priorityReply=feed.children[feed.children.length-1].textContent;
 assert.match(priorityReply,/ПРИОРИТЕТ 1/u,"the dialog should prioritize a candidate with a potential counterexample for clarification");
 assert.match(priorityReply,/При недостатке сна не наблюдалась усталость/u,"the priority should cite the user's exact counterexample");
@@ -350,7 +350,7 @@ assert.match(document.getElementById("memory-feedback").textContent,/ПРИОР�
 
 
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const modelReply=feed.children[feed.children.length-1].textContent;
 assert.match(modelReply,/ПЕРЕСМОТРЕННАЯ ПРИЧИННАЯ МОДЕЛЬ/u,"the app should build a revised causal model from tracked conclusions");
 assert.match(modelReply,/Недостаток сна → усталости — ПОД ВОПРОСОМ/u,"the model should mark the specific contradicted edge");
@@ -380,19 +380,19 @@ assert.equal(tracked.reasoning.modelHistory[0].edges.find(edge=>edge.status==="c
 assert.ok(modelEntry,"the model revision answer should be part of the exported dialogue");
 const memoriesBeforeModel=JSON.stringify(window.NGMemory.claims());
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.equal(JSON.stringify(window.NGMemory.claims()),memoriesBeforeModel,"building a revised causal model must not rewrite the original memories");
 const snapshotCount=tracked.reasoning.modelHistory.length;
 assert.equal(snapshotCount,1,"the first identical model snapshot should be stored once");
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const repeatedTracked=JSON.parse(database.get("neurogenesis.dialog.v1")).filter(item=>item.role==="assistant"&&item.reasoning&&item.reasoning.type==="derived_hypotheses").slice(-1)[0];
 assert.equal(repeatedTracked.reasoning.modelHistory.length,snapshotCount,"repeating an unchanged review must not create duplicate snapshots");
 
 // Choosing a revision strategy changes only the working model, not source memories.
 const originalClaimsBeforeChoice=JSON.stringify(window.NGMemory.claims());
 input.value = "Выбираю вариант 3";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const choiceReply=feed.children[feed.children.length-1].textContent;
 assert.match(choiceReply,/РЕШЕНИЕ ПРИМЕНЕНО К РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ/u,"the app should accept a revision choice when exactly one challenged edge exists");
 assert.match(choiceReply,/Недостаток сна → усталости/u);
@@ -400,7 +400,7 @@ assert.equal(JSON.stringify(window.NGMemory.claims()),originalClaimsBeforeChoice
 const storedDecisions=JSON.parse(database.get("neurogenesis.model-decisions.v1"));
 assert.equal(storedDecisions.at(-1).strategy,"suspend","the selected third option should be persisted separately from memories");
 input.value = "Выведи новые гипотезы из памяти";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const suspendedHypotheses=feed.children[feed.children.length-1].textContent;
 assert.match(suspendedHypotheses,/Прежняя гипотеза Недостаток сна ⇢ снижению концентрации сейчас не строится/u,
   "a suspended historical hypothesis should be explicitly identified as excluded from the active model");
@@ -409,14 +409,14 @@ assert.doesNotMatch(suspendedHypotheses,/Возможный путь: Недос
 assert.match(suspendedHypotheses,/Обезвоживание ⇢ снижению концентрации/u,"other available paths should remain usable");
 assert.match(suspendedHypotheses,/РЕШЕНИЯ РАБОЧЕЙ ПРИЧИННОЙ МОДЕЛИ/u,"derived answers should disclose the active model decision");
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/ПРИОСТАНОВЛЕНО В РАБОЧЕЙ МОДЕЛИ/u,"the model report should show a suspended edge explicitly");
 input.value = "Верни связь Недостаток сна → усталости в рабочую модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/возвращена в активную рабочую модель/u,"the user should be able to restore a previously suspended edge");
 assert.equal(window.NGMemory.modelDecisions().at(-1).strategy,"restore","restoration should be stored as a separate model decision");
 input.value = "Выведи новые гипотезы из памяти";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const restoredHypotheses=feed.children[feed.children.length-1].textContent;
 assert.match(restoredHypotheses,/Недостаток сна ⇢ снижению концентрации/u,"a restored edge should participate in future candidate generation again");
 assert.match(restoredHypotheses,/Обезвоживание ⇢ снижению концентрации/u,"restoring one edge should not disturb the other candidate path");
@@ -425,7 +425,7 @@ assert.match(restoredHypotheses,/Обезвоживание ⇢ снижению
 input.value = "Перегрузка приводит к снижению концентрации";
 document.getElementById("remember-button").dispatch("click");
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const modelWithThirdCause=feed.children[feed.children.length-1].textContent;
 const thirdRouteSection=modelWithThirdCause.split("ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ")[1]||"";
 assert.match(thirdRouteSection,/Перегрузка → снижению концентрации/u,"a genuinely new source should still be reported as a separate parallel route");
@@ -437,7 +437,7 @@ const lateRevisionReply=feed.children[feed.children.length-1].textContent;
 assert.match(lateRevisionReply,/ПЕРЕСМОТР ПРЕЖНЕГО ВЫВОДА/u,"a new explicit negative causal claim should mark a previous derived hypothesis as challenged");
 assert.match(lateRevisionReply,/Усталость не приводит к снижению концентрации/u,"the revision notice should quote the new opposing claim");
 input.value = "Какие прежние выводы требуют пересмотра?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const auditReply=feed.children[feed.children.length-1].textContent;
 assert.match(auditReply,/ПРОВЕРКА ИСТОРИИ ВЫВОДОВ/u);
 assert.match(auditReply,/Выводы, требующие пересмотра/u);
@@ -451,13 +451,13 @@ legacyDerived.reasoning.reviews=[];
 legacyDerived.reasoning.status="current";
 database.set("neurogenesis.dialog.v1",JSON.stringify(legacyDialog));
 input.value = "Какие прежние выводы требуют пересмотра?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const backfilledAudit=feed.children[feed.children.length-1].textContent;
 assert.match(backfilledAudit,/Уже было в памяти при создании вывода/u,"legacy 0.23 reasoning metadata should be backfilled from stored memory");
 assert.match(backfilledAudit,/Появилось после создания вывода/u,"legacy audit should reconstruct post-conclusion evidence too");
 assert.match(document.getElementById("memory-feedback").textContent,/САМОПРОВЕРКА/u);
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const postConflictModel=feed.children[feed.children.length-1].textContent;
 const alternateSection=postConflictModel.split("ОТДЕЛЬНЫЕ МАРШРУТЫ К ТОМУ ЖЕ РЕЗУЛЬТАТУ")[1]||"";
 assert.doesNotMatch(alternateSection,/Обезвоживание → усталости → снижению концентрации/u,"an alternate route must not reuse a shared edge that has since been opposed");
@@ -472,15 +472,15 @@ assert.ok(latestTracked.reasoning.modelHistory.at(-1).edges.some(edge=>window.NG
 // Durable reasoning history survives visible-dialog truncation, and unchanged audits are deterministic.
 for(let i=0;i<7;i++) {
   input.value = "Привет";
-  document.getElementById("ask-button").dispatch("click");
+  document.getElementById("llm-ask-button").dispatch("click");
 }
 assert.ok(window.NGMemory.reasoningHistory().length>=2,"structured conclusions should remain in the durable archive after the dialogue rolls over");
 assert.ok(JSON.parse(database.get("neurogenesis.reasoning-archive.v1")).length>=2,"the durable reasoning archive should be persisted independently");
 input.value = "Какие прежние выводы требуют пересмотра?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const stableAuditA=feed.children[feed.children.length-1].textContent;
 input.value = "Какие прежние выводы требуют пересмотра?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const stableAuditB=feed.children[feed.children.length-1].textContent;
 assert.equal(stableAuditA,stableAuditB,"repeating an audit against unchanged memory should produce the same report");
 assert.match(stableAuditA,/Недостаток сна ⇢ снижению концентрации/u,"the audit should include older conclusions retained outside the short dialogue");
@@ -512,7 +512,7 @@ assert.ok(JSON.parse(database.get("neurogenesis.model-evidence.v1")).length>=1,
 
 // Goal-directed inquiry creates source-linked questions, avoids duplicates and stores attributed answers.
 input.value = "Найди пробелы в знаниях";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const inquiryReport=feed.children[feed.children.length-1].textContent;
 assert.match(inquiryReport,/ПОИСК ПРОБЕЛОВ ЗАВЕРШЁН/u);
 const openInquiry=window.NGMemory.inquiries().find(item=>item.status==="open");
@@ -521,7 +521,7 @@ assert.ok(openInquiry.sourceClaimIds.length>0,"questions should retain source-cl
 assert.match(openInquiry.question,/наблюден|услови/u,"question should identify a knowledge gap");
 const inquiryCountBefore=window.NGMemory.inquiries().length;
 input.value = "Найди пробелы в знаниях";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.equal(window.NGMemory.inquiries().length,inquiryCountBefore,"repeated discovery must not duplicate questions");
 input.value = "Ответ на вопрос "+openInquiry.id+": Наблюдение было сделано вечером, результат оценивался по самочувствию.";
 document.getElementById("remember-button").dispatch("click");
@@ -535,7 +535,7 @@ assert.ok(answeredInquiry.responseMemoryId,"answer should link to its saved memo
 assert.ok(JSON.parse(database.get("neurogenesis.inquiries.v1")).some(item=>item.id===openInquiry.id&&item.status==="answered"),
   "inquiry answer provenance should persist");
 input.value = "Какие вопросы открыты?";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/ПОЛУЧЕННЫЕ ОТВЕТЫ/u);
 assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openInquiry.id));
 
@@ -543,7 +543,7 @@ assert.match(feed.children[feed.children.length-1].textContent,new RegExp(openIn
 const strategyMemoryCountBefore=window.NGMemory.count();
 const strategyDecisionsBefore=JSON.stringify(window.NGMemory.modelDecisions());
 input.value="Составь план исследования";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const strategyReply=feed.children[feed.children.length-1].textContent;
 assert.match(strategyReply,/ПЛАН ИССЛЕДОВАНИЯ/u,"the system should provide a distinct research strategy report");
 assert.match(strategyReply,/Эвристический приоритет/u,"the plan should disclose that ranking is heuristic, not a truth probability");
@@ -575,7 +575,7 @@ assert.ok(savedAnswerMemory,"the full answer should retain a memory reference");
 assert.equal(savedAnswerMemory.text,fullInquiryAnswer,"a multi-sentence inquiry answer should be stored as one complete memory");
 assert.equal(savedAnswerMemory.claims.length,0,"quoted or discussed claims inside an inquiry answer must not become asserted facts");
 input.value = "Построй обновлённую причинную модель";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 assert.match(feed.children[feed.children.length-1].textContent,/УЧЁТ ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u,
   "the revised causal model should explicitly account for inquiry assessments");
 
@@ -589,7 +589,7 @@ const repairedInquiry=window.NGMemory.inquiries().find(item=>item.id===secondOpe
 assert.equal(repairedInquiry.responseText,answerBody,"legacy partial inquiry answers should be repaired from the retained dialogue transcript");
 assert.equal(repairedInquiry.assessment,"gap_confirmed","legacy assessments should be reconstructed from restored full responses");
 input.value = "Оцени ответы на вопросы";
-document.getElementById("ask-button").dispatch("click");
+document.getElementById("llm-ask-button").dispatch("click");
 const inquiryAssessment=feed.children[feed.children.length-1].textContent;
 assert.match(inquiryAssessment,/ОЦЕНКА ИССЛЕДОВАТЕЛЬСКИХ ОТВЕТОВ/u);
 assert.match(inquiryAssessment,/отсутствие наблюдений отмечено/u);
@@ -1326,7 +1326,7 @@ assert.ok(latestGoalCycle.goals&&latestGoalCycle.goals.total>=0,
 loadMemory(true);
 const summaryInput=document.getElementById("memory-input");
 summaryInput.value="Новая тема: проверка сохранения резюме диалога.";
-document.getElementById("ask-button").dispatchLast("click");
+document.getElementById("llm-ask-button").dispatchLast("click");
 assert.ok(window.NGMemory.dialogContext().activeThread.contextSummary.length>0,
   "the backup fixture should start with a non-empty active-topic summary");
 // Backup export must produce a downloadable v2 archive with all durable stores.
