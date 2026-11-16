@@ -237,11 +237,44 @@ assert.match(result.manifest.sources[1].rawFileUrl, /poetry\.jsonl/u);
 assert.match(result.manifest.sources[2].rawCsvUrl, /qa\.csv/u);
 assert.match(result.manifest.sources[3].rawGzipJsonlUrl, /oasst\.gz/u);
 assert.match(result.manifest.sources[4].rawFileUrl, /instruction\.jsonl/u);
-assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
+assert.match(result.manifest.splitMethod, /at least one validation and one test row per (retained )?source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
 assert.equal(result.manifest.sources[3].uniqueRows, 60, "all 60 complete OpenAssistant parent/reply fixtures should fit the test character budget");
 assert.equal(result.manifest.sources[4].uniqueRows, 60);
 assert.equal(result.manifest.sources[5].uniqueRows, 60);
+
+
+const duplicateText = "<|user|>\nПРИВЕТ, друг!\n<|assistant|>\nЗдравствуйте.\n<|end|>";
+const duplicateVariant = "<|user|> Привет, друг! <|assistant|> Здравствуйте. <|end|>";
+const dedupeFixture = [
+  { source: { id: "synthetic-qa", role: "qa" }, rows: [duplicateText, "Уникальный синтетический пример."] },
+  { source: { id: "human-dialogue", role: "oasst" }, rows: [duplicateVariant, "Уникальный диалоговый пример."] },
+  { source: { id: "literature", role: "literature" }, rows: ["Уникальный литературный фрагмент."] },
+];
+const duplicateAudit = __test.deduplicateAcrossSources(dedupeFixture);
+assert.equal(duplicateAudit.crossSourceDuplicateRowsRemoved, 1,
+  "an exact duplicate across sources must be removed globally");
+assert.equal(dedupeFixture[0].rows.length, 1,
+  "human-authored dialogue must win over a duplicate synthetic example");
+assert.equal(dedupeFixture[1].rows.length, 2,
+  "the higher-priority human-authored source must retain its complete rows");
+assert.equal(dedupeFixture[0].rows[0], "Уникальный синтетический пример.");
+assert.equal(
+  __test.normalizedTextKey(duplicateText),
+  __test.normalizedTextKey(duplicateVariant),
+  "NFKC, whitespace, case and ё normalization must catch formatting variants",
+);
+
+const splitOwners = new Map();
+for (const [splitName, rows] of Object.entries(result.buckets)) {
+  for (const row of rows) {
+    const key = __test.normalizedTextKey(row);
+    assert.ok(!splitOwners.has(key),
+      "normalized duplicate must not cross into another split: " + splitName);
+    splitOwners.set(key, splitName);
+  }
+}
+assert.equal(result.manifest.duplicateAudit.crossSourceDuplicateRowsRemoved >= 0, true);
 
 console.log("Open Russian corpus preparation contract passed.");
