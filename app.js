@@ -1141,7 +1141,6 @@
   canvas.addEventListener("pointercancel",endPointer);
   canvas.addEventListener("lostpointercapture",endPointer);
   canvas.addEventListener("wheel",event=>{event.preventDefault();const p=pointerPoint(event);zoomAt(event.deltaY<0?1.14:1/1.14,p.x,p.y);},{passive:false});
-  canvas.addEventListener("dblclick",event=>{const p=pointerPoint(event),w=worldAt(p);addNeuron(w.x,w.y);});
 
   function setConnectMode(force) {
     connectMode=typeof force==="boolean"?force:!connectMode;

@@ -49,6 +49,8 @@ jobs:
           node --check contextual-attention.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
+          node --check contextual-training-worker.js
+          node --check panel-navigation.js
           node --check scripts/pretrain-contextual-model.mjs
           node --check semantic-retrieval.js
           node --check llm-bridge.js
