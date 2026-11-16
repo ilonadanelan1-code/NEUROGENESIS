@@ -10,8 +10,10 @@ assert.ok(jobStart >= 0 && deployStart > jobStart,
 
 const corpusJob = workflow.slice(jobStart, deployStart);
 assert.match(corpusJob,
-  /if:\s*github\.event_name\s*!=\s*'pull_request'\s*\|\|\s*contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'run-corpus-pilot'\)/u,
-  "the expensive full corpus pilot must run on non-PR events or explicitly opted-in PRs");
+  /if:\s*github\.event_name\s*!=\s*'pull_request'/u,
+  "the expensive full corpus pilot must be skipped on pull requests");
+assert.doesNotMatch(corpusJob, /run-corpus-pilot/u,
+  "the workflow must not depend on an unprovisioned repository label");
 assert.match(workflow, /^\s*workflow_dispatch:\s*$/mu,
   "the corpus pilot must remain manually runnable");
 assert.match(workflow, /^\s*push:\s*\r?\n\s*branches:\s*\r?\n\s*- main\s*$/mu,
