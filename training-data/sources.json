@@ -27,6 +27,7 @@
         "file": "russian_classics_dataset.jsonl",
         "maxDownloadBytes": 4194304,
         "authors": [
+          "Михаил Ломоносов",
           "Александр Пушкин",
           "Михаил Лермонтов",
           "Александр Блок",
