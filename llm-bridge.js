@@ -32,11 +32,11 @@
     return unique.reverse();
   }
 
-  function safeHistory(rows, maxMessages = 16, threadId = "", maxChars = 10000) {
+  function safeHistory(rows, maxMessages = 16, threadId = "", maxChars = 14000) {
     const countValue = Number(maxMessages);
     const count = Number.isFinite(countValue) ? Math.max(0, Math.min(16, Math.floor(countValue))) : 16;
     const charValue = Number(maxChars);
-    const budget = Number.isFinite(charValue) ? Math.max(0, Math.min(10000, Math.floor(charValue))) : 10000;
+    const budget = Number.isFinite(charValue) ? Math.max(0, Math.min(14000, Math.floor(charValue))) : 14000;
     if (!count || !budget) return [];
     const candidates = uniqueHistoryRows(rows, threadId).filter(row =>
       (row.role === "user" || row.role === "assistant") && typeof row.text === "string").slice(-count);
@@ -74,7 +74,7 @@
       if (last.role === "user" && clean(last.text, 1600) === userInput) historyRows = historyRows.slice(0, -1);
     }
     const history = activeThreadId
-      ? safeHistory(historyRows, options.maxMessages ?? 16, activeThreadId, options.maxHistoryChars ?? 10000)
+      ? safeHistory(historyRows, options.maxMessages ?? 16, activeThreadId, options.maxHistoryChars ?? 14000)
       : [];
     const facts = safeEvidence(evidence, options.maxEvidence || 8);
     const topic = active && typeof active.title === "string" ? clean(active.title, 100) : "";
@@ -151,7 +151,7 @@
     const timeoutValue = Number(config.requestTimeoutMs);
     const requestTimeoutMs = Number.isFinite(timeoutValue)
       ? Math.max(50, Math.min(120000, Math.floor(timeoutValue)))
-      : 60000;
+      : 75000;
     const healthTimeoutMs = Math.min(15000, requestTimeoutMs);
 
     async function call(path, body, timeoutMs) {
@@ -277,7 +277,7 @@
       }
       const result = await adapter.generate(request);
       if (typeof result !== "string" || !result.trim()) throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
-      return result.trim().slice(0, 8000);
+      return result.trim().slice(0, 12000);
     }
     return { register, select, unregister, status, generate, buildRequest };
   }
