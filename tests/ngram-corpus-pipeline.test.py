@@ -58,7 +58,7 @@ def main():
         mapping = manifest["news_source_mapping"]
         assert mapping["mapping_rows"] == 13
         assert mapping["mapped_sentences"] == 12
-        assert mapping["source_components"] == 5
+        assert mapping["source_components"] == 6
         assert manifest["news_row_counters"]["source_unmapped_rows"] == 0
         news_splits = {
             split: set((output / f"news_{split}.txt").read_text(encoding="utf-8").splitlines())
