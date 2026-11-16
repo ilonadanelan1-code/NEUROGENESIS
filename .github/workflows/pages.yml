@@ -51,6 +51,8 @@ jobs:
           node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
           node --check llm-bridge.js
+          node --check ngram-predictor.js
+          node --check ngram-memory-bridge.js
           node --check neuro-wasm-adapter.js
           node --check experience-quality.js
           node --check experience-benchmark.js
@@ -89,6 +91,7 @@ jobs:
       - name: Check app assets, DOM references and startup contracts
         run: |
           node tests/startup-contract.test.js
+          node tests/ngram-memory-bridge.test.js
           node tests/first-experiment.test.js
           node tests/startup-failure.test.js
           node tests/wasm-shadow-mode.test.js
