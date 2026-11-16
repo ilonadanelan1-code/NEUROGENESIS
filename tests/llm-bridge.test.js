@@ -111,8 +111,8 @@ assert.equal(extendedRequest.metadata.historyMessages,16,
   "the bridge should retain up to sixteen prior messages, excluding the current user prompt");
 assert.equal(extendedRequest.messages.length,18,
   "sixteen history messages plus system policy and current prompt must fit the worker's eighteen-message cap");
-assert.ok(extendedRequest.metadata.historyCharacters <= 10000,
-  "dialogue history must respect the shared ten-thousand-character budget");
+assert.ok(extendedRequest.metadata.historyCharacters <= 14000,
+  "dialogue history must respect the shared fourteen-thousand-character budget");
 assert.match(extendedRequest.messages[1].content,/СООБЩЕНИЕ 4/u,
   "the retained history should keep the correct recent chronological window");
 assert.match(extendedRequest.messages[16].content,/СООБЩЕНИЕ 19/u,
@@ -144,8 +144,8 @@ const oversizedRows = Array.from({ length:16 }, (_, index) => ({
 const boundedRequest = bridge.buildRequest("Текущий запрос", {
   activeThread:{ id:"T-long", title:"Длинная беседа" }, recentMessages:oversizedRows
 }, []);
-assert.ok(boundedRequest.metadata.historyCharacters <= 10000,
-  "long transcripts must be trimmed to the total character budget");
+assert.ok(boundedRequest.metadata.historyCharacters <= 14000,
+  "long transcripts must be trimmed to the fourteen-thousand-character dialogue budget");
 assert.ok(boundedRequest.messages.length <= 18,
   "the request must never exceed the worker's message-count limit");
 assert.match(request.messages[0].content, /пользовательскими данными/u);
@@ -293,5 +293,11 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   );
   await assert.rejects(() => hangingBodyAdapter.generate(request), /Истекло время ожидания ответа модели/u,
     "a response whose body never finishes parsing must also be bounded");
+  const longReply = "Д".repeat(10000);
+  const capacityGateway = bridge.create();
+  capacityGateway.register("capacity-test", { async generate() { return longReply; } });
+  assert.equal(await capacityGateway.generate(request), longReply,
+    "the chat gateway must preserve a ten-thousand-character answer instead of truncating it at eight thousand");
+
   console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
