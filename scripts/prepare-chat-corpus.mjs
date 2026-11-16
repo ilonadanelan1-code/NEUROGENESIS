@@ -203,6 +203,8 @@ function openAssistantRowsToPairs(rawRows, source) {
 function extractText(source, row) {
   if (source.role === "qa") return qaDialogueText(row);
   if (source.role === "literature" || source.role === "literature-filtered") {
+    if (source.allowedAuthors &&
+        !source.allowedAuthors.includes(normalize(row?.author))) return "";
     const candidates = ["text", "content", "document"];
     for (const key of candidates) {
       const value = normalize(row?.[key]);
@@ -550,8 +552,8 @@ export async function prepareCorpus(options = {}) {
         ? ["stream first 4 MiB of corpus_clean.norm.txt", "split at blank lines",
           "keep paragraphs of at least 100 characters", "remove exact duplicates"]
         : result.source.role === "literature-filtered"
-          ? ["filter author in the selected classical poets", "keep text fields of at least 80 characters",
-            "remove exact duplicate text"]
+          ? ["stream the public JSONL backup", "keep selected classical-poet author names",
+            "keep text fields of at least 80 characters", "remove exact duplicate text"]
         : result.source.role === "oasst"
           ? ["filter lang == ru and deleted == false", "reconstruct assistant replies from parent prompter messages",
             "exclude deleted, synthetic and review_result == false rows"]
