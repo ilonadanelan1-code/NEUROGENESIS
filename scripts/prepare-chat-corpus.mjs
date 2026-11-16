@@ -702,6 +702,71 @@ function splitRows(sourceId, rows) {
   };
 }
 
+
+const SOURCE_PRIORITY = Object.freeze({
+  oasst: 60,
+  everyday: 50,
+  dialogue: 40,
+  qa: 30,
+  "literature-filtered": 20,
+  literature: 10,
+});
+
+function normalizedTextKey(value) {
+  return normalize(value)
+    .normalize("NFKC")
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/gu, "е")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+// Deduplicate across every dataset before splitting. Prefer human-authored
+// conversations over synthetic dialogue, and dialogue over literary text,
+// so duplicate content keeps the most useful provenance.
+function deduplicateAcrossSources(sourceResults) {
+  const seen = new Map();
+  const ordered = (Array.isArray(sourceResults) ? sourceResults : []).slice().sort((left, right) => {
+    const leftPriority = SOURCE_PRIORITY[left.source?.role] || 0;
+    const rightPriority = SOURCE_PRIORITY[right.source?.role] || 0;
+    if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+    return String(left.source?.id || "").localeCompare(String(right.source?.id || ""));
+  });
+  let crossSourceDuplicateRowsRemoved = 0;
+  let normalizedDuplicateRowsRemoved = 0;
+
+  for (const result of ordered) {
+    const sourceId = String(result.source?.id || "unknown");
+    const kept = [];
+    let crossSourceDuplicates = 0;
+    let normalizedDuplicates = 0;
+    for (const row of Array.isArray(result.rows) ? result.rows : []) {
+      const key = normalizedTextKey(row);
+      if (!key) continue;
+      const previousSource = seen.get(key);
+      if (previousSource) {
+        if (previousSource === sourceId) {
+          normalizedDuplicates += 1;
+          normalizedDuplicateRowsRemoved += 1;
+        } else {
+          crossSourceDuplicates += 1;
+          crossSourceDuplicateRowsRemoved += 1;
+        }
+        continue;
+      }
+      seen.set(key, sourceId);
+      kept.push(row);
+    }
+    result.rows = kept;
+    result.uniqueRows = kept.length;
+    result.characters = kept.reduce((sum, row) => sum + row.length, 0);
+    result.normalizedDuplicateRowsRemoved = normalizedDuplicates;
+    result.crossSourceDuplicateRowsRemoved = crossSourceDuplicates;
+  }
+
+  return { crossSourceDuplicateRowsRemoved, normalizedDuplicateRowsRemoved };
+}
+
 export async function prepareCorpus(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new TypeError("A Fetch-compatible function is required.");
@@ -725,6 +790,19 @@ export async function prepareCorpus(options = {}) {
     }
   }
 
+  // Global normalized exact deduplication must happen before per-source
+  // splitting; otherwise the same dialogue can land in train and test through
+  // two different datasets.
+  const duplicateAudit = deduplicateAcrossSources(results);
+  for (let index = results.length - 1; index >= 0; index -= 1) {
+    if (results[index].rows.length >= 3) continue;
+    const result = results[index];
+    const reason = "Fewer than three unique rows remained after cross-source deduplication.";
+    if (!result.source.optional) throw new Error(result.source.dataset + ": " + reason);
+    skippedSources.push({ id: result.source.id, dataset: result.source.dataset, reason });
+    results.splice(index, 1);
+  }
+
   const buckets = { train: [], validation: [], test: [] };
   const countsBySource = {};
   for (const result of results) {
@@ -743,8 +821,8 @@ export async function prepareCorpus(options = {}) {
   const manifest = {
     schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
     createdAt: new Date().toISOString(),
-    method: "Hugging Face datasets-server rows/filter API plus bounded streaming of normalized text, JSONL and CSV files; deterministic per-source sampling; exact duplicate removal.",
-    splitMethod: "Deterministic per-source 90/5/5 split, with at least one validation and one test row per source. It is NOT author- or document-disjoint.",
+    method: "Hugging Face datasets-server rows/filter API plus bounded streaming of normalized text, JSONL and CSV files; deterministic per-source sampling; global normalized exact duplicate removal before splitting.",
+    splitMethod: "Global NFKC/whitespace/case/ё-normalized exact deduplication across sources before deterministic per-source 90/5/5 split, with at least one validation and one test row per retained source. It is NOT author- or document-disjoint.",
     sources: results.map(result => ({
       id: result.source.id,
       dataset: result.source.dataset,
@@ -761,6 +839,8 @@ export async function prepareCorpus(options = {}) {
       downloadedBytes: result.downloadedBytes ?? null,
       fetchedRows: result.rawRows,
       uniqueRows: result.uniqueRows,
+      normalizedDuplicateRowsRemoved: result.normalizedDuplicateRowsRemoved || 0,
+      crossSourceDuplicateRowsRemoved: result.crossSourceDuplicateRowsRemoved || 0,
       requests: result.requests,
       characters: result.characters,
       localSplitCounts: countsBySource[result.source.id],
@@ -800,6 +880,7 @@ export async function prepareCorpus(options = {}) {
     totals: Object.fromEntries(Object.entries(buckets).map(([key, value]) =>
       [key, { rows: value.length, characters: value.reduce((sum, text) => sum + text.length, 0) }])),
     countsBySource,
+    duplicateAudit,
     skippedSources,
     limitations: [
       "This is a bounded training sample, not the complete upstream datasets.",
@@ -844,4 +925,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   });
 }
 
-export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, qaDialogueText, safeAssistantContent, openAssistantRowsToPairs, extractText, splitRows };
+export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, qaDialogueText, safeAssistantContent, openAssistantRowsToPairs, extractText, splitRows, normalizedTextKey, deduplicateAcrossSources };
