@@ -291,7 +291,7 @@ jobs:
       # The full external pilot already ran on the PR before merge. Keep it on PR
       # and manual runs; do not repeat the same 14-minute benchmark before every Pages deploy.
       - name: Download pinned UD Russian-GSD corpus
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           mkdir -p /tmp/ud-russian-gsd
           curl --fail --location --retry 3 \
@@ -302,7 +302,7 @@ jobs:
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
       - name: Run external UD Russian-GSD language pilot
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           node tests/ud-russian-gsd-benchmark.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
