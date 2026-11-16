@@ -73,7 +73,7 @@ const poetrySource = {
   maxCharacters: 10000, maxDownloadBytes: 100000,
   license: "CC-BY-4.0", url: "https://example.test/poetry",
   rawFileUrl: "https://example.test/poetry.jsonl",
-  allowedAuthors: ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"],
+  allowedAuthors: ["Михаил Ломоносов", "Александр Пушкин", "Анна Ахматова", "Сергей Есенин"],
   role: "literature-filtered",
 };
 const qaSource = {
@@ -111,7 +111,7 @@ const fixtures = {
   },
   "fixture/poetry": {
     rows: Array.from({ length: 60 }, (_, index) => ({
-      author: ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"][index % 3],
+      author: ["Михаил Ломоносов", "Александр Пушкин", "Анна Ахматова", "Сергей Есенин"][index % 4],
       text: "Поэтический или литературный фрагмент номер " + index +
         " содержит достаточно длинный текст для языкового обучения. ".repeat(2),
     })).concat([{
@@ -205,6 +205,7 @@ for (const source of result.manifest.sources) {
 }
 assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
 assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-poet author names/u);
+assert.ok(fixtures["fixture/poetry"].rows.some(row => row.author === "Михаил Ломоносов"), "the first RuHeritage author must be accepted");
 assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
