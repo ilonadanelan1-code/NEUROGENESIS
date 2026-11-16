@@ -154,21 +154,6 @@ def assign_work_splits(work_paths, root: Path, seed: int):
         split_map[path] = "train"
     return split_map
 
-def read_news(path: Path, seed: int):
-    result = {name: [] for name in SPLITS}
-    seen = set()
-    with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
-        for line in stream:
-            _sentence_id, sep, raw = line.rstrip("\r\n").partition("\t")
-            if not sep:
-                continue
-            sentence = normalize_sentence(raw)
-            if not sentence or sentence in seen:
-                continue
-            seen.add(sentence)
-            result[news_split(sentence, seed)].append(sentence)
-    return result
-
 def read_literature(root: Path, seed: int):
     files = sorted(p for p in root.rglob("*.txt") if p.is_file() and p.name.lower() != "info.txt")
     if not files:
