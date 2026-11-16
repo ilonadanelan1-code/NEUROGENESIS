@@ -284,7 +284,13 @@ select.text-input{color-scheme:dark}
 .llm-config-input{width:100%;min-width:0;height:36px;padding:7px 9px;font-size:10px}
 .llm-security-note{margin:1px 0 2px;color:#829ca9;font-size:8px;line-height:1.5}
 .llm-settings-actions{display:grid;grid-template-columns:1.2fr .8fr;gap:7px}
-.llm-config-save,.llm-config-clear{min-height:34px;height:34px;padding:0 8px;font-size:8px;justify-content:center}
+.llm-config-save,.llm-config-clear,.llm-config-smoke{min-height:34px;height:34px;padding:0 8px;font-size:8px;justify-content:center}
+.llm-config-smoke{grid-column:1/-1}
+.llm-config-smoke:disabled{opacity:.5;cursor:not-allowed}
+.llm-smoke-result{margin:0;padding:7px 9px;border:1px solid rgba(119,184,201,.18);border-radius:6px;background:rgba(8,18,24,.55);color:#9aabb0;font-size:8px;line-height:1.55;white-space:pre-line;overflow-wrap:anywhere;word-break:break-word;max-width:100%}
+.llm-smoke-result[data-state="ok"]{color:#80e0bc;border-color:rgba(128,224,188,.4)}
+.llm-smoke-result[data-state="health"],.llm-smoke-result[data-state="loading"]{color:#e6c78b;border-color:rgba(230,199,139,.35)}
+.llm-smoke-result[data-state="error"]{color:#f0a39a;border-color:rgba(240,163,154,.4)}
 @media(max-width:640px){
   .llm-ask-button{min-height:45px;padding:7px 9px;gap:8px}
   .llm-ask-button strong{font-size:9px}
@@ -294,6 +300,7 @@ select.text-input{color-scheme:dark}
   .llm-settings-body{padding:8px;gap:6px}
   .llm-config-input{height:34px;font-size:9px}
   .llm-security-note{font-size:7px}
+  .llm-smoke-result{font-size:7px;padding:6px 7px}
 }
 
 /* Touch accessibility: keep compact mouse controls, enlarge phone/tablet targets. */

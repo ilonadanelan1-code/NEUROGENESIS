@@ -123,6 +123,49 @@
       }
     };
   }
+  // Fixed, neutral probe used by the settings panel. It carries no dialogue history,
+  // memory excerpts or user text, so it can never leak or pollute user data.
+  const SMOKE_TEST_PROMPT = "Ответь одной короткой фразой по-русски: «связь работает».";
+  function buildSmokeRequest() {
+    return {
+      schema: "NEUROGENESIS_LLM_REQUEST_V1",
+      messages: [
+        { role: "system", content: "Ты проверяешь работу канала связи. Отвечай одной короткой фразой по-русски, без форматирования." },
+        { role: "user", content: SMOKE_TEST_PROMPT }
+      ],
+      metadata: { purpose: "gateway_smoke_test", historyMessages: 0, evidenceItems: 0 }
+    };
+  }
+  function cleanModelId(value) {
+    const text = typeof value === "string" ? value.trim().slice(0, 160) : "";
+    return /^[a-zA-Z0-9._:/@+-]{1,160}$/u.test(text) ? text : null;
+  }
+  function cleanUsage(value) {
+    if (!value || typeof value !== "object") return null;
+    const usage = {};
+    for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+      const number = Number(value[key]);
+      if (value[key] != null && Number.isFinite(number) && number >= 0) usage[key] = Math.floor(number);
+    }
+    return Object.keys(usage).length ? usage : null;
+  }
+  // Metadata the server did not send stays null: nothing is guessed or substituted.
+  function normalizeDetailedResult(result, maxReply = 12000) {
+    const source = typeof result === "string" ? { reply: result } : result;
+    const reply = source && typeof source.reply === "string" ? source.reply.trim().slice(0, maxReply) : "";
+    if (!reply) throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
+    return {
+      reply,
+      model: cleanModelId(source.model),
+      requestedModel: cleanModelId(source.requestedModel),
+      fallbackUsed: typeof source.fallbackUsed === "boolean" ? source.fallbackUsed : null,
+      usage: cleanUsage(source.usage)
+    };
+  }
+  function cleanModelList(value) {
+    if (!Array.isArray(value)) return null;
+    return value.map(cleanModelId).filter(Boolean).slice(0, 3);
+  }
   function createHttpAdapter(config = {}, fetchImpl) {
     const endpoint = clean(config.endpoint, 320).replace(/\/+$/u, "");
     const token = clean(config.clientToken, 400);
@@ -153,6 +196,8 @@
       ? Math.max(50, Math.min(120000, Math.floor(timeoutValue)))
       : 75000;
     const healthTimeoutMs = Math.min(15000, requestTimeoutMs);
+
+    function tagged(error, code) { error.code = code; return error; }
 
     async function call(path, body, timeoutMs) {
       const controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -188,12 +233,12 @@
         if (timedOut || error && error.code === "NG_REQUEST_TIMEOUT") {
           const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
           const action = body ? "ответа модели" : "проверки шлюза";
-          throw new Error("Истекло время ожидания " + action + " (" + seconds + " с). Запрос завершён; проверь соединение и повтори попытку.");
+          throw tagged(new Error("Истекло время ожидания " + action + " (" + seconds + " с). Запрос завершён; проверь соединение и повтори попытку."), "timeout");
         }
         if (error && error.name === "AbortError") {
-          throw new Error("Запрос к серверному шлюзу был прерван. Проверь соединение и повтори попытку.");
+          throw tagged(new Error("Запрос к серверному шлюзу был прерван. Проверь соединение и повтори попытку."), "aborted");
         }
-        throw new Error("Не удалось связаться с серверным шлюзом. Проверь адрес и интернет-соединение.");
+        throw tagged(new Error("Не удалось связаться с серверным шлюзом. Проверь адрес и интернет-соединение."), "network");
       } finally {
         if (timeoutId !== null) clearTimeout(timeoutId);
       }
@@ -221,20 +266,32 @@
           invalid_messages: "Шлюз отклонил структуру диалога.",
           request_too_large: "Контекст беседы слишком большой."
         };
-        throw new Error(errors[data && data.error] || "Ошибка серверного шлюза. HTTP " + response.status + ".");
+        const failure = tagged(new Error(errors[data && data.error] || "Ошибка серверного шлюза. HTTP " + response.status + "."),
+          data && typeof data.error === "string" && /^[a-z_]{1,48}$/u.test(data.error) ? data.error : "http_" + response.status);
+        failure.status = response.status;
+        if (data && Number.isFinite(Number(data.upstream_status))) failure.upstreamStatus = Number(data.upstream_status);
+        throw failure;
       }
       return data || {};
     }
+    async function generateDetailed(request) {
+      const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} }, requestTimeoutMs);
+      if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
+      return normalizeDetailedResult(result);
+    }
     return Object.freeze({
+      generateDetailed,
       async generate(request) {
-        const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} }, requestTimeoutMs);
-        if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
-        return result.reply.trim();
+        return (await generateDetailed(request)).reply;
       },
       async health() {
         const result = await call("/api/health", null, healthTimeoutMs);
         if (!result.configured) throw new Error("Шлюз доступен, но провайдер не настроен. Проверь секрет UPSTREAM_API_KEY в Cloudflare и переменные UPSTREAM_BASE_URL / UPSTREAM_MODEL.");
-        return { ok: true, model: result.model || null, provider: result.provider || "openai-compatible" };
+        return {
+          ok: true, model: result.model || null, provider: result.provider || "openai-compatible",
+          // Configured routes only: this does not mean any fallback was used for a reply.
+          fallbackModels: cleanModelList(result.fallbackModels)
+        };
       }
     });
   }
@@ -265,9 +322,7 @@
     function status() {
       return { connected: !!activeProvider && providers.has(activeProvider), provider: activeProvider || null, providers: [...providers.keys()] };
     }
-    async function generate(request) {
-      const adapter = providers.get(activeProvider);
-      if (!adapter) throw new Error("Языковая модель пока не подключена. Контекст и интерфейс интеграции подготовлены.");
+    function validateRequest(request) {
       const supportedSchemas = new Set(["NEUROGENESIS_LLM_REQUEST_V1", "NEUROGENESIS_LLM_REQUEST_V2"]);
       if (!request || !supportedSchemas.has(request.schema) || !Array.isArray(request.messages) ||
           !request.messages.length || request.messages.length > 18 ||
@@ -275,12 +330,31 @@
             typeof row.content !== "string" || !row.content.trim())) {
         throw new Error("Некорректный запрос NEUROGENESIS к языковой модели.");
       }
+    }
+    function activeAdapter() {
+      const adapter = providers.get(activeProvider);
+      if (!adapter) throw new Error("Языковая модель пока не подключена. Контекст и интерфейс интеграции подготовлены.");
+      return adapter;
+    }
+    async function generate(request) {
+      const adapter = activeAdapter();
+      validateRequest(request);
       const result = await adapter.generate(request);
       if (typeof result !== "string" || !result.trim()) throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
       return result.trim().slice(0, 12000);
     }
-    return { register, select, unregister, status, generate, buildRequest };
+    // Same validation and limits as generate(), but keeps the metadata the adapter can provide.
+    // Legacy adapters exposing only generate() are wrapped without inventing any metadata.
+    async function generateDetailed(request) {
+      const adapter = activeAdapter();
+      validateRequest(request);
+      const result = typeof adapter.generateDetailed === "function"
+        ? await adapter.generateDetailed(request)
+        : await adapter.generate(request);
+      return normalizeDetailedResult(result);
+    }
+    return { register, select, unregister, status, generate, generateDetailed, buildRequest, buildSmokeRequest };
   }
 
-  window.NGLLMBridge = Object.freeze({ version: 1, buildRequest, safeHistory, safeEvidence, createHttpAdapter, create });
+  window.NGLLMBridge = Object.freeze({ version: 1, buildRequest, buildSmokeRequest, normalizeDetailedResult, safeHistory, safeEvidence, createHttpAdapter, create });
 })();

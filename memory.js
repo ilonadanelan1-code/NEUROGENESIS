@@ -58,6 +58,11 @@
   let llmHttpAdapter = null;
   let llmVerified = false;
   let llmModelName = "";
+  // Ephemeral diagnostics only: never persisted, never part of dialogue, memory or knowledge.
+  let llmFallbackModels = null;
+  let llmSmokeInFlight = null;
+  let llmSmokeState = null;
+  let llmSmokeEpoch = 0;
   let llmRequestInFlight = false;
   let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
@@ -114,10 +119,148 @@
     if (endpoint && llmConfig && endpoint.value !== llmConfig.endpoint) endpoint.value = llmConfig.endpoint;
     if (token && llmConfig && !token.value) token.value = llmConfig.clientToken;
     if (status) {
-      status.textContent = message || (llmVerified ? "ШЛЮЗ ДОСТУПЕН · " + (llmModelName || "МОДЕЛЬ ГОТОВА") :
+      const generated = llmSmokeState && llmSmokeState.status === "ok";
+      status.textContent = message || (generated ? "МОДЕЛЬ ОТВЕТИЛА · " + (llmSmokeState.model || "ID НЕ СООБЩЁН") :
+        llmVerified ? "ШЛЮЗ ДОСТУПЕН · ГЕНЕРАЦИЯ НЕ ПРОВЕРЕНА" :
         llmConfig ? "НАСТРОЙКИ СОХРАНЕНЫ · НЕ ПРОВЕРЕНО" : "НЕ ПОДКЛЮЧЕНО");
-      status.dataset.state = llmVerified ? "online" : llmConfig ? "configured" : "offline";
+      status.dataset.state = generated || llmVerified ? "online" : llmConfig ? "configured" : "offline";
     }
+    updateLLMSmokeUI();
+  }
+  const SMOKE_ERRORS = {
+    unauthorized: "Шлюз отклонил ключ доступа (401). Проверь APP_TOKEN.",
+    provider_not_configured: "Шлюз отвечает, но на сервере не настроены провайдер, модель или API-ключ (503).",
+    origin_not_allowed: "Домен приложения не разрешён в настройках шлюза (403).",
+    not_found: "Шлюз вернул 404: укажи корневой адрес Worker без дополнительного пути.",
+    invalid_upstream_configuration: "На сервере некорректно задан адрес провайдера.",
+    upstream_unreachable: "Сервер не смог связаться с провайдером языковой модели.",
+    upstream_timeout: "Провайдер не ответил за отведённое время; общий лимит ожидания исчерпан.",
+    invalid_upstream_response: "Провайдер вернул ответ в неподдерживаемом формате.",
+    empty_model_response: "Провайдер ответил, но не прислал текст сообщения.",
+    timeout: "Время ожидания ответа от шлюза истекло.",
+    aborted: "Запрос к шлюзу был прерван.",
+    network: "Не удалось связаться со шлюзом. Проверь адрес и интернет-соединение."
+  };
+  function redactSecrets(text) {
+    let out = String(text == null ? "" : text);
+    for (const secret of [llmConfig && llmConfig.clientToken, $("llm-client-token") && $("llm-client-token").value]) {
+      if (typeof secret === "string" && secret.trim().length >= 4) out = out.split(secret.trim()).join("[скрыто]");
+    }
+    return out.replace(/Authorization\s*[:=]\s*[^\n]*/giu, "[скрыто]")
+      .replace(/Bearer\s+[^\s"']+/giu, "Bearer [скрыто]")
+      .replace(/\bsk-[A-Za-z0-9_-]{6,}/gu, "[скрыто]")
+      .replace(/\b[A-Za-z0-9_-]{32,}\b/gu, "[скрыто]");
+  }
+  function describeSmokeError(error) {
+    const code = error && typeof error.code === "string" ? error.code : "";
+    const upstream = error && Number.isFinite(error.upstreamStatus) ? error.upstreamStatus : null;
+    let message;
+    if (code === "upstream_error") {
+      if (upstream === 429) message = "Провайдер ограничил частоту запросов (429).";
+      else if (upstream === 401 || upstream === 403) message = "Провайдер отклонил ключ или доступ (HTTP " + upstream + "). Проверь UPSTREAM_API_KEY в Cloudflare.";
+      else message = "Провайдер вернул ошибку" + (upstream ? " (HTTP " + upstream + ")" : "") + ".";
+    } else if (SMOKE_ERRORS[code]) {
+      message = SMOKE_ERRORS[code];
+    } else {
+      message = redactSecrets(String(error && error.message || "Неизвестная ошибка проверки.")
+        .replace(/\s+/gu, " ").trim()).slice(0, 140) || "Неизвестная ошибка проверки.";
+    }
+    // The Worker moves to a fallback model only after retryable failures; say so only then.
+    const retryable = code === "upstream_unreachable" || code === "invalid_upstream_response" || code === "empty_model_response" ||
+      code === "upstream_error" && (upstream === 408 || upstream === 425 || upstream === 429 || upstream >= 500);
+    if (retryable) {
+      message += llmFallbackModels && llmFallbackModels.length ? " Резервные маршруты (" + llmFallbackModels.join(", ") + ") тоже не дали ответа."
+        : llmFallbackModels ? " Резервные модели на сервере не настроены."
+        : " Резервный маршрут мог быть недоступен или не настроен.";
+    }
+    return message;
+  }
+  function renderLLMSmokeText() {
+    const state = llmSmokeState;
+    if (!state) {
+      return llmVerified
+        ? "ШЛЮЗ ОТВЕЧАЕТ (/api/health)\nГЕНЕРАЦИЯ МОДЕЛИ: не проверена — доступность шлюза не доказывает ответ модели." +
+          (llmModelName ? "\nОсновной маршрут по настройке: " + llmModelName : "") +
+          (llmFallbackModels && llmFallbackModels.length ? "\nРезерв настроен (не значит «использован»): " + llmFallbackModels.join(", ") : "")
+        : "Реальный ответ модели ещё не проверялся. Проверка отправит короткий тестовый запрос и не сохранится в памяти.";
+    }
+    if (state.status === "loading") return "ПРОВЕРЯЮ… отправляю тестовый запрос на /api/chat. Ответ не попадёт в диалог и память.";
+    if (state.status === "error") return "ОШИБКА · МОДЕЛЬ НЕ ОТВЕТИЛА\n" + state.message + "\nВремя: " + (state.elapsedMs / 1000).toFixed(1) + " с";
+    const lines = ["УСПЕХ · МОДЕЛЬ СГЕНЕРИРОВАЛА ОТВЕТ (/api/chat)",
+      "Ответила: " + (state.model || "ID модели сервер не сообщил"),
+      "Маршрут: " + (state.fallbackUsed === true ? "РЕЗЕРВНЫЙ" : state.fallbackUsed === false ? "ОСНОВНОЙ" : "сервер не сообщил")];
+    if (state.requestedModel && state.requestedModel !== state.model) lines.push("Запрошенный маршрут: " + state.requestedModel);
+    lines.push("Время: " + (state.elapsedMs / 1000).toFixed(1) + " с");
+    if (state.usage) {
+      const parts = [];
+      if (state.usage.prompt_tokens != null) parts.push("запрос " + state.usage.prompt_tokens);
+      if (state.usage.completion_tokens != null) parts.push("ответ " + state.usage.completion_tokens);
+      if (state.usage.total_tokens != null) parts.push("всего " + state.usage.total_tokens);
+      lines.push("Токены: " + parts.join(" · "));
+    }
+    lines.push("Фрагмент: «" + state.snippet + "»");
+    return lines.join("\n");
+  }
+  function updateLLMSmokeUI() {
+    const button = $("llm-smoke-test"), result = $("llm-smoke-result");
+    const endpoint = $("llm-endpoint"), token = $("llm-client-token");
+    const gatewayReady = !!(LLM_GATEWAY && LLM_GATEWAY.status().connected);
+    const inputsReady = !!(endpoint && endpoint.value && endpoint.value.trim() && token && token.value && token.value.trim());
+    const busy = !!llmSmokeInFlight;
+    if (button) {
+      button.disabled = busy || !(gatewayReady || inputsReady);
+      button.textContent = busy ? "ПРОВЕРЯЮ…" : "Проверить реальный ответ";
+      button.dataset.state = busy ? "loading" : "idle";
+      button.setAttribute && button.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+    if (result) {
+      result.textContent = renderLLMSmokeText();
+      result.dataset.state = llmSmokeState ? llmSmokeState.status : llmVerified ? "health" : "idle";
+    }
+  }
+  // Real generation probe: fixed neutral prompt through the same gateway and /api/chat route.
+  // It deliberately bypasses say(), dialog context, cognitive cycles, persist() and every memory layer.
+  function runLLMSmokeTest() {
+    if (llmSmokeInFlight) return llmSmokeInFlight;
+    let epoch = ++llmSmokeEpoch;
+    const startedAt = Date.now();
+    const finish = state => {
+      if (epoch === llmSmokeEpoch) { llmSmokeState = state; }
+      return state;
+    };
+    const run = (async () => {
+      try {
+        if (llmRequestInFlight) throw Object.assign(new Error("Дождись завершения текущего ответа в чате и повтори проверку."), { code: "busy" });
+        const endpoint = $("llm-endpoint"), token = $("llm-client-token");
+        const typed = { endpoint:String(endpoint && endpoint.value || "").trim(), clientToken:String(token && token.value || "").trim() };
+        if (typed.endpoint && typed.clientToken && (!llmConfig || typed.endpoint !== llmConfig.endpoint || typed.clientToken !== llmConfig.clientToken)) {
+          configureLLM(typed, false);
+          // configureLLM invalidates older probes; this probe owns the newly configured adapter.
+          epoch = llmSmokeEpoch;
+        }
+        if (!LLM_GATEWAY || !LLM_GATEWAY.status().connected) {
+          throw Object.assign(new Error("Сначала укажи адрес и ключ доступа к шлюзу."), { code: "not_configured" });
+        }
+        const request = LLM_BRIDGE && typeof LLM_BRIDGE.buildSmokeRequest === "function" ? LLM_BRIDGE.buildSmokeRequest() : null;
+        if (!request) throw Object.assign(new Error("Тестовый запрос недоступен."), { code: "unavailable" });
+        llmSmokeState = { status:"loading" };
+        updateLLMConnectionUI();
+        const detailed = typeof LLM_GATEWAY.generateDetailed === "function"
+          ? await LLM_GATEWAY.generateDetailed(request)
+          : { reply:await LLM_GATEWAY.generate(request), model:null, requestedModel:null, fallbackUsed:null, usage:null };
+        return finish({
+          status:"ok", model:detailed.model || null, requestedModel:detailed.requestedModel || null,
+          fallbackUsed:typeof detailed.fallbackUsed === "boolean" ? detailed.fallbackUsed : null,
+          usage:detailed.usage || null, elapsedMs:Date.now() - startedAt,
+          snippet:String(detailed.reply || "").replace(/\s+/gu, " ").trim().slice(0, 80)
+        });
+      } catch (error) {
+        return finish({ status:"error", message:describeSmokeError(error), code:error && error.code || "error", elapsedMs:Date.now() - startedAt });
+      }
+    })();
+    llmSmokeInFlight = run.then(state => { llmSmokeInFlight = null; updateLLMConnectionUI(); return state; });
+    updateLLMConnectionUI();
+    return llmSmokeInFlight;
   }
   function configureLLM(raw, save = true, fetchImpl = null) {
     if (!LLM_BRIDGE || !LLM_GATEWAY || typeof LLM_BRIDGE.createHttpAdapter !== "function") {
@@ -136,6 +279,9 @@
     llmHttpAdapter = adapter;
     llmVerified = false;
     llmModelName = "";
+    llmFallbackModels = null;
+    llmSmokeState = null;
+    llmSmokeEpoch += 1;
     if (save) localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(config));
     updateLLMConnectionUI();
     return { configured:true, endpoint:config.endpoint };
@@ -147,6 +293,7 @@
       const result = await llmHttpAdapter.health();
       llmVerified = true;
       llmModelName = result.model || "OpenAI-compatible";
+      llmFallbackModels = Array.isArray(result.fallbackModels) ? result.fallbackModels.slice(0, 3) : null;
       updateLLMConnectionUI();
       return result;
     } catch (error) {
@@ -161,6 +308,9 @@
     llmHttpAdapter = null;
     llmVerified = false;
     llmModelName = "";
+    llmFallbackModels = null;
+    llmSmokeState = null;
+    llmSmokeEpoch += 1;
     try { localStorage.removeItem(LLM_CONFIG_KEY); } catch (_) {
       try { localStorage.setItem(LLM_CONFIG_KEY, ""); } catch (error) { console.warn("LLM settings could not be cleared:", error); }
     }
@@ -4366,11 +4516,14 @@
       const request = prepareLLMRequestCore(query);
       if (!request) throw new Error("Не удалось подготовить контекст диалога.");
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТПРАВЛЯЮ КОНТЕКСТ…");
-      const answer = await LLM_GATEWAY.generate(request);
+      const detailed = typeof LLM_GATEWAY.generateDetailed === "function" ? await LLM_GATEWAY.generateDetailed(request) : null;
+      const answer = detailed ? detailed.reply : await LLM_GATEWAY.generate(request);
       say("assistant", answer);
       try { if(cycleContext)finishCognitiveCycle(cycleContext,true,null); }
       catch(cycleError) { console.warn("NEUROGENESIS LLM cycle logging failed:",cycleError); }
-      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА");
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА" +
+        (detailed && detailed.model ? " · МОДЕЛЬ: " + detailed.model : "") +
+        (detailed && detailed.fallbackUsed === true ? " · РЕЗЕРВНЫЙ МАРШРУТ" : detailed && detailed.fallbackUsed === false ? " · ОСНОВНОЙ МАРШРУТ" : ""));
       return true;
     } catch (error) {
       console.warn("NEUROGENESIS chat provider unavailable; falling back to local dialogue:", error);
@@ -4568,6 +4721,12 @@
       updateLLMConnectionUI("ОШИБКА · " + reason.toLocaleUpperCase("ru-RU").slice(0, 58));
     }
   });
+  const llmSmokeButton = $("llm-smoke-test");
+  if (llmSmokeButton) llmSmokeButton.addEventListener("click", () => { runLLMSmokeTest(); });
+  for (const id of ["llm-endpoint", "llm-client-token"]) {
+    const field = $(id);
+    if (field) field.addEventListener("input", updateLLMSmokeUI);
+  }
   if (llmClearButton) llmClearButton.addEventListener("click", () => {
     clearLLMConfig();
     setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ПОДКЛЮЧЕНИЕ ОТКЛЮЧЕНО");
@@ -4602,6 +4761,7 @@
     llmStatus: () => ({ ...(LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]}), configured:!!llmConfig, verified:llmVerified, model:llmModelName || null }),
     configureLLM: (config, fetchImpl) => configureLLM(config, true, fetchImpl),
     testLLMConnection: () => testLLMConnection(),
+    testLLMGeneration: () => runLLMSmokeTest(),
     clearLLMConfig: () => clearLLMConfig(),
     askLLM: query => askWithLLM(String(query || "")),
     prepareLLMRequest: query => prepareLLMRequestCore(String(query || "")),
