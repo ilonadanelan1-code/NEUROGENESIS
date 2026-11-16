@@ -767,6 +767,11 @@ function deduplicateAcrossSources(sourceResults) {
   return { crossSourceDuplicateRowsRemoved, normalizedDuplicateRowsRemoved };
 }
 
+function serializeJsonl(rows) {
+  if (!Array.isArray(rows)) throw new TypeError("JSONL rows must be an array.");
+  return rows.map(row => JSON.stringify(row)).join("\n") + (rows.length ? "\n" : "");
+}
+
 export async function prepareCorpus(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new TypeError("A Fetch-compatible function is required.");
@@ -804,6 +809,7 @@ export async function prepareCorpus(options = {}) {
   }
 
   const buckets = { train: [], validation: [], test: [] };
+  const records = { train: [], validation: [], test: [] };
   const countsBySource = {};
   for (const result of results) {
     const sourceSplits = splitRows(result.source.id, result.rows);
@@ -812,7 +818,13 @@ export async function prepareCorpus(options = {}) {
       validation: sourceSplits.validation.length,
       test: sourceSplits.test.length,
     };
-    for (const split of Object.keys(buckets)) buckets[split].push(...sourceSplits[split]);
+    for (const split of Object.keys(buckets)) {
+      buckets[split].push(...sourceSplits[split]);
+      records[split].push(...sourceSplits[split].map(text => ({
+        sourceId: result.source.id,
+        text,
+      })));
+    }
   }
   if (!buckets.train.length || !buckets.validation.length || !buckets.test.length) {
     throw new Error("Prepared corpus does not contain non-empty train, validation and test splits.");
@@ -881,6 +893,7 @@ export async function prepareCorpus(options = {}) {
       [key, { rows: value.length, characters: value.reduce((sum, text) => sum + text.length, 0) }])),
     countsBySource,
     duplicateAudit,
+    outputFiles: { train: "train.jsonl", validation: "validation.jsonl", test: "test.jsonl" },
     skippedSources,
     limitations: [
       "This is a bounded training sample, not the complete upstream datasets.",
@@ -896,15 +909,16 @@ export async function prepareCorpus(options = {}) {
       "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
     ],
   };
-  return { buckets, manifest };
+  return { buckets, records, manifest };
 }
 
 async function main() {
   const outputDir = path.resolve(process.argv[2] || path.join(ROOT, "training-data/generated"));
-  const { buckets, manifest } = await prepareCorpus();
+  const { buckets, records, manifest } = await prepareCorpus();
   await fs.mkdir(outputDir, { recursive: true });
   for (const [name, rows] of Object.entries(buckets)) {
     await fs.writeFile(path.join(outputDir, name + ".txt"), rows.join("\n\n") + "\n", "utf8");
+    await fs.writeFile(path.join(outputDir, name + ".jsonl"), serializeJsonl(records[name]), "utf8");
   }
   await fs.writeFile(path.join(outputDir, "manifest.json"),
     JSON.stringify(manifest, null, 2) + "\n", "utf8");
@@ -925,4 +939,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   });
 }
 
-export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, qaDialogueText, safeAssistantContent, openAssistantRowsToPairs, extractText, splitRows, normalizedTextKey, deduplicateAcrossSources };
+export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, qaDialogueText, safeAssistantContent, openAssistantRowsToPairs, extractText, splitRows, normalizedTextKey, deduplicateAcrossSources, serializeJsonl };

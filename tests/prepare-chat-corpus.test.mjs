@@ -205,6 +205,24 @@ const result = await prepareCorpus({
   fetchImpl,
   sources: [bookSource, poetrySource, qaSource, oasstSource, instructionSource, everydaySource],
 });
+assert.deepEqual(result.records.train.map(row => row.text), result.buckets.train);
+assert.deepEqual(result.records.validation.map(row => row.text), result.buckets.validation);
+assert.deepEqual(result.records.test.map(row => row.text), result.buckets.test);
+assert.ok(result.records.train.every(row => typeof row.sourceId === "string" && row.sourceId),
+  "every JSONL training row must preserve its source identifier");
+assert.deepEqual(result.manifest.outputFiles, {
+  train: "train.jsonl", validation: "validation.jsonl", test: "test.jsonl",
+});
+const multilineRows = [
+  { sourceId: "fixture", text: "Первая строка.\n\nВторая строка." },
+  { sourceId: "dialogue", text: "<|user|>\nПривет\n<|assistant|>\nЗдравствуйте" },
+];
+const serializedRows = __test.serializeJsonl(multilineRows);
+assert.deepEqual(
+  serializedRows.trimEnd().split("\n").map(line => JSON.parse(line)),
+  multilineRows,
+  "JSONL must preserve embedded newlines and unambiguous source-row boundaries",
+);
 assert.ok(result.buckets.train.length > 0);
 assert.ok(result.buckets.validation.length > 0);
 assert.ok(result.buckets.test.length > 0);
