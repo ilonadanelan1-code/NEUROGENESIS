@@ -15,7 +15,7 @@ assert.equal(__test.dialogueText({
 assert.equal(__test.dialogueText({
   language: "ru", type: "coding",
   messages: [{ role: "user", content: "Покажи код" }, { role: "assistant", content: "Вот код" }],
-}), "", "Examples explicitly tagged as coding must be excluded from the casual-chat path.");
+}), "", "Explicit coding examples must be excluded from the casual-chat source.");
 const thoughtStripped = __test.dialogueText({
   messages: [
     { role: "system", content: "Do not train on system instructions." },
@@ -24,23 +24,38 @@ const thoughtStripped = __test.dialogueText({
   ],
 });
 assert.match(thoughtStripped, /Дружба — это взаимная поддержка/u);
-assert.doesNotMatch(thoughtStripped, /Скрытое рассуждение/u,
-  "Chain-of-thought blocks must be removed before training.");
-assert.doesNotMatch(thoughtStripped, /system instructions/u,
-  "System messages must not become assistant training targets.");
+assert.doesNotMatch(thoughtStripped, /Скрытое рассуждение/u);
+assert.doesNotMatch(thoughtStripped, /system instructions/u);
 assert.match(__test.everydayDialogueText({
   user: "Где здесь остановка?",
   assistant: "Вон за перекрёстком, справа.",
 }), /<\|user\|>[\s\S]*<\|assistant\|>/u);
 assert.equal(__test.everydayDialogueText({ user: "Вопрос без ответа", assistant: "" }), "");
-assert.equal(
-  __test.splitRows("stable-source", ["a", "b", "c"]).validation.length, 1,
-  "small sources should always get at least one validation item",
-);
-assert.equal(
-  __test.splitRows("stable-source", ["a", "b", "c"]).test.length, 1,
-  "small sources should always get at least one test item",
-);
+assert.match(__test.qaDialogueText({
+  q: "Короче, хэллоу если не сложно.",
+  a: "Добро пожаловать в чат! О чём поболтаем?",
+}), /<\|user\|>[\s\S]*<\|assistant\|>/u);
+assert.equal(__test.qaDialogueText({ q: "Привет", a: "" }), "");
+
+const assistantRows = [
+  { message_id: "u1", parent_id: null, role: "prompter", lang: "ru", text: "Как дела?", deleted: false, synthetic: false, review_result: true },
+  { message_id: "a1", parent_id: "u1", role: "assistant", lang: "ru", text: "Всё хорошо, спасибо!", deleted: false, synthetic: false, review_result: true },
+  { message_id: "u2", parent_id: null, role: "prompter", lang: "en", text: "Hello?", deleted: false },
+  { message_id: "a2", parent_id: "u2", role: "assistant", lang: "en", text: "Hi!", deleted: false },
+  { message_id: "u3", parent_id: null, role: "prompter", lang: "ru", text: "Удалённый вопрос", deleted: true },
+  { message_id: "a3", parent_id: "u3", role: "assistant", lang: "ru", text: "Не использовать", deleted: false },
+  { message_id: "u4", parent_id: null, role: "prompter", lang: "ru", text: "Вопрос с плохой оценкой", deleted: false, review_result: false },
+  { message_id: "a4", parent_id: "u4", role: "assistant", lang: "ru", text: "Ответ с плохой оценкой", deleted: false, review_result: false },
+  { message_id: "u5", parent_id: null, role: "prompter", lang: "ru", text: "Вопрос synthetic", deleted: false, synthetic: true },
+  { message_id: "a5", parent_id: "u5", role: "assistant", lang: "ru", text: "Ответ synthetic", deleted: false, synthetic: false },
+];
+const assistantPairs = __test.openAssistantRowsToPairs(assistantRows, { maxCharacters: 10000 });
+assert.equal(assistantPairs.length, 1);
+assert.match(assistantPairs[0], /Всё хорошо, спасибо!/u);
+assert.doesNotMatch(assistantPairs.join("\n"), /Hello|Удалённый|плохой оценкой|synthetic/u);
+
+assert.equal(__test.splitRows("stable-source", ["a", "b", "c"]).validation.length, 1);
+assert.equal(__test.splitRows("stable-source", ["a", "b", "c"]).test.length, 1);
 
 const bookSource = {
   id: "book-test", dataset: "fixture/books", maxRows: 100,
@@ -52,6 +67,16 @@ const instructionSource = {
   id: "instruction-test", dataset: "fixture/instruction", pageLimit: 2, maxRows: 100,
   maxCharacters: 10000, license: "Apache-2.0", url: "https://example.test/instruction",
   role: "dialogue",
+};
+const qaSource = {
+  id: "qa-test", dataset: "fixture/qa", pageLimit: 2, maxRows: 100,
+  maxCharacters: 10000, license: "CC0-1.0", url: "https://example.test/qa",
+  role: "qa",
+};
+const oasstSource = {
+  id: "oasst-test", dataset: "fixture/oasst", pageLimit: 2, maxRows: 100,
+  maxCharacters: 10000, license: "Apache-2.0", url: "https://example.test/oasst",
+  where: '"lang"=\'ru\' AND "deleted"=false', role: "oasst",
 };
 const everydaySource = {
   id: "everyday-test", dataset: "fixture/everyday", pageLimit: 1, maxRows: 100,
@@ -75,6 +100,23 @@ const fixtures = {
         { role: "assistant", content: "<think>Удалить это.</think>Ответ в тестовом диалоге номер " + index + "." },
       ],
     })),
+  },
+  "fixture/qa": {
+    splits: [{ config: "default", split: "train" }],
+    rows: Array.from({ length: 60 }, (_, index) => ({
+      q: "Короткий вопрос номер " + index + "?",
+      a: "Короткий дружелюбный ответ номер " + index + ".",
+    })),
+  },
+  "fixture/oasst": {
+    splits: [{ config: "default", split: "train" }],
+    rows: Array.from({ length: 60 }, (_, index) => {
+      const id = String(index);
+      return [
+        { message_id: "u" + id, parent_id: null, role: "prompter", lang: "ru", text: "Вопрос OASST " + id + "?", deleted: false, synthetic: false, review_result: true },
+        { message_id: "a" + id, parent_id: "u" + id, role: "assistant", lang: "ru", text: "Ответ OASST " + id + ".", deleted: false, synthetic: false, review_result: true },
+      ];
+    }).flat(),
   },
   "fixture/everyday": {
     rows: Array.from({ length: 60 }, (_, index) => ({
@@ -108,7 +150,8 @@ const fetchImpl = async url => {
   };
 };
 const result = await prepareCorpus({
-  fetchImpl, sources: [bookSource, instructionSource, everydaySource],
+  fetchImpl,
+  sources: [bookSource, qaSource, oasstSource, instructionSource, everydaySource],
 });
 assert.ok(result.buckets.train.length > 0);
 assert.ok(result.buckets.validation.length > 0);
@@ -120,25 +163,22 @@ for (const source of result.manifest.sources) {
   assert.ok(source.localSplitCounts.validation > 0, source.id + " needs validation rows");
   assert.ok(source.localSplitCounts.test > 0, source.id + " needs test rows");
 }
-assert.equal(result.manifest.sources[1].license, "Apache-2.0");
-assert.equal(result.manifest.sources[2].license, "CC-BY-4.0");
+assert.equal(result.manifest.sources[1].license, "CC0-1.0");
+assert.equal(result.manifest.sources[2].license, "Apache-2.0");
+assert.equal(result.manifest.sources[3].license, "Apache-2.0");
+assert.equal(result.manifest.sources[4].license, "CC-BY-4.0");
 assert.equal(result.manifest.sources[0].license, "CC0-1.0");
 assert.match(result.manifest.splitMethod, /NOT author- or document-disjoint/u);
-assert.equal(
-  result.manifest.sources[1].localSplitCounts.train +
-  result.manifest.sources[1].localSplitCounts.validation +
-  result.manifest.sources[1].localSplitCounts.test,
-  60,
-  "all 60 instruction examples should remain after role filtering",
-);
-assert.equal(
-  result.manifest.sources[2].localSplitCounts.train +
-  result.manifest.sources[2].localSplitCounts.validation +
-  result.manifest.sources[2].localSplitCounts.test,
-  60,
-  "all 60 well-formed everyday dialogue examples should remain",
-);
+for (const source of result.manifest.sources) {
+  assert.ok(
+    source.localSplitCounts.train + source.localSplitCounts.validation + source.localSplitCounts.test > 0,
+    source.id + " should have assigned examples",
+  );
+}
 assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
+assert.equal(result.manifest.sources[1].uniqueRows, 60);
+assert.equal(result.manifest.sources[2].uniqueRows, 60);
+assert.equal(result.manifest.sources[3].uniqueRows, 60);
 
 console.log("Open Russian corpus preparation contract passed.");
