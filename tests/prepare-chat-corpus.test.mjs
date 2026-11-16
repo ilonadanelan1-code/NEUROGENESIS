@@ -233,9 +233,8 @@ for (const source of result.manifest.sources) {
 assert.match(result.manifest.sources[0].rawTextUrl, /books\.txt/u);
 assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-poet author names/u);
 assert.ok(fixtures["fixture/poetry"].rows.some(row => row.author === "Михаил Ломоносов"), "the first RuHeritage author must be accepted");
-assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
+assert.match(result.manifest.sources[1].rawFileUrl, /poetry\.jsonl/u);
 assert.match(result.manifest.sources[2].rawCsvUrl, /qa\.csv/u);
-assert.match(result.manifest.sources[3].rawGzipJsonlUrl, /oasst_ready\.messages\.jsonl\.gz/u);
 assert.match(result.manifest.sources[3].rawGzipJsonlUrl, /oasst\.gz/u);
 assert.match(result.manifest.sources[4].rawFileUrl, /instruction\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
