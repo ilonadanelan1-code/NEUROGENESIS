@@ -246,32 +246,75 @@ async function main() {
   }
 
   const baseline = NG.fromState(baselineBundle.contextualState);
-  const candidate = NG.create({
-    dimension: baselineBundle.contextualState.dimension,
-    windowSize: baselineBundle.contextualState.windowSize,
-    heads: baselineBundle.contextualState.heads,
-    blocks: baselineBundle.contextualState.transformerBlocks,
-    seed: 6021,
-  });
-  const trainingReport = candidate.train(trainTexts, {
-    epochs: 12,
-    learningRate: 0.02,
-    patience: 5,
-    splitSeed: 6021,
-    shuffleExamples: true,
-    shuffleSeed: 9137,
-  });
-
-  const evaluation = {
-    baseline: {
-      validation: evaluate(baseline, selectedValidation, "validation"),
-      test: evaluate(baseline, selectedTest, "test"),
-    },
-    candidate: {
+  const baselineEvaluation = {
+    validation: evaluate(baseline, selectedValidation, "validation"),
+    test: evaluate(baseline, selectedTest, "test"),
+  };
+  const candidateSeeds = [6021, 9173, 12301];
+  const candidateRuns = [];
+  for (const seed of candidateSeeds) {
+    const candidate = NG.create({
+      dimension: baselineBundle.contextualState.dimension,
+      windowSize: baselineBundle.contextualState.windowSize,
+      heads: baselineBundle.contextualState.heads,
+      blocks: baselineBundle.contextualState.transformerBlocks,
+      seed,
+    });
+    const trainingReport = candidate.train(trainTexts, {
+      epochs: 12,
+      learningRate: 0.02,
+      patience: 5,
+      // Keep the internal row split fixed; vary initialization and shuffle seed.
+      splitSeed: 6021,
+      shuffleExamples: true,
+      shuffleSeed: seed + 3116,
+    });
+    if (!Number.isFinite(trainingReport.validationLoss)) {
+      throw new Error("Candidate seed " + seed + " did not produce an internal validation loss.");
+    }
+    candidateRuns.push({
+      seed,
+      trainingReport,
       validation: evaluate(candidate, selectedValidation, "validation"),
       test: evaluate(candidate, selectedTest, "test"),
+      modelState: candidate.exportState(),
+    });
+  }
+
+  // Choose by the training-run's own internal validation loss only.
+  // The external validation and test samples are never used for model selection.
+  const selectedRun = candidateRuns.slice().sort((left, right) =>
+    left.trainingReport.validationLoss - right.trainingReport.validationLoss ||
+    left.seed - right.seed)[0];
+  const meanMetric = (split, key) => {
+    const values = candidateRuns.map(run => Number(run[split][key])).filter(Number.isFinite);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  };
+  const evaluation = {
+    baseline: baselineEvaluation,
+    candidate: {
+      selectedSeed: selectedRun.seed,
+      selectionMetric: "internal_validation_loss",
+      trainingReport: selectedRun.trainingReport,
+      validation: selectedRun.validation,
+      test: selectedRun.test,
+    },
+    candidateRuns: candidateRuns.map(run => ({
+      seed: run.seed,
+      internalValidationLoss: run.trainingReport.validationLoss,
+      validation: run.validation,
+      test: run.test,
+    })),
+    candidateMeanAcrossSeeds: {
+      validationTop1AccuracyAllTargets: meanMetric("validation", "top1AccuracyAllTargets"),
+      validationTop8AccuracyAllTargets: meanMetric("validation", "top8AccuracyAllTargets"),
+      testTop1AccuracyAllTargets: meanMetric("test", "top1AccuracyAllTargets"),
+      testTop8AccuracyAllTargets: meanMetric("test", "top8AccuracyAllTargets"),
+      testCoverage: meanMetric("test", "coverage"),
     },
   };
+  const trainingReport = selectedRun.trainingReport;
+  const candidate = { exportState: () => selectedRun.modelState };
   const report = {
     schema: "NEUROGENESIS_CONTEXTUAL_CORPUS_PILOT_V1",
     createdAt: new Date().toISOString(),
@@ -306,13 +349,13 @@ async function main() {
     interpretation: {
       task: "masked-token prediction on source-aware Russian text rows",
       thisIsNotConversationalGeneration: true,
-      testSetUsedForTrainingOrModelSelection: false,
+      candidateSeeds,\n      candidateSelectionMetric: "internal_validation_loss",\n      externalValidationUsedForModelSelection: false,\n      testSetUsedForTrainingOrModelSelection: false,
       promotionDecision: "not_promoted_masked_token_results_only",
       limitations: [
         "The local contextual model predicts masked tokens; it does not generate full conversational replies.",
         "The model accepts at most 320 training rows and a vocabulary of 1024 tokens.",
         "The corpus split is row-level, not author- or document-disjoint; paraphrases and same-document excerpts can still overlap.",
-        "The validation and test probes cover only a small deterministic source-stratified sample.",
+        "The validation and test probes cover only a small deterministic source-stratified sample.",\n      "Three independent candidate initializations are compared; the selected checkpoint is chosen by the candidate training run internal validation loss, not by the external test set.",
       ],
     },
   };
