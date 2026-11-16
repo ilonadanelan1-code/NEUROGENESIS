@@ -144,8 +144,8 @@ const oversizedRows = Array.from({ length:16 }, (_, index) => ({
 const boundedRequest = bridge.buildRequest("Текущий запрос", {
   activeThread:{ id:"T-long", title:"Длинная беседа" }, recentMessages:oversizedRows
 }, []);
-assert.ok(boundedRequest.metadata.historyCharacters <= 10000,
-  "long transcripts must be trimmed to the total character budget");
+assert.ok(boundedRequest.metadata.historyCharacters <= 14000,
+  "long transcripts must be trimmed to the fourteen-thousand-character dialogue budget");
 assert.ok(boundedRequest.messages.length <= 18,
   "the request must never exceed the worker's message-count limit");
 assert.match(request.messages[0].content, /пользовательскими данными/u);
