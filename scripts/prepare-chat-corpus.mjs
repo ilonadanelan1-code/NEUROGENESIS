@@ -1,0 +1,267 @@
+#!/usr/bin/env node
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const API = "https://datasets-server.huggingface.co";
+const SOURCES = [
+  {
+    id: "imperius-ru-classic",
+    dataset: "Imperius/ru-classic",
+    pageLimit: 20,
+    maxRows: 2000,
+    maxCharacters: 2_000_000,
+    license: "CC0-1.0",
+    url: "https://huggingface.co/datasets/Imperius/ru-classic",
+    role: "literature",
+  },
+  {
+    id: "sonexa-medium-life-ru",
+    dataset: "SonexaAI/Medium-Life-Dataset-ru-eng",
+    pageLimit: 20,
+    maxRows: 2000,
+    maxCharacters: 1_000_000,
+    license: "CC-BY-4.0",
+    url: "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng",
+    role: "dialogue",
+  },
+];
+
+const normalize = value => String(value ?? "")
+  .normalize("NFKC")
+  .replace(/\r\n?/gu, "\n")
+  .replace(/[ \t]+\n/gu, "\n")
+  .replace(/\n{3,}/gu, "\n\n")
+  .trim();
+
+function hash(text) {
+  let value = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    value ^= text.charCodeAt(index);
+    value = Math.imul(value, 16777619);
+  }
+  return value >>> 0;
+}
+
+function responseError(response, url) {
+  return new Error("Hugging Face dataset API returned HTTP " +
+    response.status + " for " + url);
+}
+
+async function fetchJson(fetchImpl, url, retries = 3) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "NEUROGENESIS-open-corpus-preparer/1.0",
+        },
+      });
+      if (response.ok) return await response.json();
+      const error = responseError(response, url);
+      if (![408, 425, 429, 500, 502, 503, 504].includes(response.status) ||
+          attempt === retries) throw error;
+      lastError = error;
+      const retryAfter = Number(response.headers?.get?.("retry-after") || 0);
+      await new Promise(resolve => setTimeout(resolve,
+        Math.min(5000, retryAfter > 0 ? retryAfter * 1000 : 500 * (2 ** attempt))));
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries || /HTTP \d+/.test(String(error?.message))) throw error;
+      await new Promise(resolve => setTimeout(resolve, 300 * (2 ** attempt)));
+    }
+  }
+  throw lastError || new Error("Dataset request failed.");
+}
+
+function chooseTrainingSplit(payload) {
+  const splits = Array.isArray(payload?.splits) ? payload.splits : [];
+  const train = splits.find(item => item.split === "train");
+  if (!train?.config) {
+    throw new Error("The dataset viewer exposes no train split: " +
+      JSON.stringify(splits.map(item => ({ config: item.config, split: item.split }))));
+  }
+  return { config: train.config, split: train.split };
+}
+
+function dialogueText(row) {
+  if (String(row?.language || "").toLowerCase() !== "ru") return "";
+  if (String(row?.type || "").toLowerCase() !== "chat") return "";
+  if (!Array.isArray(row?.messages)) return "";
+  const messages = row.messages
+    .filter(message => message &&
+      ["user", "assistant"].includes(String(message.role || "").toLowerCase()))
+    .map(message => {
+      const role = String(message.role).toLowerCase();
+      const content = normalize(message.content);
+      return content ? (role === "user" ? "<|user|>\n" : "<|assistant|>\n") + content : "";
+    })
+    .filter(Boolean);
+  if (messages.length < 2 || !messages[0].startsWith("<|user|>") ||
+      !messages.some(message => message.startsWith("<|assistant|>"))) return "";
+  return messages.join("\n") + "\n<|end|>";
+}
+
+function extractText(source, row) {
+  if (source.role === "literature") {
+    const candidates = ["text", "content", "document"];
+    for (const key of candidates) {
+      const value = normalize(row?.[key]);
+      if (value.length >= 80) return value;
+    }
+    return "";
+  }
+  return dialogueText(row);
+}
+
+async function collectSource(fetchImpl, source) {
+  const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
+  const splitsPayload = await fetchJson(fetchImpl, splitsUrl);
+  const { config, split } = chooseTrainingSplit(splitsPayload);
+  const rows = [];
+  const seen = new Set();
+  let characters = 0;
+  let requests = 0;
+  let rawRows = 0;
+  let offset = 0;
+
+  while (rawRows < source.maxRows && characters < source.maxCharacters &&
+         requests < source.pageLimit) {
+    const length = Math.min(100, source.maxRows - rawRows);
+    const query = new URLSearchParams({
+      dataset: source.dataset, config, split,
+      offset: String(offset), length: String(length),
+    });
+    const payload = await fetchJson(fetchImpl, API + "/rows?" + query.toString());
+    const batch = Array.isArray(payload?.rows) ? payload.rows : [];
+    if (!batch.length) break;
+    requests += 1;
+    rawRows += batch.length;
+    offset += batch.length;
+
+    for (const wrapped of batch) {
+      const text = extractText(source, wrapped?.row);
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      const remaining = source.maxCharacters - characters;
+      const bounded = text.slice(0, remaining);
+      if (bounded.length < (source.role === "literature" ? 80 : 30)) continue;
+      rows.push(bounded);
+      characters += bounded.length;
+      if (characters >= source.maxCharacters) break;
+    }
+    if (batch.length < length) break;
+  }
+
+  if (!rows.length) {
+    throw new Error("No eligible Russian text was extracted from " + source.dataset +
+      ". Check dataset-viewer availability, split schema and filters.");
+  }
+  return {
+    source,
+    config,
+    split,
+    rows,
+    rawRows,
+    requests,
+    characters,
+    uniqueRows: rows.length,
+  };
+}
+
+function assignSplit(text) {
+  // Stable row-level split for repeatable experiments. This is not a document-
+  // or author-disjoint split, and the report says so explicitly.
+  const bucket = hash(text) % 100;
+  return bucket < 5 ? "validation" : bucket < 10 ? "test" : "train";
+}
+
+export async function prepareCorpus(options = {}) {
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") throw new TypeError("A Fetch-compatible function is required.");
+  const sources = options.sources || SOURCES;
+  const results = [];
+  for (const source of sources) results.push(await collectSource(fetchImpl, source));
+
+  const buckets = { train: [], validation: [], test: [] };
+  const countsBySource = {};
+  for (const result of results) {
+    const counts = { train: 0, validation: 0, test: 0 };
+    for (const row of result.rows) {
+      const split = assignSplit(result.source.id + "\n" + row);
+      buckets[split].push(row);
+      counts[split] += 1;
+    }
+    countsBySource[result.source.id] = counts;
+  }
+  if (!buckets.train.length || !buckets.validation.length || !buckets.test.length) {
+    throw new Error("Prepared corpus does not contain non-empty train, validation and test splits.");
+  }
+
+  const manifest = {
+    schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
+    createdAt: new Date().toISOString(),
+    method: "Hugging Face datasets-server rows API; bounded deterministic sample; exact duplicate removal.",
+    splitMethod: "Stable row-level 90/5/5 hash split. It is NOT author- or document-disjoint.",
+    sources: results.map(result => ({
+      id: result.source.id,
+      dataset: result.source.dataset,
+      url: result.source.url,
+      license: result.source.license,
+      role: result.source.role,
+      config: result.config,
+      upstreamSplit: result.split,
+      fetchedRows: result.rawRows,
+      uniqueRows: result.uniqueRows,
+      requests: result.requests,
+      characters: result.characters,
+      localSplitCounts: countsBySource[result.source.id],
+      filters: result.source.role === "dialogue"
+        ? ["language == ru", "type == chat", "at least one user and one assistant message"]
+        : ["non-empty text/content/document field, at least 80 characters"],
+      attribution: result.source.license === "CC-BY-4.0"
+        ? "SonexaAI, Medium-Life-Dataset-ru-eng, CC BY 4.0; adapted by filtering Russian chat rows and adding role markers."
+        : "Imperius/ru-classic, CC0-1.0.",
+    })),
+    totals: Object.fromEntries(Object.entries(buckets).map(([key, value]) =>
+      [key, { rows: value.length, characters: value.reduce((sum, text) => sum + text.length, 0) }])),
+    countsBySource,
+    limitations: [
+      "This is a small sampled training corpus, not the complete upstream datasets.",
+      "The validation and test splits are row-level, not author- or document-disjoint.",
+      "Literary next-token training teaches language patterns, not reliable factual knowledge.",
+      "Dialogue examples are synthetic according to the upstream dataset card; they are not human preference labels.",
+    ],
+  };
+  return { buckets, manifest };
+}
+
+async function main() {
+  const outputDir = path.resolve(process.argv[2] || path.join(ROOT, "training-data/generated"));
+  const { buckets, manifest } = await prepareCorpus();
+  await fs.mkdir(outputDir, { recursive: true });
+  for (const [name, rows] of Object.entries(buckets)) {
+    await fs.writeFile(path.join(outputDir, name + ".txt"), rows.join("\n\n") + "\n", "utf8");
+  }
+  await fs.writeFile(path.join(outputDir, "manifest.json"),
+    JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  console.log(JSON.stringify({
+    outputDir,
+    totals: manifest.totals,
+    sources: manifest.sources.map(source => ({
+      dataset: source.dataset, license: source.license,
+      uniqueRows: source.uniqueRows, characters: source.characters,
+    })),
+  }, null, 2));
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch(error => {
+    console.error("Open-corpus preparation failed:", error);
+    process.exitCode = 1;
+  });
+}
+
+export const __test = { chooseTrainingSplit, dialogueText, extractText, assignSplit };
