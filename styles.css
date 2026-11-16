@@ -285,6 +285,11 @@ select.text-input{color-scheme:dark}
 .llm-security-note{margin:1px 0 2px;color:#829ca9;font-size:8px;line-height:1.5}
 .llm-settings-actions{display:grid;grid-template-columns:1.2fr .8fr;gap:7px}
 .llm-config-save,.llm-config-clear{min-height:34px;height:34px;padding:0 8px;font-size:8px;justify-content:center}
+.llm-config-test{min-height:36px;height:36px;padding:0 9px;font-size:9px;justify-content:center}
+.llm-test-result{margin:0;padding:8px;border:1px solid rgba(119,184,201,.16);border-radius:7px;background:rgba(7,18,28,.42);color:#91a9b5;font-size:8px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.llm-test-result[data-state="testing"]{color:#e6c78b}
+.llm-test-result[data-state="success"]{border-color:rgba(104,202,165,.3);color:#9be0c2}
+.llm-test-result[data-state="error"]{border-color:rgba(220,130,143,.3);color:#e5a7af}
 @media(max-width:640px){
   .llm-ask-button{min-height:45px;padding:7px 9px;gap:8px}
   .llm-ask-button strong{font-size:9px}
