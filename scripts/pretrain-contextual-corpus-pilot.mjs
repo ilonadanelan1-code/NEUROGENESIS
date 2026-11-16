@@ -392,7 +392,6 @@ async function main() {
     candidateMeanAcrossSeeds: evaluation.candidateMeanAcrossSeeds,
     candidateRuns: evaluation.candidateRuns,
     promotionDecision: report.interpretation.promotionDecision,
-    promotionDecision: report.interpretation.promotionDecision,
   }, null, 2));
 }
 
