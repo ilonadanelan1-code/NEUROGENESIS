@@ -1,0 +1,39 @@
+{
+  "schema": "NEUROGENESIS_TRAINING_SOURCES_V1",
+  "purpose": "Separate language-style pretraining from conversational-format training.",
+  "sources": [
+    {
+      "id": "imperius-ru-classic",
+      "dataset": "Imperius/ru-classic",
+      "url": "https://huggingface.co/datasets/Imperius/ru-classic",
+      "license": "CC0-1.0",
+      "role": "Russian prose, correspondence, criticism and verse samples for next-token language modeling.",
+      "selection": {
+        "split": "train",
+        "textField": "text"
+      },
+      "attribution": "Dataset card identifies the collection as CC0; underlying texts are described as public domain."
+    },
+    {
+      "id": "sonexa-medium-life-ru",
+      "dataset": "SonexaAI/Medium-Life-Dataset-ru-eng",
+      "url": "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng",
+      "license": "CC-BY-4.0",
+      "role": "Russian user/assistant turns for conversational formatting and response continuation.",
+      "selection": {
+        "split": "train",
+        "language": "ru",
+        "type": "chat",
+        "messagesField": "messages"
+      },
+      "attribution": "SonexaAI, Medium-Life-Dataset-ru-eng, CC BY 4.0. Adapted by filtering Russian chat examples and adding role markers."
+    }
+  ],
+  "safeguards": [
+    "Fetch only the public train split; do not mix the external test split into training.",
+    "Keep source names, license identifiers, source URLs and filtering steps in every generated manifest.",
+    "Do not commit downloaded source text or model checkpoints to the Git repository.",
+    "Do not represent a corpus download or a next-token model as evidence of factual reasoning.",
+    "The first data-viewer sample is a bounded prototype subset, not the complete upstream dataset."
+  ]
+}
