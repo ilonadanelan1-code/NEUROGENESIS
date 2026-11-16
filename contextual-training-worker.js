@@ -37,6 +37,12 @@ self.addEventListener("message", event => {
     let phraseModel = null;
     let phraseReport = null;
     let phraseError = "";
+    self.postMessage({
+      type: "progress",
+      phase: "phrase-preparing",
+      epoch: 0,
+      totalEpochs: 1
+    });
     if (self.NGPhraseCompositionModel) {
       try {
         phraseModel = self.NGPhraseCompositionModel.create({ dimension: 12, seed: 24081 });
