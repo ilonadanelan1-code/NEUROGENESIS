@@ -18,6 +18,27 @@ const SOURCES = [
     role: "literature",
   },
   {
+    id: "tiny-russian-dialogs",
+    dataset: "Fmluder/Tiny-Russian-Dialogs",
+    pageLimit: 40,
+    maxRows: 4000,
+    maxCharacters: 500_000,
+    license: "CC0-1.0",
+    url: "https://huggingface.co/datasets/Fmluder/Tiny-Russian-Dialogs",
+    role: "qa",
+  },
+  {
+    id: "openassistant-ru",
+    dataset: "OpenAssistant/oasst1",
+    pageLimit: 100,
+    maxRows: 10000,
+    maxCharacters: 1_000_000,
+    license: "Apache-2.0",
+    url: "https://huggingface.co/datasets/OpenAssistant/oasst1",
+    where: "\"lang\"='ru' AND \"deleted\"=false",
+    role: "oasst",
+  },
+  {
     id: "ru-dataset-small",
     dataset: "ru-dataset/ru-dataset-small",
     pageLimit: 30,
@@ -133,7 +154,40 @@ function everydayDialogueText(row) {
   return "<|user|>\n" + user + "\n<|assistant|>\n" + assistant + "\n<|end|>";
 }
 
+function qaDialogueText(row) {
+  const user = normalize(row?.q);
+  const assistant = safeAssistantContent(row?.a);
+  if (!user || !assistant) return "";
+  return "<|user|>\n" + user + "\n<|assistant|>\n" + assistant + "\n<|end|>";
+}
+
+function openAssistantRowsToPairs(rawRows, source) {
+  const rows = rawRows.filter(row =>
+    row && row.lang === "ru" && row.deleted !== true && row.synthetic !== true &&
+    typeof row.message_id === "string" && typeof row.text === "string");
+  const byId = new Map(rows.map(row => [row.message_id, row]));
+  const pairs = [];
+  const seen = new Set();
+  for (const assistant of rows) {
+    if (assistant.role !== "assistant" || !assistant.parent_id) continue;
+    if (assistant.review_result === false) continue;
+    const user = byId.get(assistant.parent_id);
+    if (!user || user.role !== "prompter" || user.deleted === true) continue;
+    if (user.review_result === false) continue;
+    const question = normalize(user.text).slice(0, 1200);
+    const answer = safeAssistantContent(assistant.text).slice(0, 1600);
+    if (question.length < 3 || answer.length < 3) continue;
+    const pair = "<|user|>\n" + question + "\n<|assistant|>\n" + answer + "\n<|end|>";
+    if (seen.has(pair)) continue;
+    seen.add(pair);
+    pairs.push(pair);
+    if (pairs.reduce((sum, row) => sum + row.length, 0) >= source.maxCharacters) break;
+  }
+  return pairs;
+}
+
 function extractText(source, row) {
+  if (source.role === "qa") return qaDialogueText(row);
   if (source.role === "literature") {
     const candidates = ["text", "content", "document"];
     for (const key of candidates) {
@@ -310,7 +364,41 @@ async function collectLiteratureFile(fetchImpl, source) {
   };
 }
 
+async function collectOpenAssistant(fetchImpl, source) {
+  const splitsPayload = await fetchJson(fetchImpl,
+    API + "/splits?dataset=" + encodeURIComponent(source.dataset));
+  const { config, split } = chooseTrainingSplit(splitsPayload);
+  const rawRows = [];
+  let requests = 0;
+  let offset = 0;
+  while (rawRows.length < source.maxRows && requests < source.pageLimit) {
+    const query = new URLSearchParams({
+      dataset: source.dataset, config, split,
+      where: source.where, offset: String(offset),
+      length: String(Math.min(100, source.maxRows - rawRows.length)),
+    });
+    const payload = await fetchJson(fetchImpl, API + "/filter?" + query.toString());
+    const batch = Array.isArray(payload?.rows) ? payload.rows.map(item => item?.row).filter(Boolean) : [];
+    if (!batch.length) break;
+    rawRows.push(...batch);
+    offset += batch.length;
+    requests += 1;
+    if (batch.length < Math.min(100, source.maxRows - rawRows.length + batch.length)) break;
+  }
+  const pairs = openAssistantRowsToPairs(rawRows, source);
+  if (!pairs.length) {
+    throw new Error("No Russian parent/assistant pairs were reconstructed from " +
+      source.dataset + ". Check the language filter and message-tree fields.");
+  }
+  const characters = pairs.reduce((sum, row) => sum + row.length, 0);
+  return {
+    source, config, split, rows: pairs,
+    rawRows: rawRows.length, requests, characters, uniqueRows: pairs.length,
+  };
+}
+
 async function collectSource(fetchImpl, source) {
+  if (source.role === "oasst") return collectOpenAssistant(fetchImpl, source);
   if (source.rawTextUrl) return collectLiteratureFile(fetchImpl, source);
   if (source.rawFileUrl) return collectDialogueFile(fetchImpl, source);
   const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
@@ -433,6 +521,11 @@ export async function prepareCorpus(options = {}) {
       filters: result.source.role === "literature"
         ? ["stream first 4 MiB of corpus_clean.norm.txt", "split at blank lines",
           "keep paragraphs of at least 100 characters", "remove exact duplicates"]
+        : result.source.role === "oasst"
+          ? ["filter lang == ru and deleted == false", "reconstruct assistant replies from parent prompter messages",
+            "exclude deleted, synthetic and review_result == false rows"]
+        : result.source.role === "qa"
+          ? ["one q/a pair per row", "strip any <think> blocks", "remove exact duplicates"]
         : result.source.role === "everyday"
         ? ["explicit user and assistant fields must both be non-empty"]
         : result.source.role === "dialogue"
@@ -441,6 +534,10 @@ export async function prepareCorpus(options = {}) {
           : ["non-empty text/content/document field, at least 80 characters"],
       attribution: result.source.id === "imperius-ru-classic"
         ? "Imperius/ru-classic, CC0-1.0; Russian classical texts originally from lib.ru."
+        : result.source.id === "tiny-russian-dialogs"
+          ? "Fmluder, Tiny-Russian-Dialogs, CC0-1.0; adapted as user/assistant turns."
+          : result.source.id === "openassistant-ru"
+            ? "OpenAssistant, OASST1, Apache-2.0; adapted by filtering Russian messages and reconstructing parent/reply pairs."
         : result.source.id === "russian-everyday-dialogues"
         ? "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0; adapted by adding role markers."
         : result.source.id === "ru-dataset-small"
@@ -458,6 +555,8 @@ export async function prepareCorpus(options = {}) {
       "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
       "The literature sample is a 4 MiB prefix of the upstream normalized text, not the entire 866 MB corpus.",
       "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
+      "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
+      "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
     ],
   };
   return { buckets, manifest };
@@ -489,4 +588,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   });
 }
 
-export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, safeAssistantContent, extractText, splitRows };
+export const __test = { chooseTrainingSplit, dialogueText, everydayDialogueText, qaDialogueText, safeAssistantContent, openAssistantRowsToPairs, extractText, splitRows };
