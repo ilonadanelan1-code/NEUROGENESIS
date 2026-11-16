@@ -322,6 +322,7 @@ jobs:
           node tests/contextual-attention.test.js
           node tests/contextual-attention-retrieval-benchmark.test.js
           node tests/phrase-composition.test.js
+          node tests/contextual-training-worker.test.js
           node tests/semantic-understanding.test.js
           node tests/proposition-chain-regression.test.js
           node tests/semantic-retrieval.test.js
