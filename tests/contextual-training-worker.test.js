@@ -10,7 +10,8 @@ const sandbox={
   addEventListener(name,callback){handlers[name]=callback;},
   importScripts(...files){
     for(const file of files){
-      vm.runInNewContext(fs.readFileSync(file,"utf8"),sandbox,{filename:file});
+      const localPath=String(file).split("?")[0].replace(/^\.\//u,"");
+      vm.runInNewContext(fs.readFileSync(localPath,"utf8"),sandbox,{filename:localPath});
     }
   }
 };
