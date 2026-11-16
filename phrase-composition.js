@@ -147,6 +147,7 @@ function create(options={}){
     relationLoss+=updated.loss*weight;
    }
    trainingSteps+=roleExamples.length+relationExamples.length;
+   if(typeof trainOptions.onProgress==="function")trainOptions.onProgress({phase:"phrase",epoch:epoch+1,totalEpochs:epochs});
   }
   const roleCorrect=roleExamples.filter(row=>argmax(probabilities(roleWeights,roleBias,row.features))===row.label).length;
   const relationCorrect=relationExamples.filter(row=>argmax(probabilities(relationWeights,relationBias,row.features))===row.label).length;
