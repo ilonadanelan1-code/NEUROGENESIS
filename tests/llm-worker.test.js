@@ -112,7 +112,8 @@ const env = {
   APP_TOKEN: "client-test-token",
   UPSTREAM_API_KEY: "provider-secret",
   UPSTREAM_BASE_URL: "https://api.example.test/v1",
-  UPSTREAM_MODEL: "test-model"
+  UPSTREAM_MODEL: "test-model",
+  UPSTREAM_FALLBACK_MODELS: "openrouter/free"
 };
 const request = (path, options = {}) => new TestRequest("https://worker.example" + path, {
   ...options,
@@ -135,7 +136,16 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
 
   response = await worker.fetch(request("/api/health", { headers: { Authorization: "Bearer client-test-token" } }), env);
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).configured, true);
+  const healthData = await response.json();
+  assert.equal(healthData.configured, true);
+  assert.deepEqual(Array.from(healthData.fallbackModels), ["openrouter/free"]);
+
+  response = await worker.fetch(request("/api/health", {
+    headers: { Authorization: "Bearer client-test-token" }
+  }), { ...env, UPSTREAM_MODEL: "" });
+  assert.equal(response.status, 503,
+    "a fallback model must not silently replace a missing primary model");
+  assert.equal((await response.json()).configured, false);
 
   response = await worker.fetch(request("/api/chat", {
     method: "POST", headers: { Authorization: "Bearer wrong" }, body: JSON.stringify({ messages: [{ role: "user", content: "Привет" }] })
@@ -157,6 +167,54 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(upstreamCalls[0].options.body.includes("provider-secret"), false);
   assert.equal(JSON.parse(upstreamCalls[0].options.body).max_tokens, 1800,
     "the Worker must request the expanded conversational completion budget");
+
+  const fallbackCalls = [];
+  sandbox.fetch = async (_url, options) => {
+    const model = JSON.parse(options.body).model;
+    fallbackCalls.push(model);
+    if (model === "test-model") {
+      return new TestResponse({ error: "rate limit" }, {
+        status: 429, headers: { "Content-Type": "application/json" }
+      });
+    }
+    return new TestResponse({
+      model: "nvidia/nemotron-3.5-lightning:free",
+      choices: [{ message: { content: "Резервная модель ответила." } }]
+    }, { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Проверь резерв" }] })
+  }), env);
+  assert.equal(response.status, 200, "a rate-limited primary model must fall back to the configured free router");
+  const fallbackData = await response.json();
+  assert.equal(fallbackData.reply, "Резервная модель ответила.");
+  assert.equal(fallbackData.model, "nvidia/nemotron-3.5-lightning:free");
+  assert.equal(fallbackData.requestedModel, "openrouter/free");
+  assert.equal(fallbackData.fallbackUsed, true);
+  assert.deepEqual(fallbackCalls, ["test-model", "openrouter/free"],
+    "the Worker must try the primary model first and the fallback only after a retryable failure");
+
+  let nonRetryableCalls = 0;
+  sandbox.fetch = async () => {
+    nonRetryableCalls += 1;
+    return new TestResponse({ error: "invalid API key" }, {
+      status: 401, headers: { "Content-Type": "application/json" }
+    });
+  };
+  response = await worker.fetch(request("/api/chat", {
+    method: "POST", headers: { Authorization: "Bearer client-test-token" },
+    body: JSON.stringify({ messages: [{ role: "user", content: "Не повторяй 401" }] })
+  }), env);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).upstream_status, 401);
+  assert.equal(nonRetryableCalls, 1,
+    "authentication errors must not be retried against another model");
+
+  sandbox.fetch = async (_url, options) => new TestResponse(JSON.stringify({
+    choices: [{ message: { content: "Связный тестовый ответ" } }],
+    usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 }
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
 
   const multibytePayload = JSON.stringify({
     messages: [{ role: "user", content: "я".repeat(16001) }]

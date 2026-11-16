@@ -24,6 +24,10 @@ for (const name of ["APP_ORIGIN", "UPSTREAM_BASE_URL", "UPSTREAM_MODEL"]) {
   assert.ok(worker.includes("env." + name),
     "the Worker must consume the Wrangler variable " + name);
 }
+assert.equal(vars.UPSTREAM_FALLBACK_MODELS, "openrouter/free",
+  "the Worker must have a free dynamic fallback route configured");
+assert.ok(worker.includes("env.UPSTREAM_FALLBACK_MODELS"),
+  "the Worker must consume the optional fallback model list");
 assert.match(vars.APP_ORIGIN, /^https:\/\//u,
   "the configured application origin must use HTTPS");
 assert.match(vars.UPSTREAM_BASE_URL, /^https:\/\//u,
