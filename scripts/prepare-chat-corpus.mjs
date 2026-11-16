@@ -17,16 +17,26 @@ const SOURCES = [
     role: "literature",
   },
   {
-    id: "sonexa-medium-life-ru",
-    dataset: "SonexaAI/Medium-Life-Dataset-ru-eng",
-    pageLimit: 20,
-    maxRows: 2000,
-    maxCharacters: 1_000_000,
-    license: "CC-BY-4.0",
-    url: "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng",
-    rawFileUrl: "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng/resolve/main/data/train.jsonl?download=true",
-    maxDownloadBytes: 16 * 1024 * 1024,
+    id: "ru-dataset-small",
+    dataset: "ru-dataset/ru-dataset-small",
+    pageLimit: 30,
+    maxRows: 2650,
+    maxCharacters: 1_500_000,
+    license: "Apache-2.0",
+    url: "https://huggingface.co/datasets/ru-dataset/ru-dataset-small",
     role: "dialogue",
+  },
+  {
+    id: "russian-everyday-dialogues",
+    dataset: "kukunechka/russian-everyday-dialogues",
+    pageLimit: 1,
+    maxRows: 100,
+    maxCharacters: 250_000,
+    license: "CC-BY-4.0",
+    url: "https://huggingface.co/datasets/kukunechka/russian-everyday-dialogues",
+    rawFileUrl: "https://huggingface.co/datasets/kukunechka/russian-everyday-dialogues/resolve/main/russian_everyday_dialogues.jsonl?download=true",
+    maxDownloadBytes: 64 * 1024,
+    role: "everyday",
   },
 ];
 
@@ -88,22 +98,38 @@ function chooseTrainingSplit(payload) {
   return { config: train.config, split: train.split };
 }
 
+function safeAssistantContent(value) {
+  return normalize(value)
+    .replace(/<think>[\s\S]*?<\/think>/giu, " ")
+    .replace(/<think>[\s\S]*$/giu, " ")
+    .replace(/<\/?think>/giu, " ")
+    .trim();
+}
+
 function dialogueText(row) {
-  if (String(row?.language || "").toLowerCase() !== "ru") return "";
-  if (String(row?.type || "").toLowerCase() !== "chat") return "";
+  if (row?.language && String(row.language).toLowerCase() !== "ru") return "";
+  if (row?.type && String(row.type).toLowerCase() !== "chat") return "";
   if (!Array.isArray(row?.messages)) return "";
   const messages = row.messages
     .filter(message => message &&
       ["user", "assistant"].includes(String(message.role || "").toLowerCase()))
     .map(message => {
       const role = String(message.role).toLowerCase();
-      const content = normalize(message.content);
+      const content = role === "assistant"
+        ? safeAssistantContent(message.content) : normalize(message.content);
       return content ? (role === "user" ? "<|user|>\n" : "<|assistant|>\n") + content : "";
     })
     .filter(Boolean);
   if (messages.length < 2 || !messages[0].startsWith("<|user|>") ||
       !messages.some(message => message.startsWith("<|assistant|>"))) return "";
   return messages.join("\n") + "\n<|end|>";
+}
+
+function everydayDialogueText(row) {
+  const user = normalize(row?.user);
+  const assistant = safeAssistantContent(row?.assistant);
+  if (!user || !assistant) return "";
+  return "<|user|>\n" + user + "\n<|assistant|>\n" + assistant + "\n<|end|>";
 }
 
 function extractText(source, row) {
@@ -115,6 +141,7 @@ function extractText(source, row) {
     }
     return "";
   }
+  if (source.role === "everyday") return everydayDialogueText(row);
   return dialogueText(row);
 }
 
@@ -310,7 +337,10 @@ export async function prepareCorpus(options = {}) {
       characters: result.characters,
       localSplitCounts: countsBySource[result.source.id],
       filters: result.source.role === "dialogue"
-        ? ["language == ru", "type == chat", "at least one user and one assistant message"]
+        ? result.source.role === "everyday"
+        ? ["explicit user and assistant fields must both be non-empty"]
+        : ["keep only user/assistant message roles", "discard system messages",
+          "strip all <think> blocks; keep only assistant final text when present"]
         : ["non-empty text/content/document field, at least 80 characters"],
       attribution: result.source.license === "CC-BY-4.0"
         ? "SonexaAI, Medium-Life-Dataset-ru-eng, CC BY 4.0; adapted by filtering Russian chat rows and adding role markers."
@@ -323,7 +353,9 @@ export async function prepareCorpus(options = {}) {
       "This is a small sampled training corpus, not the complete upstream datasets.",
       "The validation and test splits are row-level, not author- or document-disjoint.",
       "Literary next-token training teaches language patterns, not reliable factual knowledge.",
-      "Dialogue examples are synthetic according to the upstream dataset card; they are not human preference labels.",
+      "The instruction dataset contains explicit <think> blocks; these are removed before training and only assistant final text is kept.",
+      "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
+      "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
     ],
   };
   return { buckets, manifest };
