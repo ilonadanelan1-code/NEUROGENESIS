@@ -41,7 +41,8 @@
       "attribution": "maxzt/RuHeritage-Corpus, CC BY 4.0; curated Russian public-domain literary texts from Russian Wikisource, adapted by filtering selected authors.",
       "limitations": [
         "The upstream dataset mixes verse and prose; no genre field is used in this sample."
-      ]
+      ],
+      "optional": true
     },
     {
       "id": "tiny-russian-dialogs",
@@ -87,7 +88,8 @@
       "limitations": [
         "Only direct prompter-to-assistant parent/reply pairs are reconstructed",
         "Multiple alternative reply branches are not treated as complete conversations"
-      ]
+      ],
+      "optional": true
     },
     {
       "id": "ru-dataset-small",
@@ -111,7 +113,8 @@
         "remove <think> reasoning blocks",
         "retain assistant final answer only"
       ],
-      "attribution": "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0."
+      "attribution": "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0.",
+      "optional": true
     },
     {
       "id": "russian-everyday-dialogues",
@@ -127,7 +130,8 @@
           "assistant"
         ]
       },
-      "attribution": "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0."
+      "attribution": "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0.",
+      "optional": true
     }
   ],
   "safeguards": [
