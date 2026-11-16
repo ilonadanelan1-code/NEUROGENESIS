@@ -24,8 +24,16 @@
       "role": "Selected Russian classical literature and poetry by Pushkin, Lermontov, Blok, Akhmatova, Yesenin and Tsvetaeva.",
       "selection": {
         "split": "train",
-        "filter": "\"author\"='Александр Пушкин' OR \"author\"='Михаил Лермонтов' OR \"author\"='Александр Блок' OR \"author\"='Анна Ахматова' OR \"author\"='Сергей Есенин' OR \"author\"='Марина Цветаева'",
-        "maxRows": 1000,
+        "file": "russian_classics_dataset.jsonl",
+        "maxDownloadBytes": 4194304,
+        "authors": [
+          "Александр Пушкин",
+          "Михаил Лермонтов",
+          "Александр Блок",
+          "Анна Ахматова",
+          "Сергей Есенин",
+          "Марина Цветаева"
+        ],
         "textField": "text"
       },
       "attribution": "maxzt/RuHeritage-Corpus, CC BY 4.0; curated Russian public-domain literary texts from Russian Wikisource, adapted by filtering selected authors.",
