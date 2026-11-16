@@ -1,6 +1,6 @@
 {
   "schema": "NEUROGENESIS_TRAINING_SOURCES_V1",
-  "purpose": "Separate Russian language-pattern pretraining from conversational-format training.",
+  "purpose": "Separate Russian language-pattern pretraining from dialogue-format training, combining public-domain literature, synthetic conversational examples, and human-generated open assistant messages.",
   "sources": [
     {
       "id": "imperius-ru-classic",
@@ -15,6 +15,51 @@
         "paragraphSplit": "blank lines"
       },
       "attribution": "The dataset card identifies the collection as CC0; underlying texts are described as public domain."
+    },
+    {
+      "id": "tiny-russian-dialogs",
+      "dataset": "Fmluder/Tiny-Russian-Dialogs",
+      "url": "https://huggingface.co/datasets/Fmluder/Tiny-Russian-Dialogs",
+      "license": "CC0-1.0",
+      "role": "Synthetic short Russian user/assistant question-answer pairs; supplementary dialogue-format data.",
+      "selection": {
+        "split": "train",
+        "maxRows": 4000,
+        "fields": [
+          "q",
+          "a"
+        ]
+      },
+      "attribution": "Fmluder, Tiny-Russian-Dialogs, CC0-1.0.",
+      "limitations": [
+        "Synthetic data",
+        "Repeated answer templates",
+        "Each row is a single turn without multi-turn context"
+      ]
+    },
+    {
+      "id": "openassistant-ru",
+      "dataset": "OpenAssistant/oasst1",
+      "url": "https://huggingface.co/datasets/OpenAssistant/oasst1",
+      "license": "Apache-2.0",
+      "role": "Human-generated Russian assistant conversation messages.",
+      "selection": {
+        "split": "train",
+        "filter": "\"lang\"='ru' AND \"deleted\"=false",
+        "maxRows": 10000,
+        "fields": [
+          "message_id",
+          "parent_id",
+          "role",
+          "lang",
+          "text"
+        ]
+      },
+      "attribution": "OpenAssistant, OASST1, Apache-2.0; adapted by filtering Russian messages and reconstructing parent/reply pairs.",
+      "limitations": [
+        "Only direct prompter-to-assistant parent/reply pairs are reconstructed",
+        "Multiple alternative reply branches are not treated as complete conversations"
+      ]
     },
     {
       "id": "ru-dataset-small",
@@ -61,6 +106,8 @@
     "Do not commit downloaded source text or model checkpoints to the Git repository.",
     "Do not represent corpus ingestion or a next-token model as evidence of factual reasoning.",
     "The first data-viewer sample is a bounded prototype subset, not the complete upstream dataset.",
-    "Validation and test are currently stable row-level samples, not author- or document-disjoint sets."
+    "Validation and test are currently stable row-level samples, not author- or document-disjoint sets.",
+    "Synthetic Tiny-Russian-Dialogs is supplementary only because its assistant answer templates repeat.",
+    "OASST1 is filtered to Russian, non-deleted messages and only direct parent user/assistant pairs are reconstructed."
   ]
 }
