@@ -26,7 +26,7 @@ const SOURCES = [
     license: "CC-BY-4.0",
     url: "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus",
     rawFileUrl: "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus/resolve/main/russian_classics_dataset.jsonl",
-    allowedAuthors: ["Александр Пушкин", "Михаил Лермонтов", "Александр Блок", "Анна Ахматова", "Сергей Есенин", "Марина Цветаева"],
+    allowedAuthors: ["Михаил Ломоносов", "Александр Пушкин", "Михаил Лермонтов", "Александр Блок", "Анна Ахматова", "Сергей Есенин", "Марина Цветаева"],
     role: "literature-filtered",
   },
   {
