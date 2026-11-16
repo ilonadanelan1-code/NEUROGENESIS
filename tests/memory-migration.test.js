@@ -1100,17 +1100,18 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   await window.NGMemory.testLLMConnection();
   assert.equal(await window.NGMemory.askLLM("Проверь обработку ошибки провайдера"), false,
     "a failed provider request must not be reported as a successful response");
-  const failedLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
-  assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLMFailure + 1,
-    "a failed external model request must also be recorded for diagnostics");
+  const cyclesAfterLLMFallback = window.NGMemory.cognitiveCycles();
+  const failedLLMCycle = cyclesAfterLLMFallback.filter(item => item.mode === "llm").slice(-1)[0];
+  assert.equal(cyclesAfterLLMFallback.length, cyclesBeforeLLMFailure + 2,
+    "the failed LLM request and its local-memory fallback must both be recorded");
   assert.equal(failedLLMCycle.mode, "llm");
   assert.equal(failedLLMCycle.status, "error",
     "a provider failure must be recorded as an error cycle, not as completed reasoning");
   assert.equal(failedLLMCycle.phases.find(item => item.name === "reasoning").status, "limited");
   assert.doesNotMatch(window.NGMemory.dialogHistory().slice(-1)[0].text, /HTTP 503|not_found|file not found/iu,
     "provider failures must be translated into a natural chat message rather than technical errors");
-  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /временно недоступен/u,
-    "the local fallback must honestly explain the temporary limitation");
+  assert.match(document.getElementById("memory-feedback").textContent, /ВНЕШНЯЯ МОДЕЛЬ ВРЕМЕННО НЕДОСТУПНА/u,
+    "the interface must disclose that the external model is offline while the local fallback answers");
   // The existing research planner must prioritize review goals created by new evidence,
   // even when the question that originally produced the goal is already answered.
   const priorGoalsManager = window.NGGoals;
