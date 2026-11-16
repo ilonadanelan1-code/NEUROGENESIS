@@ -359,7 +359,6 @@ jobs:
       # must remain independent from third-party dataset-viewer availability.
       - name: Fetch a bounded, license-tracked corpus sample
         run: node scripts/prepare-chat-corpus.mjs
-        continue-on-error: true
 
       - name: Upload prepared corpus and provenance report
         if: always()
