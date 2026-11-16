@@ -78,7 +78,7 @@
     }
   }
   if(model.status().trained&&model.status().trainingContextExamples===0&&typeof model.rebuildTrainingContextIndex==="function"){
-    const rebuilt=model.rebuildTrainingContextIndex(corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160));
+    const rebuilt=model.rebuildTrainingContextIndex(corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160));
     if(rebuilt.rebuilt)save();
   }
   root.NGContextualAttention=model;
