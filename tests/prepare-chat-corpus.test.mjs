@@ -86,7 +86,7 @@ const qaSource = {
 };
 const oasstSource = {
   id: "oasst-test", dataset: "fixture/oasst", maxRows: 100,
-  maxCharacters: 10000, maxDownloadBytes: 100000,
+  maxCharacters: 50000, maxDownloadBytes: 100000,
   license: "Apache-2.0", url: "https://example.test/oasst",
   rawGzipJsonlUrl: "https://example.test/oasst.gz", role: "oasst",
 };
@@ -240,7 +240,7 @@ assert.match(result.manifest.sources[4].rawFileUrl, /instruction\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
-assert.equal(result.manifest.sources[3].uniqueRows, 30, "60 OpenAssistant messages should form 30 direct parent/reply pairs");
+assert.equal(result.manifest.sources[3].uniqueRows, 60, "all 60 complete OpenAssistant parent/reply fixtures should fit the test character budget");
 assert.equal(result.manifest.sources[4].uniqueRows, 60);
 assert.equal(result.manifest.sources[5].uniqueRows, 60);
 
