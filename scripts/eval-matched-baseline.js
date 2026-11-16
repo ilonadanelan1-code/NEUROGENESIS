@@ -5,8 +5,7 @@ const vm = require("node:vm");
 const ngram = require("../ngram-predictor.js");
 
 const SPLIT_SEED = 902;
-const TARGET_TRAIN_SENTENCES = 320;
-const DEFAULT_POOL_SENTENCES = 458;
+const CANDIDATE_POOL_SENTENCES = 320;
 
 function readRows(file, limit) {
   return fs.readFileSync(file, "utf8").split(/\r?\n/u).map(s => s.trim()).filter(Boolean).slice(0, limit);
@@ -28,14 +27,11 @@ function prepareMatchedData(attentionModel, candidatePool) {
     throw new TypeError("Attention model must expose its deterministic corpus split.");
   }
   const split = attentionModel.splitCorpus(candidatePool, SPLIT_SEED);
-  if (split.train.length !== TARGET_TRAIN_SENTENCES) {
+  if (split.train.length !== 224 || split.validation.length !== 48 || split.test.length !== 48) {
     throw new Error(
-      "Expected exactly " + TARGET_TRAIN_SENTENCES + " actual training sentences; got " +
-      split.train.length + ". Adjust BENCHMARK_POOL_SENTENCES (currently " + candidatePool.length + ")."
+      "Expected attention's deterministic 70/15/15 split to be 224/48/48; got " +
+      [split.train.length, split.validation.length, split.test.length].join("/")
     );
-  }
-  if (!split.validation.length || !split.test.length) {
-    throw new Error("Matched comparison requires non-empty validation and internal holdout subsets.");
   }
   return split;
 }
@@ -60,19 +56,19 @@ function evaluate(predict, rows) {
 }
 function pct(value) { return (100 * value).toFixed(2) + "%"; }
 function main() {
-  const [trainPath, validationPath, testPath] = process.argv.slice(2);
-  if (!trainPath || !validationPath || !testPath) {
-    throw new Error("Usage: node scripts/eval-matched-baseline.js train.txt validation.txt test.txt");
+  const [trainPath, testPath] = process.argv.slice(2);
+  if (!trainPath || !testPath) {
+    throw new Error("Usage: node scripts/eval-matched-baseline.js train.txt test.txt");
   }
-  const candidatePool = readRows(trainPath, Number(process.env.BENCHMARK_POOL_SENTENCES || DEFAULT_POOL_SENTENCES));
+  const candidatePool = readRows(trainPath, CANDIDATE_POOL_SENTENCES);
   const testRows = readRows(testPath, Number(process.env.TEST_SENTENCES || 5000));
-  if (candidatePool.length < DEFAULT_POOL_SENTENCES || !testRows.length) {
-    throw new Error("Need at least " + DEFAULT_POOL_SENTENCES + " candidate-pool sentences and a non-empty external test file.");
+  if (candidatePool.length !== CANDIDATE_POOL_SENTENCES || !testRows.length) {
+    throw new Error("Need exactly 320 candidate-pool sentences and a non-empty external test file.");
   }
 
-  // Attention performs its own deterministic 70/15/15 split. Derive that exact
-  // partition first, then train N-gram on the same 320 rows and tune it on the
-  // same validation rows. The internal 15% holdout is never used by either model.
+  // The legacy attention model accepts at most 320 input sentences and internally
+  // splits them into 224 train / 48 validation / 48 holdout. N-gram receives the
+  // exact same 224 train sentences and uses the exact same 48 validation sentences.
   const attentionModel = makeAttention(candidatePool);
   const split = prepareMatchedData(attentionModel, candidatePool);
   const attentionTraining = attentionModel.status().lastTraining;
@@ -95,7 +91,7 @@ function main() {
   }, testRows);
 
   const report = {
-    protocol: "matched-training-320-shared-validation-v2",
+    protocol: "matched-training-224-shared-validation-v2",
     candidatePoolSentences: candidatePool.length,
     trainSentencesPerModel: split.train.length,
     validationSentencesUsedByBothModels: split.validation.length,
@@ -116,7 +112,7 @@ function main() {
     },
     contextualAttention: { metrics: attentionMetrics },
     testSentences: testRows.length,
-    note: "Both models train on the exact same 320 sentences and use the exact same held-out validation sentences. Attention uses validation for early stopping; N-gram uses it for weight tuning. Neither model sees the external test set during training or tuning. The extra internal holdout subset is unused."
+    note: "Both models train on the exact same 224 sentences and use the exact same 48 held-out validation sentences. Attention uses validation for early stopping; N-gram uses it for weight tuning. Neither model sees the external test set during training or tuning. The extra 48-sentence internal holdout subset is unused."
   };
   console.log(JSON.stringify(report, null, 2));
   console.log("matched-data Top-1: attention", pct(attentionMetrics.top1), "| N-gram", pct(ngramMetrics.top1));
