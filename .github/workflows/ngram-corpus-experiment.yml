@@ -135,11 +135,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=4000 ATTENTION_EPOCHS=40 ATTENTION_PATIENCE=10 node scripts/eval-matched-multiseed.js \
-            split/news_train.txt split/news_test.txt \
+          export MATCHED_SEEDS=902,903,904,905,906
+          export TEST_SENTENCES=4000
+          export ATTENTION_EPOCHS=40
+          export ATTENTION_PATIENCE=10
+          node scripts/eval-matched-multiseed.js split/news_train.txt split/news_test.txt \
             | tee benchmark-reports/matched-news-multiseed.json
-          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
-            split/lit_train.txt split/lit_test.txt \
+          node scripts/eval-matched-multiseed.js split/lit_train.txt split/lit_test.txt \
             | tee benchmark-reports/matched-literature-multiseed.json
 
       - name: Upload benchmark reports
