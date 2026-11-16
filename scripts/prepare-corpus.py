@@ -52,7 +52,7 @@ def load_news_source_map(path: Path):
     rows = 0
     with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
         for line_number, line in enumerate(stream, 1):
-            fields = line.rstrip("\\r\\n").split("\\t")
+            fields = line.rstrip("\r\n").split("\t")
             if len(fields) < 2:
                 continue
             source_id, sentence_id = fields[0].strip(), fields[1].strip()
@@ -95,7 +95,7 @@ def read_news(path: Path, seed: int, source_map_path: Path | None = None):
 
     with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
         for line in stream:
-            sentence_id, sep, raw = line.rstrip("\\r\\n").partition("\\t")
+            sentence_id, sep, raw = line.rstrip("\r\n").partition("\t")
             if not sep:
                 continue
             sentence = normalize_sentence(raw)
