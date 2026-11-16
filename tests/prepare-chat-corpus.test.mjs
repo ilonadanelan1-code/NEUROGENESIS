@@ -214,12 +214,12 @@ assert.deepEqual(result.manifest.outputFiles, {
   train: "train.jsonl", validation: "validation.jsonl", test: "test.jsonl",
 });
 const multilineRows = [
-  { sourceId: "fixture", text: "Первая строка.\\n\\nВторая строка." },
-  { sourceId: "dialogue", text: "<|user|>\\nПривет\\n<|assistant|>\\nЗдравствуйте" },
+  { sourceId: "fixture", text: "Первая строка.\n\nВторая строка." },
+  { sourceId: "dialogue", text: "<|user|>\nПривет\n<|assistant|>\nЗдравствуйте" },
 ];
 const serializedRows = __test.serializeJsonl(multilineRows);
 assert.deepEqual(
-  serializedRows.trimEnd().split("\\n").map(line => JSON.parse(line)),
+  serializedRows.trimEnd().split("\n").map(line => JSON.parse(line)),
   multilineRows,
   "JSONL must preserve embedded newlines and unambiguous source-row boundaries",
 );
