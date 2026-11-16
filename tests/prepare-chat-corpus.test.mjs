@@ -201,7 +201,7 @@ assert.match(result.manifest.sources[1].filters.join(" "), /selected classical p
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
-assert.equal(result.manifest.sources[3].uniqueRows, 60);
+assert.equal(result.manifest.sources[3].uniqueRows, 30, "60 OpenAssistant messages should form 30 direct parent/reply pairs");
 assert.equal(result.manifest.sources[4].uniqueRows, 60);
 assert.equal(result.manifest.sources[5].uniqueRows, 60);
 
