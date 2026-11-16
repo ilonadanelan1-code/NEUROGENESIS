@@ -26,8 +26,10 @@ function cleanMessages(value) {
   return messages.length ? messages : null;
 }
 function modelCandidates(env) {
+  const primary = String(env && env.UPSTREAM_MODEL || "").trim();
+  if (!primary) return [];
   const configured = [
-    String(env && env.UPSTREAM_MODEL || "").trim(),
+    primary,
     ...String(env && env.UPSTREAM_FALLBACK_MODELS || "")
       .split(",")
       .map(value => value.trim())
