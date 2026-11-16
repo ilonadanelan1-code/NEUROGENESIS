@@ -47,11 +47,12 @@ def main():
                 encoding="utf-8",
             )
         output = root / "split"
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, str(SCRIPT), "--news", str(news), "--news-inv-so", str(news_inv_so),
              "--ruslit-dir", str(ruslit), "--output-dir", str(output), "--seed", "17"],
-            check=True, capture_output=True, text=True,
+            capture_output=True, text=True,
         )
+        assert result.returncode == 0, result.stdout + "\\n" + result.stderr
         required = [
             "news_train.txt", "news_val.txt", "news_test.txt",
             "lit_train.txt", "lit_val.txt", "lit_test.txt",
