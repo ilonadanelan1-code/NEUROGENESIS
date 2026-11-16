@@ -68,6 +68,12 @@ const instructionSource = {
   maxCharacters: 10000, license: "Apache-2.0", url: "https://example.test/instruction",
   role: "dialogue",
 };
+const poetrySource = {
+  id: "poetry-test", dataset: "fixture/poetry", pageLimit: 2, maxRows: 100,
+  maxCharacters: 10000, license: "CC-BY-4.0", url: "https://example.test/poetry",
+  where: '"author"=\'Александр Пушкин\' OR "author"=\'Анна Ахматова\'',
+  role: "literature-filtered",
+};
 const qaSource = {
   id: "qa-test", dataset: "fixture/qa", pageLimit: 2, maxRows: 100,
   maxCharacters: 10000, license: "CC0-1.0", url: "https://example.test/qa",
@@ -100,6 +106,17 @@ const fixtures = {
         { role: "assistant", content: "<think>Удалить это.</think>Ответ в тестовом диалоге номер " + index + "." },
       ],
     })),
+  },
+  "fixture/poetry": {
+    splits: [{ config: "default", split: "train" }],
+    rows: Array.from({ length: 60 }, (_, index) => ({
+      author: ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"][index % 3],
+      text: "Поэтический или литературный фрагмент номер " + index +
+        " содержит достаточно длинный текст для языкового обучения. ".repeat(2),
+    })).concat([{
+      author: "Неизвестный автор",
+      text: "Этот текст не должен попасть в выбранную авторскую выборку. ".repeat(3),
+    }]),
   },
   "fixture/qa": {
     splits: [{ config: "default", split: "train" }],
@@ -144,14 +161,17 @@ const fetchImpl = async url => {
   }
   const offset = Number(parsed.searchParams.get("offset") || 0);
   const length = Number(parsed.searchParams.get("length") || 100);
+  const filteredRows = dataset === "fixture/poetry"
+    ? fixture.rows.filter(row => ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"].includes(row.author))
+    : fixture.rows;
   return {
     ok: true,
-    json: async () => ({ rows: fixture.rows.slice(offset, offset + length).map(row => ({ row })) }),
+    json: async () => ({ rows: filteredRows.slice(offset, offset + length).map(row => ({ row })) }),
   };
 };
 const result = await prepareCorpus({
   fetchImpl,
-  sources: [bookSource, qaSource, oasstSource, instructionSource, everydaySource],
+  sources: [bookSource, poetrySource, qaSource, oasstSource, instructionSource, everydaySource],
 });
 assert.ok(result.buckets.train.length > 0);
 assert.ok(result.buckets.validation.length > 0);
@@ -163,11 +183,12 @@ for (const source of result.manifest.sources) {
   assert.ok(source.localSplitCounts.validation > 0, source.id + " needs validation rows");
   assert.ok(source.localSplitCounts.test > 0, source.id + " needs test rows");
 }
-assert.equal(result.manifest.sources[1].license, "CC0-1.0");
-assert.equal(result.manifest.sources[2].license, "Apache-2.0");
-assert.equal(result.manifest.sources[3].license, "Apache-2.0");
-assert.equal(result.manifest.sources[4].license, "CC-BY-4.0");
 assert.equal(result.manifest.sources[0].license, "CC0-1.0");
+assert.equal(result.manifest.sources[1].license, "CC-BY-4.0");
+assert.equal(result.manifest.sources[2].license, "CC0-1.0");
+assert.equal(result.manifest.sources[3].license, "Apache-2.0");
+assert.equal(result.manifest.sources[4].license, "Apache-2.0");
+assert.equal(result.manifest.sources[5].license, "CC-BY-4.0");
 assert.match(result.manifest.splitMethod, /NOT author- or document-disjoint/u);
 for (const source of result.manifest.sources) {
   assert.ok(
@@ -176,9 +197,12 @@ for (const source of result.manifest.sources) {
   );
 }
 assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
+assert.match(result.manifest.sources[1].filters.join(" "), /selected classical poets/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
 assert.equal(result.manifest.sources[3].uniqueRows, 60);
+assert.equal(result.manifest.sources[4].uniqueRows, 60);
+assert.equal(result.manifest.sources[5].uniqueRows, 60);
 
 console.log("Open Russian corpus preparation contract passed.");
