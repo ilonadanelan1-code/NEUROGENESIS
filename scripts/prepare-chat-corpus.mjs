@@ -390,8 +390,8 @@ async function collectOpenAssistant(fetchImpl, source) {
     if (batch.length < requestedLength) break;
   }
   const pairs = openAssistantRowsToPairs(rawRows, source);
-  if (!pairs.length) {
-    throw new Error("No Russian parent/assistant pairs were reconstructed from " +
+  if (pairs.length < 3) {
+    throw new Error("Fewer than three Russian parent/assistant pairs were reconstructed from " +
       source.dataset + ". Check the language filter and message-tree fields.");
   }
   const characters = pairs.reduce((sum, row) => sum + row.length, 0);
@@ -515,7 +515,7 @@ export async function prepareCorpus(options = {}) {
   const manifest = {
     schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
     createdAt: new Date().toISOString(),
-    method: "Hugging Face datasets-server rows API plus bounded raw JSONL streaming; deterministic sample; exact duplicate removal.",
+    method: "Hugging Face datasets-server rows/filter API plus bounded streaming of normalized text and JSONL files; deterministic per-source sampling; exact duplicate removal.",
     splitMethod: "Deterministic per-source 90/5/5 split, with at least one validation and one test row per source. It is NOT author- or document-disjoint.",
     sources: results.map(result => ({
       id: result.source.id,
@@ -572,8 +572,6 @@ export async function prepareCorpus(options = {}) {
       "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
       "The literature sample is a 4 MiB prefix of the upstream normalized text, not the entire 866 MB corpus.",
       "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
-      "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
-      "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
       "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
       "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
     ],
