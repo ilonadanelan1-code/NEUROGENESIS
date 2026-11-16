@@ -1,0 +1,50 @@
+name: Fast contextual pretraining
+
+on:
+  push:
+    branches:
+      - pretrain-fast-validation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neurogenesis-fast-pretraining
+  cancel-in-progress: true
+
+jobs:
+  pretrain:
+    name: Train and verify contextual checkpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check trainer syntax
+        run: |
+          node --check contextual-attention.js
+          node --check phrase-composition.js
+          node --check semantic-core.js
+          node --check scripts/pretrain-contextual-model.mjs
+          node --check tests/pretrained-contextual-checkpoint.test.mjs
+
+      - name: Pretrain contextual model
+        run: node scripts/pretrain-contextual-model.mjs
+
+      - name: Verify generated checkpoint
+        run: node tests/pretrained-contextual-checkpoint.test.mjs
+
+      - name: Upload trained checkpoint and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-contextual-fast-validation
+          path: |
+            contextual-pretrained.json
+            benchmark-reports/contextual-pretraining-v1.json
+          if-no-files-found: error
+          retention-days: 30
