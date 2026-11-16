@@ -22,9 +22,114 @@ def normalize_sentence(raw: str):
         return None
     return " ".join(words)
 
-def news_split(sentence: str, seed: int) -> str:
-    value = int(digest(seed, "news:" + sentence)[:8], 16) / 0xFFFFFFFF
+def source_split(source_id: str, seed: int) -> str:
+    value = int(digest(seed, "news-source:" + source_id)[:8], 16) / 0xFFFFFFFF
     return "train" if value < 0.70 else ("val" if value < 0.85 else "test")
+
+def load_news_source_map(path: Path):
+    """Load Leipzig inv_so rows (Source_ID, Sentence_ID) and merge sources sharing a sentence."""
+    parents = {}
+    sentence_source = {}
+
+    def find(value):
+        parents.setdefault(value, value)
+        root = value
+        while parents[root] != root:
+            root = parents[root]
+        while parents[value] != value:
+            parent = parents[value]
+            parents[value] = root
+            value = parent
+        return root
+
+    def union(left, right):
+        a, b = find(left), find(right)
+        if a != b:
+            # Stable roots make the manifest reproducible across row order.
+            low, high = sorted((a, b))
+            parents[high] = low
+
+    rows = 0
+    with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
+        for line_number, line in enumerate(stream, 1):
+            fields = line.rstrip("\\r\\n").split("\\t")
+            if len(fields) < 2:
+                continue
+            source_id, sentence_id = fields[0].strip(), fields[1].strip()
+            if not source_id or not sentence_id:
+                continue
+            rows += 1
+            previous = sentence_source.get(sentence_id)
+            if previous is None:
+                sentence_source[sentence_id] = source_id
+                find(source_id)
+            elif previous != source_id:
+                union(previous, source_id)
+
+    if not sentence_source:
+        raise ValueError(f"No source-to-sentence mappings found in {path}")
+
+    # Resolve any multiple-source sentence links into indivisible source components.
+    resolved = {sentence_id: find(source_id) for sentence_id, source_id in sentence_source.items()}
+    source_ids = sorted(set(resolved.values()))
+    return resolved, {"mapping_rows": rows, "mapped_sentences": len(resolved),
+                      "source_components": len(source_ids)}
+
+def read_news(path: Path, seed: int, source_map_path: Path | None = None):
+    result = {name: [] for name in SPLITS}
+    seen = set()
+    source_info = None
+    source_assignments = {}
+    source_by_sentence = None
+    if source_map_path:
+        source_by_sentence, source_info = load_news_source_map(source_map_path)
+        source_assignments = {
+            source_id: source_split(source_id, seed)
+            for source_id in sorted(set(source_by_sentence.values()))
+        }
+
+    counters = {"normalised_rows": 0, "source_mapped_rows": 0,
+                "source_unmapped_rows": 0, "duplicate_sentences": 0}
+    for split_name in SPLITS:
+        result[split_name] = []
+
+    with path.open("r", encoding="utf-8-sig", errors="replace") as stream:
+        for line in stream:
+            sentence_id, sep, raw = line.rstrip("\\r\\n").partition("\\t")
+            if not sep:
+                continue
+            sentence = normalize_sentence(raw)
+            if not sentence:
+                continue
+            counters["normalised_rows"] += 1
+            if sentence in seen:
+                counters["duplicate_sentences"] += 1
+                continue
+            seen.add(sentence)
+
+            if source_by_sentence is not None:
+                source_id = source_by_sentence.get(sentence_id.strip())
+                if source_id is None:
+                    counters["source_unmapped_rows"] += 1
+                    continue
+                counters["source_mapped_rows"] += 1
+                split = source_assignments[source_id]
+            else:
+                split = source_split(sentence, seed)
+                counters["source_unmapped_rows"] += 1
+            result[split].append(sentence)
+
+    if source_by_sentence is not None:
+        mapped = counters["source_mapped_rows"]
+        unmapped = counters["source_unmapped_rows"]
+        if unmapped:
+            raise ValueError(
+                f"Leipzig source map is incomplete: {unmapped} normalized unique sentences "
+                f"were not mapped (mapped {mapped}). Check that inv_so and sentences files "
+                f"come from the same rus_news_2024_1M corpus revision."
+            )
+    return result, {"source_info": source_info, "source_assignments": source_assignments,
+                    "counters": counters}
 
 def assign_work_splits(work_paths, root: Path, seed: int):
     ordered = sorted(work_paths, key=lambda p: digest(seed, "work:" + p.relative_to(root).as_posix()))
@@ -106,6 +211,8 @@ def write_lines(path: Path, rows):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--news", required=True, type=Path, help="Leipzig *-sentences.txt file")
+    parser.add_argument("--news-inv-so", type=Path,
+                        help="Leipzig *_inv_so.txt mapping (Source_ID, Sentence_ID); groups article sources")
     parser.add_argument("--ruslit-dir", required=True, type=Path, help="Extracted RusLit root directory")
     parser.add_argument("--output-dir", default=Path("split"), type=Path)
     parser.add_argument("--seed", default=20261116, type=int)
@@ -115,16 +222,25 @@ def main():
     if not args.ruslit_dir.is_dir():
         parser.error(f"RusLit directory not found: {args.ruslit_dir}")
 
-    news = read_news(args.news, args.seed)
+    if args.news_inv_so and not args.news_inv_so.is_file():
+        parser.error(f"Leipzig source map not found: {args.news_inv_so}")
+    news, news_info = read_news(args.news, args.seed, args.news_inv_so)
     lit, work_splits = read_literature(args.ruslit_dir, args.seed)
     clean = deduplicate_across_splits(news, lit, args.seed)
     out = args.output_dir
     out.mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        "protocol": "ngram-corpus-split-v2",
+        "protocol": "ngram-corpus-split-v3-source-grouped-news",
         "seed": args.seed,
         "news_source": str(args.news),
+        "news_source_map": str(args.news_inv_so) if args.news_inv_so else None,
+        "news_split_unit": ("Leipzig source/article components from inv_so; all sentences from one source stay in one split"
+                            if args.news_inv_so else "sentence-level deterministic hash fallback; source isolation unavailable"),
+        "news_source_mapping": news_info["source_info"],
+        "news_source_counts": {name: sum(1 for value in news_info["source_assignments"].values() if value == name)
+                               for name in SPLITS},
+        "news_row_counters": news_info["counters"],
         "ruslit_root": str(args.ruslit_dir),
         "literature_split_unit": "one .txt file per work; works are never split across subsets",
         "sentence_deduplication": "global exact normalized sentence deduplication; train has priority over val, val over test",
