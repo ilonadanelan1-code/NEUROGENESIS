@@ -337,6 +337,7 @@ jobs:
           node tests/llm-config-setup.test.js
           node tests/llm-bridge.test.js
           node tests/llm-worker.test.js
+          node tests/llm-smoke-diagnostics.test.js
           node tests/memory-navigation.test.js
           node tests/backup-import-transaction.test.js
           node tests/prepare-chat-corpus.test.mjs

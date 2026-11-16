@@ -299,5 +299,84 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   assert.equal(await capacityGateway.generate(request), longReply,
     "the chat gateway must preserve a ten-thousand-character answer instead of truncating it at eight thousand");
 
+  // --- Detailed replies: model, requested route, fallback flag and usage must survive the adapter. ---
+  const plain = value => JSON.parse(JSON.stringify(value)); // results come from the vm realm
+  const chatBodies = [];
+  function workerAdapter(chatPayload, healthPayload) {
+    return bridge.createHttpAdapter(
+      { endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+      async (url, options) => {
+        if (url.endsWith("/api/health")) return { ok: true, status: 200, async json() { return healthPayload || { ok: true, configured: true, model: "primary/model", fallbackModels: ["openrouter/free"] }; } };
+        chatBodies.push(options.body);
+        return { ok: true, status: 200, async json() { return chatPayload; } };
+      });
+  }
+  const primaryAdapter = workerAdapter({ ok: true, reply: " Основной ответ ", model: "primary/model", requestedModel: "primary/model", fallbackUsed: false,
+    usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 } });
+  assert.equal(await primaryAdapter.generate(request), "Основной ответ", "generate() must keep returning a plain string");
+  const primaryDetails = await primaryAdapter.generateDetailed(request);
+  assert.deepEqual(plain(primaryDetails), { reply: "Основной ответ", model: "primary/model", requestedModel: "primary/model", fallbackUsed: false,
+    usage: { prompt_tokens: 12, completion_tokens: 7, total_tokens: 19 } }, "a primary-route answer must not be reported as a fallback");
+  const { generate: detachedGenerate } = primaryAdapter;
+  assert.equal(await detachedGenerate(request), "Основной ответ", "adapter methods must not depend on `this`");
+
+  const routerAdapter = workerAdapter({ ok: true, reply: "Ответ роутера", model: "vendor/concrete-model:free", requestedModel: "openrouter/free", fallbackUsed: true, usage: null });
+  const routerDetails = await routerAdapter.generateDetailed(request);
+  assert.equal(routerDetails.fallbackUsed, true, "openrouter/free is a fallback even when the router names a concrete model");
+  assert.equal(routerDetails.model, "vendor/concrete-model:free");
+  assert.equal(routerDetails.requestedModel, "openrouter/free");
+  assert.equal(routerDetails.usage, null);
+
+  const bareAdapter = workerAdapter({ ok: true, reply: "Только текст" });
+  assert.deepEqual(plain(await bareAdapter.generateDetailed(request)), { reply: "Только текст", model: null, requestedModel: null, fallbackUsed: null, usage: null },
+    "metadata the server did not send must stay null instead of being invented");
+  const junkAdapter = workerAdapter({ ok: true, reply: "x", model: "bad model\nid", fallbackUsed: "yes", usage: { prompt_tokens: "abc", total_tokens: -3 } });
+  const junkDetails = await junkAdapter.generateDetailed(request);
+  assert.equal(junkDetails.model, null);
+  assert.equal(junkDetails.fallbackUsed, null);
+  assert.equal(junkDetails.usage, null, "unusable usage values must be dropped");
+
+  const healthDetails = await workerAdapter({}, undefined).health();
+  assert.deepEqual(plain(healthDetails.fallbackModels), ["openrouter/free"], "health() must pass configured fallback models to the UI");
+  assert.equal((await workerAdapter({}, { ok: true, configured: true, model: "m" }).health()).fallbackModels, null,
+    "a health payload without fallbackModels must not claim an empty fallback list");
+
+  // Gateway: generate() stays a string, generateDetailed() wraps legacy adapters without inventing metadata.
+  const detailGateway = bridge.create();
+  detailGateway.register("detail-test", primaryAdapter);
+  assert.equal(typeof await detailGateway.generate(request), "string");
+  assert.equal((await detailGateway.generateDetailed(request)).model, "primary/model");
+  const legacyGateway = bridge.create();
+  legacyGateway.register("legacy-test", { async generate() { return "Старый адаптер"; } });
+  assert.deepEqual(plain(await legacyGateway.generateDetailed(request)), { reply: "Старый адаптер", model: null, requestedModel: null, fallbackUsed: null, usage: null });
+  assert.equal(await legacyGateway.generate(request), "Старый адаптер");
+  await assert.rejects(() => legacyGateway.generateDetailed({ schema: "NEUROGENESIS_LLM_REQUEST_V3", messages: [{ role: "user", content: "x" }] }), /Некорректный запрос/u);
+  await assert.rejects(() => bridge.create().generateDetailed(request), /не подключена/u);
+  const emptyGateway = bridge.create();
+  emptyGateway.register("empty-test", { async generate() { return "  "; } });
+  await assert.rejects(() => emptyGateway.generateDetailed(request), /пустой/u);
+
+  // Smoke request: fixed, history-free, accepted by the gateway validator.
+  const smoke = bridge.buildSmokeRequest();
+  assert.equal(smoke.messages.length, 2);
+  assert.equal(smoke.messages.some(row => row.content.includes("T-sleep")), false);
+  assert.equal((await detailGateway.generateDetailed(smoke)).reply, "Основной ответ");
+
+  // Failures carry stable codes and never echo the access token.
+  for (const [status, payload, code] of [[401, { error: "unauthorized" }, "unauthorized"], [503, { error: "provider_not_configured" }, "provider_not_configured"],
+    [502, { error: "upstream_error", upstream_status: 429 }, "upstream_error"], [504, { error: "upstream_timeout" }, "upstream_timeout"]]) {
+    const failing = bridge.createHttpAdapter({ endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" },
+      async () => ({ ok: false, status, async json() { return payload; } }));
+    await assert.rejects(() => failing.generateDetailed(request), error => {
+      assert.equal(error.code, code);
+      assert.equal(error.status, status);
+      assert.equal(String(error.message).includes("private-app-token"), false);
+      if (payload.upstream_status) assert.equal(error.upstreamStatus, 429);
+      return true;
+    });
+  }
+  const offline = bridge.createHttpAdapter({ endpoint: "https://neurogenesis-test.workers.dev", clientToken: "private-app-token" }, async () => { throw new Error("socket Bearer private-app-token"); });
+  await assert.rejects(() => offline.generateDetailed(request), error => error.code === "network" && !String(error.message).includes("private-app-token"));
+
   console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
