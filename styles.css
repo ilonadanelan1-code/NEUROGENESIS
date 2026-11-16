@@ -425,3 +425,78 @@ button,input,select,summary{touch-action:manipulation}
 
 /* Contextual attention v2: multi-head diagnostic rows */
 .contextual-attention-output{tab-size:2}
+
+/* 0.58.107 — compact tabbed workspace and non-blocking training */
+.side-panel{
+  display:flex!important;flex-direction:column;min-height:0;overflow:hidden;
+  padding:0 12px max(10px,env(safe-area-inset-bottom,0px));
+}
+.side-tabs{
+  flex:0 0 auto;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;
+  padding:9px 0 8px;border-bottom:1px solid rgba(129,193,211,.16);
+  background:linear-gradient(180deg,rgba(10,23,39,.99),rgba(8,19,33,.98));
+}
+.side-tab{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-width:0;min-height:42px;padding:4px 2px;border:1px solid rgba(127,190,214,.15);
+  border-radius:9px;background:rgba(17,35,52,.72);color:#91aab7;
+  font-size:8px;font-weight:750;letter-spacing:.015em;line-height:1.15;
+  transition:background .16s,border-color .16s,color .16s;
+}
+.side-tab-icon{font-size:14px;line-height:1.05;color:#8ab8c4}
+.side-tab.is-active,.side-tab[aria-selected="true"]{
+  color:#eafffa;border-color:rgba(120,240,223,.48);
+  background:linear-gradient(145deg,rgba(26,88,87,.72),rgba(17,44,60,.94));
+  box-shadow:inset 0 0 0 1px rgba(120,240,223,.08),0 4px 16px rgba(0,0,0,.15);
+}
+.side-tab.is-active .side-tab-icon{color:#9bffeb}
+.side-tab-pages{flex:1 1 auto;min-height:0;overflow:hidden}
+.side-tab-page{
+  height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:0 3px 16px;scrollbar-width:thin;scrollbar-color:rgba(113,184,199,.3) transparent;
+}
+.side-tab-page[hidden]{display:none!important}
+.side-tab-page>.section-block{min-width:0}
+.side-tab-intro{
+  margin:10px 0 8px;padding:9px 10px;border:1px solid rgba(120,190,205,.15);
+  border-radius:9px;background:rgba(11,29,44,.72);color:#a2bdc7;font-size:9px;line-height:1.5;
+}
+#contextual-model-panel,#wasm-learning-panel,#llm-settings{margin:10px 0;border-radius:10px}
+#contextual-model-panel>summary,#wasm-learning-panel>summary,#llm-settings>summary{
+  min-height:44px;padding:11px 12px;font-size:9px;letter-spacing:.055em;line-height:1.3;
+}
+#contextual-model-state,#wasm-learning-state,#llm-connection-status{font-size:8px}
+.memory-learning-hint{
+  margin:7px 0 0;color:#8ca8b5;font-size:8px;line-height:1.45;
+}
+.contextual-training-progress{
+  margin:10px 0;padding:10px;border:1px solid rgba(231,195,116,.25);
+  border-radius:10px;background:rgba(62,48,25,.18);
+}
+.contextual-training-progress[hidden]{display:none}
+.contextual-training-progress-head{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#f2dfb5;font-size:9px}
+.contextual-training-progress-head span{font-variant-numeric:tabular-nums;color:#f1cf86}
+.contextual-training-progress-track{height:7px;margin-top:8px;border-radius:20px;background:rgba(255,255,255,.09);overflow:hidden}
+.contextual-training-progress-bar{height:100%;width:0;border-radius:20px;background:linear-gradient(90deg,#d1a95c,#8de1c1);transition:width .18s ease}
+.contextual-training-progress p{margin:7px 0 0;color:#b8ad91;font-size:8px;line-height:1.4}
+#contextual-model-metrics{white-space:normal;line-height:1.5}
+#contextual-train-button:disabled,#contextual-analyse-button:disabled{opacity:.55;cursor:wait}
+@media(max-width:640px){
+  .side-panel{height:41%;flex:0 0 41%;padding:0 9px max(8px,env(safe-area-inset-bottom,0px))}
+  .side-tabs{gap:4px;padding:7px 0 6px}
+  .side-tab{min-height:44px;font-size:8px;border-radius:8px}
+  .side-tab-icon{font-size:13px}
+  .side-tab-page{padding-left:2px;padding-right:2px}
+  .side-tab-intro{font-size:8px;padding:8px}
+  #contextual-model-panel>summary,#wasm-learning-panel>summary,#llm-settings>summary{min-height:44px;padding:10px;font-size:8px}
+  .memory-learning-hint{font-size:7px}
+}
+@media(max-width:380px){
+  .side-tabs{grid-template-columns:repeat(5,minmax(52px,1fr));overflow-x:auto;scrollbar-width:none}
+  .side-tabs::-webkit-scrollbar{display:none}
+}
+@media(orientation:landscape) and (max-height:680px){
+  .side-panel{display:flex!important;overflow:hidden;padding:0 9px 8px}
+  .side-tabs{padding:5px 0}
+  .side-tab{min-height:38px}
+}

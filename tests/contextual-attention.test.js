@@ -148,7 +148,13 @@ assert.equal(api.create({windowSize:999}).status().windowSize,8,"window size mus
 assert.throws(()=>api.create().train([],{}),/at least one training sentence/u);
 assert.throws(()=>api.create().train(["одно предложение","одно предложение"],{}),/three distinct sentences/u);
 const compactModel=api.create({dimension:8,windowSize:2,seed:11});
-const compactReport=compactModel.train(["нейрон получает сигнал","сеть получает данные","память хранит информацию"],{epochs:4,learningRate:.02});
+const progressEvents=[];
+const compactReport=compactModel.train(["нейрон получает сигнал","сеть получает данные","память хранит информацию"],{
+ epochs:4,learningRate:.02,onProgress:event=>progressEvents.push(event)
+});
+assert.equal(progressEvents.length,compactReport.epochs,"contextual training must report progress after every epoch");
+assert.ok(progressEvents.every(event=>event.phase==="contextual"&&event.totalEpochs===4&&event.epoch>0),
+ "contextual progress events must identify the current phase and epoch");
 assert.equal(compactReport.splitFallback,true,"a three-sentence low-overlap corpus must use an explicit train-only fallback");
 assert.equal(compactReport.evaluationMode,"train_only_insufficient_validation");
 assert.equal(compactReport.trainRows,3);

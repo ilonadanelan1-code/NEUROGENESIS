@@ -19,6 +19,12 @@
   const analyseButton=byId("contextual-analyse-button"),queryInput=byId("contextual-query");
   const stateLabel=byId("contextual-model-state"),metrics=byId("contextual-model-metrics");
   const output=byId("contextual-attention-output");
+  const trainingProgress=byId("contextual-training-progress");
+  const progressTitle=byId("contextual-training-progress-title");
+  const progressValue=byId("contextual-training-progress-value");
+  const progressBar=byId("contextual-training-progress-bar");
+  const progressText=byId("contextual-training-progress-text");
+  let activeTrainingWorker=null;
   if(!corpusInput||!trainButton||!analyseButton||!queryInput||!stateLabel||!metrics||!output)return;
   let model=Model.create({dimension:12,windowSize:4,heads:3,seed:9173});
   let phraseModel=Composition?Composition.create({dimension:12,seed:24081}):null;
@@ -30,6 +36,7 @@
   function renderStatus(message=""){
     const status=model.status(),phraseStatus=phraseModel&&phraseModel.status();
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
+    if(!activeTrainingWorker)trainButton.textContent=status.trained?"Переобучить на примерах":"Обучить на примерах";
     metrics.textContent=message||(status.trained
       ?"Головы: "+status.heads+" · окно: ±"+status.windowSize+" · словарь: "+status.vocabularySize+
        " · блоки: "+status.transformerBlocks+" · фразовая модель: "+(phraseStatus&&phraseStatus.trained?"обучена":"не обучена")+" · шаги: "+status.trainingSteps+" · subword: "+status.subwordBuckets+" корзин · train loss: "+Number(status.lastLoss).toFixed(3)+
@@ -71,7 +78,7 @@
     }
   }
   if(model.status().trained&&model.status().trainingContextExamples===0&&typeof model.rebuildTrainingContextIndex==="function"){
-    const rebuilt=model.rebuildTrainingContextIndex(corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160));
+    const rebuilt=model.rebuildTrainingContextIndex(corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160));
     if(rebuilt.rebuilt)save();
   }
   root.NGContextualAttention=model;
@@ -81,31 +88,118 @@
     stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
     metrics.textContent="Архитектура обновлена: теперь используются два последовательных Transformer-блока. Твои обучающие предложения сохранены — запусти обучение заново.";
   }
+  function setTrainingProgress(percent,title,message){
+    const safe=Math.max(0,Math.min(100,Number(percent)||0));
+    if(trainingProgress)trainingProgress.hidden=false;
+    if(progressTitle)progressTitle.textContent=title;
+    if(progressValue)progressValue.textContent=Math.round(safe)+"%";
+    if(progressBar)progressBar.style.width=safe+"%";
+    if(progressText)progressText.textContent=message;
+  }
+  function finishTrainingWorker(){
+    if(activeTrainingWorker){activeTrainingWorker.terminate();activeTrainingWorker=null;}
+    trainButton.disabled=false;
+    analyseButton.disabled=false;
+    trainButton.textContent=model.status().trained?"Переобучить на примерах":"Обучить на примерах";
+  }
   trainButton.addEventListener("click",()=>{
+    if(activeTrainingWorker)return;
     const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
-    if(!rows.length){renderStatus("Добавь хотя бы одно предложение для обучения.");return;}
-    trainButton.disabled=true;trainButton.textContent="ОБУЧЕНИЕ…";
+    if(rows.length<3){renderStatus("Для честной проверки нужны минимум три разных предложения.");return;}
+    if(typeof Worker==="undefined"){
+      renderStatus("Этот браузер не поддерживает фоновое обучение (Web Worker). Основная модель сохранена без изменений.");
+      return;
+    }
+    trainButton.disabled=true;
+    analyseButton.disabled=true;
+    trainButton.textContent="Обучение…";
+    stateLabel.textContent="ОБУЧАЕТСЯ";
+    stateLabel.dataset.state="training";
+    metrics.textContent="Идёт обучение в отдельном потоке. Можно продолжать пользоваться графом и другими вкладками.";
+    setTrainingProgress(1,"Подготовка модели","Создаю изолированный поток обучения. Текущие сохранённые веса не заменяются до успешного завершения.");
+    let worker;
     try{
-      const report=model.train(rows,{epochs:55,learningRate:0.035,splitSeed:902});
-      let phraseReport=null,phraseError="";
-      if(phraseModel){try{phraseReport=phraseModel.train(rows,model,root.NGSemanticCore,root.NGKnowledge,{epochs:35,learningRate:0.045});root.NGPhraseComposition=phraseModel;}
-        catch(error){phraseError=error.message;}}
-      save();
-      renderStatus(report.splitFallback
-        ?"Обучено на небольшом корпусе · "+report.trainRows+" предложений · "+report.epochs+" эпох. Отложенная оценка не выполнялась: недостаточно независимых примеров."
-        :"Готово · train "+report.trainExamples+" примеров · val "+report.validationExamples+
-         " · test "+report.testExamples+" · покрытие val/test "+Math.round(report.validationCoverage*100)+"%/"+
-         Math.round(report.testCoverage*100)+"% · val acc "+Math.round(report.validationAccuracy*100)+"%"+
-         " · test acc "+(report.testAccuracy==null?"нет покрытия":Math.round(report.testAccuracy*100)+"%")+
-         " · лучшая эпоха "+report.bestEpoch+"/"+report.epochs+
-         " · train loss "+report.initialLoss.toFixed(3)+" → "+report.finalLoss.toFixed(3)+
-         " · val loss "+report.validationLoss.toFixed(3)+
-         " · test loss "+(report.testLoss==null?"недостаточно известных слов":report.testLoss.toFixed(3)));
-      if(phraseReport)renderStatus("Контекстный encoder обучен · фразовый head обучен на слабых метках: "+phraseReport.sentences+" предложений · роли "+phraseReport.roleExamples+" · отношения "+phraseReport.relationExamples+" · training acc "+Math.round(phraseReport.roleTrainingAccuracy*100)+"%/"+Math.round(phraseReport.relationTrainingAccuracy*100)+"%. Это не независимая проверка.");
-      else if(phraseError)renderStatus("Контекстная модель обучена; фразовая модель пока не обучилась: "+phraseError);
-      stateLabel.textContent="ОБУЧЕНА";
-    }catch(error){renderStatus("Обучение не выполнено: "+error.message);}
-    finally{trainButton.disabled=false;trainButton.textContent="Обучить контекстную модель";}
+      worker=new Worker("./contextual-training-worker.js?v=0.58.107");
+      activeTrainingWorker=worker;
+    }catch(error){
+      finishTrainingWorker();
+      renderStatus("Не удалось запустить фоновое обучение: "+String(error.message||error));
+      return;
+    }
+    worker.onmessage=event=>{
+      const data=event.data||{};
+      if(data.type==="progress"){
+        if(data.phase==="contextual"){
+          const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
+          setTrainingProgress(fraction*82,"Контекстная модель · эпоха "+data.epoch+" / "+data.totalEpochs,
+            "Проверка выполняется на отложенных предложениях. Лучшая эпоха: "+(data.bestEpoch||"пока не выбрана")+
+            (Number.isFinite(data.validationLoss)?" · val loss "+data.validationLoss.toFixed(3):""));
+        }else if(data.phase==="phrase-preparing"){
+          setTrainingProgress(83,"Подготовка фразовой модели",
+            "Собираю примеры и проверяю связи между словами. Граф и остальные вкладки продолжают работать.");
+        }else if(data.phase==="phrase"){
+          const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
+          setTrainingProgress(82+fraction*18,"Фразовая структура · эпоха "+data.epoch+" / "+data.totalEpochs,
+            "Обучаю распознавание ролей слов и связей между ними. Этот показатель пока является обучающей, а не независимой тестовой оценкой.");
+        }
+        return;
+      }
+      if(data.type==="error"){
+        finishTrainingWorker();
+        stateLabel.textContent=model.status().trained?"ОБУЧЕНА":"ОШИБКА";
+        stateLabel.dataset.state=model.status().trained?"ready":"error";
+        renderStatus("Обучение не завершено: "+String(data.message||"неизвестная ошибка")+". Предыдущая модель сохранена.");
+        setTrainingProgress(0,"Обучение остановлено","Старые обученные веса оставлены без изменений.");
+        return;
+      }
+      if(data.type!=="complete")return;
+      try{
+        model.loadState(data.contextualState);
+        if(phraseModel&&data.phraseState)phraseModel.loadState(data.phraseState);
+        save();
+        const report=data.report||{};
+        const phraseReport=data.phraseReport;
+        renderStatus();
+        stateLabel.textContent="ОБУЧЕНА";
+        stateLabel.dataset.state="ready";
+        const test=Number.isFinite(report.testAccuracy)?Math.round(report.testAccuracy*100)+"%":"н/д";
+        const validation=Number.isFinite(report.validationAccuracy)?Math.round(report.validationAccuracy*100)+"%":"н/д";
+        const coverage=Number.isFinite(report.testCoverage)?Math.round(report.testCoverage*100)+"%":"н/д";
+        metrics.textContent="Готово · тест "+test+" · покрытие "+coverage+" · проверка "+validation+
+          " · словарь "+report.vocabularySize+" · шаги "+report.trainingSteps+
+          (phraseReport?" · фразовая модель обучена (результат на обучающих примерах)":
+            data.phraseError?" · фразовая модель: "+data.phraseError:"");
+        setTrainingProgress(100,"Обучение завершено","Контекстная модель сохранена в этом браузере. Обучение не меняло число нейронов графа.");
+        output.textContent="Обучение завершено.\n"+
+          "Отложенная тестовая точность: "+test+"\n"+
+          "Покрытие теста: "+coverage+"\n"+
+          "Проверочная точность: "+validation+"\n"+
+          "Обучающие предложения: "+(report.trainRows||0)+
+          " · проверочные: "+(report.validationRows||0)+
+          " · тестовые: "+(report.testRows||0)+"\n"+
+          "Обрати внимание: это небольшой экспериментальный masked-word прогноз, а не полноценная языковая модель.";
+      }catch(error){
+        stateLabel.textContent="ОШИБКА ЗАГРУЗКИ";
+        stateLabel.dataset.state="error";
+        renderStatus("Обучение завершилось, но новый checkpoint не удалось применить: "+String(error.message||error)+". Предыдущие сохранения не удалены.");
+        setTrainingProgress(0,"Не удалось применить checkpoint","Существующая локальная модель не заменена.");
+      }finally{
+        finishTrainingWorker();
+      }
+    };
+    worker.onerror=event=>{
+      finishTrainingWorker();
+      stateLabel.textContent=model.status().trained?"ОБУЧЕНА":"ОШИБКА";
+      stateLabel.dataset.state=model.status().trained?"ready":"error";
+      renderStatus("Фоновое обучение завершилось с ошибкой: "+String(event.message||"ошибка Worker")+". Предыдущая модель сохранена.");
+      setTrainingProgress(0,"Ошибка фонового обучения","Перезагрузи страницу и повтори попытку. Текущие веса не повреждены.");
+    };
+    worker.onmessageerror=()=>{
+      finishTrainingWorker();
+      renderStatus("Не удалось получить результат от фонового процесса. Предыдущая модель сохранена.");
+      setTrainingProgress(0,"Ошибка передачи результата","Существующая модель не заменена.");
+    };
+    worker.postMessage({type:"train",rows});
   });
   analyseButton.addEventListener("click",()=>{
     const text=queryInput.value.trim();

@@ -462,6 +462,7 @@ function create(options={}){
   const shuffleExamples=trainOptions.shuffleExamples===true;
   const shuffleSeed=Math.floor(finite(trainOptions.shuffleSeed,split.seed^0x9e3779b9))>>>0;
   const shuffleRandom=makeRandom(shuffleSeed);
+  const onProgress=typeof trainOptions.onProgress==="function"?trainOptions.onProgress:null;
   const runTrainingEpoch=()=>{
    let order=trainExamples;
    if(shuffleExamples){
@@ -478,14 +479,19 @@ function create(options={}){
   const initialValidation=validationExamples.length?evaluateExamples(validationExamples):{loss:null,accuracy:null,examples:0};
   let bestValidationLoss=initialValidation.loss,bestEpoch=0,bestState=exportState(),staleEpochs=0,epochsRun=0,earlyStopped=false;
   if(splitFallback){
-   for(let epoch=0;epoch<epochs;epoch++){runTrainingEpoch();epochsRun=epoch+1;}
+   for(let epoch=0;epoch<epochs;epoch++){
+    runTrainingEpoch();epochsRun=epoch+1;
+    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch:epochsRun,validationLoss:null});
+   }
    bestEpoch=null;bestState=exportState();
   }else{
    for(let epoch=0;epoch<epochs;epoch++){
     runTrainingEpoch();epochsRun=epoch+1;
     const validation=evaluateExamples(validationExamples);
     if(validation.loss<bestValidationLoss-1e-8){bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;}
-    else{staleEpochs++;if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}}
+    else staleEpochs++;
+    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch,validationLoss:validation.loss});
+    if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}
    }
   }
   const attemptedSteps=trainingSteps;loadState(bestState);const selectedSteps=trainingSteps;
