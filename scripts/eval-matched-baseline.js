@@ -4,10 +4,14 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ngram = require("../ngram-predictor.js");
 
+const SPLIT_SEED = 902;
+const TARGET_TRAIN_SENTENCES = 320;
+const DEFAULT_POOL_SENTENCES = 458;
+
 function readRows(file, limit) {
   return fs.readFileSync(file, "utf8").split(/\r?\n/u).map(s => s.trim()).filter(Boolean).slice(0, limit);
 }
-function makeAttention(trainRows) {
+function makeAttention(candidatePool) {
   const sandbox = { console, globalThis: null };
   sandbox.globalThis = sandbox;
   sandbox.window = sandbox;
@@ -16,8 +20,24 @@ function makeAttention(trainRows) {
   vm.runInContext(source, sandbox, { filename: "contextual-attention.js" });
   if (!sandbox.NGContextualModel) throw new Error("NGContextualModel did not load");
   const model = sandbox.NGContextualModel.create();
-  model.train(trainRows, { epochs: 8 });
+  model.train(candidatePool, { epochs: 8, splitSeed: SPLIT_SEED });
   return model;
+}
+function prepareMatchedData(attentionModel, candidatePool) {
+  if (!attentionModel || typeof attentionModel.splitCorpus !== "function") {
+    throw new TypeError("Attention model must expose its deterministic corpus split.");
+  }
+  const split = attentionModel.splitCorpus(candidatePool, SPLIT_SEED);
+  if (split.train.length !== TARGET_TRAIN_SENTENCES) {
+    throw new Error(
+      "Expected exactly " + TARGET_TRAIN_SENTENCES + " actual training sentences; got " +
+      split.train.length + ". Adjust BENCHMARK_POOL_SENTENCES (currently " + candidatePool.length + ")."
+    );
+  }
+  if (!split.validation.length || !split.test.length) {
+    throw new Error("Matched comparison requires non-empty validation and internal holdout subsets.");
+  }
+  return split;
 }
 function evaluate(predict, rows) {
   let positions = 0, top1 = 0, top5 = 0, top8 = 0;
@@ -44,17 +64,29 @@ function main() {
   if (!trainPath || !validationPath || !testPath) {
     throw new Error("Usage: node scripts/eval-matched-baseline.js train.txt validation.txt test.txt");
   }
-  const trainRows = readRows(trainPath, 320);
-  const validationRows = readRows(validationPath, Number(process.env.VAL_SENTENCES || 300));
+  const candidatePool = readRows(trainPath, Number(process.env.BENCHMARK_POOL_SENTENCES || DEFAULT_POOL_SENTENCES));
   const testRows = readRows(testPath, Number(process.env.TEST_SENTENCES || 5000));
-  if (trainRows.length < 20 || !validationRows.length || !testRows.length) {
-    throw new Error("Need at least 20 shared training sentences and non-empty validation/test files");
+  if (candidatePool.length < DEFAULT_POOL_SENTENCES || !testRows.length) {
+    throw new Error("Need at least " + DEFAULT_POOL_SENTENCES + " candidate-pool sentences and a non-empty external test file.");
+  }
+
+  // Attention performs its own deterministic 70/15/15 split. Derive that exact
+  // partition first, then train N-gram on the same 320 rows and tune it on the
+  // same validation rows. The internal 15% holdout is never used by either model.
+  const attentionModel = makeAttention(candidatePool);
+  const split = prepareMatchedData(attentionModel, candidatePool);
+  const attentionTraining = attentionModel.status().lastTraining;
+  if (!attentionTraining ||
+      attentionTraining.trainRows !== split.train.length ||
+      attentionTraining.validationRows !== split.validation.length ||
+      attentionTraining.testRows !== split.test.length) {
+    throw new Error("Attention training partition does not match the shared deterministic split.");
   }
 
   const ngramModel = ngram.create();
-  ngramModel.train(trainRows);
-  const tuning = ngramModel.tuneWeights(validationRows, { rounds: 1 });
-  const attentionModel = makeAttention(trainRows);
+  const ngramTraining = ngramModel.train(split.train);
+  const tuning = ngramModel.tuneWeights(split.validation, { rounds: 1 });
+
   const ngramMetrics = evaluate((tokens, i) =>
     ngramModel.predictMasked(tokens, i, { limit: 8 }).predictions.map(p => p.token), testRows);
   const attentionMetrics = evaluate((tokens, i) => {
@@ -63,13 +95,28 @@ function main() {
   }, testRows);
 
   const report = {
-    protocol: "matched-data-320",
-    trainSentencesPerModel: trainRows.length,
-    validationSentencesForNgramWeightTuning: validationRows.length,
-    testSentences: testRows.length,
-    ngram: { metrics: ngramMetrics, tuning },
+    protocol: "matched-training-320-shared-validation-v2",
+    candidatePoolSentences: candidatePool.length,
+    trainSentencesPerModel: split.train.length,
+    validationSentencesUsedByBothModels: split.validation.length,
+    internalHoldoutSentencesUnusedByBothModels: split.test.length,
+    splitSeed: SPLIT_SEED,
+    attention: {
+      actualTrainRows: attentionTraining.trainRows,
+      validationRows: attentionTraining.validationRows,
+      internalTestRows: attentionTraining.testRows,
+      selectedEpochs: attentionTraining.epochs,
+      bestEpoch: attentionTraining.bestEpoch
+    },
+    ngram: {
+      actualTrainSentences: ngramTraining.sentences,
+      validationSentences: split.validation.length,
+      metrics: ngramMetrics,
+      tuning
+    },
     contextualAttention: { metrics: attentionMetrics },
-    note: "Both models receive exactly the same 320 training sentences. N-gram weights are tuned only on validation; neither model sees test sentences during training or tuning."
+    testSentences: testRows.length,
+    note: "Both models train on the exact same 320 sentences and use the exact same held-out validation sentences. Attention uses validation for early stopping; N-gram uses it for weight tuning. Neither model sees the external test set during training or tuning. The extra internal holdout subset is unused."
   };
   console.log(JSON.stringify(report, null, 2));
   console.log("matched-data Top-1: attention", pct(attentionMetrics.top1), "| N-gram", pct(ngramMetrics.top1));
@@ -77,4 +124,4 @@ function main() {
   return report;
 }
 if (require.main === module) main();
-module.exports = { main, evaluate };
+module.exports = { main, evaluate, prepareMatchedData };
