@@ -29,8 +29,9 @@ const bookSource = {
 };
 const chatSource = {
   id: "chat-test", dataset: "fixture/chat", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "CC-BY-4.0", url: "https://example.test/chat",
-  role: "dialogue",
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "CC-BY-4.0", url: "https://example.test/chat",
+  rawFileUrl: "https://example.test/chat.jsonl", role: "dialogue",
 };
 const fixtures = {
   "fixture/books": {
