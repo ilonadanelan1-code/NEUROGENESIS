@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
+          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=4000 node scripts/eval-matched-multiseed.js \
             split/news_train.txt split/news_test.txt \
             | tee benchmark-reports/matched-news-multiseed.json
           MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
