@@ -5,10 +5,10 @@
 
 self.window = self;
 importScripts(
-  "./knowledge.js",
-  "./semantic-core.js",
-  "./contextual-attention.js",
-  "./phrase-composition.js"
+  "./knowledge.js?v=0.58.107",
+  "./semantic-core.js?v=0.58.107",
+  "./contextual-attention.js?v=0.58.107",
+  "./phrase-composition.js?v=0.58.107"
 );
 
 self.addEventListener("message", event => {
