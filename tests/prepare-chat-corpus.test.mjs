@@ -35,19 +35,21 @@ const chatSource = {
 const fixtures = {
   "fixture/books": {
     splits: [{ config: "default", split: "train" }],
-    rows: [
-      { text: "Это достаточно длинный фрагмент художественного текста. ".repeat(3) },
-      { text: "Это достаточно длинный фрагмент художественного текста. ".repeat(3) },
-      { text: "Второй уникальный литературный фрагмент. ".repeat(4) },
-    ],
+    rows: Array.from({ length: 60 }, (_, index) => ({
+      text: "Литературный фрагмент номер " + index +
+        " содержит достаточно длинное предложение для проверки обучающего корпуса. ".repeat(2),
+    })),
   },
   "fixture/chat": {
     splits: [{ config: "default", split: "train" }],
     rows: [
-      { language: "ru", type: "chat", messages: [
-        { role: "user", content: "Как дела?" },
-        { role: "assistant", content: "Неплохо, спасибо." },
-      ] },
+      ...Array.from({ length: 60 }, (_, index) => ({
+        language: "ru", type: "chat",
+        messages: [
+          { role: "user", content: "Вопрос для разговора номер " + index + "?" },
+          { role: "assistant", content: "Ответ в тестовом диалоге номер " + index + "." },
+        ],
+      })),
       { language: "en", type: "chat", messages: [
         { role: "user", content: "How are you?" },
         { role: "assistant", content: "Fine." },
@@ -55,10 +57,6 @@ const fixtures = {
       { language: "ru", type: "coding", messages: [
         { role: "user", content: "Напиши код." },
         { role: "assistant", content: "Вот пример." },
-      ] },
-      { language: "ru", type: "chat", messages: [
-        { role: "user", content: "Что читаешь?" },
-        { role: "assistant", content: "Сейчас — Чехова." },
       ] },
     ],
   },
@@ -88,7 +86,7 @@ assert.equal(result.manifest.sources[0].license, "CC0-1.0");
 assert.match(result.manifest.splitMethod, /NOT author- or document-disjoint/u);
 assert.equal(result.manifest.sources[1].localSplitCounts.train +
   result.manifest.sources[1].localSplitCounts.validation +
-  result.manifest.sources[1].localSplitCounts.test, 2,
-  "only two Russian general-chat rows should remain after filtering");
+  result.manifest.sources[1].localSplitCounts.test, 60,
+  "only Russian general-chat rows should remain after filtering");
 
 console.log("Open Russian corpus preparation contract passed.");
