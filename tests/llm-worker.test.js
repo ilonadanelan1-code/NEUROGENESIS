@@ -140,6 +140,13 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(healthData.configured, true);
   assert.deepEqual(Array.from(healthData.fallbackModels), ["openrouter/free"]);
 
+  response = await worker.fetch(request("/api/health", {
+    headers: { Authorization: "Bearer client-test-token" }
+  }), { ...env, UPSTREAM_MODEL: "" });
+  assert.equal(response.status, 503,
+    "a fallback model must not silently replace a missing primary model");
+  assert.equal((await response.json()).configured, false);
+
   response = await worker.fetch(request("/api/chat", {
     method: "POST", headers: { Authorization: "Bearer wrong" }, body: JSON.stringify({ messages: [{ role: "user", content: "Привет" }] })
   }), env);
