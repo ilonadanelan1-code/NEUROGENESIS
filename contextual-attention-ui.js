@@ -134,6 +134,9 @@
           setTrainingProgress(fraction*82,"Контекстная модель · эпоха "+data.epoch+" / "+data.totalEpochs,
             "Проверка выполняется на отложенных предложениях. Лучшая эпоха: "+(data.bestEpoch||"пока не выбрана")+
             (Number.isFinite(data.validationLoss)?" · val loss "+data.validationLoss.toFixed(3):""));
+        }else if(data.phase==="phrase-preparing"){
+          setTrainingProgress(83,"Подготовка фразовой модели",
+            "Собираю примеры и проверяю связи между словами. Граф и остальные вкладки продолжают работать.");
         }else if(data.phase==="phrase"){
           const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
           setTrainingProgress(82+fraction*18,"Фразовая структура · эпоха "+data.epoch+" / "+data.totalEpochs,
