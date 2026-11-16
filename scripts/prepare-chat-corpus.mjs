@@ -655,7 +655,7 @@ export async function prepareCorpus(options = {}) {
   const manifest = {
     schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
     createdAt: new Date().toISOString(),
-    method: "Hugging Face datasets-server rows/filter API plus bounded streaming of normalized text and JSONL files; deterministic per-source sampling; exact duplicate removal.",
+    method: "Hugging Face datasets-server rows/filter API plus bounded streaming of normalized text, JSONL and CSV files; deterministic per-source sampling; exact duplicate removal.",
     splitMethod: "Deterministic per-source 90/5/5 split, with at least one validation and one test row per source. It is NOT author- or document-disjoint.",
     sources: results.map(result => ({
       id: result.source.id,
@@ -663,6 +663,7 @@ export async function prepareCorpus(options = {}) {
       url: result.source.url,
       license: result.source.license,
       role: result.source.role,
+      optional: result.source.optional === true,
       config: result.config,
       upstreamSplit: result.split,
       rawFileUrl: result.source.rawFileUrl || null,
