@@ -3,7 +3,7 @@ const MAX_BODY = 32000;
 const MAX_UPSTREAM_BODY = 128000;
 const MAX_MESSAGES = 18;
 const MAX_MESSAGE_CHARS = 5200;
-const UPSTREAM_TIMEOUT_MS = 45000;
+const UPSTREAM_TIMEOUT_MS = 65000;
 const PIXEL_GIF = new Uint8Array([71,73,70,56,57,97,1,0,1,0,128,0,0,0,0,0,255,255,255,33,249,4,1,0,0,0,0,44,0,0,0,0,1,0,1,0,0,2,2,68,1,0,59]);
 
 function json(data, status, cors) {
@@ -152,7 +152,7 @@ export default {
           model: env.UPSTREAM_MODEL,
           messages,
           temperature: 0.7,
-          max_tokens: 900,
+          max_tokens: 1800,
           stream: false
         }),
         signal: controller.signal
@@ -192,7 +192,7 @@ export default {
     if (typeof reply !== "string" || !reply.trim()) return json({ error: "empty_model_response" }, 502, cors);
     return json({
       ok: true,
-      reply: reply.trim().slice(0, 8000),
+      reply: reply.trim().slice(0, 12000),
       model: env.UPSTREAM_MODEL,
       usage: result.usage && typeof result.usage === "object" ? {
         prompt_tokens: Number(result.usage.prompt_tokens) || 0,
