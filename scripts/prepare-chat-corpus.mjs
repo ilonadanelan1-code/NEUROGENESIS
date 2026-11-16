@@ -18,6 +18,17 @@ const SOURCES = [
     role: "literature",
   },
   {
+    id: "ruheritage-poetry",
+    dataset: "maxzt/RuHeritage-Corpus",
+    pageLimit: 20,
+    maxRows: 1000,
+    maxCharacters: 800_000,
+    license: "CC-BY-4.0",
+    url: "https://huggingface.co/datasets/maxzt/RuHeritage-Corpus",
+    where: "\"author\"='Александр Пушкин' OR \"author\"='Михаил Лермонтов' OR \"author\"='Александр Блок' OR \"author\"='Анна Ахматова' OR \"author\"='Сергей Есенин' OR \"author\"='Марина Цветаева'",
+    role: "literature-filtered",
+  },
+  {
     id: "tiny-russian-dialogs",
     dataset: "Fmluder/Tiny-Russian-Dialogs",
     pageLimit: 40,
@@ -191,7 +202,7 @@ function openAssistantRowsToPairs(rawRows, source) {
 
 function extractText(source, row) {
   if (source.role === "qa") return qaDialogueText(row);
-  if (source.role === "literature") {
+  if (source.role === "literature" || source.role === "literature-filtered") {
     const candidates = ["text", "content", "document"];
     for (const key of candidates) {
       const value = normalize(row?.[key]);
@@ -422,7 +433,9 @@ async function collectSource(fetchImpl, source) {
       dataset: source.dataset, config, split,
       offset: String(offset), length: String(length),
     });
-    const payload = await fetchJson(fetchImpl, API + "/rows?" + query.toString());
+    if (source.where) query.set("where", source.where);
+    const endpoint = source.where ? "/filter?" : "/rows?";
+    const payload = await fetchJson(fetchImpl, API + endpoint + query.toString());
     const batch = Array.isArray(payload?.rows) ? payload.rows : [];
     if (!batch.length) break;
     requests += 1;
@@ -536,6 +549,9 @@ export async function prepareCorpus(options = {}) {
       filters: result.source.role === "literature"
         ? ["stream first 4 MiB of corpus_clean.norm.txt", "split at blank lines",
           "keep paragraphs of at least 100 characters", "remove exact duplicates"]
+        : result.source.role === "literature-filtered"
+          ? ["filter author in the selected classical poets", "keep text fields of at least 80 characters",
+            "remove exact duplicate text"]
         : result.source.role === "oasst"
           ? ["filter lang == ru and deleted == false", "reconstruct assistant replies from parent prompter messages",
             "exclude deleted, synthetic and review_result == false rows"]
@@ -549,6 +565,8 @@ export async function prepareCorpus(options = {}) {
           : ["non-empty text/content/document field, at least 80 characters"],
       attribution: result.source.id === "imperius-ru-classic"
         ? "Imperius/ru-classic, CC0-1.0; Russian classical texts originally from lib.ru."
+        : result.source.id === "ruheritage-poetry"
+          ? "maxzt/RuHeritage-Corpus, CC BY 4.0; curated Russian public-domain literary texts from Russian Wikisource, filtered to selected poets."
         : result.source.id === "tiny-russian-dialogs"
           ? "Fmluder, Tiny-Russian-Dialogs, CC0-1.0; adapted as user/assistant turns."
           : result.source.id === "openassistant-ru"
@@ -572,6 +590,7 @@ export async function prepareCorpus(options = {}) {
       "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
       "The literature sample is a 4 MiB prefix of the upstream normalized text, not the entire 866 MB corpus.",
       "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
+      "RuHeritage poetry samples are filtered by selected author names; the upstream dataset mixes verse and prose and does not provide a dedicated genre field.",
       "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
       "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
     ],
