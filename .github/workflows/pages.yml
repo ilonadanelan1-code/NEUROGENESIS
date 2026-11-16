@@ -320,6 +320,9 @@ jobs:
       - name: Pretrain contextual model from original Russian corpus
         run: node scripts/pretrain-contextual-model.mjs
 
+      - name: Verify pre-trained contextual checkpoint
+        run: node tests/pretrained-contextual-checkpoint.test.mjs
+
       - name: Upload pre-trained contextual checkpoint
         uses: actions/upload-artifact@v4
         with:
