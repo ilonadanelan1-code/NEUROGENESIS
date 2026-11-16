@@ -169,6 +169,7 @@ function openAssistantRowsToPairs(rawRows, source) {
   const byId = new Map(rows.map(row => [row.message_id, row]));
   const pairs = [];
   const seen = new Set();
+  let characters = 0;
   for (const assistant of rows) {
     if (assistant.role !== "assistant" || !assistant.parent_id) continue;
     if (assistant.review_result === false) continue;
@@ -182,7 +183,8 @@ function openAssistantRowsToPairs(rawRows, source) {
     if (seen.has(pair)) continue;
     seen.add(pair);
     pairs.push(pair);
-    if (pairs.reduce((sum, row) => sum + row.length, 0) >= source.maxCharacters) break;
+    characters += pair.length;
+    if (characters >= source.maxCharacters) break;
   }
   return pairs;
 }
@@ -373,10 +375,11 @@ async function collectOpenAssistant(fetchImpl, source) {
   let requests = 0;
   let offset = 0;
   while (rawRows.length < source.maxRows && requests < source.pageLimit) {
+    const requestedLength = Math.min(100, source.maxRows - rawRows.length);
     const query = new URLSearchParams({
       dataset: source.dataset, config, split,
       where: source.where, offset: String(offset),
-      length: String(Math.min(100, source.maxRows - rawRows.length)),
+      length: String(requestedLength),
     });
     const payload = await fetchJson(fetchImpl, API + "/filter?" + query.toString());
     const batch = Array.isArray(payload?.rows) ? payload.rows.map(item => item?.row).filter(Boolean) : [];
@@ -384,7 +387,7 @@ async function collectOpenAssistant(fetchImpl, source) {
     rawRows.push(...batch);
     offset += batch.length;
     requests += 1;
-    if (batch.length < Math.min(100, source.maxRows - rawRows.length + batch.length)) break;
+    if (batch.length < requestedLength) break;
   }
   const pairs = openAssistantRowsToPairs(rawRows, source);
   if (!pairs.length) {
@@ -569,6 +572,8 @@ export async function prepareCorpus(options = {}) {
       "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
       "The literature sample is a 4 MiB prefix of the upstream normalized text, not the entire 866 MB corpus.",
       "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
+      "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
+      "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
       "Tiny-Russian-Dialogs is synthetic and has repeated answer templates; it is supplementary, not a substitute for human dialogue.",
       "OASST1 contains multiple reply branches; only direct Russian prompter-to-assistant pairs are reconstructed, not complete conversation trees.",
     ],
