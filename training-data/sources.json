@@ -73,21 +73,31 @@
       "license": "Apache-2.0",
       "role": "Human-generated Russian assistant conversation messages.",
       "selection": {
-        "split": "train",
-        "filter": "\"lang\"='ru' AND \"deleted\"=false",
-        "maxRows": 1000,
-        "fields": [
-          "message_id",
+        "file": "2023-04-12_oasst_ready.messages.jsonl.gz",
+        "streamLimitBytes": 41943040,
+        "filter": {
+          "lang": "ru",
+          "deleted": false,
+          "synthetic": false,
+          "roles": [
+            "prompter",
+            "assistant"
+          ]
+        },
+        "pairBy": [
           "parent_id",
-          "role",
-          "lang",
-          "text"
-        ]
+          "message_id"
+        ],
+        "roles": {
+          "question": "prompter",
+          "answer": "assistant"
+        }
       },
-      "attribution": "OpenAssistant, OASST1, Apache-2.0; adapted by filtering Russian messages and reconstructing parent/reply pairs.",
+      "attribution": "OpenAssistant, OASST1, Apache-2.0; adapted from the ready messages export by filtering Russian messages and reconstructing direct parent/reply pairs.",
       "limitations": [
-        "Only direct prompter-to-assistant parent/reply pairs are reconstructed",
-        "Multiple alternative reply branches are not treated as complete conversations"
+        "Only direct prompter-to-assistant parent/reply pairs are reconstructed.",
+        "Alternative assistant reply branches are kept as independent examples, not complete conversation trees.",
+        "Only the ready_for_export messages archive is used."
       ],
       "optional": true
     },
