@@ -37,6 +37,7 @@ const SOURCES = [
     url: "https://huggingface.co/datasets/OpenAssistant/oasst1",
     where: "\"lang\"='ru' AND \"deleted\"=false",
     role: "oasst",
+    optional: true,
   },
   {
     id: "ru-dataset-small",
@@ -480,7 +481,18 @@ export async function prepareCorpus(options = {}) {
   if (typeof fetchImpl !== "function") throw new TypeError("A Fetch-compatible function is required.");
   const sources = options.sources || SOURCES;
   const results = [];
-  for (const source of sources) results.push(await collectSource(fetchImpl, source));
+  const skippedSources = [];
+  for (const source of sources) {
+    try {
+      results.push(await collectSource(fetchImpl, source));
+    } catch (error) {
+      if (!source.optional) throw error;
+      skippedSources.push({
+        id: source.id, dataset: source.dataset,
+        reason: String(error?.message || error).slice(0, 500),
+      });
+    }
+  }
 
   const buckets = { train: [], validation: [], test: [] };
   const countsBySource = {};
@@ -547,8 +559,10 @@ export async function prepareCorpus(options = {}) {
     totals: Object.fromEntries(Object.entries(buckets).map(([key, value]) =>
       [key, { rows: value.length, characters: value.reduce((sum, text) => sum + text.length, 0) }])),
     countsBySource,
+    skippedSources,
     limitations: [
-      "This is a small sampled training corpus, not the complete upstream datasets.",
+      "This is a bounded training sample, not the complete upstream datasets.",
+      "Optional source failures are recorded in skippedSources and do not silently appear as training data.",
       "The validation and test splits are row-level, not author- or document-disjoint.",
       "Literary next-token training teaches language patterns, not reliable factual knowledge.",
       "The instruction dataset contains explicit <think> blocks; these are removed before training and only assistant final text is kept.",
