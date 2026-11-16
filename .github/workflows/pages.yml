@@ -340,11 +340,15 @@ jobs:
           node tests/memory-navigation.test.js
           node tests/backup-import-transaction.test.js
           node tests/prepare-chat-corpus.test.mjs
+          node tests/workflow-ci-scope.test.js
           node tests/storage-transaction.test.js
 
 
   prepare-open-chat-corpus:
     name: Prepare and pilot a bounded open Russian corpus
+    # Full source preparation/training is expensive; run it on main pushes
+    # and manual dispatches, not on every unrelated pull request.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
