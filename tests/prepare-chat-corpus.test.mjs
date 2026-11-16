@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { gzipSync } from "node:zlib";
 import { prepareCorpus, __test } from "../scripts/prepare-chat-corpus.mjs";
 
 assert.deepEqual(__test.chooseTrainingSplit({
@@ -84,9 +85,10 @@ const qaSource = {
   rawCsvUrl: "https://example.test/qa.csv", role: "qa",
 };
 const oasstSource = {
-  id: "oasst-test", dataset: "fixture/oasst", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "Apache-2.0", url: "https://example.test/oasst",
-  where: '"lang"=\'ru\' AND "deleted"=false', role: "oasst",
+  id: "oasst-test", dataset: "fixture/oasst", maxRows: 100,
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "Apache-2.0", url: "https://example.test/oasst",
+  rawGzipJsonlUrl: "https://example.test/oasst.gz", role: "oasst",
 };
 const everydaySource = {
   id: "everyday-test", dataset: "fixture/everyday", pageLimit: 1, maxRows: 100,
@@ -145,8 +147,14 @@ const fixtures = {
     })),
   },
 };
+const oasstGzip = gzipSync(Buffer.from(
+  fixtures["fixture/oasst"].rows.map(row => JSON.stringify(row)).join("\n")
+));
 const fetchImpl = async url => {
   const parsed = new URL(url);
+  if (parsed.pathname.endsWith("/oasst.gz")) {
+    return { ok: true, body: new Blob([oasstGzip]).stream() };
+  }
   if (parsed.pathname.endsWith("/books.txt")) {
     return { ok: true, text: async () => fixtures["fixture/books"].text };
   }
@@ -227,6 +235,7 @@ assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-p
 assert.ok(fixtures["fixture/poetry"].rows.some(row => row.author === "Михаил Ломоносов"), "the first RuHeritage author must be accepted");
 assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
 assert.match(result.manifest.sources[2].rawCsvUrl, /qa\.csv/u);
+assert.match(result.manifest.sources[3].rawGzipJsonlUrl, /oasst\.gz/u);
 assert.match(result.manifest.sources[4].rawFileUrl, /instruction\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
