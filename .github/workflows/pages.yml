@@ -52,6 +52,7 @@ jobs:
           node --check contextual-training-worker.js
           node --check sidebar-navigation.js
           node --check scripts/pretrain-contextual-model.mjs
+          node --check scripts/pretrain-contextual-corpus-pilot.mjs
           node --check scripts/prepare-chat-corpus.mjs
           node --check semantic-retrieval.js
           node --check llm-bridge.js
@@ -343,9 +344,9 @@ jobs:
 
 
   prepare-open-chat-corpus:
-    name: Prepare bounded open Russian chat corpus
+    name: Prepare and pilot a bounded open Russian corpus
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -355,10 +356,15 @@ jobs:
         with:
           node-version: 22
 
-      # This is a non-blocking data-source probe. The app build and Pages deploy
-      # must remain independent from third-party dataset-viewer availability.
+      # Keep source preparation and the experimental pilot isolated from Pages deploy.
       - name: Fetch a bounded, license-tracked corpus sample
         run: node scripts/prepare-chat-corpus.mjs
+
+      - name: Build the original starter-model baseline
+        run: node scripts/pretrain-contextual-model.mjs
+
+      - name: Train and evaluate a source-balanced contextual pilot
+        run: node scripts/pretrain-contextual-corpus-pilot.mjs training-data/generated
 
       - name: Upload prepared corpus and provenance report
         if: always()
@@ -368,6 +374,17 @@ jobs:
           path: training-data/generated/
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Upload isolated contextual pilot report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-contextual-corpus-pilot
+          path: |
+            benchmark-reports/contextual-corpus-pilot-v1.json
+            training-data/generated/contextual-corpus-pilot-checkpoint.json
+          if-no-files-found: warn
+          retention-days: 14
 
 
   deploy:
