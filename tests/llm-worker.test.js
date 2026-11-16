@@ -154,7 +154,9 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
   assert.equal(upstreamCalls.length, 1);
   assert.equal(upstreamCalls[0].options.headers.Authorization, "Bearer provider-secret",
     "the provider key must be added only by the server worker");
-  assert.equal(upstreamCalls[0].options.body.includes("provider-secret"), false);\n  assert.equal(JSON.parse(upstreamCalls[0].options.body).max_tokens, 1800,\n    "the Worker must request the expanded conversational completion budget");
+  assert.equal(upstreamCalls[0].options.body.includes("provider-secret"), false);
+  assert.equal(JSON.parse(upstreamCalls[0].options.body).max_tokens, 1800,
+    "the Worker must request the expanded conversational completion budget");
 
   const multibytePayload = JSON.stringify({
     messages: [{ role: "user", content: "я".repeat(16001) }]
