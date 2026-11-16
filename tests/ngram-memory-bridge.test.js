@@ -31,15 +31,20 @@ assert.ok(updated.generation > initial.generation);
 const rebuilt = bridge.rebuild([{ text: "сеть хранит данные в памяти" }]);
 assert.equal(rebuilt.sourceMemories, 1);
 assert.equal(rebuilt.indexedMemories, 1);
-assert.deepEqual(bridge.suggest("нейрон получает импульс от соседа"), []);
+const afterRebuild = bridge.suggest("нейрон получает импульс от соседа");
+assert.ok(!afterRebuild.some(item => item.token === "сигнал"), "removed training text must not survive a rebuild");
 
 // The index enforces a bounded training budget and reports omitted memories.
 const bounded = bridgeApi.create({ predictor, maxTrainingTokens: 1000 });
+const longMemory = Array(230).fill("факт").join(" ");
 const budgetStatus = bounded.rebuild([
-  { text: "первое предложение содержит несколько важных слов" },
-  { text: "второе предложение содержит несколько важных слов" }
+  longMemory + " первый",
+  longMemory + " второй",
+  longMemory + " третий",
+  longMemory + " четвертый",
+  longMemory + " пятый"
 ]);
 assert.ok(budgetStatus.indexedTokens <= 1000);
-assert.equal(budgetStatus.droppedMemories, 0);
+assert.ok(budgetStatus.droppedMemories > 0);
 
 console.log("ngram-memory-bridge tests passed");
