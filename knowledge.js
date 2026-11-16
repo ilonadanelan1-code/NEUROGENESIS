@@ -363,10 +363,10 @@
     if(event.type==="transition")return event.at>=period.start&&event.at<period.end;
     return start<period.end&&end>period.start;
   }
-  function temporalHistoryAnswer(query, claims) {
+  function temporalHistoryAnswer(query, claims, referenceTime = Date.now()) {
     const q=normalise(query);
     if(!q)return null;
-    const period=temporalPeriodFromQuery(query);
+    const period=temporalPeriodFromQuery(query,referenceTime);
     const asksKnown=/(?:что ты знал|что тебе было известно|что было известно|что было в памяти|какие сведения уже были известны)/u.test(q);
     const asksChange=/(?:когда изменил|когда изменилось|когда сменил|когда сменилось|когда переехал|когда перешел|когда перешла|когда перешли|в какой момент измен|в какой момент смен)/u.test(q);
     const asksSimultaneous=/(?:одновременно|было истинно|было верно|было актуально)/u.test(q);
@@ -1369,7 +1369,7 @@
     return {answer,hypotheses:ranked,sharedEdges:shared,claimIds:[...new Set(claimIds)],counterexampleCount:ranked.reduce((sum,item)=>sum+item.counterexamples.length,0)};
   }
 
-  function answerQuestion(query, claims) {
+  function answerQuestion(query, claims, referenceTime = Date.now()) {
     const q = normalise(query);
     if (!q || !Array.isArray(claims)) return null;
     const qWords = new Set(q.split(/\s+/u));
@@ -1383,9 +1383,9 @@
         /^каким ты меня знаешь$/u.test(q)) {
       return userProfile(claims);
     }
-    const historyAnswer=temporalHistoryAnswer(query,claims);
+    const historyAnswer=temporalHistoryAnswer(query,claims,referenceTime);
     if(historyAnswer)return historyAnswer;
-    const temporalAnswer=temporalLocationAnswer(query,claims);
+    const temporalAnswer=temporalLocationAnswer(query,claims,referenceTime);
     if(temporalAnswer)return temporalAnswer;
     const hypothesisPriority=prioritizeHypotheses(query,claims);
     if(hypothesisPriority)return hypothesisPriority.answer;

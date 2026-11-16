@@ -1,0 +1,156 @@
+name: N-gram corpus experiment
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ngram-predictor.js"
+      - "scripts/ngram-compact.js"
+      - "scripts/train-compact.js"
+      - "scripts/eval-compact.js"
+      - "scripts/prepare-corpus.py"
+      - "scripts/eval-matched-baseline.js"
+      - "scripts/eval-matched-multiseed.js"
+      - "tests/ngram-*"
+      - "docs/NGRAM_CORPUS_EXPERIMENT.md"
+      - ".github/workflows/ngram-corpus-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run small deterministic tests
+        run: |
+          node --check ngram-predictor.js
+          node --check scripts/ngram-compact.js
+          node --check scripts/train-compact.js
+          node --check scripts/eval-compact.js
+          node --check scripts/eval-matched-baseline.js
+          node --check scripts/eval-matched-multiseed.js
+          node tests/ngram-predictor.test.js
+          node tests/ngram-compact.test.js
+          node tests/ngram-matched-benchmark.test.js
+          node tests/ngram-matched-multiseed.test.js
+          python tests/ngram-corpus-pipeline.test.py
+
+      - name: Download Leipzig Russian news corpus
+        run: |
+          mkdir -p data/leipzig data/ruslit
+          curl --fail --location --retry 3 --retry-delay 2 \
+            https://downloads.wortschatz-leipzig.de/corpora/rus_news_2024_1M.tar.gz \
+            --output data/rus_news_2024_1M.tar.gz
+          tar -xzf data/rus_news_2024_1M.tar.gz -C data/leipzig
+          find data/leipzig -name "rus_news_2024_1M-sentences.txt" -print -quit | grep .
+
+      - name: Download Leipzig sentence-to-source mapping
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://huggingface.co/datasets/rustemgareev/wortschatz/resolve/main/data/inv_so/rus_news_2024_1M.tsv?download=true" \
+            --output data/rus_news_2024_1M-inv_so.tsv
+          test -s data/rus_news_2024_1M-inv_so.tsv
+          echo "Leipzig inv_so rows: $(wc -l < data/rus_news_2024_1M-inv_so.tsv)"
+
+      - name: Download RusLit corpus and record source revision
+        run: |
+          git clone --depth 1 https://github.com/d0rj/RusLit.git data/RusLit
+          git -C data/RusLit rev-parse HEAD | tee benchmark-reports-ruslit-revision.txt
+
+      - name: Build leakage-aware corpus splits
+        run: |
+          NEWS_FILE="$(find data/leipzig -name 'rus_news_2024_1M-sentences.txt' -print -quit)"
+          python scripts/prepare-corpus.py \
+            --news "$NEWS_FILE" \
+            --news-inv-so data/rus_news_2024_1M-inv_so.tsv \
+            --ruslit-dir data/RusLit \
+            --output-dir split \
+            --seed 20261116
+          mkdir -p benchmark-reports
+          cp split/manifest.json benchmark-reports/corpus-manifest.json
+          cp benchmark-reports-ruslit-revision.txt benchmark-reports/ruslit-revision.txt
+
+      - name: Train and evaluate all three compact models
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-reports
+          train_model() {
+            local input="$1"
+            local out="$2"
+            local count
+            count="$(wc -l < "$input" | tr -d ' ')"
+            test "$count" -gt 0
+            for attempt in 1 2 3 4; do
+              BUDGET_SEC=900 MIN_TOTAL=2 node scripts/train-compact.js "$input" "$count" "$out"
+              local built
+              built="$(find "$out/channels" -name 'ch*.cnt' 2>/dev/null | wc -l | tr -d ' ')"
+              if [ "$built" -eq 20 ]; then return 0; fi
+            done
+            echo "Expected 20 channels in $out" >&2
+            return 1
+          }
+          train_model split/news_train.txt model-news
+          train_model split/lit_train.txt model-lit
+          train_model split/mixed_balanced_train.txt model-hybrid
+
+          TEST_N=12000 ROUNDS=1 node scripts/eval-compact.js \
+            model-news split/news_val.txt 4000 split/news_test.txt split/lit_test.txt \
+            | tee benchmark-reports/news-model.txt
+          TEST_N=12000 ROUNDS=1 node scripts/eval-compact.js \
+            model-lit split/lit_val.txt 4000 split/lit_test.txt split/news_test.txt \
+            | tee benchmark-reports/literature-model.txt
+          TEST_N=12000 ROUNDS=1 node scripts/eval-compact.js \
+            model-hybrid split/mixed_balanced_val.txt 6000 split/news_test.txt split/lit_test.txt \
+            | tee benchmark-reports/hybrid-model.txt
+
+      - name: Compare models with extended attention training on identical 224 and 48 sentence splits
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_SENTENCES=8000 node scripts/eval-matched-baseline.js \
+            split/news_train.txt split/news_test.txt \
+            | tee benchmark-reports/matched-news-224.json
+          TEST_SENTENCES=8000 node scripts/eval-matched-baseline.js \
+            split/lit_train.txt split/lit_test.txt \
+            | tee benchmark-reports/matched-literature-224.json
+
+      - name: Compare models over five matched seeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MATCHED_SEEDS=902,903,904,905,906
+          export TEST_SENTENCES=4000
+          export ATTENTION_EPOCHS=40
+          export ATTENTION_PATIENCE=10
+          node scripts/eval-matched-multiseed.js split/news_train.txt split/news_test.txt \
+            | tee benchmark-reports/matched-news-multiseed.json
+          node scripts/eval-matched-multiseed.js split/lit_train.txt split/lit_test.txt \
+            | tee benchmark-reports/matched-literature-multiseed.json
+
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-ngram-corpus-benchmark-v4
+          path: |
+            benchmark-reports/
+            benchmark-reports-ruslit-revision.txt
+          if-no-files-found: warn
+          retention-days: 30

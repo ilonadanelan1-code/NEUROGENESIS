@@ -118,7 +118,7 @@ const lastWeekFact=knowledge.extractClaims("На прошлой неделе я 
 assert.ok(lastWeekFact,"the common phrase «на прошлой неделе» should produce a bounded claim");
 assert.equal(lastWeekFact.validFrom,new Date(2026,10,2).getTime());
 assert.equal(lastWeekFact.validTo,new Date(2026,10,9).getTime());
-assert.match(knowledge.answerQuestion("Где я жил на прошлой неделе?",[lastWeekFact]),/Казани/u);
+assert.match(knowledge.answerQuestion("Где я жил на прошлой неделе?",[lastWeekFact],temporalAnchor),/Казани/u);
 
 const lastSummerFact=knowledge.extractClaims("С прошлого лета я живу в Париже",temporalAnchor)[0];
 assert.ok(lastSummerFact,"a since-season phrase without an explicit subject pronoun should be extracted");
