@@ -65,17 +65,17 @@ def main():
             for split in ("train", "val", "test")
         }
         for group_sentences in [
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[:2]},
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[2:4]},
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[4:6]},
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[6:8]},
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[8:10]},
-            {" ".join(re.findall(r"[^\\W_]+", row.split("\\t", 1)[1].casefold().replace("ё", "е")))
+            {" ".join(re.findall(r"[^\W_]+", row.split("\t", 1)[1].casefold().replace("ё", "е")))
              for row in news_rows[10:12]},
         ]:
             present = [split for split, rows in news_splits.items() if group_sentences & rows]
