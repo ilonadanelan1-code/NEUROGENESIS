@@ -32,18 +32,19 @@ const SOURCES = [
   {
     id: "tiny-russian-dialogs",
     dataset: "Fmluder/Tiny-Russian-Dialogs",
-    pageLimit: 40,
     maxRows: 4000,
     maxCharacters: 500_000,
+    maxDownloadBytes: 1 * 1024 * 1024,
     license: "CC0-1.0",
     url: "https://huggingface.co/datasets/Fmluder/Tiny-Russian-Dialogs",
+    rawCsvUrl: "https://huggingface.co/datasets/Fmluder/Tiny-Russian-Dialogs/resolve/main/Tiny-Russian-Dialogs.csv",
     role: "qa",
   },
   {
     id: "openassistant-ru",
     dataset: "OpenAssistant/oasst1",
-    pageLimit: 100,
-    maxRows: 10000,
+    pageLimit: 10,
+    maxRows: 1000,
     maxCharacters: 1_000_000,
     license: "Apache-2.0",
     url: "https://huggingface.co/datasets/OpenAssistant/oasst1",
@@ -54,11 +55,12 @@ const SOURCES = [
   {
     id: "ru-dataset-small",
     dataset: "ru-dataset/ru-dataset-small",
-    pageLimit: 30,
-    maxRows: 2650,
-    maxCharacters: 1_500_000,
+    maxRows: 1000,
+    maxCharacters: 300_000,
+    maxDownloadBytes: 512 * 1024,
     license: "Apache-2.0",
     url: "https://huggingface.co/datasets/ru-dataset/ru-dataset-small",
+    rawFileUrl: "https://huggingface.co/datasets/ru-dataset/ru-dataset-small/resolve/main/dataset-3/dataset-00018-of-00020.jsonl",
     role: "dialogue",
   },
   {
@@ -301,6 +303,119 @@ async function collectDialogueFile(fetchImpl, source) {
   };
 }
 
+async function collectCsvDialogue(fetchImpl, source) {
+  const maxBytes = source.maxDownloadBytes;
+  const response = await fetchImpl(source.rawCsvUrl, {
+    headers: {
+      Accept: "text/csv, text/plain",
+      Range: "bytes=0-" + (maxBytes - 1),
+      "User-Agent": "NEUROGENESIS-open-corpus-preparer/1.0",
+    },
+  });
+  if (!response.ok) throw responseError(response, source.rawCsvUrl);
+
+  const rows = [];
+  const seen = new Set();
+  let characters = 0;
+  let rawRows = 0;
+  let downloadedBytes = 0;
+  let headers = null;
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  let skipNextLf = false;
+
+  const acceptRow = () => {
+    row.push(cell);
+    cell = "";
+    if (!headers) {
+      headers = row.map(value => value.replace(/^\uFEFF/u, "").trim().toLowerCase());
+    } else {
+      rawRows += 1;
+      const record = {
+        q: row[headers.indexOf("q")] || "",
+        a: row[headers.indexOf("a")] || "",
+      };
+      const normalized = extractText(source, record);
+      if (normalized && !seen.has(normalized)) {
+        seen.add(normalized);
+        rows.push(normalized);
+        characters += normalized.length;
+      }
+    }
+    row = [];
+  };
+  const consume = text => {
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (skipNextLf) {
+        skipNextLf = false;
+        if (char === "\n") continue;
+      }
+      if (inQuotes) {
+        if (char === '"' && text[index + 1] === '"') {
+          cell += '"';
+          index += 1;
+        } else if (char === '"') {
+          inQuotes = false;
+        } else {
+          cell += char;
+        }
+      } else if (char === '"' && cell.length === 0) {
+        inQuotes = true;
+      } else if (char === ",") {
+        row.push(cell);
+        cell = "";
+      } else if (char === "\n" || char === "\r") {
+        acceptRow();
+        if (char === "\r") skipNextLf = true;
+      } else {
+        cell += char;
+      }
+      if (rows.length >= source.maxRows || characters >= source.maxCharacters) return false;
+    }
+    return true;
+  };
+
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    try {
+      while (downloadedBytes < maxBytes && rows.length < source.maxRows &&
+             characters < source.maxCharacters) {
+        const next = await reader.read();
+        if (next.done) break;
+        const chunk = next.value instanceof Uint8Array ? next.value : new Uint8Array(next.value);
+        const allowed = Math.min(chunk.byteLength, maxBytes - downloadedBytes);
+        downloadedBytes += allowed;
+        const keepReading = consume(decoder.decode(chunk.subarray(0, allowed), { stream: true }));
+        if (!keepReading || allowed < chunk.byteLength) break;
+      }
+      const tail = decoder.decode();
+      if (tail) consume(tail);
+      if (cell || row.length) acceptRow();
+    } finally {
+      try { await reader.cancel(); } catch {}
+    }
+  } else if (typeof response.text === "function") {
+    const body = await response.text();
+    downloadedBytes = new TextEncoder().encode(body).byteLength;
+    consume(body);
+    if (cell || row.length) acceptRow();
+  } else {
+    throw new Error("The CSV source response has no readable body.");
+  }
+
+  if (!rows.length) {
+    throw new Error("No Russian q/a rows were extracted from " + source.rawCsvUrl);
+  }
+  return {
+    source, config: "raw-csv", split: "train",
+    rows, rawRows, requests: 1, characters,
+    uniqueRows: rows.length, downloadedBytes,
+  };
+}
+
 async function collectLiteratureFile(fetchImpl, source) {
   const maxBytes = source.maxDownloadBytes;
   const response = await fetchImpl(source.rawTextUrl, {
@@ -418,6 +533,7 @@ async function collectOpenAssistant(fetchImpl, source) {
 async function collectSource(fetchImpl, source) {
   if (source.role === "oasst") return collectOpenAssistant(fetchImpl, source);
   if (source.rawTextUrl) return collectLiteratureFile(fetchImpl, source);
+  if (source.rawCsvUrl) return collectCsvDialogue(fetchImpl, source);
   if (source.rawFileUrl) return collectDialogueFile(fetchImpl, source);
   const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
   const splitsPayload = await fetchJson(fetchImpl, splitsUrl);
@@ -542,6 +658,7 @@ export async function prepareCorpus(options = {}) {
       config: result.config,
       upstreamSplit: result.split,
       rawFileUrl: result.source.rawFileUrl || null,
+      rawCsvUrl: result.source.rawCsvUrl || null,
       rawTextUrl: result.source.rawTextUrl || null,
       downloadedBytes: result.downloadedBytes ?? null,
       fetchedRows: result.rawRows,
@@ -555,6 +672,8 @@ export async function prepareCorpus(options = {}) {
         : result.source.role === "literature-filtered"
           ? ["stream the public JSONL backup", "keep selected classical-poet author names",
             "keep text fields of at least 80 characters", "remove exact duplicate text"]
+        : result.source.rawCsvUrl
+          ? ["stream bounded CSV rows from the upstream file", "parse quoted q/a columns", "remove exact duplicates"]
         : result.source.role === "oasst"
           ? ["filter lang == ru and deleted == false", "reconstruct assistant replies from parent prompter messages",
             "exclude deleted, synthetic and review_result == false rows"]
