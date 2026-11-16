@@ -67,7 +67,7 @@ function runOne(trainPath, testPath, seed, testSentences) {
     throw new Error("Matched benchmark failed for seed " + seed + ":\n" + (child.stderr || child.stdout));
   }
   const report = parseJsonObject(child.stdout || "");
-  if (report.splitSeed !== seed || report.protocol !== "matched-training-224-shared-validation-v2") {
+  if (report.splitSeed !== seed || report.protocol !== "matched-training-224-shared-validation-v3") {
     throw new Error("Unexpected split seed or protocol for seed " + seed + ".");
   }
   return report;
@@ -94,8 +94,12 @@ function main() {
     testSentences: report.testSentences,
     attention: {
       ...report.contextualAttention.metrics,
+      requestedEpochs: report.attention.requestedEpochs,
       selectedEpochs: report.attention.selectedEpochs,
-      bestEpoch: report.attention.bestEpoch
+      bestEpoch: report.attention.bestEpoch,
+      patience: report.attention.patience,
+      earlyStopped: report.attention.earlyStopped,
+      vocabularySize: report.attention.vocabularySize
     },
     ngram: report.ngram.metrics,
     pairedDeltaNgramMinusAttention: Object.fromEntries(
@@ -103,8 +107,8 @@ function main() {
     )
   }));
   console.log(JSON.stringify({
-    protocol: "matched-training-224-shared-validation-multiseed-v1",
-    baseProtocol: "matched-training-224-shared-validation-v2",
+    protocol: "matched-training-224-shared-validation-multiseed-v2",
+    baseProtocol: "matched-training-224-shared-validation-v3",
     seeds,
     testSentencesPerSeed: testSentences,
     perSeed,
