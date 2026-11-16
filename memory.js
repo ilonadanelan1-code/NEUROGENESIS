@@ -36,6 +36,24 @@
   const LLM_BRIDGE = window.NGLLMBridge || null;
   const LLM_GATEWAY = window.NGLLM || (LLM_BRIDGE && typeof LLM_BRIDGE.create === "function" ? LLM_BRIDGE.create() : null);
   if (LLM_GATEWAY) window.NGLLM = LLM_GATEWAY;
+  const NGRAM_MEMORY = window.NGNgramMemoryBridge && typeof window.NGNgramMemoryBridge.create === "function"
+    ? window.NGNgramMemoryBridge.create() : null;
+  function rebuildNgramMemoryIndex() {
+    if (!NGRAM_MEMORY) return { available:false, reason:"bridge_unavailable" };
+    try { return NGRAM_MEMORY.rebuild(memories); }
+    catch (error) {
+      console.warn("NEUROGENESIS N-gram memory rebuild failed:", error);
+      return { available:false, reason:"rebuild_failed" };
+    }
+  }
+  function addNgramMemory(text) {
+    if (!NGRAM_MEMORY) return null;
+    try { return NGRAM_MEMORY.addMemory(text); }
+    catch (error) {
+      console.warn("NEUROGENESIS N-gram memory update failed:", error);
+      return rebuildNgramMemoryIndex();
+    }
+  }
   let llmConfig = null;
   let llmHttpAdapter = null;
   let llmVerified = false;
@@ -2403,6 +2421,7 @@
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory && KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(item=>item.claims||[]))) memoryMigrated = true;
     if(refreshHypothesisLifecycleArchive())memoryMigrated=true;
     if (memoryMigrated) { memoryMigrated = false; persist(); }
+    rebuildNgramMemoryIndex();
   }
   function syncResearchGoals(focus = null) {
     const manager = window.NGGoals;
@@ -2820,6 +2839,7 @@
       const reasons=[];
       if(row.match.directHits)reasons.push("прямое совпадение");
       if(row.match.associativeHits)reasons.push("ассоциативное совпадение");
+      if(row.match.ngramHits)reasons.push("контекстный N-gram усилил совпадение");
       if(conflictCount)reasons.push("содержит утверждения с возможным конфликтом");
       if(claims.some(claim=>claim.kind==="observation"))reasons.push("содержит карточку наблюдения");
       if(claims.some(claim=>claim.kind==="causal"||claim.kind==="rule"))reasons.push("связано с причинной моделью");
@@ -3156,6 +3176,7 @@
         };
         ensureClaimTraces(item.claims);
         memories.push(item);
+        addNgramMemory(item.text);
         saved++;
         linkMemory(item, related);
       }
@@ -3213,13 +3234,17 @@
   function matchMemory(query, item, searchQueries = []) {
     const structuredText = KNOWLEDGE ? (item.claims || []).map(claim => KNOWLEDGE.claimSearchText(claim)).join(" ") : "";
     const words = [...new Set(tokens(item.text + " " + structuredText))];
-    if (!words.length) return {score:0,directHits:0,associativeHits:0};
+    if (!words.length) return {score:0,directHits:0,associativeHits:0,ngramHits:0,ngramBoost:0};
     const candidates = [...new Set([query, ...(Array.isArray(searchQueries) ? searchQueries : [])]
       .map(value => String(value || "").trim()).filter(Boolean))].slice(0, 8);
     let best = {score:0,directHits:0,associativeHits:0};
     for (const candidate of candidates) {
       const q = [...new Set(tokens(candidate))];
       if (!q.length) continue;
+      const predicted = NGRAM_MEMORY ? NGRAM_MEMORY.suggest(candidate) : [];
+      const predictedHits = predicted.filter(row => words.includes(row.token));
+      const ngramBoost = Math.min(0.075, predictedHits.reduce((sum, row) =>
+        sum + Math.max(0, Math.min(1, Number(row.probability) || 0)) * 0.12, 0));
       const similarity = KNOWLEDGE && typeof KNOWLEDGE.semanticMatch === "function"
         ? KNOWLEDGE.semanticMatch(q, words)
         : {weightedHits:q.filter(word=>words.includes(word)).length,directHits:q.filter(word=>words.includes(word)).length,associativeHits:0};
@@ -3229,9 +3254,12 @@
       const phrase = qNorm.length > 5 && textNorm.includes(qNorm) ? 0.34 : 0;
       const tagHits = q.filter(word => (item.tags || []).includes(word)).length;
       const tagBoost = tagHits / q.length * 0.08;
-      const score = Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost) *
+      const score = Math.min(1, coverage * 0.62 + density * 0.30 + phrase + tagBoost + ngramBoost) *
         (0.75 + (item.strength || 0.6) * 0.25);
-      if (score > best.score) best = {score,directHits:similarity.directHits,associativeHits:similarity.associativeHits};
+      if (score > best.score) best = {
+        score,directHits:similarity.directHits,associativeHits:similarity.associativeHits,
+        ngramHits:predictedHits.length,ngramBoost
+      };
     }
     return best;
   }
@@ -3657,6 +3685,7 @@
     if (!item) return;
     if (!window.confirm("Удалить эту запись из памяти? Её уникальные нейронные следы тоже будут удалены.")) return;
     memories = memories.filter(entry => entry.id !== id);
+    rebuildNgramMemoryIndex();
     invalidateKnowledgeGraphStats();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     releaseUnusedTraces([...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)]);
@@ -3724,6 +3753,7 @@
     item.tags = tags;
     item.traceIds = tags.map(ensureTrace);
     item.updatedAt = Date.now();
+    rebuildNgramMemoryIndex();
     if (KNOWLEDGE && KNOWLEDGE.reconcileKnowledgeHistory) KNOWLEDGE.reconcileKnowledgeHistory(memories.flatMap(entry=>entry.claims||[]));
     const related = memories.filter(entry => entry.id !== id && entry.tags.some(tag => tags.includes(tag))).slice(-4);
     linkMemory(item, related);
@@ -3765,6 +3795,7 @@
       setFeedback("ОЧИСТКА ОТМЕНЕНА · сохранённые данные восстановлены.");
       return;
     }
+    rebuildNgramMemoryIndex();
     renderLibrary();
     say("assistant", "Долговременная память очищена. История этого диалога сохранена.");
     setFeedback("ПАМЯТЬ ОЧИЩЕНА");
@@ -4086,6 +4117,7 @@
       ...memories.flatMap(item => [...(item.traceIds || []), ...(item.claims || []).map(claim => claim.traceId)])
     ].filter(id => id && !snapshot.traceIds.has(id)));
     memories = snapshot.memories;
+    rebuildNgramMemoryIndex();
     invalidateKnowledgeGraphStats();
     dialog = snapshot.dialog;
     dialogContext = snapshot.dialogContext;
@@ -4212,6 +4244,7 @@
         importTransactionStarted = false;
         if (!committed) throw new Error("Не удалось зафиксировать транзакцию импорта. Исходные данные восстановлены.");
       }
+      rebuildNgramMemoryIndex();
       renderLibrary();
       renderDialog();
       say("assistant", "Импорт завершён. Добавлено: " + imported + ", уже были: " + duplicates + ", пропущено: " + skipped + (ok ? "." : ". Локальное сохранение не подтвердилось."));
@@ -4513,6 +4546,9 @@
   setFeedback("ЛОКАЛЬНАЯ ПАМЯТЬ · ДАННЫЕ ОСТАЮТСЯ В ЭТОМ БРАУЗЕРЕ");
   window.NGMemory = {
     count: () => memories.length,
+    ngramStatus: () => NGRAM_MEMORY ? NGRAM_MEMORY.status() : { available:false, reason:"bridge_unavailable" },
+    ngramSuggestions: query => NGRAM_MEMORY ? NGRAM_MEMORY.suggest(String(query || "")) : [],
+    ngramPredictMasked: (text,index,options) => NGRAM_MEMORY ? NGRAM_MEMORY.predictMasked(text,index,options) : null,
     search: query => memories.map(item => ({ text: item.text, claims: item.claims || [], score: scoreMemory(query, item) }))
       .sort((a, b) => b.score - a.score).slice(0, 5),
     ask: query => askMemory(query),
