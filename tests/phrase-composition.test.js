@@ -14,10 +14,15 @@ const contextual=Attention.create({dimension:12,windowSize:3,heads:3,blocks:2,se
 const contextualReport=contextual.train(corpus,{epochs:18,learningRate:.025,splitSeed:902,patience:8});
 assert.ok(contextualReport.examples>0&&contextual.status().trained);
 const composer=Composer.create({dimension:12,seed:24081});
+const phraseProgress=[];
 const report=composer.train(corpus,contextual,core,knowledge,{
  epochs:28,learningRate:.045,augmentWordOrder:true,
- excludeSentences:["сигнал нейрон получает."]
+ excludeSentences:["сигнал нейрон получает."],
+ onProgress:event=>phraseProgress.push(event)
 });
+assert.equal(phraseProgress.length,report.epochs,"phrase training must report progress after every epoch");
+assert.ok(phraseProgress.every(event=>event.phase==="phrase"&&event.totalEpochs===report.epochs),
+ "phrase progress events must identify their phase and epoch count");
 assert.ok(report.sentences>=6,"the weak parser should align multiple starter-corpus propositions");
 assert.equal(report.sourceSentences,corpus.length);
 assert.ok(report.augmentedSentences>0,"verified SOV permutations must be generated");
