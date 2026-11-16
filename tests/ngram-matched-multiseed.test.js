@@ -18,10 +18,10 @@ const reports = [
   }
 ];
 const summary = summarize(reports);
-assert.equal(summary.ngram.top1.mean, 0.15);
-assert.equal(summary.contextualAttention.top1.mean, 0.10);
-assert.equal(summary.pairedDeltaNgramMinusAttention.top1.mean, 0.05);
-assert.equal(summary.pairedDeltaNgramMinusAttention.top8.mean, -0.05);
+assert.ok(Math.abs(summary.ngram.top1.mean - 0.15) < 1e-12);
+assert.ok(Math.abs(summary.contextualAttention.top1.mean - 0.10) < 1e-12);
+assert.ok(Math.abs(summary.pairedDeltaNgramMinusAttention.top1.mean - 0.05) < 1e-12);
+assert.ok(Math.abs(summary.pairedDeltaNgramMinusAttention.top8.mean + 0.05) < 1e-12);
 assert.equal(summary.pairedDeltaNgramMinusAttention.top1.sampleStdDev, 0);
 
 const parsed = parseJsonObject('prefix\n{"ok":true,"nested":{"value":2}}\ntrailer');
