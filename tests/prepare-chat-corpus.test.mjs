@@ -230,7 +230,7 @@ for (const source of result.manifest.sources) {
     source.id + " should have assigned examples",
   );
 }
-assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
+assert.match(result.manifest.sources[0].rawTextUrl, /books\.txt/u);
 assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-poet author names/u);
 assert.ok(fixtures["fixture/poetry"].rows.some(row => row.author === "Михаил Ломоносов"), "the first RuHeritage author must be accepted");
 assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
