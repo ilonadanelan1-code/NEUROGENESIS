@@ -49,6 +49,8 @@ jobs:
           node --check contextual-attention.js
           node --check phrase-composition.js
           node --check contextual-attention-ui.js
+          node --check scripts/pretrain-contextual-model.mjs
+          node --check contextual-attention-ui.js
           node --check semantic-retrieval.js
           node --check llm-bridge.js
           node --check ngram-predictor.js
@@ -315,6 +317,19 @@ jobs:
           node tests/backup-import-transaction.test.js
           node tests/storage-transaction.test.js
 
+      - name: Pretrain contextual model from original Russian corpus
+        run: node scripts/pretrain-contextual-model.mjs
+
+      - name: Upload pre-trained contextual checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-contextual-pretrained
+          path: |
+            contextual-pretrained.json
+            benchmark-reports/contextual-pretraining-v1.json
+          if-no-files-found: error
+          retention-days: 30
+
   deploy:
     name: Deploy GitHub Pages
     if: github.event_name != 'pull_request'
@@ -336,6 +351,12 @@ jobs:
         with:
           name: neurogenesis-wasm
           path: dist
+
+      - name: Download pre-trained contextual checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: neurogenesis-contextual-pretrained
+          path: .
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
