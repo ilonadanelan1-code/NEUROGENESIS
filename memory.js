@@ -4645,7 +4645,7 @@
       await testLLMResponse();
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · РЕАЛЬНЫЙ ОТВЕТ ПОЛУЧЕН");
     } catch (error) {
-      const reason = String(error && error.message || error).replace(/s+/gu, " ").trim().slice(0, 110);
+      const reason = String(error && error.message || error).replace(/\s+/gu, " ").trim().slice(0, 110);
       setFeedback("ПРОВЕРКА ОТВЕТА НЕ ПРОШЛА · " + reason);
     }
   });
