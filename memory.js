@@ -4335,13 +4335,6 @@
         : "АВТОНОМНЫЙ РЕЖИМ · БАЗОВЫЙ ДИАЛОГ");
       return true;
     }
-    answer = reason === "gateway_unavailable"
-      ? "Я получил твоё сообщение, но сейчас не могу полноценно его разобрать: языковой модуль временно недоступен. Попробуй отправить его ещё раз чуть позже. Поиск по сохранённой памяти пока работает отдельно."
-      : "Я получил твоё сообщение. Свободный диалоговый модуль ещё не подключён, поэтому пока могу поддержать только простой разговор и поиск по сохранённой памяти.";
-    say("assistant", answer);
-    setFeedback(reason === "gateway_unavailable"
-      ? "АВТОНОМНЫЙ РЕЖИМ · ШЛЮЗ ВРЕМЕННО НЕДОСТУПЕН"
-      : "АВТОНОМНЫЙ РЕЖИМ · ОГРАНИЧЕННЫЙ ДИАЛОГ");
     return false;
   }
 
@@ -4351,8 +4344,9 @@
       return false;
     }
     if (!LLM_GATEWAY || !llmHttpAdapter) {
-      offlineConversationReply(query, "not_configured");
-      return false;
+      if (offlineConversationReply(query, "not_configured")) return false;
+      setFeedback("АВТОНОМНЫЙ РЕЖИМ · ИЩУ ОТВЕТ В ЛОКАЛЬНОЙ ПАМЯТИ…");
+      return await askMemory(query);
     }
     const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : { applied:false, query };
@@ -4382,7 +4376,17 @@
       console.warn("NEUROGENESIS chat provider unavailable; falling back to local dialogue:", error);
       try { if(cycleContext)finishCognitiveCycle(cycleContext,false,error); }
       catch(cycleError) { console.warn("NEUROGENESIS failed LLM cycle logging failed:",cycleError); }
-      offlineConversationReply(query, "gateway_unavailable");
+      if (offlineConversationReply(query, "gateway_unavailable")) return false;
+      try {
+        await askMemory(query);
+        const memoryFeedback = $("memory-feedback");
+        const detail = memoryFeedback && memoryFeedback.textContent ? memoryFeedback.textContent : "ЛОКАЛЬНЫЙ ПОИСК";
+        setFeedback("АВТОНОМНЫЙ РЕЖИМ · ВНЕШНЯЯ МОДЕЛЬ ВРЕМЕННО НЕДОСТУПНА · " + detail);
+      } catch (fallbackError) {
+        console.warn("NEUROGENESIS local memory fallback failed:", fallbackError);
+        say("assistant", "Внешняя языковая модель сейчас недоступна, и локальная память не смогла подготовить ответ. Попробуй сформулировать вопрос иначе.");
+        setFeedback("АВТОНОМНЫЙ РЕЖИМ · НЕ УДАЛОСЬ ПОЛУЧИТЬ ЛОКАЛЬНЫЙ ОТВЕТ");
+      }
       return false;
     } finally {
       llmRequestInFlight = false;
