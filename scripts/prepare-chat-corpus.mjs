@@ -9,11 +9,12 @@ const SOURCES = [
   {
     id: "imperius-ru-classic",
     dataset: "Imperius/ru-classic",
-    pageLimit: 20,
     maxRows: 2000,
     maxCharacters: 2_000_000,
+    maxDownloadBytes: 4 * 1024 * 1024,
     license: "CC0-1.0",
     url: "https://huggingface.co/datasets/Imperius/ru-classic",
+    rawTextUrl: "https://huggingface.co/datasets/Imperius/ru-classic/resolve/main/corpus_clean.norm.txt?download=true",
     role: "literature",
   },
   {
@@ -229,10 +230,89 @@ async function collectDialogueFile(fetchImpl, source) {
   };
 }
 
-async function collectSource(fetchImpl, source) {
-  if (source.rawFileUrl) {
-    return collectDialogueFile(fetchImpl, source);
+async function collectLiteratureFile(fetchImpl, source) {
+  const maxBytes = source.maxDownloadBytes;
+  const response = await fetchImpl(source.rawTextUrl, {
+    headers: {
+      Accept: "text/plain",
+      Range: "bytes=0-" + (maxBytes - 1),
+      "User-Agent": "NEUROGENESIS-open-corpus-preparer/1.0",
+    },
+  });
+  if (!response.ok) throw responseError(response, source.rawTextUrl);
+
+  const paragraphs = [];
+  let pending = "";
+  let consumedBytes = 0;
+  let rawRows = 0;
+  let characters = 0;
+  const seen = new Set();
+  const acceptParagraph = value => {
+    const text = normalize(value);
+    if (text.length < 100 || seen.has(text)) return;
+    seen.add(text);
+    const remaining = source.maxCharacters - characters;
+    const bounded = text.slice(0, remaining);
+    if (bounded.length < 100) return;
+    paragraphs.push(bounded);
+    characters += bounded.length;
+  };
+  const processChunk = value => {
+    pending += value;
+    const blocks = pending.split(/\n\s*\n/gu);
+    pending = blocks.pop() || "";
+    for (const block of blocks) {
+      rawRows += 1;
+      acceptParagraph(block);
+      if (paragraphs.length >= source.maxRows || characters >= source.maxCharacters) break;
+    }
+  };
+
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let reachedEnd = false;
+    try {
+      while (consumedBytes < maxBytes && paragraphs.length < source.maxRows &&
+             characters < source.maxCharacters) {
+        const next = await reader.read();
+        if (next.done) { reachedEnd = true; break; }
+        const chunk = next.value instanceof Uint8Array ? next.value : new Uint8Array(next.value);
+        const allowed = Math.min(chunk.byteLength, maxBytes - consumedBytes);
+        consumedBytes += allowed;
+        processChunk(decoder.decode(chunk.subarray(0, allowed), { stream: true }));
+        if (allowed < chunk.byteLength) break;
+      }
+      pending += decoder.decode();
+      if (reachedEnd || consumedBytes < maxBytes) {
+        rawRows += pending.trim() ? 1 : 0;
+        acceptParagraph(pending);
+      }
+    } finally {
+      try { await reader.cancel(); } catch {}
+    }
+  } else if (typeof response.text === "function") {
+    const body = await response.text();
+    consumedBytes = new TextEncoder().encode(body).byteLength;
+    processChunk(body);
+    rawRows += pending.trim() ? 1 : 0;
+    acceptParagraph(pending);
+  } else {
+    throw new Error("The literature source response has no readable body.");
   }
+  if (!paragraphs.length) {
+    throw new Error("No long-form Russian paragraphs were extracted from " + source.rawTextUrl);
+  }
+  return {
+    source, config: "raw-text", split: "train",
+    rows: paragraphs, rawRows, requests: 1, characters,
+    uniqueRows: paragraphs.length, downloadedBytes: consumedBytes,
+  };
+}
+
+async function collectSource(fetchImpl, source) {
+  if (source.rawTextUrl) return collectLiteratureFile(fetchImpl, source);
+  if (source.rawFileUrl) return collectDialogueFile(fetchImpl, source);
   const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
   const splitsPayload = await fetchJson(fetchImpl, splitsUrl);
   const { config, split } = chooseTrainingSplit(splitsPayload);
@@ -287,11 +367,24 @@ async function collectSource(fetchImpl, source) {
   };
 }
 
-function assignSplit(text) {
-  // Stable row-level split for repeatable experiments. This is not a document-
-  // or author-disjoint split, and the report says so explicitly.
-  const bucket = hash(text) % 100;
-  return bucket < 5 ? "validation" : bucket < 10 ? "test" : "train";
+function splitRows(sourceId, rows) {
+  // Stratified, deterministic per-source split guarantees holdout rows even
+  // for the 20-example colloquial dialogue source. This is still row-level,
+  // not author- or document-disjoint.
+  const sorted = rows.slice().sort((left, right) =>
+    hash(sourceId + "\n" + left) - hash(sourceId + "\n" + right) ||
+    (left < right ? -1 : left > right ? 1 : 0));
+  if (sorted.length < 3) {
+    throw new Error("Each corpus source needs at least three unique rows for train/validation/test.");
+  }
+  const validationCount = Math.max(1, Math.floor(sorted.length * 0.05));
+  const testCount = Math.max(1, Math.floor(sorted.length * 0.05));
+  const trainingEnd = sorted.length - validationCount - testCount;
+  return {
+    train: sorted.slice(0, trainingEnd),
+    validation: sorted.slice(trainingEnd, trainingEnd + validationCount),
+    test: sorted.slice(trainingEnd + validationCount),
+  };
 }
 
 export async function prepareCorpus(options = {}) {
@@ -304,13 +397,13 @@ export async function prepareCorpus(options = {}) {
   const buckets = { train: [], validation: [], test: [] };
   const countsBySource = {};
   for (const result of results) {
-    const counts = { train: 0, validation: 0, test: 0 };
-    for (const row of result.rows) {
-      const split = assignSplit(result.source.id + "\n" + row);
-      buckets[split].push(row);
-      counts[split] += 1;
-    }
-    countsBySource[result.source.id] = counts;
+    const sourceSplits = splitRows(result.source.id, result.rows);
+    countsBySource[result.source.id] = {
+      train: sourceSplits.train.length,
+      validation: sourceSplits.validation.length,
+      test: sourceSplits.test.length,
+    };
+    for (const split of Object.keys(buckets)) buckets[split].push(...sourceSplits[split]);
   }
   if (!buckets.train.length || !buckets.validation.length || !buckets.test.length) {
     throw new Error("Prepared corpus does not contain non-empty train, validation and test splits.");
@@ -320,7 +413,7 @@ export async function prepareCorpus(options = {}) {
     schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
     createdAt: new Date().toISOString(),
     method: "Hugging Face datasets-server rows API plus bounded raw JSONL streaming; deterministic sample; exact duplicate removal.",
-    splitMethod: "Stable row-level 90/5/5 hash split. It is NOT author- or document-disjoint.",
+    splitMethod: "Deterministic per-source 90/5/5 split, with at least one validation and one test row per source. It is NOT author- or document-disjoint.",
     sources: results.map(result => ({
       id: result.source.id,
       dataset: result.source.dataset,
@@ -330,19 +423,25 @@ export async function prepareCorpus(options = {}) {
       config: result.config,
       upstreamSplit: result.split,
       rawFileUrl: result.source.rawFileUrl || null,
+      rawTextUrl: result.source.rawTextUrl || null,
       downloadedBytes: result.downloadedBytes ?? null,
       fetchedRows: result.rawRows,
       uniqueRows: result.uniqueRows,
       requests: result.requests,
       characters: result.characters,
       localSplitCounts: countsBySource[result.source.id],
-      filters: result.source.role === "everyday"
+      filters: result.source.role === "literature"
+        ? ["stream first 4 MiB of corpus_clean.norm.txt", "split at blank lines",
+          "keep paragraphs of at least 100 characters", "remove exact duplicates"]
+        : result.source.role === "everyday"
         ? ["explicit user and assistant fields must both be non-empty"]
         : result.source.role === "dialogue"
           ? ["keep only user/assistant message roles", "discard system messages",
             "strip all <think> blocks; keep only assistant final text when present"]
           : ["non-empty text/content/document field, at least 80 characters"],
-      attribution: result.source.id === "russian-everyday-dialogues"
+      attribution: result.source.id === "imperius-ru-classic"
+        ? "Imperius/ru-classic, CC0-1.0; Russian classical texts originally from lib.ru."
+        : result.source.id === "russian-everyday-dialogues"
         ? "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0; adapted by adding role markers."
         : result.source.id === "ru-dataset-small"
           ? "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0; adapted by removing system and <think> content."
@@ -357,6 +456,7 @@ export async function prepareCorpus(options = {}) {
       "Literary next-token training teaches language patterns, not reliable factual knowledge.",
       "The instruction dataset contains explicit <think> blocks; these are removed before training and only assistant final text is kept.",
       "The everyday dialogue set contains 20 authored examples and is a style supplement, not a large-scale chat corpus.",
+      "The literature sample is a 4 MiB prefix of the upstream normalized text, not the entire 866 MB corpus.",
       "The instruction dataset includes coding and reasoning prompts, so it does not represent casual conversation alone.",
     ],
   };
