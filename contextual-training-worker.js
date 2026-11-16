@@ -59,7 +59,7 @@ self.addEventListener("message", event => {
     self.postMessage({
       type: "complete",
       contextualState: model.exportState(),
-      phraseState: phraseModel ? phraseModel.exportState() : null,
+      phraseState: phraseReport && phraseModel ? phraseModel.exportState() : null,
       report,
       phraseReport,
       phraseError
