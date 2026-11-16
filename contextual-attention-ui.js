@@ -104,7 +104,7 @@
   }
   trainButton.addEventListener("click",()=>{
     if(activeTrainingWorker)return;
-    const rows=corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
+    const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
     if(rows.length<3){renderStatus("Для честной проверки нужны минимум три разных предложения.");return;}
     if(typeof Worker==="undefined"){
       renderStatus("Этот браузер не поддерживает фоновое обучение (Web Worker). Основная модель сохранена без изменений.");
