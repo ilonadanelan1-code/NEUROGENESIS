@@ -111,7 +111,7 @@ jobs:
             model-hybrid split/mixed_balanced_val.txt 6000 split/news_test.txt split/lit_test.txt \
             | tee benchmark-reports/hybrid-model.txt
 
-      - name: Compare models on identical 224 training and 48 validation sentences
+      - name: Compare models with extended attention training on identical 224 and 48 sentence splits
         shell: bash
         run: |
           set -euo pipefail
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=4000 node scripts/eval-matched-multiseed.js \
+          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=4000 ATTENTION_EPOCHS=40 ATTENTION_PATIENCE=10 node scripts/eval-matched-multiseed.js \
             split/news_train.txt split/news_test.txt \
             | tee benchmark-reports/matched-news-multiseed.json
           MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
@@ -137,7 +137,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neurogenesis-ngram-corpus-benchmark-v2
+          name: neurogenesis-ngram-corpus-benchmark-v3
           path: |
             benchmark-reports/
             benchmark-reports-ruslit-revision.txt
