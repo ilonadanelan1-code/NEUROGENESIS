@@ -64,8 +64,8 @@
   learningIntro.className = "side-tab-intro";
   learningIntro.textContent = "Здесь два разных механизма. Контекстная модель учится работать со словами и фразами. Экспериментальная пластичность меняет веса отдельной копии нейросети. Ни один из режимов сам по себе не создаёт новые нейроны.";
   learningPage.appendChild(learningIntro);
-  if (contextual) learningPage.appendChild(contextual);
-  if (wasmLearning) learningPage.appendChild(wasmLearning);
+  if (contextual) { contextual.open = true; learningPage.appendChild(contextual); }
+  if (wasmLearning) { wasmLearning.open = false; learningPage.appendChild(wasmLearning); }
 
   const settingsPage = pages.get("settings");
   const settingsIntro = document.createElement("p");
