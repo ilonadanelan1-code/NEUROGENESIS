@@ -7,10 +7,12 @@
       "dataset": "Imperius/ru-classic",
       "url": "https://huggingface.co/datasets/Imperius/ru-classic",
       "license": "CC0-1.0",
-      "role": "Russian prose, criticism, correspondence and verse samples for next-token language modeling.",
+      "role": "Russian prose, literary criticism, correspondence and verse samples for next-token language modeling.",
       "selection": {
         "split": "train",
-        "textField": "text"
+        "file": "corpus_clean.norm.txt",
+        "streamLimitBytes": 4194304,
+        "paragraphSplit": "blank lines"
       },
       "attribution": "The dataset card identifies the collection as CC0; underlying texts are described as public domain."
     },
