@@ -50,12 +50,13 @@
       "license": "CC0-1.0",
       "role": "Synthetic short Russian user/assistant question-answer pairs; supplementary dialogue-format data.",
       "selection": {
-        "split": "train",
-        "maxRows": 4000,
+        "file": "Tiny-Russian-Dialogs.csv",
         "fields": [
           "q",
           "a"
-        ]
+        ],
+        "streamLimitBytes": 1048576,
+        "maxRows": 4000
       },
       "attribution": "Fmluder, Tiny-Russian-Dialogs, CC0-1.0.",
       "limitations": [
@@ -73,7 +74,7 @@
       "selection": {
         "split": "train",
         "filter": "\"lang\"='ru' AND \"deleted\"=false",
-        "maxRows": 10000,
+        "maxRows": 1000,
         "fields": [
           "message_id",
           "parent_id",
@@ -96,6 +97,9 @@
       "role": "Russian instruction and multi-turn user/assistant examples.",
       "selection": {
         "split": "train",
+        "file": "dataset-3/dataset-00018-of-00020.jsonl",
+        "streamLimitBytes": 524288,
+        "maxRows": 1000,
         "messagesField": "messages",
         "roles": [
           "user",
