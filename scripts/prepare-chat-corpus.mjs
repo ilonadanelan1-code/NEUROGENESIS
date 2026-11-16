@@ -28,6 +28,7 @@ const SOURCES = [
     rawFileUrl: "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus/resolve/main/russian_classics_dataset.jsonl",
     allowedAuthors: ["Михаил Ломоносов", "Александр Пушкин", "Михаил Лермонтов", "Александр Блок", "Анна Ахматова", "Сергей Есенин", "Марина Цветаева"],
     role: "literature-filtered",
+    optional: true,
   },
   {
     id: "tiny-russian-dialogs",
@@ -62,6 +63,7 @@ const SOURCES = [
     url: "https://huggingface.co/datasets/ru-dataset/ru-dataset-small",
     rawFileUrl: "https://huggingface.co/datasets/ru-dataset/ru-dataset-small/resolve/main/dataset-3/dataset-00018-of-00020.jsonl",
     role: "dialogue",
+    optional: true,
   },
   {
     id: "russian-everyday-dialogues",
@@ -74,6 +76,7 @@ const SOURCES = [
     rawFileUrl: "https://huggingface.co/datasets/kukunechka/russian-everyday-dialogues/resolve/main/russian_everyday_dialogues.jsonl?download=true",
     maxDownloadBytes: 64 * 1024,
     role: "everyday",
+    optional: true,
   },
 ];
 
@@ -619,7 +622,12 @@ export async function prepareCorpus(options = {}) {
   const skippedSources = [];
   for (const source of sources) {
     try {
-      results.push(await collectSource(fetchImpl, source));
+      const result = await collectSource(fetchImpl, source);
+      if (result.rows.length < 3) {
+        throw new Error("Fewer than three usable rows were collected from " +
+          source.dataset + "; at least three are needed for train/validation/test.");
+      }
+      results.push(result);
     } catch (error) {
       if (!source.optional) throw error;
       skippedSources.push({
