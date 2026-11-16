@@ -4,6 +4,8 @@ const fs = require("node:fs");
 
 const html = fs.readFileSync("index.html", "utf8");
 const memory = fs.readFileSync("memory.js", "utf8");
+const bridge = fs.readFileSync("llm-bridge.js", "utf8");
+const styles = fs.readFileSync("styles.css", "utf8");
 const worker = fs.readFileSync("server/llm-worker.js", "utf8");
 const deploy = fs.readFileSync(".github/workflows/deploy-worker.yml", "utf8");
 
@@ -28,6 +30,8 @@ assert.ok(releaseParts[0] > 0 || releaseParts[1] > 58 || (releaseParts[1] === 58
 const assetVersions = [...html.matchAll(/(?:src|href)="[^"]+[?&]v=([^"&]+)"/gu)].map((match) => match[1]);
 assert.ok(assetVersions.length > 0 && assetVersions.every((version) => version === release[1]),
   "all versioned app assets must use the current release version for mobile cache invalidation");
+assert.equal(release[1], "0.58.109",
+  "the LLM diagnostics release must advance so browsers load the updated bridge, memory module and styles");
 
 assert.match(memory, /const DEFAULT_LLM_ENDPOINT\s*=\s*"https:\/\/neurogenesis-llm-proxy\.ilonadanelan1\.workers\.dev"/u,
   "the endpoint must also be restored when no saved browser configuration exists");
@@ -37,6 +41,30 @@ assert.match(html, /APP_TOKEN[\s\S]*?не ключ OpenRouter[\s\S]*?UPSTREAM_AP
   "the setup UI must distinguish the application token from the provider API key");
 assert.match(memory, /ОШИБКА · " \+ reason/u,
   "the settings panel must show the actual connection error instead of a generic failure label");
+assert.ok(html.includes('id="llm-test-response"') && html.includes('id="llm-test-result"'),
+  "the settings panel must provide a visible real-response test and result area");
+assert.match(html, /id="llm-test-result"[^>]*aria-live="polite"/u,
+  "the real-response result must be announced accessibly");
+assert.match(memory, /async function testLLMResponse\(\)/u,
+  "the settings test must perform a real completion instead of only checking gateway health");
+assert.match(memory, /LLM_GATEWAY\.generateDetailed\(\{/u,
+  "the smoke test must use the structured gateway result");
+assert.match(memory, /operation: "connection_smoke_test", persist: false/u,
+  "the test request must be explicitly marked transient and non-persistent");
+const smokeStart = memory.indexOf("async function testLLMResponse()");
+const smokeEnd = memory.indexOf("\n  function clearLLMConfig()", smokeStart);
+assert.ok(smokeStart >= 0 && smokeEnd > smokeStart, "the real-response test must be a separately bounded function");
+const smokeSource = memory.slice(smokeStart, smokeEnd);
+assert.doesNotMatch(smokeSource, /\b(?:say|rememberText|askWithLLM|remember|trackDialogMessage)\s*\(/u,
+  "the smoke test must not append its prompt or answer to the dialogue or local memory");
+assert.match(memory, /testLLMResponse: \(\) => testLLMResponse\(\)/u,
+  "the real-response check must be available through the app API");
+assert.match(bridge, /async generateDetailed\(request\)/u,
+  "the bridge must expose structured generation metadata");
+assert.match(bridge, /async generate\(request\)\s*\{\s*return \(await generateDetailed\(request\)\)\.reply;/u,
+  "the existing string-returning generate method must remain compatible");
+assert.match(styles, /\.llm-test-result\[data-state="success"\]/u,
+  "the smoke-test output must visibly distinguish a successful response");
 assert.ok(memory.includes('replace(/\\s+/gu, " ").trim()'),
   "connection errors must collapse whitespace before presentation");
 assert.match(worker, /if \(url\.pathname === "\/" && request\.method === "GET"\)/u,

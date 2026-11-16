@@ -179,17 +179,37 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
     async (url, options) => {
       httpCalls.push({ url, options });
       if (url.endsWith("/api/health")) {
-        return { ok: true, status: 200, async json() { return { ok: true, configured: true, model: "test-model" }; } };
+        return { ok: true, status: 200, async json() {
+          return { ok: true, configured: true, model: "nvidia/nemotron-primary", fallbackModels: ["openrouter/free"] };
+        } };
       }
-      return { ok: true, status: 200, async json() { return { ok: true, reply: "Ответ через защищённый шлюз" }; } };
+      return { ok: true, status: 200, async json() {
+        return {
+          ok: true,
+          reply: "Ответ через защищённый шлюз",
+          model: "nvidia/nemotron-primary",
+          requestedModel: "nvidia/nemotron-primary",
+          fallbackUsed: false,
+          usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }
+        };
+      } };
     }
   );
   const health = await adapter.health();
   assert.equal(health.ok, true);
-  assert.equal(health.model, "test-model");
-  assert.equal(await adapter.generate(request), "Ответ через защищённый шлюз");
+  assert.equal(health.model, "nvidia/nemotron-primary");
+  assert.deepEqual(Array.from(health.fallbackModels), ["openrouter/free"]);
+  const detailed = await adapter.generateDetailed(request);
+  assert.equal(detailed.reply, "Ответ через защищённый шлюз");
+  assert.equal(detailed.model, "nvidia/nemotron-primary");
+  assert.equal(detailed.requestedModel, "nvidia/nemotron-primary");
+  assert.equal(detailed.fallbackUsed, false);
+  assert.equal(detailed.usage.total_tokens, 18);
+  assert.equal(await adapter.generate(request), "Ответ через защищённый шлюз",
+    "the existing generate() API must continue returning a reply string");
   assert.equal(httpCalls[0].url, "https://neurogenesis-test.workers.dev/api/health");
   assert.equal(httpCalls[1].url, "https://neurogenesis-test.workers.dev/api/chat");
+  assert.equal(httpCalls[2].url, "https://neurogenesis-test.workers.dev/api/chat");
   assert.equal(httpCalls[1].options.headers.Authorization, "Bearer private-app-token");
   assert.equal(httpCalls[1].options.body.includes("private-app-token"), false,
     "the app access token must be sent only as an authorization header");
@@ -298,6 +318,26 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   capacityGateway.register("capacity-test", { async generate() { return longReply; } });
   assert.equal(await capacityGateway.generate(request), longReply,
     "the chat gateway must preserve a ten-thousand-character answer instead of truncating it at eight thousand");
+  const detailedGateway = bridge.create();
+  detailedGateway.register("detailed-provider", {
+    async generateDetailed() {
+      return {
+        reply: "Ответ резервной модели",
+        model: "nvidia/nemotron-3.5-lightning:free",
+        requestedModel: "openrouter/free",
+        fallbackUsed: true,
+        usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 }
+      };
+    }
+  });
+  const gatewayResult = await detailedGateway.generateDetailed(request);
+  assert.equal(gatewayResult.reply, "Ответ резервной модели");
+  assert.equal(gatewayResult.model, "nvidia/nemotron-3.5-lightning:free");
+  assert.equal(gatewayResult.requestedModel, "openrouter/free");
+  assert.equal(gatewayResult.fallbackUsed, true);
+  assert.equal(gatewayResult.usage.total_tokens, 13);
+  assert.equal(await detailedGateway.generate(request), "Ответ резервной модели",
+    "generate() must remain a plain string even when the provider only exposes generateDetailed()");
 
   console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

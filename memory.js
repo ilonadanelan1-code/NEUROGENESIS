@@ -59,6 +59,7 @@
   let llmVerified = false;
   let llmModelName = "";
   let llmRequestInFlight = false;
+  let llmSmokeTestInFlight = false;
   let dialogContext = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.empty === "function" ? DIALOG_CONTEXT.empty() : null;
   let memoryMigrated = false;
   const STOP = new Set(("и в во на я ты мы вы они он она оно мне меня тебя тебе ваш ваши мой моя мое мои свой свои себя это этот эта эти тот та те что как где когда зачем почему кто который а но или да нет не ни же бы ли для по из к со с от до над под при про у об обо есть был была были быть буду будет уже еще очень также тут там туда сюда его ее их").split(/\s+/u));
@@ -155,6 +156,71 @@
       throw error;
     }
   }
+  async function testLLMResponse() {
+    if (!LLM_GATEWAY || !llmHttpAdapter) throw new Error("Сначала сохрани настройки языкового шлюза.");
+    if (llmSmokeTestInFlight) throw new Error("Проверка реального ответа уже выполняется.");
+    llmSmokeTestInFlight = true;
+    const button = $("llm-test-response");
+    const output = $("llm-test-result");
+    if (button) button.disabled = true;
+    if (output) {
+      output.textContent = "Отправляю временный запрос к языковой модели…";
+      output.dataset.state = "testing";
+    }
+    try {
+      if (!llmVerified) await testLLMConnection();
+      const result = await LLM_GATEWAY.generateDetailed({
+        schema: "NEUROGENESIS_LLM_REQUEST_V1",
+        messages: [
+          {
+            role: "system",
+            content: "Это краткая техническая проверка соединения. Ответь по-русски одной короткой фразой, подтверждающей получение сообщения. Не добавляй объяснений."
+          },
+          {
+            role: "user",
+            content: "Тестовое сообщение NEUROGENESIS: подтверди, что ты получил его и можешь ответить."
+          }
+        ],
+        metadata: { operation: "connection_smoke_test", persist: false }
+      });
+      if (!result || typeof result.reply !== "string" || !result.reply.trim()) {
+        throw new Error("Шлюз не вернул текст реального ответа модели.");
+      }
+      const actualModel = result.model || result.requestedModel || "модель не сообщила идентификатор";
+      const requestedLine = result.requestedModel && result.requestedModel !== result.model
+        ? "Запрошенная модель/маршрут: " + result.requestedModel
+        : "";
+      const usageLine = result.usage
+        ? "Токены: вход " + result.usage.prompt_tokens +
+          " · ответ " + result.usage.completion_tokens +
+          " · всего " + result.usage.total_tokens
+        : "Провайдер не сообщил расход токенов.";
+      llmModelName = actualModel;
+      updateLLMConnectionUI();
+      if (output) {
+        output.textContent = [
+          "РЕАЛЬНЫЙ ОТВЕТ ПОЛУЧЕН",
+          result.reply.trim().slice(0, 500),
+          "Модель: " + actualModel,
+          "Маршрут: " + (result.fallbackUsed ? "РЕЗЕРВНЫЙ (fallback)" : "ОСНОВНОЙ"),
+          requestedLine,
+          usageLine
+        ].filter(Boolean).join("\n");
+        output.dataset.state = "success";
+      }
+      return result;
+    } catch (error) {
+      const reason = String(error && error.message || error).replace(/\s+/gu, " ").trim().slice(0, 180);
+      if (output) {
+        output.textContent = "ПРОВЕРКА РЕАЛЬНОГО ОТВЕТА НЕ ПРОШЛА\n" + reason;
+        output.dataset.state = "error";
+      }
+      throw error;
+    } finally {
+      llmSmokeTestInFlight = false;
+      if (button) button.disabled = false;
+    }
+  }
   function clearLLMConfig() {
     if (LLM_GATEWAY && LLM_GATEWAY.status().providers.includes("worker-proxy")) LLM_GATEWAY.unregister("worker-proxy");
     llmConfig = null;
@@ -168,6 +234,11 @@
     if (endpoint) endpoint.value = "";
     if (token) token.value = "";
     updateLLMConnectionUI();
+    const testResult = $("llm-test-result");
+    if (testResult) {
+      testResult.textContent = "Сначала сохрани настройки, затем проверь реальный ответ модели.";
+      testResult.dataset.state = "idle";
+    }
     return true;
   }
   function normalise(value) {
@@ -4556,6 +4627,7 @@
 
   const llmSaveButton = $("llm-save-config");
   const llmClearButton = $("llm-clear-config");
+  const llmTestResponseButton = $("llm-test-response");
   if (llmSaveButton) llmSaveButton.addEventListener("click", async () => {
     const endpoint = $("llm-endpoint"), token = $("llm-client-token");
     try {
@@ -4566,6 +4638,15 @@
       const reason = String(error && error.message || error).replace(/\s+/gu, " ").trim().slice(0, 110);
       setFeedback("НАСТРОЙКИ НЕ ПРОВЕРЕНЫ · " + reason);
       updateLLMConnectionUI("ОШИБКА · " + reason.toLocaleUpperCase("ru-RU").slice(0, 58));
+    }
+  });
+  if (llmTestResponseButton) llmTestResponseButton.addEventListener("click", async () => {
+    try {
+      await testLLMResponse();
+      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · РЕАЛЬНЫЙ ОТВЕТ ПОЛУЧЕН");
+    } catch (error) {
+      const reason = String(error && error.message || error).replace(/\s+/gu, " ").trim().slice(0, 110);
+      setFeedback("ПРОВЕРКА ОТВЕТА НЕ ПРОШЛА · " + reason);
     }
   });
   if (llmClearButton) llmClearButton.addEventListener("click", () => {
@@ -4602,6 +4683,7 @@
     llmStatus: () => ({ ...(LLM_GATEWAY ? LLM_GATEWAY.status() : {connected:false,provider:null,providers:[]}), configured:!!llmConfig, verified:llmVerified, model:llmModelName || null }),
     configureLLM: (config, fetchImpl) => configureLLM(config, true, fetchImpl),
     testLLMConnection: () => testLLMConnection(),
+    testLLMResponse: () => testLLMResponse(),
     clearLLMConfig: () => clearLLMConfig(),
     askLLM: query => askWithLLM(String(query || "")),
     prepareLLMRequest: query => prepareLLMRequestCore(String(query || "")),

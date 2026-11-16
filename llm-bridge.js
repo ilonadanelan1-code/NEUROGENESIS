@@ -225,17 +225,47 @@
       }
       return data || {};
     }
+    async function generateDetailed(request) {
+      const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} }, requestTimeoutMs);
+      if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
+      const model = typeof result.model === "string" ? result.model.replace(/\s+/gu, " ").trim().slice(0, 160) : "";
+      const requestedModel = typeof result.requestedModel === "string"
+        ? result.requestedModel.replace(/\s+/gu, " ").trim().slice(0, 160) : "";
+      const usage = result.usage && typeof result.usage === "object" && !Array.isArray(result.usage)
+        ? {
+            prompt_tokens: Number.isFinite(Number(result.usage.prompt_tokens)) ? Math.max(0, Math.floor(Number(result.usage.prompt_tokens))) : 0,
+            completion_tokens: Number.isFinite(Number(result.usage.completion_tokens)) ? Math.max(0, Math.floor(Number(result.usage.completion_tokens))) : 0,
+            total_tokens: Number.isFinite(Number(result.usage.total_tokens)) ? Math.max(0, Math.floor(Number(result.usage.total_tokens))) : 0
+          }
+        : null;
+      return {
+        reply: result.reply.trim(),
+        model: model || null,
+        requestedModel: requestedModel || null,
+        fallbackUsed: result.fallbackUsed === true,
+        usage
+      };
+    }
+    async function health() {
+      const result = await call("/api/health", null, healthTimeoutMs);
+      if (!result.configured) throw new Error("Шлюз доступен, но провайдер не настроен. Проверь секрет UPSTREAM_API_KEY в Cloudflare и переменные UPSTREAM_BASE_URL / UPSTREAM_MODEL.");
+      const fallbackModels = Array.isArray(result.fallbackModels)
+        ? result.fallbackModels.filter(value => typeof value === "string" && value.trim())
+          .map(value => value.replace(/\s+/gu, " ").trim().slice(0, 160))
+        : [];
+      return {
+        ok: true,
+        model: typeof result.model === "string" ? result.model.trim().slice(0, 160) || null : null,
+        provider: result.provider || "openai-compatible",
+        fallbackModels
+      };
+    }
     return Object.freeze({
       async generate(request) {
-        const result = await call("/api/chat", { messages: request.messages, metadata: request.metadata || {} }, requestTimeoutMs);
-        if (typeof result.reply !== "string" || !result.reply.trim()) throw new Error("Модель вернула пустой ответ.");
-        return result.reply.trim();
+        return (await generateDetailed(request)).reply;
       },
-      async health() {
-        const result = await call("/api/health", null, healthTimeoutMs);
-        if (!result.configured) throw new Error("Шлюз доступен, но провайдер не настроен. Проверь секрет UPSTREAM_API_KEY в Cloudflare и переменные UPSTREAM_BASE_URL / UPSTREAM_MODEL.");
-        return { ok: true, model: result.model || null, provider: result.provider || "openai-compatible" };
-      }
+      generateDetailed,
+      health
     });
   }
 
@@ -245,7 +275,9 @@
     function register(name, adapter) {
       const id = clean(name, 48).toLowerCase();
       if (!/^[a-z0-9_-]{2,48}$/u.test(id)) throw new Error("Некорректный идентификатор провайдера.");
-      if (!adapter || typeof adapter.generate !== "function") throw new Error("Провайдер должен предоставить generate(request).");
+      if (!adapter || (typeof adapter.generate !== "function" && typeof adapter.generateDetailed !== "function")) {
+        throw new Error("Провайдер должен предоставить generate(request) или generateDetailed(request).");
+      }
       providers.set(id, adapter);
       if (!activeProvider) activeProvider = id;
       return { id, active: activeProvider === id };
@@ -265,7 +297,7 @@
     function status() {
       return { connected: !!activeProvider && providers.has(activeProvider), provider: activeProvider || null, providers: [...providers.keys()] };
     }
-    async function generate(request) {
+    async function generateDetailed(request) {
       const adapter = providers.get(activeProvider);
       if (!adapter) throw new Error("Языковая модель пока не подключена. Контекст и интерфейс интеграции подготовлены.");
       const supportedSchemas = new Set(["NEUROGENESIS_LLM_REQUEST_V1", "NEUROGENESIS_LLM_REQUEST_V2"]);
@@ -275,11 +307,35 @@
             typeof row.content !== "string" || !row.content.trim())) {
         throw new Error("Некорректный запрос NEUROGENESIS к языковой модели.");
       }
-      const result = await adapter.generate(request);
-      if (typeof result !== "string" || !result.trim()) throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
-      return result.trim().slice(0, 12000);
+      const raw = typeof adapter.generateDetailed === "function"
+        ? await adapter.generateDetailed(request)
+        : await adapter.generate(request);
+      const result = typeof raw === "string" ? { reply: raw } : raw;
+      if (!result || typeof result.reply !== "string" || !result.reply.trim()) {
+        throw new Error("Провайдер вернул пустой или неподдерживаемый ответ.");
+      }
+      const safeName = value => typeof value === "string"
+        ? value.replace(/\s+/gu, " ").trim().slice(0, 160) || null
+        : null;
+      const usage = result.usage && typeof result.usage === "object" && !Array.isArray(result.usage)
+        ? {
+            prompt_tokens: Number.isFinite(Number(result.usage.prompt_tokens)) ? Math.max(0, Math.floor(Number(result.usage.prompt_tokens))) : 0,
+            completion_tokens: Number.isFinite(Number(result.usage.completion_tokens)) ? Math.max(0, Math.floor(Number(result.usage.completion_tokens))) : 0,
+            total_tokens: Number.isFinite(Number(result.usage.total_tokens)) ? Math.max(0, Math.floor(Number(result.usage.total_tokens))) : 0
+          }
+        : null;
+      return {
+        reply: result.reply.trim().slice(0, 12000),
+        model: safeName(result.model),
+        requestedModel: safeName(result.requestedModel),
+        fallbackUsed: result.fallbackUsed === true,
+        usage
+      };
     }
-    return { register, select, unregister, status, generate, buildRequest };
+    async function generate(request) {
+      return (await generateDetailed(request)).reply;
+    }
+    return { register, select, unregister, status, generate, generateDetailed, buildRequest };
   }
 
   window.NGLLMBridge = Object.freeze({ version: 1, buildRequest, safeHistory, safeEvidence, createHttpAdapter, create });
