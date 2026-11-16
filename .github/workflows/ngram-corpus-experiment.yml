@@ -60,6 +60,14 @@ jobs:
           tar -xzf data/rus_news_2024_1M.tar.gz -C data/leipzig
           find data/leipzig -name "rus_news_2024_1M-sentences.txt" -print -quit | grep .
 
+      - name: Download Leipzig sentence-to-source mapping
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://huggingface.co/datasets/rustemgareev/wortschatz/resolve/main/data/inv_so/rus_news_2024_1M.tsv?download=true" \
+            --output data/rus_news_2024_1M-inv_so.tsv
+          test -s data/rus_news_2024_1M-inv_so.tsv
+          echo "Leipzig inv_so rows: $(wc -l < data/rus_news_2024_1M-inv_so.tsv)"
+
       - name: Download RusLit corpus and record source revision
         run: |
           git clone --depth 1 https://github.com/d0rj/RusLit.git data/RusLit
@@ -70,6 +78,7 @@ jobs:
           NEWS_FILE="$(find data/leipzig -name 'rus_news_2024_1M-sentences.txt' -print -quit)"
           python scripts/prepare-corpus.py \
             --news "$NEWS_FILE" \
+            --news-inv-so data/rus_news_2024_1M-inv_so.tsv \
             --ruslit-dir data/RusLit \
             --output-dir split \
             --seed 20261116
