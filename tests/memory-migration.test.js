@@ -1107,6 +1107,10 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(failedLLMCycle.status, "error",
     "a provider failure must be recorded as an error cycle, not as completed reasoning");
   assert.equal(failedLLMCycle.phases.find(item => item.name === "reasoning").status, "limited");
+  assert.doesNotMatch(window.NGMemory.dialogHistory().slice(-1)[0].text, /HTTP 503|not_found|file not found/iu,
+    "provider failures must be translated into a natural chat message rather than technical errors");
+  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /временно недоступен/u,
+    "the local fallback must honestly explain the temporary limitation");
   // The existing research planner must prioritize review goals created by new evidence,
   // even when the question that originally produced the goal is already answered.
   const priorGoalsManager = window.NGGoals;
