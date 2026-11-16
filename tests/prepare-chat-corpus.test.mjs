@@ -70,8 +70,10 @@ const instructionSource = {
 };
 const poetrySource = {
   id: "poetry-test", dataset: "fixture/poetry", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "CC-BY-4.0", url: "https://example.test/poetry",
-  where: '"author"=\'Александр Пушкин\' OR "author"=\'Анна Ахматова\'',
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "CC-BY-4.0", url: "https://example.test/poetry",
+  rawFileUrl: "https://example.test/poetry.jsonl",
+  allowedAuthors: ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"],
   role: "literature-filtered",
 };
 const qaSource = {
@@ -108,7 +110,6 @@ const fixtures = {
     })),
   },
   "fixture/poetry": {
-    splits: [{ config: "default", split: "train" }],
     rows: Array.from({ length: 60 }, (_, index) => ({
       author: ["Александр Пушкин", "Анна Ахматова", "Сергей Есенин"][index % 3],
       text: "Поэтический или литературный фрагмент номер " + index +
@@ -146,6 +147,12 @@ const fetchImpl = async url => {
   const parsed = new URL(url);
   if (parsed.pathname.endsWith("/books.txt")) {
     return { ok: true, text: async () => fixtures["fixture/books"].text };
+  }
+  if (parsed.pathname.endsWith("/poetry.jsonl")) {
+    return {
+      ok: true,
+      text: async () => fixtures["fixture/poetry"].rows.map(row => JSON.stringify(row)).join("\n"),
+    };
   }
   if (parsed.pathname.endsWith("/everyday.jsonl")) {
     return {
@@ -197,7 +204,8 @@ for (const source of result.manifest.sources) {
   );
 }
 assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
-assert.match(result.manifest.sources[1].filters.join(" "), /selected classical poets/u);
+assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-poet author names/u);
+assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
