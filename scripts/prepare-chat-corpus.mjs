@@ -230,7 +230,7 @@ async function collectDialogueFile(fetchImpl, source) {
 }
 
 async function collectSource(fetchImpl, source) {
-  if (source.role === "dialogue" && source.rawFileUrl) {
+  if (source.rawFileUrl) {
     return collectDialogueFile(fetchImpl, source);
   }
   const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
@@ -319,7 +319,7 @@ export async function prepareCorpus(options = {}) {
   const manifest = {
     schema: "NEUROGENESIS_PREPARED_CHAT_CORPUS_V1",
     createdAt: new Date().toISOString(),
-    method: "Hugging Face datasets-server rows API; bounded deterministic sample; exact duplicate removal.",
+    method: "Hugging Face datasets-server rows API plus bounded raw JSONL streaming; deterministic sample; exact duplicate removal.",
     splitMethod: "Stable row-level 90/5/5 hash split. It is NOT author- or document-disjoint.",
     sources: results.map(result => ({
       id: result.source.id,
@@ -336,15 +336,17 @@ export async function prepareCorpus(options = {}) {
       requests: result.requests,
       characters: result.characters,
       localSplitCounts: countsBySource[result.source.id],
-      filters: result.source.role === "dialogue"
-        ? result.source.role === "everyday"
+      filters: result.source.role === "everyday"
         ? ["explicit user and assistant fields must both be non-empty"]
-        : ["keep only user/assistant message roles", "discard system messages",
-          "strip all <think> blocks; keep only assistant final text when present"]
-        : ["non-empty text/content/document field, at least 80 characters"],
-      attribution: result.source.license === "CC-BY-4.0"
-        ? "SonexaAI, Medium-Life-Dataset-ru-eng, CC BY 4.0; adapted by filtering Russian chat rows and adding role markers."
-        : "Imperius/ru-classic, CC0-1.0.",
+        : result.source.role === "dialogue"
+          ? ["keep only user/assistant message roles", "discard system messages",
+            "strip all <think> blocks; keep only assistant final text when present"]
+          : ["non-empty text/content/document field, at least 80 characters"],
+      attribution: result.source.id === "russian-everyday-dialogues"
+        ? "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0; adapted by adding role markers."
+        : result.source.id === "ru-dataset-small"
+          ? "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0; adapted by removing system and <think> content."
+          : "Imperius/ru-classic, CC0-1.0.",
     })),
     totals: Object.fromEntries(Object.entries(buckets).map(([key, value]) =>
       [key, { rows: value.length, characters: value.reduce((sum, text) => sum + text.length, 0) }])),
