@@ -52,6 +52,7 @@ jobs:
           node --check contextual-training-worker.js
           node --check sidebar-navigation.js
           node --check scripts/pretrain-contextual-model.mjs
+          node --check scripts/prepare-chat-corpus.mjs
           node --check semantic-retrieval.js
           node --check llm-bridge.js
           node --check ngram-predictor.js
@@ -290,7 +291,7 @@ jobs:
       # The full external pilot already ran on the PR before merge. Keep it on PR
       # and manual runs; do not repeat the same 14-minute benchmark before every Pages deploy.
       - name: Download pinned UD Russian-GSD corpus
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           mkdir -p /tmp/ud-russian-gsd
           curl --fail --location --retry 3 \
@@ -301,7 +302,7 @@ jobs:
             --output /tmp/ud-russian-gsd/ru_gsd-ud-test.conllu
 
       - name: Run external UD Russian-GSD language pilot
-        if: ${{ github.event_name != 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           node tests/ud-russian-gsd-benchmark.test.js \
             /tmp/ud-russian-gsd/ru_gsd-ud-train.conllu \
@@ -337,7 +338,36 @@ jobs:
           node tests/llm-worker.test.js
           node tests/memory-navigation.test.js
           node tests/backup-import-transaction.test.js
+          node tests/prepare-chat-corpus.test.mjs
           node tests/storage-transaction.test.js
+
+
+  prepare-open-chat-corpus:
+    name: Prepare bounded open Russian chat corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # This is a non-blocking data-source probe. The app build and Pages deploy
+      # must remain independent from third-party dataset-viewer availability.
+      - name: Fetch a bounded, license-tracked corpus sample
+        run: node scripts/prepare-chat-corpus.mjs
+
+      - name: Upload prepared corpus and provenance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neurogenesis-open-russian-chat-corpus
+          path: training-data/generated/
+          if-no-files-found: warn
+          retention-days: 7
 
 
   deploy:

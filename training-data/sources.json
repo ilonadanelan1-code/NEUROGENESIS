@@ -1,0 +1,159 @@
+{
+  "schema": "NEUROGENESIS_TRAINING_SOURCES_V1",
+  "purpose": "Separate Russian language-pattern pretraining from dialogue-format training, combining public-domain literature, synthetic conversational examples, and human-generated open assistant messages.",
+  "sources": [
+    {
+      "id": "imperius-ru-classic",
+      "dataset": "Imperius/ru-classic",
+      "url": "https://huggingface.co/datasets/Imperius/ru-classic",
+      "license": "CC0-1.0",
+      "role": "Russian prose, literary criticism, correspondence and verse samples for next-token language modeling.",
+      "selection": {
+        "split": "train",
+        "file": "corpus_clean.norm.txt",
+        "streamLimitBytes": 4194304,
+        "paragraphSplit": "blank lines"
+      },
+      "attribution": "The dataset card identifies the collection as CC0; underlying texts are described as public domain."
+    },
+    {
+      "id": "ruheritage-poetry",
+      "dataset": "zait-ai/RuHeritage-Corpus",
+      "url": "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus",
+      "license": "CC-BY-4.0",
+      "role": "Selected Russian classical literature and poetry by Pushkin, Lermontov, Blok, Akhmatova, Yesenin and Tsvetaeva.",
+      "selection": {
+        "split": "train",
+        "file": "russian_classics_dataset.jsonl",
+        "maxDownloadBytes": 4194304,
+        "authors": [
+          "Михаил Ломоносов",
+          "Александр Пушкин",
+          "Михаил Лермонтов",
+          "Александр Блок",
+          "Анна Ахматова",
+          "Сергей Есенин",
+          "Марина Цветаева"
+        ],
+        "textField": "text",
+        "rawFileUrl": "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus/resolve/main/russian_classics_dataset.jsonl"
+      },
+      "attribution": "maxzt/RuHeritage-Corpus, CC BY 4.0; curated Russian public-domain literary texts from Russian Wikisource, adapted by filtering selected authors.",
+      "limitations": [
+        "The upstream dataset mixes verse and prose; no genre field is used in this sample."
+      ],
+      "optional": true
+    },
+    {
+      "id": "tiny-russian-dialogs",
+      "dataset": "Fmluder/Tiny-Russian-Dialogs",
+      "url": "https://huggingface.co/datasets/Fmluder/Tiny-Russian-Dialogs",
+      "license": "CC0-1.0",
+      "role": "Synthetic short Russian user/assistant question-answer pairs; supplementary dialogue-format data.",
+      "selection": {
+        "file": "Tiny-Russian-Dialogs.csv",
+        "fields": [
+          "q",
+          "a"
+        ],
+        "streamLimitBytes": 1048576,
+        "maxRows": 4000
+      },
+      "attribution": "Fmluder, Tiny-Russian-Dialogs, CC0-1.0.",
+      "limitations": [
+        "Synthetic data",
+        "Repeated answer templates",
+        "Each row is a single turn without multi-turn context"
+      ]
+    },
+    {
+      "id": "openassistant-ru",
+      "dataset": "OpenAssistant/oasst1",
+      "url": "https://huggingface.co/datasets/OpenAssistant/oasst1",
+      "license": "Apache-2.0",
+      "role": "Human-generated Russian assistant conversation messages.",
+      "selection": {
+        "file": "2023-04-12_oasst_ready.messages.jsonl.gz",
+        "streamLimitBytes": 41943040,
+        "filter": {
+          "lang": "ru",
+          "deleted": false,
+          "synthetic": false,
+          "roles": [
+            "prompter",
+            "assistant"
+          ]
+        },
+        "pairBy": [
+          "parent_id",
+          "message_id"
+        ],
+        "roles": {
+          "question": "prompter",
+          "answer": "assistant"
+        }
+      },
+      "attribution": "OpenAssistant, OASST1, Apache-2.0; adapted from the ready messages export by filtering Russian messages and reconstructing direct parent/reply pairs.",
+      "limitations": [
+        "Only direct prompter-to-assistant parent/reply pairs are reconstructed.",
+        "Alternative assistant reply branches are kept as independent examples, not complete conversation trees.",
+        "Only the ready_for_export messages archive is used."
+      ],
+      "optional": true
+    },
+    {
+      "id": "ru-dataset-small",
+      "dataset": "ru-dataset/ru-dataset-small",
+      "url": "https://huggingface.co/datasets/ru-dataset/ru-dataset-small",
+      "license": "Apache-2.0",
+      "role": "Russian instruction and multi-turn user/assistant examples.",
+      "selection": {
+        "split": "train",
+        "file": "dataset-3/dataset-00018-of-00020.jsonl",
+        "streamLimitBytes": 524288,
+        "maxRows": 1000,
+        "messagesField": "messages",
+        "roles": [
+          "user",
+          "assistant"
+        ]
+      },
+      "filters": [
+        "drop system messages",
+        "remove <think> reasoning blocks",
+        "retain assistant final answer only"
+      ],
+      "attribution": "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0.",
+      "optional": true
+    },
+    {
+      "id": "russian-everyday-dialogues",
+      "dataset": "kukunechka/russian-everyday-dialogues",
+      "url": "https://huggingface.co/datasets/kukunechka/russian-everyday-dialogues",
+      "license": "CC-BY-4.0",
+      "role": "Natural colloquial everyday Russian conversations, a small style supplement.",
+      "selection": {
+        "split": "main",
+        "file": "russian_everyday_dialogues.jsonl",
+        "fields": [
+          "user",
+          "assistant"
+        ]
+      },
+      "attribution": "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0.",
+      "optional": true
+    }
+  ],
+  "safeguards": [
+    "Fetch only the public train split or the upstream main JSONL file; do not mix an external test split into training.",
+    "Keep source names, license identifiers, source URLs, attribution and filtering steps in every generated manifest.",
+    "Remove <think> blocks from dialogue data; do not train the model to reveal private reasoning traces.",
+    "Do not commit downloaded source text or model checkpoints to the Git repository.",
+    "Do not represent corpus ingestion or a next-token model as evidence of factual reasoning.",
+    "The first data-viewer sample is a bounded prototype subset, not the complete upstream dataset.",
+    "Validation and test are currently stable row-level samples, not author- or document-disjoint sets.",
+    "Synthetic Tiny-Russian-Dialogs is supplementary only because its assistant answer templates repeat.",
+    "OASST1 is filtered to Russian, non-deleted messages and only direct parent user/assistant pairs are reconstructed.",
+    "RuHeritage-Corpus is used under CC BY 4.0 with source attribution; only a bounded author-filtered sample is fetched."
+  ]
+}
