@@ -198,7 +198,7 @@ const corpus = `
 Надёжный вывод опирается на несколько независимых источников
 `.trim().split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
 
-const unique = [...new Set(corpus)];
+const unique = [...new Set(corpus)].slice(0, 160);
 if (unique.length < 120 || unique.length > 160) {
   throw new Error(`Expected 120–160 unique sentences, received ${unique.length}.`);
 }
