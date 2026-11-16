@@ -39,8 +39,8 @@ def main():
             )
         output = root / "split"
         subprocess.run(
-            [sys.executable, str(SCRIPT), "--news", str(news), "--ruslit-dir", str(ruslit),
-             "--output-dir", str(output), "--seed", "17"],
+            [sys.executable, str(SCRIPT), "--news", str(news), "--news-inv-so", str(news_inv_so),
+             "--ruslit-dir", str(ruslit), "--output-dir", str(output), "--seed", "17"],
             check=True, capture_output=True, text=True,
         )
         required = [
@@ -53,7 +53,28 @@ def main():
         for name in required:
             assert (output / name).is_file(), name
         manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-        assert manifest["protocol"] == "ngram-corpus-split-v2"
+        assert manifest["protocol"] == "ngram-corpus-split-v3-source-grouped-news"
+        mapping = manifest["news_source_mapping"]
+        assert mapping["mapping_rows"] == 13
+        assert mapping["mapped_sentences"] == 12
+        assert mapping["source_components"] == 5
+        assert manifest["news_row_counters"]["source_unmapped_rows"] == 0
+        news_splits = {
+            split: set((output / f"news_{split}.txt").read_text(encoding="utf-8").splitlines())
+            for split in ("train", "val", "test")
+        }
+        for group_sentences in [
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[:2]},
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[2:4]},
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[4:6]},
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[6:8]},
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[8:10]},
+            {row.split("\\t", 1)[1].casefold().replace("ё", "е") for row in news_rows[10:12]},
+        ]:
+            present = [split for split, rows in news_splits.items() if group_sentences & rows]
+            assert len(present) == 1, (group_sentences, present)
+        # Sentence 1 maps to two source IDs; both source IDs must be merged,
+        # so sentence 2 from source 100 cannot leak into another split.
         assignments = manifest["work_files"]
         assert sum(assignments.values()) == 12
         assert assignments["train"] >= 1 and assignments["val"] >= 1 and assignments["test"] >= 1
