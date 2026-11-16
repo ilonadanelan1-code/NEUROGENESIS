@@ -10,6 +10,7 @@ on:
       - "scripts/eval-compact.js"
       - "scripts/prepare-corpus.py"
       - "scripts/eval-matched-baseline.js"
+      - "scripts/eval-matched-multiseed.js"
       - "tests/ngram-*"
       - "docs/NGRAM_CORPUS_EXPERIMENT.md"
       - ".github/workflows/ngram-corpus-experiment.yml"
@@ -43,9 +44,11 @@ jobs:
           node --check scripts/train-compact.js
           node --check scripts/eval-compact.js
           node --check scripts/eval-matched-baseline.js
+          node --check scripts/eval-matched-multiseed.js
           node tests/ngram-predictor.test.js
           node tests/ngram-compact.test.js
           node tests/ngram-matched-benchmark.test.js
+          node tests/ngram-matched-multiseed.test.js
           python tests/ngram-corpus-pipeline.test.py
 
       - name: Download Leipzig Russian news corpus
@@ -118,6 +121,17 @@ jobs:
           TEST_SENTENCES=8000 node scripts/eval-matched-baseline.js \
             split/lit_train.txt split/lit_test.txt \
             | tee benchmark-reports/matched-literature-224.json
+
+      - name: Compare models over five matched seeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
+            split/news_train.txt split/news_test.txt \
+            | tee benchmark-reports/matched-news-multiseed.json
+          MATCHED_SEEDS=902,903,904,905,906 TEST_SENTENCES=8000 node scripts/eval-matched-multiseed.js \
+            split/lit_train.txt split/lit_test.txt \
+            | tee benchmark-reports/matched-literature-multiseed.json
 
       - name: Upload benchmark reports
         if: always()
