@@ -20,12 +20,13 @@ const SOURCES = [
   {
     id: "ruheritage-poetry",
     dataset: "maxzt/RuHeritage-Corpus",
-    pageLimit: 20,
     maxRows: 1000,
     maxCharacters: 800_000,
+    maxDownloadBytes: 4 * 1024 * 1024,
     license: "CC-BY-4.0",
     url: "https://huggingface.co/datasets/maxzt/RuHeritage-Corpus",
-    where: "\"author\"='Александр Пушкин' OR \"author\"='Михаил Лермонтов' OR \"author\"='Александр Блок' OR \"author\"='Анна Ахматова' OR \"author\"='Сергей Есенин' OR \"author\"='Марина Цветаева'",
+    rawFileUrl: "https://huggingface.co/datasets/maxzt/RuHeritage-Corpus/resolve/main/russian_classics_dataset.jsonl?download=true",
+    allowedAuthors: ["Александр Пушкин", "Михаил Лермонтов", "Александр Блок", "Анна Ахматова", "Сергей Есенин", "Марина Цветаева"],
     role: "literature-filtered",
   },
   {
