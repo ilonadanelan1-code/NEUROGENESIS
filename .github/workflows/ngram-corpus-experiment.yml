@@ -45,6 +45,7 @@ jobs:
           node --check scripts/eval-matched-baseline.js
           node tests/ngram-predictor.test.js
           node tests/ngram-compact.test.js
+          node tests/ngram-matched-benchmark.test.js
           python tests/ngram-corpus-pipeline.test.py
 
       - name: Download Leipzig Russian news corpus
@@ -107,22 +108,22 @@ jobs:
             model-hybrid split/mixed_balanced_val.txt 6000 split/news_test.txt split/lit_test.txt \
             | tee benchmark-reports/hybrid-model.txt
 
-      - name: Compare attention and N-gram with identical 320-sentence training data
+      - name: Compare models on identical 224 training and 48 validation sentences
         shell: bash
         run: |
           set -euo pipefail
           TEST_SENTENCES=8000 node scripts/eval-matched-baseline.js \
-            split/news_train.txt split/news_val.txt split/news_test.txt \
-            | tee benchmark-reports/matched-news-320.json
+            split/news_train.txt split/news_test.txt \
+            | tee benchmark-reports/matched-news-224.json
           TEST_SENTENCES=8000 node scripts/eval-matched-baseline.js \
-            split/lit_train.txt split/lit_val.txt split/lit_test.txt \
-            | tee benchmark-reports/matched-literature-320.json
+            split/lit_train.txt split/lit_test.txt \
+            | tee benchmark-reports/matched-literature-224.json
 
       - name: Upload benchmark reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neurogenesis-ngram-corpus-benchmark-v1
+          name: neurogenesis-ngram-corpus-benchmark-v2
           path: |
             benchmark-reports/
             benchmark-reports-ruslit-revision.txt
