@@ -64,9 +64,10 @@ const bookSource = {
   rawTextUrl: "https://example.test/books.txt", role: "literature",
 };
 const instructionSource = {
-  id: "instruction-test", dataset: "fixture/instruction", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "Apache-2.0", url: "https://example.test/instruction",
-  role: "dialogue",
+  id: "instruction-test", dataset: "fixture/instruction", maxRows: 100,
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "Apache-2.0", url: "https://example.test/instruction",
+  rawFileUrl: "https://example.test/instruction.jsonl", role: "dialogue",
 };
 const poetrySource = {
   id: "poetry-test", dataset: "fixture/poetry", pageLimit: 2, maxRows: 100,
@@ -77,9 +78,10 @@ const poetrySource = {
   role: "literature-filtered",
 };
 const qaSource = {
-  id: "qa-test", dataset: "fixture/qa", pageLimit: 2, maxRows: 100,
-  maxCharacters: 10000, license: "CC0-1.0", url: "https://example.test/qa",
-  role: "qa",
+  id: "qa-test", dataset: "fixture/qa", maxRows: 100,
+  maxCharacters: 10000, maxDownloadBytes: 100000,
+  license: "CC0-1.0", url: "https://example.test/qa",
+  rawCsvUrl: "https://example.test/qa.csv", role: "qa",
 };
 const oasstSource = {
   id: "oasst-test", dataset: "fixture/oasst", pageLimit: 2, maxRows: 100,
@@ -154,10 +156,18 @@ const fetchImpl = async url => {
       text: async () => fixtures["fixture/poetry"].rows.map(row => JSON.stringify(row)).join("\n"),
     };
   }
-  if (parsed.pathname.endsWith("/everyday.jsonl")) {
+  if (parsed.pathname.endsWith("/instruction.jsonl")) {
     return {
       ok: true,
-      text: async () => fixtures["fixture/everyday"].rows.map(row => JSON.stringify(row)).join("\n"),
+      text: async () => fixtures["fixture/instruction"].rows.map(row => JSON.stringify(row)).join("\n"),
+    };
+  }
+  if (parsed.pathname.endsWith("/qa.csv")) {
+    const quote = value => '"' + String(value).replace(/"/gu, '""') + '"';
+    return {
+      ok: true,
+      text: async () => "q,a\n" + fixtures["fixture/qa"].rows
+        .map(row => quote(row.q) + "," + quote(row.a)).join("\n"),
     };
   }
   const dataset = parsed.searchParams.get("dataset");
@@ -207,6 +217,8 @@ assert.match(result.manifest.sources[0].rawTextUrl, /corpus_clean\.norm\.txt/u);
 assert.match(result.manifest.sources[1].filters.join(" "), /selected classical-poet author names/u);
 assert.ok(fixtures["fixture/poetry"].rows.some(row => row.author === "Михаил Ломоносов"), "the first RuHeritage author must be accepted");
 assert.match(result.manifest.sources[1].rawFileUrl, /russian_classics_dataset\.jsonl/u);
+assert.match(result.manifest.sources[2].rawCsvUrl, /qa\.csv/u);
+assert.match(result.manifest.sources[4].rawFileUrl, /instruction\.jsonl/u);
 assert.match(result.manifest.splitMethod, /at least one validation and one test row per source/u);
 assert.equal(result.manifest.sources[1].uniqueRows, 60);
 assert.equal(result.manifest.sources[2].uniqueRows, 60);
