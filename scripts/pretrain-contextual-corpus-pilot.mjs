@@ -319,6 +319,7 @@ async function main() {
     schema: "NEUROGENESIS_CONTEXTUAL_CORPUS_PILOT_V1",
     createdAt: new Date().toISOString(),
     seed: SEED,
+    candidateSeeds,
     architecture: {
       dimension: baselineBundle.contextualState.dimension,
       windowSize: baselineBundle.contextualState.windowSize,
@@ -349,13 +350,17 @@ async function main() {
     interpretation: {
       task: "masked-token prediction on source-aware Russian text rows",
       thisIsNotConversationalGeneration: true,
-      candidateSeeds,\n      candidateSelectionMetric: "internal_validation_loss",\n      externalValidationUsedForModelSelection: false,\n      testSetUsedForTrainingOrModelSelection: false,
+      candidateSeeds,
+      candidateSelectionMetric: "internal_validation_loss",
+      externalValidationUsedForModelSelection: false,
+      testSetUsedForTrainingOrModelSelection: false,
       promotionDecision: "not_promoted_masked_token_results_only",
       limitations: [
         "The local contextual model predicts masked tokens; it does not generate full conversational replies.",
         "The model accepts at most 320 training rows and a vocabulary of 1024 tokens.",
         "The corpus split is row-level, not author- or document-disjoint; paraphrases and same-document excerpts can still overlap.",
-        "The validation and test probes cover only a small deterministic source-stratified sample.",\n      "Three independent candidate initializations are compared; the selected checkpoint is chosen by the candidate training run internal validation loss, not by the external test set.",
+        "The validation and test probes cover only a small deterministic source-stratified sample.",
+        "Three independent candidate initializations are compared; the selected checkpoint is chosen by the candidate training run internal validation loss, not by the external test set.",
       ],
     },
   };
@@ -366,7 +371,9 @@ async function main() {
   await fs.writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
   await fs.writeFile(checkpointPath, JSON.stringify({
     schema: "NEUROGENESIS_CONTEXTUAL_CORPUS_PILOT_CHECKPOINT_V1",
-    seed: 6021,
+    seed: selectedRun.seed,
+    candidateSeeds,
+    selectionMetric: "internal_validation_loss",
     trainingSources: sourceCounts(selectedTrain),
     trainingReport,
     modelState: candidate.exportState(),
@@ -381,8 +388,10 @@ async function main() {
     trainingReport,
     baselineValidation: evaluation.baseline.validation,
     baselineTest: evaluation.baseline.test,
-    candidateValidation: evaluation.candidate.validation,
-    candidateTest: evaluation.candidate.test,
+    selectedCandidateSeed: selectedRun.seed,
+    candidateMeanAcrossSeeds: evaluation.candidateMeanAcrossSeeds,
+    candidateRuns: evaluation.candidateRuns,
+    promotionDecision: report.interpretation.promotionDecision,
     promotionDecision: report.interpretation.promotionDecision,
   }, null, 2));
 }
