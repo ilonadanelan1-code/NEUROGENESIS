@@ -85,7 +85,7 @@ const qaSource = {
   rawCsvUrl: "https://example.test/qa.csv", role: "qa",
 };
 const oasstSource = {
-  id: "oasst-test", dataset: "fixture/oasst", maxRows: 100,
+  id: "oasst-test", dataset: "fixture/oasst", maxRows: 120,
   maxCharacters: 50000, maxDownloadBytes: 100000,
   license: "Apache-2.0", url: "https://example.test/oasst",
   rawGzipJsonlUrl: "https://example.test/oasst.gz", role: "oasst",
