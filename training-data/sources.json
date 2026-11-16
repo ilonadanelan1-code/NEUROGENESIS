@@ -18,8 +18,8 @@
     },
     {
       "id": "ruheritage-poetry",
-      "dataset": "maxzt/RuHeritage-Corpus",
-      "url": "https://huggingface.co/datasets/maxzt/RuHeritage-Corpus",
+      "dataset": "zait-ai/RuHeritage-Corpus",
+      "url": "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus",
       "license": "CC-BY-4.0",
       "role": "Selected Russian classical literature and poetry by Pushkin, Lermontov, Blok, Akhmatova, Yesenin and Tsvetaeva.",
       "selection": {
@@ -34,7 +34,8 @@
           "Сергей Есенин",
           "Марина Цветаева"
         ],
-        "textField": "text"
+        "textField": "text",
+        "rawFileUrl": "https://huggingface.co/datasets/zait-ai/RuHeritage-Corpus/resolve/main/russian_classics_dataset.jsonl"
       },
       "attribution": "maxzt/RuHeritage-Corpus, CC BY 4.0; curated Russian public-domain literary texts from Russian Wikisource, adapted by filtering selected authors.",
       "limitations": [
