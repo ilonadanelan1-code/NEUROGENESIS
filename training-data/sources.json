@@ -1,39 +1,64 @@
 {
   "schema": "NEUROGENESIS_TRAINING_SOURCES_V1",
-  "purpose": "Separate language-style pretraining from conversational-format training.",
+  "purpose": "Separate Russian language-pattern pretraining from conversational-format training.",
   "sources": [
     {
       "id": "imperius-ru-classic",
       "dataset": "Imperius/ru-classic",
       "url": "https://huggingface.co/datasets/Imperius/ru-classic",
       "license": "CC0-1.0",
-      "role": "Russian prose, correspondence, criticism and verse samples for next-token language modeling.",
+      "role": "Russian prose, criticism, correspondence and verse samples for next-token language modeling.",
       "selection": {
         "split": "train",
         "textField": "text"
       },
-      "attribution": "Dataset card identifies the collection as CC0; underlying texts are described as public domain."
+      "attribution": "The dataset card identifies the collection as CC0; underlying texts are described as public domain."
     },
     {
-      "id": "sonexa-medium-life-ru",
-      "dataset": "SonexaAI/Medium-Life-Dataset-ru-eng",
-      "url": "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng",
-      "license": "CC-BY-4.0",
-      "role": "Russian user/assistant turns for conversational formatting and response continuation.",
+      "id": "ru-dataset-small",
+      "dataset": "ru-dataset/ru-dataset-small",
+      "url": "https://huggingface.co/datasets/ru-dataset/ru-dataset-small",
+      "license": "Apache-2.0",
+      "role": "Russian instruction and multi-turn user/assistant examples.",
       "selection": {
         "split": "train",
-        "language": "ru",
-        "type": "chat",
-        "messagesField": "messages"
+        "messagesField": "messages",
+        "roles": [
+          "user",
+          "assistant"
+        ]
       },
-      "attribution": "SonexaAI, Medium-Life-Dataset-ru-eng, CC BY 4.0. Adapted by filtering Russian chat examples and adding role markers."
+      "filters": [
+        "drop system messages",
+        "remove <think> reasoning blocks",
+        "retain assistant final answer only"
+      ],
+      "attribution": "ru-dataset, RU Dataset 1 (ru-dataset-small), Apache-2.0."
+    },
+    {
+      "id": "russian-everyday-dialogues",
+      "dataset": "kukunechka/russian-everyday-dialogues",
+      "url": "https://huggingface.co/datasets/kukunechka/russian-everyday-dialogues",
+      "license": "CC-BY-4.0",
+      "role": "Natural colloquial everyday Russian conversations, a small style supplement.",
+      "selection": {
+        "split": "main",
+        "file": "russian_everyday_dialogues.jsonl",
+        "fields": [
+          "user",
+          "assistant"
+        ]
+      },
+      "attribution": "Ekaterina Myskina, Russian Everyday Dialogues (2025), CC BY 4.0."
     }
   ],
   "safeguards": [
-    "Fetch only the public train split; do not mix the external test split into training.",
-    "Keep source names, license identifiers, source URLs and filtering steps in every generated manifest.",
+    "Fetch only the public train split or the upstream main JSONL file; do not mix an external test split into training.",
+    "Keep source names, license identifiers, source URLs, attribution and filtering steps in every generated manifest.",
+    "Remove <think> blocks from dialogue data; do not train the model to reveal private reasoning traces.",
     "Do not commit downloaded source text or model checkpoints to the Git repository.",
-    "Do not represent a corpus download or a next-token model as evidence of factual reasoning.",
-    "The first data-viewer sample is a bounded prototype subset, not the complete upstream dataset."
+    "Do not represent corpus ingestion or a next-token model as evidence of factual reasoning.",
+    "The first data-viewer sample is a bounded prototype subset, not the complete upstream dataset.",
+    "Validation and test are currently stable row-level samples, not author- or document-disjoint sets."
   ]
 }
