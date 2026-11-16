@@ -293,5 +293,11 @@ assert.match(request.messages[request.messages.length - 1].content, /Польз�
   );
   await assert.rejects(() => hangingBodyAdapter.generate(request), /Истекло время ожидания ответа модели/u,
     "a response whose body never finishes parsing must also be bounded");
-  const longReply = "Д".repeat(10000);\n  const capacityGateway = bridge.create();\n  capacityGateway.register("capacity-test", { async generate() { return longReply; } });\n  assert.equal(await capacityGateway.generate(request), longReply,\n    "the chat gateway must preserve a ten-thousand-character answer instead of truncating it at eight thousand");\n\n  console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
+  const longReply = "Д".repeat(10000);
+  const capacityGateway = bridge.create();
+  capacityGateway.register("capacity-test", { async generate() { return longReply; } });
+  assert.equal(await capacityGateway.generate(request), longReply,
+    "the chat gateway must preserve a ten-thousand-character answer instead of truncating it at eight thousand");
+
+  console.log("NEUROGENESIS language-model bridge and authenticated HTTP adapter: passed.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
