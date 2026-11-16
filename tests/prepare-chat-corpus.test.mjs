@@ -124,8 +124,8 @@ const fixtures = {
   "fixture/qa": {
     splits: [{ config: "default", split: "train" }],
     rows: Array.from({ length: 60 }, (_, index) => ({
-      q: "Короткий вопрос номер " + index + "?",
-      a: "Короткий дружелюбный ответ номер " + index + ".",
+      q: index === 0 ? 'Как дела, "друг"?' : "Короткий вопрос номер " + index + "?",
+      a: index === 0 ? 'Всё хорошо, "спасибо"!' : "Короткий дружелюбный ответ номер " + index + ".",
     })),
   },
   "fixture/oasst": {
@@ -195,6 +195,8 @@ assert.ok(result.buckets.validation.length > 0);
 assert.ok(result.buckets.test.length > 0);
 assert.ok(result.buckets.train.some(row => row.includes("<|assistant|>")));
 assert.ok(result.buckets.train.some(row => row.includes("Литературный фрагмент")));
+assert.match(Object.values(result.buckets).flat().join("\n"), /Как дела, "друг"\?/u);
+assert.match(Object.values(result.buckets).flat().join("\n"), /Всё хорошо, "спасибо"!/u);
 for (const source of result.manifest.sources) {
   assert.ok(source.localSplitCounts.train > 0, source.id + " needs train rows");
   assert.ok(source.localSplitCounts.validation > 0, source.id + " needs validation rows");
