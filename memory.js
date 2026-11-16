@@ -19,7 +19,7 @@
   const MAX_INQUIRIES = 48;
   const MAX_MEMORIES = 500;
   const MAX_DIALOG = 24;
-  const MAX_DIALOG_TEXT = 4200;
+  const MAX_DIALOG_TEXT = 12000;
   const MAX_TEXT = 1200;
   const KNOWLEDGE = window.NGKnowledge || null;
   const KNOWLEDGE_GRAPH = window.NGKnowledgeGraph || null;
