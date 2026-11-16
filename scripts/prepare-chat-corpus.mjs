@@ -24,6 +24,8 @@ const SOURCES = [
     maxCharacters: 1_000_000,
     license: "CC-BY-4.0",
     url: "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng",
+    rawFileUrl: "https://huggingface.co/datasets/SonexaAI/Medium-Life-Dataset-ru-eng/resolve/main/data/train.jsonl?download=true",
+    maxDownloadBytes: 16 * 1024 * 1024,
     role: "dialogue",
   },
 ];
@@ -116,7 +118,94 @@ function extractText(source, row) {
   return dialogueText(row);
 }
 
+async function collectDialogueFile(fetchImpl, source) {
+  const response = await fetchImpl(source.rawFileUrl, {
+    headers: {
+      Accept: "application/jsonl, application/x-ndjson, text/plain",
+      Range: "bytes=0-" + (source.maxDownloadBytes - 1),
+      "User-Agent": "NEUROGENESIS-open-corpus-preparer/1.0",
+    },
+  });
+  if (!response.ok) throw responseError(response, source.rawFileUrl);
+
+  const rows = [];
+  const seen = new Set();
+  let rawRows = 0;
+  let characters = 0;
+  let consumedBytes = 0;
+  const maxBytes = source.maxDownloadBytes;
+  const acceptLine = line => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    rawRows += 1;
+    let row;
+    try { row = JSON.parse(trimmed); }
+    catch { return; }
+    const text = extractText(source, row);
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    const remaining = source.maxCharacters - characters;
+    const bounded = text.slice(0, remaining);
+    if (bounded.length < 30) return;
+    rows.push(bounded);
+    characters += bounded.length;
+  };
+
+  if (response.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let pending = "";
+    let reachedEnd = false;
+    try {
+      while (consumedBytes < maxBytes && rawRows < source.maxRows &&
+             characters < source.maxCharacters) {
+        const next = await reader.read();
+        if (next.done) { reachedEnd = true; break; }
+        const chunk = next.value instanceof Uint8Array ? next.value : new Uint8Array(next.value);
+        const allowed = Math.min(chunk.byteLength, maxBytes - consumedBytes);
+        consumedBytes += allowed;
+        pending += decoder.decode(chunk.subarray(0, allowed), { stream: true });
+        const lines = pending.split("\n");
+        pending = lines.pop() || "";
+        for (const line of lines) {
+          acceptLine(line);
+          if (rawRows >= source.maxRows || characters >= source.maxCharacters) break;
+        }
+        if (allowed < chunk.byteLength) break;
+      }
+      pending += decoder.decode();
+      if (reachedEnd) acceptLine(pending);
+      else if (consumedBytes < maxBytes && rawRows < source.maxRows) acceptLine(pending);
+    } finally {
+      try { await reader.cancel(); } catch {}
+    }
+  } else if (typeof response.text === "function") {
+    // Text fallback keeps the extractor unit-testable with tiny in-memory fixtures.
+    const body = await response.text();
+    consumedBytes = new TextEncoder().encode(body).byteLength;
+    for (const line of body.split(/\r?\n/u)) {
+      acceptLine(line);
+      if (rawRows >= source.maxRows || characters >= source.maxCharacters) break;
+    }
+  } else {
+    throw new Error("The dialogue source response has no readable body.");
+  }
+
+  if (!rows.length) {
+    throw new Error("No Russian general-chat examples were extracted from " + source.rawFileUrl +
+      ". Check the public JSONL file path and its schema.");
+  }
+  return {
+    source, config: "raw-jsonl", split: "train",
+    rows, rawRows, requests: 1, characters, uniqueRows: rows.length,
+    downloadedBytes: consumedBytes,
+  };
+}
+
 async function collectSource(fetchImpl, source) {
+  if (source.role === "dialogue" && source.rawFileUrl) {
+    return collectDialogueFile(fetchImpl, source);
+  }
   const splitsUrl = API + "/splits?dataset=" + encodeURIComponent(source.dataset);
   const splitsPayload = await fetchJson(fetchImpl, splitsUrl);
   const { config, split } = chooseTrainingSplit(splitsPayload);
@@ -213,6 +302,8 @@ export async function prepareCorpus(options = {}) {
       role: result.source.role,
       config: result.config,
       upstreamSplit: result.split,
+      rawFileUrl: result.source.rawFileUrl || null,
+      downloadedBytes: result.downloadedBytes ?? null,
       fetchedRows: result.rawRows,
       uniqueRows: result.uniqueRows,
       requests: result.requests,
