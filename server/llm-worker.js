@@ -25,6 +25,22 @@ function cleanMessages(value) {
   }
   return messages.length ? messages : null;
 }
+function modelCandidates(env) {
+  const configured = [
+    String(env && env.UPSTREAM_MODEL || "").trim(),
+    ...String(env && env.UPSTREAM_FALLBACK_MODELS || "")
+      .split(",")
+      .map(value => value.trim())
+  ];
+  const unique = [];
+  for (const model of configured) {
+    if (!model || !/^[a-zA-Z0-9._:/-]{1,120}$/u.test(model) || unique.includes(model)) continue;
+    unique.push(model);
+    if (unique.length >= 3) break;
+  }
+  return unique;
+}
+
 function safeBaseUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -111,14 +127,22 @@ export default {
       if (!env.APP_TOKEN || request.headers.get("Authorization") !== "Bearer " + env.APP_TOKEN) {
         return json({ error: "unauthorized" }, 401, cors);
       }
-      const configured = !!(env.UPSTREAM_API_KEY && env.UPSTREAM_BASE_URL && env.UPSTREAM_MODEL);
-      return json({ ok: true, configured, provider: "openai-compatible", model: env.UPSTREAM_MODEL || null }, configured ? 200 : 503, cors);
+      const models = modelCandidates(env);
+      const configured = !!(env.UPSTREAM_API_KEY && env.UPSTREAM_BASE_URL && models.length);
+      return json({
+        ok: true,
+        configured,
+        provider: "openai-compatible",
+        model: models[0] || null,
+        fallbackModels: models.slice(1)
+      }, configured ? 200 : 503, cors);
     }
     if (url.pathname !== "/api/chat" || request.method !== "POST") return json({ error: "not_found" }, 404, cors);
     if (!env.APP_TOKEN || request.headers.get("Authorization") !== "Bearer " + env.APP_TOKEN) {
       return json({ error: "unauthorized" }, 401, cors);
     }
-    if (!env.UPSTREAM_API_KEY || !env.UPSTREAM_BASE_URL || !env.UPSTREAM_MODEL) {
+    const models = modelCandidates(env);
+    if (!env.UPSTREAM_API_KEY || !env.UPSTREAM_BASE_URL || !models.length) {
       return json({ error: "provider_not_configured" }, 503, cors);
     }
 
@@ -138,62 +162,113 @@ export default {
     const messages = cleanMessages(payload && payload.messages);
     if (!messages) return json({ error: "invalid_messages" }, 400, cors);
 
-    const controller = new AbortController();
-    let timeoutId = null;
-    let timedOut = false;
-    const upstreamOperation = (async () => {
-      const upstream = await fetch(base + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": "Bearer " + env.UPSTREAM_API_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: env.UPSTREAM_MODEL,
-          messages,
-          temperature: 0.7,
-          max_tokens: 1800,
-          stream: false
-        }),
-        signal: controller.signal
-      });
-      const parsed = await readJsonResponse(upstream, MAX_UPSTREAM_BODY);
-      return { upstream, result: parsed.result, invalidJson: parsed.invalidJson };
-    })();
-    const upstreamDeadline = new Promise((resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        const error = new Error("Upstream request timed out");
-        error.code = "NG_UPSTREAM_TIMEOUT";
-        reject(error);
-      }, UPSTREAM_TIMEOUT_MS);
-    });
+    const deadline = Date.now() + UPSTREAM_TIMEOUT_MS;
+    let completed = null;
+    let lastFailure = { kind: "unreachable" };
 
-    let upstreamResult;
-    try {
-      upstreamResult = await Promise.race([upstreamOperation, upstreamDeadline]);
-    } catch (error) {
-      if (timeoutId !== null) clearTimeout(timeoutId);
-      if (timedOut || error && error.code === "NG_UPSTREAM_TIMEOUT") {
+    for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
+      const model = models[modelIndex];
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
         return json({ error: "upstream_timeout" }, 504, cors);
       }
+
+      const controller = new AbortController();
+      let timeoutId = null;
+      let timedOut = false;
+      const upstreamOperation = (async () => {
+        const upstream = await fetch(base + "/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": "Bearer " + env.UPSTREAM_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.7,
+            max_tokens: 1800,
+            stream: false
+          }),
+          signal: controller.signal
+        });
+        const parsed = await readJsonResponse(upstream, MAX_UPSTREAM_BODY);
+        return { upstream, result: parsed.result, invalidJson: parsed.invalidJson };
+      })();
+      const attemptDeadline = new Promise((resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          const error = new Error("Upstream request timed out");
+          error.code = "NG_UPSTREAM_TIMEOUT";
+          reject(error);
+        }, remainingMs);
+      });
+
+      let attempt;
+      try {
+        attempt = await Promise.race([upstreamOperation, attemptDeadline]);
+      } catch (error) {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        if (timedOut || error && error.code === "NG_UPSTREAM_TIMEOUT" ||
+            error && error.name === "AbortError") {
+          return json({ error: "upstream_timeout" }, 504, cors);
+        }
+        lastFailure = { kind: "unreachable" };
+        if (modelIndex + 1 < models.length && Date.now() < deadline) continue;
+        return json({ error: "upstream_unreachable" }, 502, cors);
+      } finally {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+      }
+
+      const { upstream, result, invalidJson } = attempt;
+      if (invalidJson) {
+        lastFailure = { kind: "invalid_response" };
+        if (modelIndex + 1 < models.length && Date.now() < deadline) continue;
+        return json({ error: "invalid_upstream_response" }, 502, cors);
+      }
+      if (!upstream.ok) {
+        lastFailure = { kind: "http_error", status: upstream.status };
+        const retryable = upstream.status === 408 || upstream.status === 425 ||
+          upstream.status === 429 || upstream.status >= 500;
+        if (retryable && modelIndex + 1 < models.length && Date.now() < deadline) continue;
+        return json({ error: "upstream_error", upstream_status: upstream.status }, 502, cors);
+      }
+
+      const reply = result && result.choices && result.choices[0] &&
+        result.choices[0].message && result.choices[0].message.content;
+      if (typeof reply !== "string" || !reply.trim()) {
+        lastFailure = { kind: "empty_response" };
+        if (modelIndex + 1 < models.length && Date.now() < deadline) continue;
+        return json({ error: "empty_model_response" }, 502, cors);
+      }
+      completed = { result, reply: reply.trim(), requestedModel: model };
+      break;
+    }
+
+    if (!completed) {
+      if (lastFailure.kind === "http_error") {
+        return json({ error: "upstream_error", upstream_status: lastFailure.status }, 502, cors);
+      }
+      if (lastFailure.kind === "invalid_response") {
+        return json({ error: "invalid_upstream_response" }, 502, cors);
+      }
+      if (lastFailure.kind === "empty_response") {
+        return json({ error: "empty_model_response" }, 502, cors);
+      }
       return json({ error: "upstream_unreachable" }, 502, cors);
-    } finally {
-      if (timeoutId !== null) clearTimeout(timeoutId);
     }
-    const { upstream, result, invalidJson } = upstreamResult;
-    if (invalidJson) return json({ error: "invalid_upstream_response" }, 502, cors);
-    if (!upstream.ok) {
-      return json({ error: "upstream_error", upstream_status: upstream.status }, 502, cors);
-    }
-    const reply = result && result.choices && result.choices[0] &&
-      result.choices[0].message && result.choices[0].message.content;
-    if (typeof reply !== "string" || !reply.trim()) return json({ error: "empty_model_response" }, 502, cors);
+
+    const { result, reply, requestedModel } = completed;
+    const actualModel = typeof result.model === "string" && result.model.trim()
+      ? result.model.trim().slice(0, 160)
+      : requestedModel;
     return json({
       ok: true,
-      reply: reply.trim().slice(0, 12000),
-      model: env.UPSTREAM_MODEL,
+      reply: reply.slice(0, 12000),
+      model: actualModel,
+      requestedModel,
+      fallbackUsed: models.indexOf(requestedModel) > 0,
       usage: result.usage && typeof result.usage === "object" ? {
         prompt_tokens: Number(result.usage.prompt_tokens) || 0,
         completion_tokens: Number(result.usage.completion_tokens) || 0,
