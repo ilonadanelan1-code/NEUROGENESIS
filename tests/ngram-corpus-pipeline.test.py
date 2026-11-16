@@ -28,6 +28,14 @@ def main():
             "12\tРезультаты эксперимента опубликованы сегодня утром",
         ]
         news.write_text("\n".join(news_rows) + "\n", encoding="utf-8")
+        news_inv_so = root / "rus_news_2024_1M-inv_so.txt"
+        news_inv_so.write_text(
+            "100\t1\n100\t2\n101\t1\n"
+            "200\t3\n200\t4\n300\t5\n300\t6\n"
+            "400\t7\n400\t8\n500\t9\n500\t10\n"
+            "600\t11\n600\t12\n",
+            encoding="utf-8",
+        )
         ruslit = root / "RusLit-main"
         ruslit.mkdir()
         for i in range(12):
