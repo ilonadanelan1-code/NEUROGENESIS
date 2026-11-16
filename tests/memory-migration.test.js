@@ -1030,6 +1030,12 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
   assert.equal(window.NGMemory.count(), beforeCount, "an LLM answer must not create a durable memory");
   assert.equal(window.NGMemory.claims().length, beforeClaims, "an LLM answer must not alter structured knowledge");
   assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u);
+  const defaultChatInput = document.getElementById("memory-input");
+  defaultChatInput.value = "Привет";
+  const defaultChatButton = document.getElementById("ask-button");
+  await defaultChatButton.dispatch("click");
+  assert.match(window.NGMemory.dialogHistory().slice(-1)[0].text, /Интеграционный ответ языковой модели/u,
+    "the primary Send button must use the conversational language model instead of only searching local memory");
   const successfulLLMCycle = window.NGMemory.cognitiveCycles().slice(-1)[0];
   assert.equal(window.NGMemory.cognitiveCycles().length, cyclesBeforeLLM + 1,
     "a completed external model request must create exactly one cognitive cycle");
@@ -1064,7 +1070,7 @@ assert.ok(migratedCreator.claims[0].traceId, "migrated creator fact should recei
     return { ok:false, status:404, async json() { return { error:"not_found" }; } };
   });
   await window.NGMemory.testLLMConnection();
-  const askButton = document.getElementById("llm-ask-button");
+  const askButton = document.getElementById("ask-button");
   const firstRequest = window.NGMemory.askLLM("Проверка двойного запуска");
   assert.equal(askButton.disabled, true, "the LLM action must be disabled while a request is active");
   assert.equal(typeof releaseChat, "function", "the test must hold the first model response open");
