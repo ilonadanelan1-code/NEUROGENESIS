@@ -4311,15 +4311,42 @@
     const focus = DIALOG_CONTEXT && typeof DIALOG_CONTEXT.focus === "function" ? DIALOG_CONTEXT.focus(dialogContext, query) : null;
     return LLM_BRIDGE.buildRequest(query, { activeThread:report.activeThread, recentMessages:history, focus }, evidence);
   }
+  function offlineConversationReply(query, reason) {
+    const lower = String(query || "").normalize("NFKC").toLocaleLowerCase("ru-RU")
+      .replace(/ё/gu, "е").replace(/[!?.,:;]+$/u, "").trim();
+    let answer = "";
+    if (/^(?:привет|здравствуй|здравствуйте|доброе утро|добрый день|добрый вечер|салют|хай)(?:\s|$)/u.test(lower)) {
+      answer = "Привет! Я на связи. Можем просто поболтать или вместе разобраться с какой-нибудь темой.";
+    } else if (/^(?:кто ты|ты кто|как тебя зовут|что ты такое)$/u.test(lower)) {
+      answer = "Я NEUROGENESIS — экспериментальная система с собственной памятью, графом знаний и подключаемой языковой моделью. Пока я не такой умный, как большие чат-боты, но постепенно учусь лучше работать с текстом, фактами и контекстом.";
+    } else if (/^(?:как дела|как жизнь|как поживаешь|как ты|что нового)$/u.test(lower)) {
+      answer = reason === "gateway_unavailable"
+        ? "В целом на связи. Сейчас внешний языковой модуль временно недоступен, поэтому я отвечаю в упрощённом автономном режиме."
+        : "Работаю и готов к разговору. У меня есть локальная память, а для более свободных ответов подключается отдельная языковая модель.";
+    } else if (/^(?:что ты умеешь|чем ты можешь помочь|какие у тебя возможности)$/u.test(lower)) {
+      answer = "Я могу вести диалог через подключённую языковую модель, искать сведения в своей локальной памяти, сохранять то, что ты мне рассказываешь, и показывать связи между записями. Моё самостоятельное языковое понимание пока экспериментальное.";
+    } else if (/^(?:спасибо|благодарю|спасибо тебе)$/u.test(lower)) {
+      answer = "Пожалуйста! Продолжим.";
+    }
+    if (answer) {
+      say("assistant", answer);
+      setFeedback(reason === "gateway_unavailable"
+        ? "АВТОНОМНЫЙ РЕЖИМ · ШЛЮЗ ВРЕМЕННО НЕДОСТУПЕН"
+        : "АВТОНОМНЫЙ РЕЖИМ · БАЗОВЫЙ ДИАЛОГ");
+      return true;
+    }
+    return false;
+  }
+
   async function askWithLLM(query) {
     if (llmRequestInFlight) {
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ПРЕДЫДУЩИЙ ЗАПРОС ЕЩЁ ВЫПОЛНЯЕТСЯ");
       return false;
     }
     if (!LLM_GATEWAY || !llmHttpAdapter) {
-      say("assistant", "Языковая модель ещё не подключена. Сначала настрой серверный шлюз в блоке «ЯЗЫКОВАЯ МОДЕЛЬ» ниже поля ввода.");
-      setFeedback("LLM OFFLINE · НУЖНО НАСТРОИТЬ СЕРВЕРНЫЙ ШЛЮЗ");
-      return false;
+      if (offlineConversationReply(query, "not_configured")) return false;
+      setFeedback("АВТОНОМНЫЙ РЕЖИМ · ИЩУ ОТВЕТ В ЛОКАЛЬНОЙ ПАМЯТИ…");
+      return await askMemory(query);
     }
     const report = DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null;
     const resolution = DIALOG_CONTEXT ? DIALOG_CONTEXT.resolve(dialogContext, query) : { applied:false, query };
@@ -4330,7 +4357,7 @@
       return false;
     }
     llmRequestInFlight = true;
-    const askButton = $("llm-ask-button");
+    const askButton = $("ask-button");
     if (askButton) askButton.disabled = true;
     let cycleContext = null;
     try {
@@ -4346,11 +4373,20 @@
       setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОТВЕТ ПОЛУЧЕН · ПАМЯТЬ НЕ ИЗМЕНЕНА");
       return true;
     } catch (error) {
-      const message = String(error && error.message || error).slice(0, 240);
-      say("assistant", "Не удалось получить ответ языковой модели. " + message);
+      console.warn("NEUROGENESIS chat provider unavailable; falling back to local dialogue:", error);
       try { if(cycleContext)finishCognitiveCycle(cycleContext,false,error); }
       catch(cycleError) { console.warn("NEUROGENESIS failed LLM cycle logging failed:",cycleError); }
-      setFeedback("ЯЗЫКОВАЯ МОДЕЛЬ · ОШИБКА ПОДКЛЮЧЕНИЯ");
+      if (offlineConversationReply(query, "gateway_unavailable")) return false;
+      try {
+        await askMemory(query);
+        const memoryFeedback = $("memory-feedback");
+        const detail = memoryFeedback && memoryFeedback.textContent ? memoryFeedback.textContent : "ЛОКАЛЬНЫЙ ПОИСК";
+        setFeedback("АВТОНОМНЫЙ РЕЖИМ · ВНЕШНЯЯ МОДЕЛЬ ВРЕМЕННО НЕДОСТУПНА · " + detail);
+      } catch (fallbackError) {
+        console.warn("NEUROGENESIS local memory fallback failed:", fallbackError);
+        say("assistant", "Внешняя языковая модель сейчас недоступна, и локальная память не смогла подготовить ответ. Попробуй сформулировать вопрос иначе.");
+        setFeedback("АВТОНОМНЫЙ РЕЖИМ · НЕ УДАЛОСЬ ПОЛУЧИТЬ ЛОКАЛЬНЫЙ ОТВЕТ");
+      }
       return false;
     } finally {
       llmRequestInFlight = false;
@@ -4376,7 +4412,7 @@
   async function submit(action) {
     const input = $("memory-input");
     const value = input ? input.value.trim() : "";
-    if (!value) { setFeedback("Сначала введи текст."); return; }
+    if (!value) { setFeedback("Сначала введи сообщение."); return; }
     const askButton = $("ask-button");
     const forceLocal = action === "ask" && askButton && askButton.dataset.ngForceLocal === "true";
     if (forceLocal) delete askButton.dataset.ngForceLocal;
@@ -4394,7 +4430,7 @@
         ? "continuation" : "";
     say("user", value, null, relationHint);
     if (action === "remember") rememberText(value);
-    else if (action === "llm") await askWithLLM(value);
+    else if (action === "chat" || action === "llm") await askWithLLM(value);
     else askMemory(value, semanticPlan);
     input.value = "";
     input.focus();
@@ -4405,12 +4441,12 @@
   const llmAskButton = $("llm-ask-button");
   const memoryInput = $("memory-input");
   if (rememberButton) rememberButton.addEventListener("click", () => submit("remember"));
-  if (askButton) askButton.addEventListener("click", () => submit("ask"));
-  if (llmAskButton) llmAskButton.addEventListener("click", () => submit("llm"));
+  if (askButton) askButton.addEventListener("click", () => submit("chat"));
+  if (llmAskButton) llmAskButton.addEventListener("click", () => submit("ask"));
   if (memoryInput) memoryInput.addEventListener("keydown", event => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      submit("ask");
+      submit("chat");
     }
   });
   function openMemoryLibrary() {
