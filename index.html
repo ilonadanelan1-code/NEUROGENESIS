@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.107">
+  <link rel="stylesheet" href="./styles.css?v=0.58.108">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.107</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.108</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -40,7 +40,7 @@
           <button class="tool-button undo-layout-tool" id="undo-layout-button" title="Отменить последнюю раскладку" aria-label="Отменить раскладку" disabled>↶</button>
           <button class="tool-button fit-tool" id="center-button" title="Показать всю сеть">◎</button>
         </div>
-        <div class="canvas-hint">ПЕРЕТАСКИВАЙ · КОЛЁСИКО / ЩИПOК — МАСШТАБ · ДВОЙНОЕ НАЖАТИЕ — НОВЫЙ НЕЙРОН</div>
+        <div class="canvas-hint">Перетаскивай узлы · Масштаб — щипком · Новые нейроны — только кнопкой во вкладке «Сеть»</div>
       </section>
 
       <aside class="side-panel">
@@ -81,9 +81,9 @@
           <div class="section-heading"><span class="eyebrow">УПРАВЛЕНИЕ</span></div>
           <button class="primary-button" id="stimulate-button"><span class="button-symbol">ϟ</span><span><strong>Импульс</strong><small>Разбудить сеть</small></span></button>
           <div class="button-grid">
-            <button class="secondary-button" id="add-button"><span>＋</span>Нейрон</button>
+            <button class="secondary-button" id="add-button" title="Добавить новый нейрон в сеть"><span>＋</span>Добавить нейрон</button>
             <button class="secondary-button" id="connect-button"><span>⟷</span>Связать</button>
-            <button class="secondary-button" id="grow-button"><span>✳</span>Рост</button>
+            <button class="secondary-button" id="grow-button" title="Создать новую ветвь из выбранного или ближайшего нейрона"><span>✳</span>Вырастить ветвь</button>
             <button class="secondary-button" id="run-button" title="Запустить визуальную симуляцию" aria-label="Запустить визуальную симуляцию"><span>▶</span>Симуляция</button>
           </div>
           <p class="control-note" id="mode-note">Выбери нейрон, чтобы изучить его состояние.</p>
@@ -262,37 +262,37 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./activation.js?v=0.58.107" defer></script>
-  <script src="./neuro-wasm-adapter.js?v=0.58.107" defer></script>
-  <script src="./experience-quality.js?v=0.58.107" defer></script>
-  <script src="./experience-benchmark.js?v=0.58.107" defer></script>
-  <script src="./contrastive-benchmark.js?v=0.58.107" defer></script>
-  <script src="./neuron-layout.js?v=0.58.107" defer></script>
-  <script src="./neuron-focus.js?v=0.58.107" defer></script>
-  <script src="./canvas-quality.js?v=0.58.107" defer></script>
-  <script src="./app.js?v=0.58.107" defer></script>
-  <script src="./disposable-experiment-session.js?v=0.58.107" defer></script>
-  <script src="./disposable-experiment-ui.js?v=0.58.107" defer></script>
-  <script src="./knowledge.js?v=0.58.107" defer></script>
-  <script src="./semantic-core.js?v=0.58.107" defer></script>
-  <script src="./contextual-attention.js?v=0.58.107" defer></script>
-  <script src="./phrase-composition.js?v=0.58.107" defer></script>
-  <script src="./goals.js?v=0.58.107" defer></script>
-  <script src="./observation-engine.js?v=0.58.107" defer></script>
-  <script src="./knowledge-graph.js?v=0.58.107" defer></script>
-  <script src="./reasoning-audit.js?v=0.58.107" defer></script>
-  <script src="./discriminating-observations.js?v=0.58.107" defer></script>
-  <script src="./hypothesis-lifecycle.js?v=0.58.107" defer></script>
-  <script src="./dialog-context.js?v=0.58.107" defer></script>
-  <script src="./dialog-manager.js?v=0.58.107" defer></script>
-  <script src="./semantic-query.js?v=0.58.107" defer></script>
-  <script src="./contextual-attention-ui.js?v=0.58.107" defer></script>
-  <script src="./semantic-retrieval.js?v=0.58.107" defer></script>
-  <script src="./llm-bridge.js?v=0.58.107" defer></script>
-  <script src="./ngram-predictor.js?v=0.58.107" defer></script>
-  <script src="./ngram-memory-bridge.js?v=0.58.107" defer></script>
-  <script src="./memory.js?v=0.58.107" defer></script>
-  <script src="./sidebar-navigation.js?v=0.58.107" defer></script>
-  <script src="./first-experiment.js?v=0.58.107" defer></script>
+  <script src="./activation.js?v=0.58.108" defer></script>
+  <script src="./neuro-wasm-adapter.js?v=0.58.108" defer></script>
+  <script src="./experience-quality.js?v=0.58.108" defer></script>
+  <script src="./experience-benchmark.js?v=0.58.108" defer></script>
+  <script src="./contrastive-benchmark.js?v=0.58.108" defer></script>
+  <script src="./neuron-layout.js?v=0.58.108" defer></script>
+  <script src="./neuron-focus.js?v=0.58.108" defer></script>
+  <script src="./canvas-quality.js?v=0.58.108" defer></script>
+  <script src="./app.js?v=0.58.108" defer></script>
+  <script src="./disposable-experiment-session.js?v=0.58.108" defer></script>
+  <script src="./disposable-experiment-ui.js?v=0.58.108" defer></script>
+  <script src="./knowledge.js?v=0.58.108" defer></script>
+  <script src="./semantic-core.js?v=0.58.108" defer></script>
+  <script src="./contextual-attention.js?v=0.58.108" defer></script>
+  <script src="./phrase-composition.js?v=0.58.108" defer></script>
+  <script src="./goals.js?v=0.58.108" defer></script>
+  <script src="./observation-engine.js?v=0.58.108" defer></script>
+  <script src="./knowledge-graph.js?v=0.58.108" defer></script>
+  <script src="./reasoning-audit.js?v=0.58.108" defer></script>
+  <script src="./discriminating-observations.js?v=0.58.108" defer></script>
+  <script src="./hypothesis-lifecycle.js?v=0.58.108" defer></script>
+  <script src="./dialog-context.js?v=0.58.108" defer></script>
+  <script src="./dialog-manager.js?v=0.58.108" defer></script>
+  <script src="./semantic-query.js?v=0.58.108" defer></script>
+  <script src="./contextual-attention-ui.js?v=0.58.108" defer></script>
+  <script src="./semantic-retrieval.js?v=0.58.108" defer></script>
+  <script src="./llm-bridge.js?v=0.58.108" defer></script>
+  <script src="./ngram-predictor.js?v=0.58.108" defer></script>
+  <script src="./ngram-memory-bridge.js?v=0.58.108" defer></script>
+  <script src="./memory.js?v=0.58.108" defer></script>
+  <script src="./sidebar-navigation.js?v=0.58.108" defer></script>
+  <script src="./first-experiment.js?v=0.58.108" defer></script>
 </body>
 </html>
