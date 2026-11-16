@@ -160,6 +160,10 @@ const request = (path, options = {}) => new TestRequest("https://worker.example"
     "UTF-8 characters split across incoming stream chunks must be decoded correctly");
   const data = await response.json();
   assert.equal(data.reply, "Связный тестовый ответ");
+  assert.equal(data.model, "test-model");
+  assert.equal(data.requestedModel, "test-model");
+  assert.equal(data.fallbackUsed, false);
+  assert.equal(data.usage.prompt_tokens, 12);
   assert.equal(data.usage.total_tokens, 20);
   assert.equal(upstreamCalls.length, 1);
   assert.equal(upstreamCalls[0].options.headers.Authorization, "Bearer provider-secret",
