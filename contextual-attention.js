@@ -438,7 +438,6 @@ function create(options={}){
   }
   return{loss:total/examples.length,accuracy:correct/examples.length,examples:examples.length};
  }
- function finalProgressLoss(){return lastLoss==null?0:lastLoss;}
  function train(texts,trainOptions={}){
   const rows=(Array.isArray(texts)?texts:[texts]).map(value=>clean(value,1200)).filter(Boolean).slice(0,320);
   if(!rows.length)throw new TypeError("Add at least one training sentence.");
@@ -482,7 +481,7 @@ function create(options={}){
   if(splitFallback){
    for(let epoch=0;epoch<epochs;epoch++){
     runTrainingEpoch();epochsRun=epoch+1;
-    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch:epochsRun,validationLoss:null,loss:finalProgressLoss()});
+    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch:epochsRun,validationLoss:null});
    }
    bestEpoch=null;bestState=exportState();
   }else{
@@ -490,9 +489,9 @@ function create(options={}){
     runTrainingEpoch();epochsRun=epoch+1;
     const validation=evaluateExamples(validationExamples);
     if(validation.loss<bestValidationLoss-1e-8){bestValidationLoss=validation.loss;bestEpoch=epochsRun;bestState=exportState();staleEpochs=0;}
-    else{staleEpochs++;if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;}}
-    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch,validationLoss:validation.loss,loss:evaluateExamples(trainExamples).loss});
-    if(staleEpochs>=patience)break;
+    else staleEpochs++;
+    if(onProgress)onProgress({phase:"contextual",epoch:epochsRun,totalEpochs:epochs,bestEpoch,validationLoss:validation.loss});
+    if(staleEpochs>=patience){earlyStopped=epochsRun<epochs;break;}
    }
   }
   const attemptedSteps=trainingSteps;loadState(bestState);const selectedSteps=trainingSteps;
