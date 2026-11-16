@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#07111b">
   <meta name="description" content="NEUROGENESIS — живой визуальный прототип искусственного мозга.">
   <title>NEUROGENESIS — искусственный мозг</title>
-  <link rel="stylesheet" href="./styles.css?v=0.58.106">
+  <link rel="stylesheet" href="./styles.css?v=0.58.107">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.106</div></div>
+        <div><div class="brand-name">NEUROGENESIS</div><div class="brand-subtitle">DIGITAL ORGANISM · 0.58.107</div></div>
       </div>
       <div class="top-status"><span class="status-dot"></span><span id="system-status">СИСТЕМА ГОТОВА</span></div>
       <div class="top-actions">
@@ -52,20 +52,20 @@
             </div>
             <span class="first-experiment-mark">LAB 01</span>
           </div>
-          <p class="first-experiment-copy">Сохраним один факт, зададим системе вопрос и посмотрим, какие следы памяти она сможет извлечь.</p>
+          <p class="first-experiment-copy">Это опыт именно с памятью: запишем факт и зададим вопрос. При новой записи появится отдельный нейрон-след на графе. Это не обучение языковой модели.</p>
           <div class="first-experiment-fact">
             <span>УЧЕБНЫЙ ФАКТ</span>
             <strong>«У осьминога три сердца»</strong>
           </div>
           <div class="first-experiment-actions">
             <button class="primary-button first-experiment-run" id="first-experiment-run" type="button">
-              <span class="button-symbol">ϟ</span><span><strong>Провести опыт</strong><small>Записать и проверить</small></span>
+              <span class="button-symbol">ϟ</span><span><strong>Проверить память</strong><small>Добавить факт и найти его</small></span>
             </button>
             <button class="secondary-button first-experiment-show" id="first-experiment-show" type="button" disabled>Показать сеть</button>
           </div>
           <p class="first-experiment-status" id="first-experiment-status" data-state="info" aria-live="polite">Нажми «Провести опыт»: система сохранит пример в памяти этого браузера и попробует найти его по вопросу.</p>
           <pre class="first-experiment-result" id="first-experiment-result" hidden></pre>
-          <p class="first-experiment-footnote">Это тест сохранения и извлечения информации, а не проверка истинности факта. Локальная память хранится в текущем браузере.</p>
+          <p class="first-experiment-footnote">Опыт может создать новый нейрон-след, потому что он добавляет запись в память. Кнопка «Обучить контекстную модель» работает отдельно и не должна менять число нейронов.</p>
         </section>
         <section class="section-block organism-block">
           <div class="section-heading"><span class="eyebrow">СОСТОЯНИЕ</span><span class="tiny-live">● ONLINE</span></div>
@@ -88,9 +88,9 @@
           </div>
           <p class="control-note" id="mode-note">Выбери нейрон, чтобы изучить его состояние.</p>
           <details class="llm-settings" id="wasm-learning-panel">
-            <summary><span>ЭКСПЕРИМЕНТАЛЬНОЕ ОБУЧЕНИЕ</span><span id="wasm-learning-state" data-state="loading">ЗАГРУЗКА WASM</span></summary>
+            <summary><span>ПЛАСТИЧНОСТЬ СЕТИ · ОТДЕЛЬНАЯ КОПИЯ</span><span id="wasm-learning-state" data-state="loading">ЗАГРУЗКА WASM</span></summary>
             <div class="llm-settings-body">
-              <p class="llm-security-note">Обучается только отдельная WASM-копия. Основная сеть и её локальные сохранения не меняются. По ходу симуляции накапливаются затухающие следы активности; после серии действий можно оценить результат и подкрепить более ранние связи.</p>
+              <p class="llm-security-note">Это другой эксперимент: изменяются веса отдельной WASM-копии. Основная сеть и сохранённые нейроны не меняются. Чтобы просто обучить контекстную модель словам и фразам, используй соседний блок «Контекстная модель».</p>
               <div class="range-heading">
                 <label class="field-label" for="wasm-learning-rate">СКОРОСТЬ ОБУЧЕНИЯ</label>
                 <strong id="wasm-learning-rate-value">5%</strong>
@@ -204,6 +204,7 @@
           </div>
           <label class="field-label" for="memory-input">НОВАЯ ИНФОРМАЦИЯ / ВОПРОС</label>
           <textarea id="memory-input" class="text-input memory-input" maxlength="1200" rows="2" placeholder="Например: «Я живу в Сочи, мне нравится музыка» или «Что ты знаешь о музыке?»"></textarea>
+          <p class="memory-learning-hint">Новая запись памяти может добавить отдельный нейрон-след на графе. Это ожидаемо и не является обучением языковой модели.</p>
           <div class="memory-actions">
             <button class="secondary-button memory-action" id="remember-button"><span>＋</span>Запомнить</button>
             <button class="primary-button memory-action" id="ask-button"><span class="button-symbol">↗</span><span><strong>Спросить</strong><small>По моей памяти</small></span></button>
@@ -216,14 +217,19 @@
             </button>
           </div>
           <details class="llm-settings" id="contextual-model-panel">
-            <summary><span>ОБУЧАЕМОЕ КОНТЕКСТНОЕ ПОНИМАНИЕ</span><span id="contextual-model-state" data-state="offline">ЕЩЁ НЕ ОБУЧЕНА</span></summary>
+            <summary><span>КОНТЕКСТНАЯ МОДЕЛЬ · СЛОВА И ФРАЗЫ</span><span id="contextual-model-state" data-state="offline">ЕЩЁ НЕ ОБУЧЕНА</span></summary>
             <div class="llm-settings-body">
-              <p class="llm-security-note">Локальный обучаемый блок: три независимые головы внимания, окно до четырёх слов слева и справа, обучаемые относительные позиционные смещения, остаточные связи, LayerNorm и feed-forward сеть. Модель предсказывает скрытое слово по контексту. Обучение разделяет предложения на train/validation/test: веса меняются только на train, лучший checkpoint выбирается по validation, test оценивается отдельно после восстановления весов. Покрытие неизвестных слов показывается явно; нужны минимум три разных предложения. Веса и примеры сохраняются в браузере. Это небольшой исследовательский трансформерный блок, а не готовая большая языковая модель.</p>
+              <p class="llm-security-note">Это локальная модель для экспериментов со словами и структурой фраз. Она обучается отдельно от графа нейронов и не добавляет новые узлы. Тяжёлая работа идёт в фоновом потоке: страница и управление графом должны оставаться отзывчивыми. При переобучении используются отдельные train, validation и test предложения. На телефоне обучение может занять несколько секунд — здесь будет показываться ход процесса.</p>
               <label class="field-label" for="contextual-training-corpus">ПРИМЕРЫ ДЛЯ ОБУЧЕНИЯ · ОДНО ПРЕДЛОЖЕНИЕ НА СТРОКУ</label>
               <textarea class="text-input contextual-corpus" id="contextual-training-corpus" maxlength="12000" rows="7" spellcheck="false"></textarea>
               <div class="llm-settings-actions">
-                <button class="primary-button llm-config-save" id="contextual-train-button" type="button">Обучить контекстную модель</button>
+                <button class="primary-button llm-config-save" id="contextual-train-button" type="button">Обучить на примерах</button>
                 <button class="secondary-button llm-config-clear" id="contextual-analyse-button" type="button">Показать внимание</button>
+              </div>
+              <div class="contextual-training-progress" id="contextual-training-progress" hidden role="status" aria-live="polite">
+                <div class="contextual-training-progress-head"><strong id="contextual-training-progress-title">Подготовка обучения</strong><span id="contextual-training-progress-value">0%</span></div>
+                <div class="contextual-training-progress-track"><div id="contextual-training-progress-bar" class="contextual-training-progress-bar"></div></div>
+                <p id="contextual-training-progress-text">Обучение выполняется в отдельном потоке. Страница остаётся доступной.</p>
               </div>
               <label class="field-label" for="contextual-query">ПРОВЕРОЧНОЕ ПРЕДЛОЖЕНИЕ</label>
               <input class="text-input" id="contextual-query" type="text" maxlength="500" value="Ключ запускает программу" placeholder="Введи предложение для анализа">
@@ -256,36 +262,37 @@
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  <script src="./activation.js?v=0.58.106" defer></script>
-  <script src="./neuro-wasm-adapter.js?v=0.58.106" defer></script>
-  <script src="./experience-quality.js?v=0.58.106" defer></script>
-  <script src="./experience-benchmark.js?v=0.58.106" defer></script>
-  <script src="./contrastive-benchmark.js?v=0.58.106" defer></script>
-  <script src="./neuron-layout.js?v=0.58.106" defer></script>
-  <script src="./neuron-focus.js?v=0.58.106" defer></script>
-  <script src="./canvas-quality.js?v=0.58.106" defer></script>
-  <script src="./app.js?v=0.58.106" defer></script>
-  <script src="./disposable-experiment-session.js?v=0.58.106" defer></script>
-  <script src="./disposable-experiment-ui.js?v=0.58.106" defer></script>
-  <script src="./knowledge.js?v=0.58.106" defer></script>
-  <script src="./semantic-core.js?v=0.58.106" defer></script>
-  <script src="./contextual-attention.js?v=0.58.106" defer></script>
-  <script src="./phrase-composition.js?v=0.58.106" defer></script>
-  <script src="./goals.js?v=0.58.106" defer></script>
-  <script src="./observation-engine.js?v=0.58.106" defer></script>
-  <script src="./knowledge-graph.js?v=0.58.106" defer></script>
-  <script src="./reasoning-audit.js?v=0.58.106" defer></script>
-  <script src="./discriminating-observations.js?v=0.58.106" defer></script>
-  <script src="./hypothesis-lifecycle.js?v=0.58.106" defer></script>
-  <script src="./dialog-context.js?v=0.58.106" defer></script>
-  <script src="./dialog-manager.js?v=0.58.106" defer></script>
-  <script src="./semantic-query.js?v=0.58.106" defer></script>
-  <script src="./contextual-attention-ui.js?v=0.58.106" defer></script>
-  <script src="./semantic-retrieval.js?v=0.58.106" defer></script>
-  <script src="./llm-bridge.js?v=0.58.106" defer></script>
-  <script src="./ngram-predictor.js?v=0.58.106" defer></script>
-  <script src="./ngram-memory-bridge.js?v=0.58.106" defer></script>
-  <script src="./memory.js?v=0.58.106" defer></script>
-  <script src="./first-experiment.js?v=0.58.106" defer></script>
+  <script src="./activation.js?v=0.58.107" defer></script>
+  <script src="./neuro-wasm-adapter.js?v=0.58.107" defer></script>
+  <script src="./experience-quality.js?v=0.58.107" defer></script>
+  <script src="./experience-benchmark.js?v=0.58.107" defer></script>
+  <script src="./contrastive-benchmark.js?v=0.58.107" defer></script>
+  <script src="./neuron-layout.js?v=0.58.107" defer></script>
+  <script src="./neuron-focus.js?v=0.58.107" defer></script>
+  <script src="./canvas-quality.js?v=0.58.107" defer></script>
+  <script src="./app.js?v=0.58.107" defer></script>
+  <script src="./disposable-experiment-session.js?v=0.58.107" defer></script>
+  <script src="./disposable-experiment-ui.js?v=0.58.107" defer></script>
+  <script src="./knowledge.js?v=0.58.107" defer></script>
+  <script src="./semantic-core.js?v=0.58.107" defer></script>
+  <script src="./contextual-attention.js?v=0.58.107" defer></script>
+  <script src="./phrase-composition.js?v=0.58.107" defer></script>
+  <script src="./goals.js?v=0.58.107" defer></script>
+  <script src="./observation-engine.js?v=0.58.107" defer></script>
+  <script src="./knowledge-graph.js?v=0.58.107" defer></script>
+  <script src="./reasoning-audit.js?v=0.58.107" defer></script>
+  <script src="./discriminating-observations.js?v=0.58.107" defer></script>
+  <script src="./hypothesis-lifecycle.js?v=0.58.107" defer></script>
+  <script src="./dialog-context.js?v=0.58.107" defer></script>
+  <script src="./dialog-manager.js?v=0.58.107" defer></script>
+  <script src="./semantic-query.js?v=0.58.107" defer></script>
+  <script src="./contextual-attention-ui.js?v=0.58.107" defer></script>
+  <script src="./semantic-retrieval.js?v=0.58.107" defer></script>
+  <script src="./llm-bridge.js?v=0.58.107" defer></script>
+  <script src="./ngram-predictor.js?v=0.58.107" defer></script>
+  <script src="./ngram-memory-bridge.js?v=0.58.107" defer></script>
+  <script src="./memory.js?v=0.58.107" defer></script>
+  <script src="./first-experiment.js?v=0.58.107" defer></script>
+  <script src="./sidebar-navigation.js?v=0.58.107" defer></script>
 </body>
 </html>
