@@ -170,6 +170,13 @@ const fetchImpl = async url => {
         .map(row => quote(row.q) + "," + quote(row.a)).join("\n"),
     };
   }
+  if (parsed.pathname.endsWith("/everyday.jsonl")) {
+    return {
+      ok: true,
+      text: async () => fixtures["fixture/everyday"].rows
+        .map(row => JSON.stringify(row)).join("\n"),
+    };
+  }
   const dataset = parsed.searchParams.get("dataset");
   const fixture = fixtures[dataset];
   assert.ok(fixture, "unexpected dataset request: " + url);
