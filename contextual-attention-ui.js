@@ -60,7 +60,7 @@
           model.loadState(pretrained.contextualState);
           if(phraseModel&&pretrained.phraseState)phraseModel.loadState(pretrained.phraseState);
           if((!saved||typeof saved.corpus!=="string")&&Array.isArray(pretrained.corpus)){
-            corpusInput.value=pretrained.corpus.join("\\n");
+            corpusInput.value=pretrained.corpus.join("\n");
           }
           checkpointRequiresRetraining=false;
           save();
