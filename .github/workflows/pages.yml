@@ -346,9 +346,9 @@ jobs:
 
   prepare-open-chat-corpus:
     name: Prepare and pilot a bounded open Russian corpus
-    # Full source preparation/training is expensive. It runs on main pushes
-    # and manual dispatches; PRs can opt in with the run-corpus-pilot label.
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-corpus-pilot')
+    # Full source preparation/training is expensive; run it on main pushes
+    # and manual dispatches, not on every unrelated pull request.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
