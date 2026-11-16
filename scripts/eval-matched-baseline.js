@@ -4,7 +4,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ngram = require("../ngram-predictor.js");
 
-const SPLIT_SEED = 902;
+const SPLIT_SEED = Math.floor(Number(process.env.SPLIT_SEED) || 902);
+const ATTENTION_SEED = Math.floor(Number(process.env.ATTENTION_SEED) || SPLIT_SEED);
 const CANDIDATE_POOL_SENTENCES = 320;
 
 function readRows(file, limit) {
@@ -18,7 +19,7 @@ function makeAttention(candidatePool) {
   const source = fs.readFileSync(path.join(__dirname, "..", "contextual-attention.js"), "utf8");
   vm.runInContext(source, sandbox, { filename: "contextual-attention.js" });
   if (!sandbox.NGContextualModel) throw new Error("NGContextualModel did not load");
-  const model = sandbox.NGContextualModel.create();
+  const model = sandbox.NGContextualModel.create({ seed: ATTENTION_SEED });
   model.train(candidatePool, { epochs: 8, splitSeed: SPLIT_SEED });
   return model;
 }
