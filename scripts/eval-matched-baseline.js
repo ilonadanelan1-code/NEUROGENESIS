@@ -6,6 +6,8 @@ const ngram = require("../ngram-predictor.js");
 
 const SPLIT_SEED = Math.floor(Number(process.env.SPLIT_SEED) || 902);
 const ATTENTION_SEED = Math.floor(Number(process.env.ATTENTION_SEED) || SPLIT_SEED);
+const ATTENTION_EPOCHS = Math.max(1, Math.min(240, Math.floor(Number(process.env.ATTENTION_EPOCHS) || 40)));
+const ATTENTION_PATIENCE = Math.max(2, Math.min(60, Math.floor(Number(process.env.ATTENTION_PATIENCE) || 10)));
 const CANDIDATE_POOL_SENTENCES = 320;
 
 function readRows(file, limit) {
@@ -20,7 +22,7 @@ function makeAttention(candidatePool) {
   vm.runInContext(source, sandbox, { filename: "contextual-attention.js" });
   if (!sandbox.NGContextualModel) throw new Error("NGContextualModel did not load");
   const model = sandbox.NGContextualModel.create({ seed: ATTENTION_SEED });
-  model.train(candidatePool, { epochs: 8, splitSeed: SPLIT_SEED });
+  model.train(candidatePool, { epochs: ATTENTION_EPOCHS, patience: ATTENTION_PATIENCE, splitSeed: SPLIT_SEED });
   return model;
 }
 function prepareMatchedData(attentionModel, candidatePool) {
@@ -92,7 +94,7 @@ function main() {
   }, testRows);
 
   const report = {
-    protocol: "matched-training-224-shared-validation-v2",
+    protocol: "matched-training-224-shared-validation-v3",
     candidatePoolSentences: candidatePool.length,
     trainSentencesPerModel: split.train.length,
     validationSentencesUsedByBothModels: split.validation.length,
@@ -102,8 +104,12 @@ function main() {
       actualTrainRows: attentionTraining.trainRows,
       validationRows: attentionTraining.validationRows,
       internalTestRows: attentionTraining.testRows,
+      requestedEpochs: attentionTraining.requestedEpochs,
       selectedEpochs: attentionTraining.epochs,
-      bestEpoch: attentionTraining.bestEpoch
+      bestEpoch: attentionTraining.bestEpoch,
+      patience: attentionTraining.patience,
+      earlyStopped: attentionTraining.earlyStopped,
+      vocabularySize: attentionModel.status().vocabularySize
     },
     ngram: {
       actualTrainSentences: ngramTraining.sentences,
@@ -113,7 +119,7 @@ function main() {
     },
     contextualAttention: { metrics: attentionMetrics },
     testSentences: testRows.length,
-    note: "Both models train on the exact same 224 sentences and use the exact same 48 held-out validation sentences. Attention uses validation for early stopping; N-gram uses it for weight tuning. Neither model sees the external test set during training or tuning. The extra 48-sentence internal holdout subset is unused."
+    note: "Both models train on the exact same 224 sentences and use the exact same 48 held-out validation sentences. Attention uses validation for early stopping; N-gram uses it for weight tuning. Neither model sees the external test set during training or tuning. The extra 48-sentence internal holdout subset is unused. Attention trains for up to ATTENTION_EPOCHS (default 40) with patience ATTENTION_PATIENCE (default 10); the selected epoch and early-stop status are included in the report."
   };
   console.log(JSON.stringify(report, null, 2));
   console.log("matched-data Top-1: attention", pct(attentionMetrics.top1), "| N-gram", pct(ngramMetrics.top1));
