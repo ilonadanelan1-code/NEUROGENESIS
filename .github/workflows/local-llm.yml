@@ -1,0 +1,33 @@
+name: Local LLM core tests
+
+on:
+  push:
+    branches:
+      - "feature/local-llm-core*"
+  pull_request:
+    paths:
+      - local-llm-worker.js
+      - local-llm-adapter.js
+      - dev/local-llm-test.html
+      - tests/local-llm.test.js
+      - LOCAL_LLM_CORE.md
+      - .github/workflows/local-llm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-llm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Offline tests (fake runtime, no model weights)
+        run: node tests/local-llm.test.js
+      - name: Syntax check
+        run: |
+          node --check local-llm-worker.js
+          node --check local-llm-adapter.js

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NEUROGENESIS · проверка локальной модели</title>
+  <style>
+    body{font:15px/1.45 system-ui,sans-serif;margin:0;padding:14px;background:#0b0f14;color:#dbe6f0;max-width:760px}
+    h1{font-size:17px;margin:0 0 10px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+    button{font:inherit;padding:9px 14px;border:1px solid #2c4a63;border-radius:8px;background:#12263a;color:#dbe6f0}
+    button:disabled{opacity:.45}
+    select,textarea{font:inherit;background:#0f1a26;color:#dbe6f0;border:1px solid #2c4a63;border-radius:8px;padding:8px}
+    textarea{width:100%;box-sizing:border-box;min-height:70px}
+    progress{width:100%;height:14px}
+    #state{white-space:pre-wrap;font:13px/1.4 ui-monospace,monospace;background:#0f1a26;border-radius:8px;padding:8px}
+    #out{white-space:pre-wrap;min-height:90px;background:#0f1a26;border-radius:8px;padding:10px}
+    #err{color:#ff9b9b;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <h1>Локальная модель · Qwen3-0.6B (изолированный тест)</h1>
+  <div class="row">
+    <select id="device" title="Вычислительный режим">
+      <option value="auto">Авто (WebGPU → CPU)</option>
+      <option value="webgpu">Только WebGPU</option>
+      <option value="wasm">Только CPU (WASM)</option>
+    </select>
+    <button id="load">Загрузить модель</button>
+    <button id="cache">Проверить кэш</button>
+  </div>
+  <progress id="bar" max="100" value="0"></progress>
+  <div id="progressText">Модель не загружена. Первая загрузка скачивает сотни мегабайт.</div>
+  <div id="state">состояние: —</div>
+  <textarea id="input" placeholder="Напиши сообщение на русском…">Объясни простыми словами, чем нейрон мозга отличается от узла нейросети.</textarea>
+  <div class="row">
+    <button id="send" disabled>Отправить</button>
+    <button id="stop" disabled>Остановить</button>
+  </div>
+  <div id="out"></div>
+  <div id="meta"></div>
+  <div id="err"></div>
+
+  <script src="../local-llm-adapter.js"></script>
+  <script>
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const adapter = NGLocalLLM.create({
+      workerUrl: "../local-llm-worker.js",
+      onStatus: renderStatus
+    });
+    let history = [{ role: "system", content: "Ты NEUROGENESIS — спокойный помощник. Отвечай по-русски, коротко и по делу." }];
+    let busy = false;
+
+    function showError(error) {
+      $("err").textContent = error ? "Ошибка [" + (error.code || "error") + "]: " + (error.message || error) : "";
+    }
+    function renderStatus(status) {
+      const s = status || adapter.status();
+      $("state").textContent =
+        "фаза: " + s.phase + "\nмодель: " + (s.modelId || "—") + "\nревизия: " + (s.revision || "—") +
+        "\nрежим: " + (s.device || "—") + " / " + (s.dtype || "—") + (s.fellBack ? " (резервный)" : "") +
+        "\nпостоянное хранилище: " + (s.persisted === true ? "да" : s.persisted === false ? "нет" : "неизвестно") +
+        "\nрантайм: " + (s.runtimeUrl || "—");
+      const ready = s.phase === "ready";
+      $("send").disabled = !ready || busy;
+      $("load").disabled = s.phase === "loading" || ready || s.phase === "generating";
+    }
+    function formatBytes(value) { return (value / 1048576).toFixed(1) + " МБ"; }
+
+    $("load").onclick = async () => {
+      showError(null);
+      $("load").disabled = true;
+      try {
+        const result = await adapter.load({ device: $("device").value }, event => {
+          if (event.phase === "download") {
+            $("bar").value = event.percent;
+            $("progressText").textContent = "Загрузка: " + event.percent + "% (" + formatBytes(event.loaded) + " из " + formatBytes(event.total) + ")";
+          } else if (event.message) $("progressText").textContent = event.message;
+        });
+        $("bar").value = 100;
+        const cache = result.cache;
+        $("progressText").textContent = "Готово. Файлов в кэше: " + (cache ? cache.files.filter(f => f.status === "ok").length + "/" + cache.files.length : "?") +
+          (result.metaSource === "stored" ? " · сведения о модели взяты из сохранённых (офлайн)" : "");
+        renderStatus(adapter.status());
+      } catch (error) { showError(error); renderStatus(adapter.status()); }
+    };
+    $("cache").onclick = async () => {
+      showError(null);
+      try {
+        const report = await adapter.checkCache({ device: $("device").value });
+        $("progressText").textContent = "Кэш (" + report.dtype + "): " + (report.complete ? "полный" : "не полный") +
+          " · отсутствует: " + report.missing.length + " · повреждено: " + report.corrupt.length;
+      } catch (error) { showError(error); }
+    };
+    $("send").onclick = async () => {
+      const text = $("input").value.trim();
+      if (!text || busy) return;
+      showError(null);
+      busy = true; $("send").disabled = true; $("stop").disabled = false;
+      $("out").textContent = ""; $("meta").textContent = "";
+      const turn = history.concat([{ role: "user", content: text }]);
+      try {
+        const result = await adapter.generateDetailed({ schema: "NEUROGENESIS_LLM_REQUEST_V1", messages: turn },
+          { onToken: piece => { $("out").textContent += piece; } });
+        history = turn.concat([{ role: "assistant", content: result.reply }]);
+        const u = result.usage || {};
+        $("meta").textContent = (result.stopped ? "Остановлено пользователем. " : "") +
+          "токенов: " + (u.completion_tokens || 0) + " · " + (result.tokensPerSecond || "?") + " ток/с · " + result.device + "/" + result.dtype;
+      } catch (error) { showError(error); }
+      busy = false; $("stop").disabled = true; renderStatus(adapter.status());
+    };
+    $("stop").onclick = () => adapter.stop();
+    renderStatus(adapter.status());
+  </script>
+</body>
+</html>
