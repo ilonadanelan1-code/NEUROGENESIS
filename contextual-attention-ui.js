@@ -20,6 +20,9 @@
   const stateLabel=byId("contextual-model-state"),metrics=byId("contextual-model-metrics");
   const output=byId("contextual-attention-output");
   const trainingProgress=byId("contextual-training-progress");
+  const friendlyResult=byId("contextual-friendly-result");
+  const corpusCount=byId("contextual-corpus-count");
+  const addExamplesButton=byId("contextual-add-examples-button");
   const progressTitle=byId("contextual-training-progress-title");
   const progressValue=byId("contextual-training-progress-value");
   const progressBar=byId("contextual-training-progress-bar");
@@ -33,6 +36,39 @@
     try{root.localStorage?.setItem(STORAGE_KEY,JSON.stringify({state:model.exportState(),compositionState:phraseModel?phraseModel.exportState():null,corpus:corpusInput.value}));}
     catch(_){}
   }
+  function showFriendlyResult(title,message,state="info"){
+    if(!friendlyResult)return;
+    friendlyResult.dataset.state=state;
+    friendlyResult.textContent=title+"\\n"+message;
+  }
+  function updateCorpusCount(){
+    if(!corpusCount)return;
+    const count=corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).length;
+    corpusCount.textContent="Предложений добавлено: "+count+" · минимум для запуска: 3";
+    corpusCount.dataset.state=count>=3?"ready":"warning";
+  }
+  const EXTRA_EXAMPLES=[
+    "Нейрон получает сигнал.",
+    "Нейрон обрабатывает сигнал.",
+    "Сеть хранит информацию.",
+    "Память сохраняет событие.",
+    "Система анализирует данные.",
+    "Исследователь проверяет гипотезу.",
+    "Датчик измеряет температуру.",
+    "Алгоритм выбирает маршрут."
+  ];
+  corpusInput.addEventListener("input",updateCorpusCount);
+  if(addExamplesButton)addExamplesButton.addEventListener("click",()=>{
+    const existing=corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean);
+    const known=new Set(existing.map(value=>value.toLocaleLowerCase("ru")));
+    const additions=EXTRA_EXAMPLES.filter(value=>!known.has(value.toLocaleLowerCase("ru")));
+    if(additions.length){
+      corpusInput.value=[...existing,...additions].join("\\n");
+      corpusInput.dispatchEvent(new Event("input",{bubbles:true}));
+    }
+    updateCorpusCount();
+    showFriendlyResult("Примеры добавлены","Я добавил несколько коротких предложений в конец списка, не удаляя твои тексты. Теперь можно запускать обучение.","success");
+  });
   function renderStatus(message=""){
     const status=model.status(),phraseStatus=phraseModel&&phraseModel.status();
     stateLabel.textContent=status.trained?"ОБУЧЕНА":"ЕЩЁ НЕ ОБУЧЕНА";
@@ -84,9 +120,18 @@
   root.NGContextualAttention=model;
   root.NGPhraseComposition=phraseModel;
   renderStatus();
+  updateCorpusCount();
+  showFriendlyResult(model.status().trained
+    ?"Модель уже готова к проверке"
+    :"Начни с нескольких предложений",
+    model.status().trained
+      ?"Модель загружена в этом браузере. Введи предложение ниже и нажми «Проверить фразу». Если изменишь примеры, запусти переобучение."
+      :"Добавь минимум три предложения — по одному на строку — и нажми «Обучить на этих примерах». Данные останутся в этом браузере.",
+    model.status().trained?"success":"info");
   if(checkpointRequiresRetraining){
     stateLabel.textContent="ТРЕБУЕТСЯ ПЕРЕОБУЧЕНИЕ";
     metrics.textContent="Архитектура обновлена: теперь используются два последовательных Transformer-блока. Твои обучающие предложения сохранены — запусти обучение заново.";
+    showFriendlyResult("Нужно переобучить модель","Архитектура обновилась, но твои примеры сохранены. Нажми «Обучить на этих примерах».","warning");
   }
   function setTrainingProgress(percent,title,message){
     const safe=Math.max(0,Math.min(100,Number(percent)||0));
@@ -105,9 +150,10 @@
   trainButton.addEventListener("click",()=>{
     if(activeTrainingWorker)return;
     const rows=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).slice(0,160);
-    if(rows.length<3){renderStatus("Для честной проверки нужны минимум три разных предложения.");return;}
+    if(rows.length<3){renderStatus("Для честной проверки нужны минимум три разных предложения.");showFriendlyResult("Пока мало примеров","Добавь ещё предложения: для запуска нужно минимум три непустые строки.","warning");return;}
     if(typeof Worker==="undefined"){
       renderStatus("Этот браузер не поддерживает фоновое обучение (Web Worker). Основная модель сохранена без изменений.");
+      showFriendlyResult("Обучение не запустилось","Браузер не поддерживает фоновый поток обучения. Существующая модель не изменена.","warning");
       return;
     }
     trainButton.disabled=true;
@@ -116,6 +162,7 @@
     stateLabel.textContent="ОБУЧАЕТСЯ";
     stateLabel.dataset.state="training";
     metrics.textContent="Идёт обучение в отдельном потоке. Можно продолжать пользоваться графом и другими вкладками.";
+    showFriendlyResult("Обучение началось","Сейчас я проверяю примеры и обновляю локальную модель. Не закрывай страницу до завершения.","loading");
     setTrainingProgress(1,"Подготовка модели","Создаю изолированный поток обучения. Текущие сохранённые веса не заменяются до успешного завершения.");
     let worker;
     try{
@@ -132,15 +179,14 @@
         if(data.phase==="contextual"){
           const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
           setTrainingProgress(fraction*82,"Контекстная модель · эпоха "+data.epoch+" / "+data.totalEpochs,
-            "Проверка выполняется на отложенных предложениях. Лучшая эпоха: "+(data.bestEpoch||"пока не выбрана")+
-            (Number.isFinite(data.validationLoss)?" · val loss "+data.validationLoss.toFixed(3):""));
+            "Сверяю подсказки на отдельных предложениях, чтобы модель не просто заучивала строки.");
         }else if(data.phase==="phrase-preparing"){
           setTrainingProgress(83,"Подготовка фразовой модели",
-            "Собираю примеры и проверяю связи между словами. Граф и остальные вкладки продолжают работать.");
+            "Собираю примеры и ищу повторяющиеся сочетания слов. Остальные вкладки остаются доступны.");
         }else if(data.phase==="phrase"){
           const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
           setTrainingProgress(82+fraction*18,"Фразовая структура · эпоха "+data.epoch+" / "+data.totalEpochs,
-            "Обучаю распознавание ролей слов и связей между ними. Этот показатель пока является обучающей, а не независимой тестовой оценкой.");
+            "Пробую определить, какие слова могут быть главным действием, его участником и дополнением.");
         }
         return;
       }
@@ -149,6 +195,7 @@
         stateLabel.textContent=model.status().trained?"ОБУЧЕНА":"ОШИБКА";
         stateLabel.dataset.state=model.status().trained?"ready":"error";
         renderStatus("Обучение не завершено: "+String(data.message||"неизвестная ошибка")+". Предыдущая модель сохранена.");
+        showFriendlyResult("Не удалось завершить обучение","Предыдущая рабочая модель сохранена. Проверь примеры и попробуй ещё раз.","warning");
         setTrainingProgress(0,"Обучение остановлено","Старые обученные веса оставлены без изменений.");
         return;
       }
@@ -169,7 +216,8 @@
           " · словарь "+report.vocabularySize+" · шаги "+report.trainingSteps+
           (phraseReport?" · фразовая модель обучена (результат на обучающих примерах)":
             data.phraseError?" · фразовая модель: "+data.phraseError:"");
-        setTrainingProgress(100,"Обучение завершено","Контекстная модель сохранена в этом браузере. Обучение не меняло число нейронов графа.");
+        setTrainingProgress(100,"Обучение завершено","Модель сохранена в этом браузере. Основной граф нейронов не изменён.");
+        showFriendlyResult("Готово — модель обучена","Новая версия сохранена в этом браузере. Теперь введи предложение ниже и нажми «Проверить фразу». Помни: это небольшой эксперимент со словами, а не универсальный собеседник.","success");
         output.textContent="Обучение завершено.\n"+
           "Отложенная тестовая точность: "+test+"\n"+
           "Покрытие теста: "+coverage+"\n"+
@@ -192,19 +240,21 @@
       stateLabel.textContent=model.status().trained?"ОБУЧЕНА":"ОШИБКА";
       stateLabel.dataset.state=model.status().trained?"ready":"error";
       renderStatus("Фоновое обучение завершилось с ошибкой: "+String(event.message||"ошибка Worker")+". Предыдущая модель сохранена.");
+      showFriendlyResult("Обучение прервалось","Предыдущая версия модели сохранена. Обнови страницу и попробуй ещё раз.","warning");
       setTrainingProgress(0,"Ошибка фонового обучения","Перезагрузи страницу и повтори попытку. Текущие веса не повреждены.");
     };
     worker.onmessageerror=()=>{
       finishTrainingWorker();
       renderStatus("Не удалось получить результат от фонового процесса. Предыдущая модель сохранена.");
+      showFriendlyResult("Не удалось получить результат","Старые веса не заменены. Попробуй повторить обучение.","warning");
       setTrainingProgress(0,"Ошибка передачи результата","Существующая модель не заменена.");
     };
     worker.postMessage({type:"train",rows});
   });
   analyseButton.addEventListener("click",()=>{
     const text=queryInput.value.trim();
-    if(!text){output.textContent="Введи фразу для анализа.";return;}
-    if(!model.status().trained){output.textContent="Сначала обучи модель на нескольких примерах.";return;}
+    if(!text){output.textContent="Введи фразу для анализа.";showFriendlyResult("Нужна фраза для проверки","Напиши короткое предложение в поле выше.","warning");return;}
+    if(!model.status().trained){output.textContent="Сначала обучи модель на нескольких примерах.";showFriendlyResult("Сначала нужно обучение","Добавь примеры и нажми «Обучить на этих примерах».","warning");return;}
     const analysis=model.analyse(text),lines=[];
     lines.push("ТОЧНЫЙ СЛОВАРЬ: "+analysis.knownTokenCount+"/"+analysis.tokens.length+
       " · морфологическое покрытие: "+analysis.morphologyCoveredTokenCount+"/"+analysis.tokens.length+
