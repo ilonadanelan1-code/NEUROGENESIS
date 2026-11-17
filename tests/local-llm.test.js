@@ -387,6 +387,8 @@ test("adapter + worker end-to-end through the real LLM gateway contract", async 
   const streamed = [];
   const detailed = await adapter.generateDetailed(request, { onToken: text => streamed.push(text) });
   assert.equal(streamed.join(""), detailed.reply);
+  assert.ok(detailed.metrics && typeof detailed.metrics.timeToFirstTokenMs === "number",
+    "adapter must pass per-stage timing metrics to the page");
   const viaGateway = await gateway.generateDetailed(request);
   assert.equal(viaGateway.reply, "Нейрон передаёт сигнал.");
   assert.equal(viaGateway.model, "onnx-community/Qwen3-0.6B-ONNX");
