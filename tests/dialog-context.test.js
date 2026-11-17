@@ -114,6 +114,11 @@ assert.equal(repairedWhaleBackup.threads.length, 1,
 assert.equal(repairedWhaleBackup.activeThreadId, "T10-whales",
   "the repaired thread should remain active after merging the old split");
 assert.equal(engine.history(repairedWhaleBackup, "T10-whales", 12).length, 6);
+const repairedClarificationReply = engine.history(repairedWhaleBackup, "T10-whales", 12)
+  .find(message => message.id === "m5");
+assert.equal(repairedClarificationReply.relation, "answer_to_question",
+  "the migrated clarification reply should retain its explicit question-answer link");
+assert.match(repairedClarificationReply.questionText, /какой именно информации/iu);
 assert.equal(engine.report(repairedWhaleBackup).activeThread.pendingQuestions.length, 0,
   "the reply «Про китов» should resolve the restored clarification prompt");
 
