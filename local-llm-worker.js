@@ -26,7 +26,7 @@
     metaTimeoutMs: 8000,
     dtypeSuffix: { q4f16: "_q4f16", q4: "_q4", fp16: "_fp16", fp32: "" },
     requiredFiles: ["config.json", "tokenizer.json", "tokenizer_config.json"],
-    optionalFiles: ["generation_config.json"],
+    optionalFiles: ["generation_config.json", "chat_template.jinja"],
     maxMessages: 40,
     maxPromptChars: 60000,
     generation: { max_new_tokens: 128, temperature: 0, top_p: 0.8, top_k: 20, repetition_penalty: 1.05 }
@@ -194,7 +194,7 @@
       }
     } catch (_) { /* logging is optional */ }
 
-    const relevant = /VerifyEachNodeIsAssignedToAnEp|Some nodes were not assigned|Rerunning with verbose output|assigned to .*ExecutionProvider|Execution provider of type|Adding default CPU execution provider|Adding execution provider/iu;
+    const relevant = /VerifyEachNodeIsAssignedToAnEp|Some nodes were not assigned|All nodes placed on|Number of nodes|Rerunning with verbose output|assigned to .*ExecutionProvider|Execution provider of type|Adding default CPU execution provider|Adding execution provider/iu;
     for (const method of methods) {
       if (!consoleObject || typeof consoleObject[method] !== "function") continue;
       original[method] = consoleObject[method];
