@@ -8,6 +8,8 @@ const sandbox = { window, Date, Math, Map, Set, JSON };
 vm.runInNewContext(fs.readFileSync("knowledge.js", "utf8"), sandbox, { filename: "knowledge.js" });
 vm.runInNewContext(fs.readFileSync("dialog-context.js", "utf8"), sandbox, { filename: "dialog-context.js" });
 const engine = window.NGDialogContext.create(window.NGKnowledge);
+vm.runInNewContext(fs.readFileSync("dialog-manager.js", "utf8"), sandbox, { filename: "dialog-manager.js" });
+const manager = window.NGDialogManager.create(engine);
 let state = engine.empty();
 state = engine.track(state, { role: "user", text: "Недостаток сна сегодня вызвал у меня усталость", time: 1 });
 const firstThread = state.activeThreadId;
@@ -23,6 +25,98 @@ assert.equal(engine.hasReference("А это почему?"), true,
   "Russian demonstrative references must be detected with Unicode-aware boundaries");
 assert.equal(engine.hasReference("Что такое контекст диалога?"), false,
   "the phrase 'что такое' must not by itself force an unrelated concept question into the old topic");
+
+
+assert.equal(engine.hasReference("А откуда ты взял эту инфу?"), true,
+  "oblique demonstratives such as «эту» must mark a reference to the previous answer");
+assert.equal(manager.isFollowUp("А откуда ты взял эту инфу?"), true,
+  "a source question beginning with «А откуда» must be classified as a follow-up");
+
+let whaleState = engine.track(engine.empty(), {
+  role: "user", text: "Сколько в мире китов?", time: 1000
+});
+const whaleThreadId = whaleState.activeThreadId;
+whaleState = engine.track(whaleState, {
+  role: "assistant", text: "По оценке из предыдущего ответа насчитывается несколько популяций.", time: 1100
+});
+whaleState = engine.track(whaleState, {
+  role: "user", text: "А откуда ты взял эту инфу?", time: 30000
+});
+assert.equal(whaleState.activeThreadId, whaleThreadId,
+  "a source question referring to «эту инфу» must stay in the whale thread");
+assert.equal(whaleState.messages[whaleState.messages.length - 1].relation, "continuation");
+
+let clarificationState = engine.track(engine.empty(), {
+  role: "user", text: "Я хочу проверить предыдущий ответ.", time: 40000
+});
+clarificationState = engine.track(clarificationState, {
+  role: "assistant", text: "Какой именно информации ты имеешь в виду?", time: 40001
+});
+clarificationState = engine.track(clarificationState, {
+  role: "user", text: "Про китов.", time: 40002
+});
+assert.equal(clarificationState.messages[clarificationState.messages.length - 1].relation, "answer_to_question",
+  "a concise topic phrase must answer a clarification asking which information is meant");
+assert.equal(engine.report(clarificationState).activeThread.pendingQuestions.length, 0);
+
+let closingState = engine.track(engine.empty(), {
+  role: "user", text: "Расскажи о китах.", time: 50000
+});
+closingState = engine.track(closingState, {
+  role: "assistant",
+  text: "Могу пояснить виды. Какой вид китов интересует? Чем ещё могу помочь? Чем могу быть полезен? Есть что-то конкретное, в чём могу пригодиться?",
+  time: 50001
+});
+assert.deepEqual(Array.from(engine.report(closingState).activeThread.pendingQuestions),
+  ["Какой вид китов интересует?"],
+  "generic conversation closers must not be stored as pending questions");
+
+const staleClosers = engine.sanitize({
+  activeThreadId: "T90-old", nextSequence: 91,
+  threads: [{
+    id: "T90-old", title: "Старый диалог", status: "active", createdAt: 1, updatedAt: 2,
+    turnCount: 1, keywords: [], lastUserText: "", lastAssistantText: "", summaryParts: [],
+    pendingQuestions: [
+      { text: "Чем ещё могу помочь?", askedAt: 1, answered: false },
+      { text: "Чем могу быть полезен?", askedAt: 2, answered: false },
+      { text: "Есть что-то конкретное, в чём могу пригодиться?", askedAt: 3, answered: false },
+      { text: "Какой именно информации ты имеешь в виду?", askedAt: 4, answered: false }
+    ]
+  }],
+  messages: []
+});
+assert.deepEqual(Array.from(engine.report(staleClosers).activeThread.pendingQuestions),
+  ["Какой именно информации ты имеешь в виду?"],
+  "stale generic closers must be removed when older saved state is loaded");
+
+const repairedWhaleBackup = engine.sanitize({
+  activeThreadId: "T11-source", nextSequence: 12,
+  threads: [
+    { id: "T10-whales", title: "Сколько в мире китов?", status: "paused", createdAt: 1000, updatedAt: 1100,
+      turnCount: 1, keywords: ["кит"], lastUserText: "Сколько в мире китов?",
+      lastAssistantText: "В мире есть несколько популяций китов.", summaryParts: [], pendingQuestions: [] },
+    { id: "T11-source", title: "А откуда ты взял эту инфу?", status: "active", createdAt: 30000, updatedAt: 33000,
+      turnCount: 2, keywords: ["информация"], lastUserText: "Про китов.",
+      lastAssistantText: "В резервной копии нет ссылки на источник.", summaryParts: [],
+      pendingQuestions: [{ text: "Какой именно информации ты имеешь в виду?", askedAt: 31000, answered: false }] }
+  ],
+  messages: [
+    { id: "m1", threadId: "T10-whales", role: "user", text: "Сколько в мире китов?", time: 1000, relation: "new_topic" },
+    { id: "m2", threadId: "T10-whales", role: "assistant", text: "В мире есть несколько популяций китов.", time: 1100, relation: "assistant_reply" },
+    { id: "m3", threadId: "T11-source", role: "user", text: "А откуда ты взял эту инфу?", time: 30000, relation: "new_topic" },
+    { id: "m4", threadId: "T11-source", role: "assistant", text: "Какой именно информации ты имеешь в виду?", time: 31000, relation: "assistant_reply" },
+    { id: "m5", threadId: "T11-source", role: "user", text: "Про китов.", time: 32000, relation: "answer_to_question" },
+    { id: "m6", threadId: "T11-source", role: "assistant", text: "В резервной копии нет ссылки на источник.", time: 33000, relation: "assistant_reply" }
+  ]
+});
+assert.equal(repairedWhaleBackup.threads.length, 1,
+  "an unambiguous follow-up-only thread should be merged with the immediately preceding topic");
+assert.equal(repairedWhaleBackup.activeThreadId, "T10-whales",
+  "the repaired thread should remain active after merging the old split");
+assert.equal(engine.history(repairedWhaleBackup, "T10-whales", 12).length, 6);
+assert.equal(engine.report(repairedWhaleBackup).activeThread.pendingQuestions.length, 0,
+  "the reply «Про китов» should resolve the restored clarification prompt");
+
 
 state = engine.track(state, { role: "user", text: "Теперь поговорим о музыке и музыкальных инструментах", time: 4 });
 const musicThread = state.activeThreadId;
