@@ -16,6 +16,7 @@
     #state{white-space:pre-wrap;font:13px/1.4 ui-monospace,monospace;background:#0f1a26;border-radius:8px;padding:8px}
     #out{white-space:pre-wrap;min-height:90px;background:#0f1a26;border-radius:8px;padding:10px}
     #meta{white-space:pre-wrap;font-size:13px;line-height:1.5;margin:8px 0}
+    #diagnostics{white-space:pre-wrap;font-size:12px;line-height:1.45;margin:8px 0;background:#0f1a26;border-radius:8px;padding:9px;overflow-wrap:anywhere}
     #err{color:#ff9b9b;white-space:pre-wrap}
   </style>
 </head>
@@ -47,15 +48,20 @@
   </div>
   <div id="out"></div>
   <div id="meta"></div>
+  <div id="diagnostics">Диагностика GPU появится после загрузки модели.</div>
   <div id="err"></div>
 
   <script src="../local-llm-adapter.js"></script>
   <script>
     "use strict";
     const $ = id => document.getElementById(id);
+    let runtimeDiagnostics = null;
+    let lastGpuProfile = null;
     const adapter = NGLocalLLM.create({
       workerUrl: "../local-llm-worker.js",
-      onStatus: renderStatus
+      onStatus: renderStatus,
+      onDiagnostics: diagnostics => { runtimeDiagnostics = diagnostics; renderDiagnostics(); },
+      onProfile: profile => { lastGpuProfile = profile; renderDiagnostics(); }
     });
     const systemPrompt = "Ты NEUROGENESIS, локальный помощник. Отвечай естественным и грамматически правильным русским языком. Сначала дай прямой ответ. На простой вопрос достаточно 1–3 коротких предложений. Не выдумывай детали. Если не знаешь, так и скажи. Не повторяй вопрос.";
     let history = [{ role: "system", content: systemPrompt }];
@@ -92,6 +98,53 @@
       return value < 1000 ? Math.round(value) + " мс" : (value / 1000).toFixed(1) + " с";
     }
     function formatRate(value) { return Number.isFinite(value) ? value.toFixed(2) : "—"; }
+    function yesNo(value) { return value === true ? "да" : value === false ? "нет" : "неизвестно"; }
+    function adapterName(info) {
+      if (!info) return "сведения недоступны";
+      return [info.vendor, info.architecture, info.device].filter(Boolean).join(" / ") || "название скрыто браузером";
+    }
+    function renderDiagnostics() {
+      const d = runtimeDiagnostics;
+      if (!d) {
+        $("diagnostics").textContent = "Диагностика GPU появится после загрузки модели.";
+        return;
+      }
+      const probe = d.probe || {};
+      const actual = d.runtimeGpu || {};
+      const features = actual.features || probe;
+      const p = lastGpuProfile;
+      const lines = [
+        "Transformers.js: " + (d.transformersVersion || "—") + " · ONNX Runtime Web: " + (d.onnxRuntimeWebVersion || "—"),
+        "GPU-адаптер: " + adapterName(actual.adapter || probe.adapter),
+        "shader-f16: " + yesNo(features.shaderF16) + " · timestamp-query: " + yesNo(features.timestampQuery) +
+          " · экспериментальные timestamp: " + yesNo(features.experimentalTimestampQuery) + " · subgroups: " + yesNo(features.subgroups),
+        "Профилировщик GPU: " + (d.profiler && d.profiler.configured ? "включён" : "не удалось включить") +
+          (d.profiler && d.profiler.error ? " · " + d.profiler.error : ""),
+        "WASM: потоков=" + (d.wasm && d.wasm.numThreads != null ? d.wasm.numThreads : "—") +
+          " · proxy=" + yesNo(d.wasm && d.wasm.proxy),
+        p ? "GPU-операции: " + p.eventCount + " · сумма времени GPU-ядер: " + Number(p.totalGpuMs || 0).toFixed(2) + " мс" :
+          "GPU-операции: ожидаю первый запуск генерации"
+      ];
+      if (p && p.kernels && p.kernels.length) {
+        lines.push("Самые затратные GPU-ядра:");
+        for (const item of p.kernels.slice(0, 6)) {
+          lines.push("  " + item.name + " · " + item.count + " выз. · " + Number(item.gpuMs || 0).toFixed(2) + " мс");
+        }
+      } else if (d.profiler && !d.profiler.timestampQueryAvailable) {
+        lines.push("GPU-времена недоступны: адаптер не сообщил поддержку timestamp-query.");
+      }
+      if (d.nodeAssignmentWarning) {
+        lines.push("ORT предупредил: часть узлов не назначена предпочтительному провайдеру. Это не доказывает проблему само по себе — служебные операции могут штатно исполняться на CPU.");
+      }
+      if (d.assignmentLogs && d.assignmentLogs.length) {
+        lines.push("Выдержки из журнала распределения узлов:");
+        for (const line of d.assignmentLogs.slice(0, 5)) lines.push("  " + line);
+      } else {
+        lines.push("Распределение узлов: подробных строк ORT пока не получено.");
+      }
+      lines.push("Важно: сумма GPU-ядер — не всё время ответа и не доля GPU в процентах.");
+      $("diagnostics").textContent = lines.join("\n");
+    }
 
     $("reset").onclick = () => {
       if (busy) return;
@@ -142,6 +195,8 @@
           { generation, onToken: piece => { $("out").textContent += piece; } }
         );
         history = turn.concat([{ role: "assistant", content: result.reply }]);
+        if (result.gpuProfile) lastGpuProfile = result.gpuProfile;
+        renderDiagnostics();
         const u = result.usage || {};
         const m = result.metrics || {};
         $("meta").textContent = [
