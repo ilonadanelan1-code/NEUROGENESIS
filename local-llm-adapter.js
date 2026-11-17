@@ -49,7 +49,9 @@
       generation: config.generation || {},
       onToken: typeof config.onToken === "function" ? config.onToken : null,
       onStatus: typeof config.onStatus === "function" ? config.onStatus : null,
-      onProgress: typeof config.onProgress === "function" ? config.onProgress : null
+      onProgress: typeof config.onProgress === "function" ? config.onProgress : null,
+      onDiagnostics: typeof config.onDiagnostics === "function" ? config.onDiagnostics : null,
+      onProfile: typeof config.onProfile === "function" ? config.onProfile : null
     };
     let worker = null;
     let nextId = 1;
@@ -80,6 +82,12 @@
             if (entry.onToken) entry.onToken(message.text, message);
             if (options.onToken) options.onToken(message.text, message);
           }
+          break;
+        case "diagnostics":
+          if (options.onDiagnostics) options.onDiagnostics(message.diagnostics || null, message);
+          break;
+        case "profile":
+          if (options.onProfile) options.onProfile(message.profile || null, message);
           break;
         case "loaded": case "done": case "cache-report": case "disposed":
           if (entry) { pending.delete(message.id); entry.resolve(message); }
@@ -159,7 +167,8 @@
           usage: done.usage || null,
           stopped: !!done.stopped, device: done.device || null, dtype: done.dtype || null,
           elapsedMs: done.elapsedMs || null, tokensPerSecond: done.tokensPerSecond || null,
-          metrics: done.metrics || null
+          metrics: done.metrics || null,
+          gpuProfile: done.gpuProfile || null
         };
       } finally {
         activeGeneration = null;
