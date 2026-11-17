@@ -1237,6 +1237,7 @@
       item.responseText="Этот повторный исследовательский вопрос объединён с "+keeper.id+".";
       item.reason=(item.reason?item.reason+" ":"")+"Дубликат цели "+keeper.id+"; исходная запись сохранена.";
       item.updatedAt=Date.now();
+      archived.push(item);
       changed=true;
     }
     inquiries=[...keepers,...archived].sort((a,b)=>a.createdAt-b.createdAt).slice(-MAX_INQUIRIES);
