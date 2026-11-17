@@ -177,6 +177,86 @@ const graphSearch=window.NGMemory.knowledgeGraphSearch("музыка");
 assert.ok(graphSearch.matches.some(item=>item.memoryId==="one"),
   "memory question retrieval should use the graph to locate a relevant source record");
 
+
+// Evidence-aware retrieval, calibrated support and persisted inquiry deduplication.
+const noWhaleMemoryHits = window.NGMemory.attentionSelection("Сколько в мире китов?");
+assert.equal(noWhaleMemoryHits.length,0,
+  "generic query words must not retrieve unrelated saved memories when no whale evidence exists");
+const unsupportedLLM = window.NGMemory.assessSupport(
+  "В мире насчитывается некоторое число китов.", "general_question", [], [], 0, "llm"
+);
+assert.equal(unsupportedLLM.level,"high",
+  "an LLM answer with no linked memory claims must be marked as weakly supported by saved memory");
+assert.ok(unsupportedLLM.supportIndex<=15);
+assert.equal(unsupportedLLM.evidenceCount,0);
+const initialClaims = window.NGMemory.claims();
+assert.ok(initialClaims.length>0);
+assert.ok(initialClaims.every(claim=>typeof claim.traceId==="string"&&claim.traceId),
+  "every structured memory claim should have a provenance trace when the trace engine is available");
+
+const integrityKeys = [
+  "neurogenesis.goals.v1","neurogenesis.memories.v1","neurogenesis.dialog.v1",
+  "neurogenesis.dialog-context.v1","neurogenesis.model-decisions.v1",
+  "neurogenesis.model-evidence.v1","neurogenesis.reasoning-archive.v1",
+  "neurogenesis.inquiries.v1","neurogenesis.cognitive-cycles.v1"
+];
+const originalIntegrityStores = new Map(integrityKeys.map(key=>[
+  key,database.has(key)?database.get(key):null
+]));
+database.set("neurogenesis.memories.v1","[]");
+database.set("neurogenesis.dialog.v1","[]");
+database.set("neurogenesis.dialog-context.v1","null");
+database.set("neurogenesis.model-decisions.v1","[]");
+database.set("neurogenesis.model-evidence.v1","[]");
+database.set("neurogenesis.reasoning-archive.v1","[]");
+database.set("neurogenesis.cognitive-cycles.v1","[]");
+database.set("neurogenesis.inquiries.v1",JSON.stringify([
+  {id:"Q2",signature:"edge:concentration-a",kind:"missing_observation",
+    edgeSubject:"Уровень концентрации",edgeObject:"качество сна",question:"Проверить первое звено",
+    reason:"Первичная формулировка",priority:2,status:"open",sourceClaimIds:[],createdAt:100,updatedAt:100},
+  {id:"Q5",signature:"edge:concentration-b",kind:"missing_observation",
+    edgeSubject:"Уровень концентрац",edgeObject:"качество сна",question:"Проверить то же звено",
+    reason:"Вариант формулировки",priority:3,status:"open",sourceClaimIds:[],createdAt:200,updatedAt:200}
+]));
+database.set("neurogenesis.goals.v1",JSON.stringify([
+  {id:"G-Q2",inquiryId:"Q2",kind:"missing_observation",title:"Первая цель",status:"blocked",createdAt:100,updatedAt:100},
+  {id:"G-Q5",inquiryId:"Q5",kind:"missing_observation",title:"Повторная цель",status:"active",createdAt:200,updatedAt:200}
+]));
+window.NGGoals.load();
+loadMemory();
+const deduplicatedInquiries = window.NGMemory.inquiries();
+const duplicateInquiry = deduplicatedInquiries.find(item=>item.id==="Q5");
+assert.equal(deduplicatedInquiries.filter(item=>
+  !item.duplicateOfId&&item.status!=="skipped"&&item.kind==="missing_observation").length,1,
+  "morphologically near-identical inquiry targets should collapse into one canonical question");
+assert.ok(duplicateInquiry);
+assert.equal(duplicateInquiry.duplicateOfId,"Q2");
+assert.equal(duplicateInquiry.status,"skipped");
+assert.deepEqual(Array.from(window.NGMemory.goals().map(item=>item.inquiryId)),["Q2"],
+  "a duplicate inquiry must not keep a second active research goal");
+
+const echoAt = Date.now();
+const echoText = "В отчёте отмечено: контекстная модель восстановила последовательность без внешней проверки.";
+database.set("neurogenesis.memories.v1",JSON.stringify([{
+  id:"assistant-echo",text:echoText,tags:[],traceIds:[],createdAt:echoAt,updatedAt:echoAt,
+  strength:.65,repetitions:1,recalls:0,claims:[]
+}]));
+database.set("neurogenesis.dialog.v1",JSON.stringify([
+  {role:"assistant",text:echoText,time:echoAt}
+]));
+loadMemory();
+assert.equal(window.NGMemory.attentionSelection(
+  "контекстная модель восстановила последовательность"
+).length,0,
+  "a memory copied from a recent assistant reply must remain archived but be excluded from retrieval");
+
+for(const [key,value] of originalIntegrityStores) {
+  if(value===null) database.delete(key); else database.set(key,value);
+}
+window.NGGoals.load();
+loadMemory();
+
+
 sidePanel.scrollTop = 147;
 const manage = document.getElementById("memory-manage");
 manage.dispatch("click");
