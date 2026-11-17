@@ -168,6 +168,10 @@ function loadMemory(withDialogContext = false) {
   if (withDialogContext && !window.NGDialogContext) {
     vm.runInNewContext(fs.readFileSync("dialog-context.js","utf8"),sandbox,{filename:"dialog-context.js"});
   }
+  // A page reload drops DOM and window event listeners. The test re-evaluates
+  // memory.js in one VM, so explicitly clear listeners to avoid duplicate UI handlers.
+  for (const element of elements.values()) element.listeners = Object.create(null);
+  for (const type of Object.keys(windowListeners)) delete windowListeners[type];
   vm.runInNewContext(fs.readFileSync("memory.js","utf8"),sandbox,{filename:"memory.js"});
 }
 loadMemory();
