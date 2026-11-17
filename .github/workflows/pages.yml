@@ -114,6 +114,7 @@ jobs:
           node tests/startup-contract.test.js
           node tests/ngram-memory-bridge.test.js
           node tests/first-experiment.test.js
+          node tests/dialog-context.test.js
           node tests/startup-failure.test.js
           node tests/wasm-shadow-mode.test.js
 
