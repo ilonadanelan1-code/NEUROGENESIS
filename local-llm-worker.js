@@ -409,7 +409,6 @@
     setPhase("generating");
     const startedAt = Date.now();
     let reply = "", completionTokens = 0, promptTokens = 0;
-    const startedAt = Date.now();
     let generationStartedAt = null, firstTokenAt = null, firstTextAt = null;
     let generationStage = "prepare";
     try {
