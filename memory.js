@@ -1195,7 +1195,7 @@
     return edits+(i<left.length||j<right.length?1:0)<=1;
   }
   function inquiryEntityEquivalent(left,right) {
-    if(sameEntity(left,right)) return true;
+    if(KNOWLEDGE&&typeof KNOWLEDGE.sameEntity==="function"&&KNOWLEDGE.sameEntity(left,right)) return true;
     const a=[...new Set(tokens(left))],b=[...new Set(tokens(right))];
     if(!a.length||a.length!==b.length) return false;
     const remaining=b.slice();
