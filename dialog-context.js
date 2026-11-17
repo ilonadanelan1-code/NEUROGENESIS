@@ -241,6 +241,8 @@
             const matched = matchPendingQuestion(message.text, mergedQueue);
             if (matched) {
               matched.answered = true;
+              message.relation = "answer_to_question";
+              message.questionText = matched.text;
               if (message.id === firstUser.id) {
                 firstRelation = "answer_to_question";
                 firstQuestion = matched.text;
