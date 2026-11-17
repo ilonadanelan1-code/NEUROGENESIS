@@ -405,15 +405,16 @@
     const memoryRows = Array.isArray(input.memories) ? input.memories : [];
     const focus = input.focus && typeof input.focus === "object" ? input.focus : null;
     const byId = new Map(goals.map(item => [item.id, item]));
+    const duplicateInquiryIds = new Set(inquiryRows.filter(row => row && row.duplicateOfId).map(row => row.id));
     const next = [];
     for (const inquiry of inquiryRows.slice(-MAX_GOALS)) {
-      if (!inquiry || typeof inquiry.id !== "string" || !/^Q\d{1,8}$/u.test(inquiry.id)) continue;
+      if (!inquiry || typeof inquiry.id !== "string" || !/^Q\d{1,8}$/u.test(inquiry.id) || inquiry.duplicateOfId) continue;
       const id = "G-" + inquiry.id;
       const item = buildGoal(inquiry, memoryRows, focus, now, byId.get(id));
       if (item) next.push(item);
     }
     const seen = new Set(next.map(item => item.id));
-    for (const old of goals) if (!seen.has(old.id)) next.push(old);
+    for (const old of goals) if (!seen.has(old.id) && !duplicateInquiryIds.has(old.inquiryId)) next.push(old);
     goals = next.sort((a,b) => a.updatedAt - b.updatedAt).slice(-MAX_GOALS);
     persist();
     return snapshot();
