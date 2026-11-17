@@ -13,12 +13,18 @@ class ElementStub {
     this.classList = { add() {}, remove() {}, toggle() {} };
     this.hidden = false;
     this.disabled = false;
-    this.textContent = "";
+    this._textContent = "";
     this.value = "";
     this.scrollTop = 0;
     this.scrollHeight = 0;
     this.files = [];
     this.listeners = Object.create(null);
+  }
+  get textContent() { return this._textContent; }
+  set textContent(value) {
+    this._textContent = String(value == null ? "" : value);
+    // Match the browser DOM: assigning textContent replaces and clears child nodes.
+    this.children = [];
   }
   addEventListener(type, fn) {
     (this.listeners[type] ||= []).push(fn);
