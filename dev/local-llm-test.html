@@ -15,6 +15,7 @@
     progress{width:100%;height:14px}
     #state{white-space:pre-wrap;font:13px/1.4 ui-monospace,monospace;background:#0f1a26;border-radius:8px;padding:8px}
     #out{white-space:pre-wrap;min-height:90px;background:#0f1a26;border-radius:8px;padding:10px}
+    #meta{white-space:pre-wrap;font-size:13px;line-height:1.5;margin:8px 0}
     #err{color:#ff9b9b;white-space:pre-wrap}
   </style>
 </head>
@@ -28,6 +29,13 @@
     </select>
     <button id="load">Загрузить модель</button>
     <button id="cache">Проверить кэш</button>
+  </div>
+  <div class="row">
+    <select id="generationMode" title="Режим генерации">
+      <option value="stable">Стабильный · без случайности</option>
+      <option value="sampling">Эксперимент · temperature 0.7</option>
+    </select>
+    <button id="reset">Новый диалог</button>
   </div>
   <progress id="bar" max="100" value="0"></progress>
   <div id="progressText">Модель не загружена. Первая загрузка скачивает сотни мегабайт.</div>
@@ -49,7 +57,8 @@
       workerUrl: "../local-llm-worker.js",
       onStatus: renderStatus
     });
-    let history = [{ role: "system", content: "Ты NEUROGENESIS — спокойный помощник. Отвечай по-русски, коротко и по делу." }];
+    const systemPrompt = "Ты NEUROGENESIS, локальный помощник. Отвечай естественным и грамматически правильным русским языком. Сначала дай прямой ответ. На простой вопрос достаточно 1–3 коротких предложений. Не выдумывай детали. Если не знаешь, так и скажи. Не повторяй вопрос.";
+    let history = [{ role: "system", content: systemPrompt }];
     let busy = false;
 
     function showError(error) {
@@ -78,6 +87,19 @@
       $("load").disabled = s.phase === "loading" || ready || s.phase === "generating";
     }
     function formatBytes(value) { return (value / 1048576).toFixed(1) + " МБ"; }
+    function formatMs(value) {
+      if (!Number.isFinite(value)) return "—";
+      return value < 1000 ? Math.round(value) + " мс" : (value / 1000).toFixed(1) + " с";
+    }
+    function formatRate(value) { return Number.isFinite(value) ? value.toFixed(2) : "—"; }
+
+    $("reset").onclick = () => {
+      if (busy) return;
+      history = [{ role: "system", content: systemPrompt }];
+      $("out").textContent = "";
+      $("meta").textContent = "";
+      showError(null);
+    };
 
     $("load").onclick = async () => {
       showError(null);
@@ -112,12 +134,24 @@
       $("out").textContent = ""; $("meta").textContent = "";
       const turn = history.concat([{ role: "user", content: text }]);
       try {
-        const result = await adapter.generateDetailed({ schema: "NEUROGENESIS_LLM_REQUEST_V1", messages: turn },
-          { onToken: piece => { $("out").textContent += piece; } });
+        const generation = $("generationMode").value === "sampling"
+          ? { max_new_tokens: 128, temperature: 0.7, top_p: 0.8, top_k: 20, repetition_penalty: 1.05 }
+          : { max_new_tokens: 128, temperature: 0, repetition_penalty: 1.05 };
+        const result = await adapter.generateDetailed(
+          { schema: "NEUROGENESIS_LLM_REQUEST_V1", messages: turn },
+          { generation, onToken: piece => { $("out").textContent += piece; } }
+        );
         history = turn.concat([{ role: "assistant", content: result.reply }]);
         const u = result.usage || {};
-        $("meta").textContent = (result.stopped ? "Остановлено пользователем. " : "") +
-          "токенов: " + (u.completion_tokens || 0) + " · " + (result.tokensPerSecond || "?") + " ток/с · " + result.device + "/" + result.dtype;
+        const m = result.metrics || {};
+        $("meta").textContent = [
+          (result.stopped ? "Остановлено пользователем. " : "") +
+            "Токенов: " + (u.completion_tokens || 0) + " · режим: " + $("generationMode").selectedOptions[0].textContent,
+          "До первого токена: " + formatMs(m.timeToFirstTokenMs) + " · до первого текста: " + formatMs(m.timeToFirstTextMs),
+          "Подготовка запроса: " + formatMs(m.promptPreparationMs) + " · генерация: " + formatMs(m.generationMs) + " · всего: " + formatMs(m.totalMs),
+          "Скорость после первого токена: " + formatRate(m.decodeTokensPerSecond) + " ток/с · вместе с ожиданием: " + formatRate(m.endToEndTokensPerSecond || result.tokensPerSecond) + " ток/с",
+          "Устройство: " + result.device + "/" + result.dtype
+        ].join("\n");
       } catch (error) { showError(error); }
       busy = false; $("stop").disabled = true; renderStatus(adapter.status());
     };
