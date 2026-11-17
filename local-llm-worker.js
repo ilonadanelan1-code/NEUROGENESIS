@@ -409,13 +409,16 @@
     setPhase("generating");
     const startedAt = Date.now();
     let reply = "", completionTokens = 0, promptTokens = 0;
+    let stage = "prepare_prompt";
     try {
       const inputs = tokenizer.apply_chat_template(messages, { add_generation_prompt: true, return_dict: true, enable_thinking: false });
       const dims = inputs && inputs.input_ids && inputs.input_ids.dims;
       promptTokens = Array.isArray(dims) ? Number(dims[dims.length - 1]) || 0 : 0;
+      stage = "create_stopping_criteria";
       const stopping = new mod.InterruptableStoppingCriteria();
       activeStop = stopping;
       if (stopRequested) stopping.interrupt();
+      stage = "create_text_streamer";
       const streamer = new mod.TextStreamer(tokenizer, {
         skip_prompt: true,
         skip_special_tokens: true,
@@ -426,6 +429,7 @@
         },
         token_callback_function: () => { completionTokens += 1; }
       });
+      stage = "model_generate";
       await model.generate({
         ...inputs,
         max_new_tokens: params.max_new_tokens,
@@ -443,7 +447,12 @@
         device: state.device, dtype: state.dtype
       });
     } catch (error) {
-      reportError(id, fail("generation_failed", "Ошибка генерации: " + describe(error)));
+      const details = {
+        stage,
+        name: error && error.name ? String(error.name) : "Error",
+        stack: String(error && error.stack ? error.stack : error).slice(0, 5000)
+      };
+      reportError(id, fail("generation_failed", "Ошибка генерации на этапе " + stage + ": " + describe(error), details));
     } finally {
       activeStop = null; activeGenerationId = null; stopRequested = false;
       if (state.phase === "generating") setPhase("ready");
