@@ -639,9 +639,9 @@
             renderedChars: typeof rendered === "string" ? rendered.length : null,
             templateAvailable: typeof template === "string" && template.length > 0,
             templateChars: typeof template === "string" ? template.length : null,
-            beginsWithSystem: typeof rendered === "string" && rendered.startsWith("<|im_start|>system\\n"),
+            beginsWithSystem: typeof rendered === "string" && rendered.startsWith("<|im_start|>system\n"),
             includesLatestUser: typeof rendered === "string" && !!latestUser && rendered.includes(latestUser.content),
-            endsWithAssistantPrefix: typeof rendered === "string" && /<\\|im_start\\|>assistant\\s*$/u.test(rendered),
+            endsWithAssistantPrefix: typeof rendered === "string" && rendered.endsWith("<|im_start|>assistant\n"),
             error: typeof rendered === "string" ? null : "apply_chat_template(tokenize:false) не вернул строку"
           };
         } catch (error) {
