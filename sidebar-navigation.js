@@ -60,12 +60,38 @@
   }
 
   const learningPage = pages.get("learning");
-  const learningIntro = document.createElement("p");
-  learningIntro.className = "side-tab-intro";
-  learningIntro.textContent = "Здесь два разных механизма. Контекстная модель учится работать со словами и фразами. Экспериментальная пластичность меняет веса отдельной копии нейросети. Ни один из режимов сам по себе не создаёт новые нейроны.";
+  const learningIntro = document.createElement("section");
+  learningIntro.className = "learning-welcome";
+  learningIntro.innerHTML = `
+    <span class="learning-eyebrow">НЕЙРОГЕНЕЗИС · ПРОСТО О СЛОЖНОМ</span>
+    <h2>Что именно ты хочешь обучить?</h2>
+    <p>Здесь два разных эксперимента. Первый помогает маленькой модели работать со словами. Второй проверяет, как меняется сила связей в отдельной копии сети.</p>
+    <div class="learning-choice-list">
+      <button class="learning-choice" type="button" data-learning-target="contextual">
+        <span class="learning-choice-icon">Aa</span>
+        <span class="learning-choice-copy"><strong>Слова и фразы</strong><small>Добавлять предложения, обучать модель и проверять знакомые слова</small><em>Подходит для первого знакомства</em></span>
+        <span class="learning-choice-arrow">→</span>
+      </button>
+      <button class="learning-choice learning-choice-secondary" type="button" data-learning-target="wasm">
+        <span class="learning-choice-icon">⟷</span>
+        <span class="learning-choice-copy"><strong>Сила связей в сети</strong><small>Проводить опыт с отдельной копией нейросети</small><em>Экспериментальный режим</em></span>
+        <span class="learning-choice-arrow">→</span>
+      </button>
+    </div>
+    <div class="learning-notice"><strong>Важно</strong><span>Ни один из этих режимов не добавляет нейроны. Обучение словам не меняет граф, а опыты со связями не переписывают основную сеть.</span></div>
+  `;
   learningPage.appendChild(learningIntro);
   if (contextual) { contextual.open = true; learningPage.appendChild(contextual); }
   if (wasmLearning) { wasmLearning.open = false; learningPage.appendChild(wasmLearning); }
+
+  learningIntro.querySelectorAll("[data-learning-target]").forEach(button => {
+    button.addEventListener("click", () => {
+      const target = button.dataset.learningTarget === "wasm" ? wasmLearning : contextual;
+      if (!target) return;
+      target.open = true;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
 
   const settingsPage = pages.get("settings");
   const settingsIntro = document.createElement("p");
