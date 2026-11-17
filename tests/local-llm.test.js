@@ -294,6 +294,16 @@ test("device/dtype selection: no shader-f16 -> q4; missing q4f16 file -> q4; Web
   assert.equal((await waitFor(world.messages, m => m.type === "error", "forced webgpu")).code, "webgpu_unavailable");
 });
 
+test("missing compatible model weights produce a clear dtype_unavailable error", async () => {
+  const siblings = SIBLINGS.filter(([name]) => !name.startsWith("onnx/model_"));
+  const world = makeWorld({ siblings });
+  world.send({ type: "load", id: 1 });
+  const error = await waitFor(world.messages, m => m.type === "error" && m.id === 1, "dtype unavailable");
+  assert.equal(error.code, "dtype_unavailable");
+  assert.match(error.message, /подходящего формата весов/u);
+  assert.doesNotMatch(error.message, /dtypeOrder/u);
+});
+
 test("check-cache reports file status without downloading", async () => {
   const world = makeWorld();
   world.send({ type: "check-cache", id: 9 });

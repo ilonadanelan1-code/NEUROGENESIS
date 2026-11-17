@@ -331,7 +331,7 @@
       push("webgpu", ["q4", "fp16"]);
       push("wasm", ["q4", "fp16"]);
     }
-    if (!attempts.length) throw fail("dtype_unavailable", "В репозитории модели нет подходящего формата весов (" + dtypeOrder.join(", ") + ").");
+    if (!attempts.length) throw fail("dtype_unavailable", "В репозитории модели нет подходящего формата весов для режимов: " + detected.dtypes.join(", ") + ".");
     let lastError = null, audit = null;
     for (let index = 0; index < attempts.length; index += 1) {
       const attempt = attempts[index];
