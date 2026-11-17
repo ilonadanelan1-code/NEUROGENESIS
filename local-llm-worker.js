@@ -41,8 +41,185 @@
     runtimeUrl: null,
     persisted: null,
     lastError: null,
+    diagnostics: null,
     fellBack: false
   };
+
+  let profileGenerationId = null;
+  let gpuProfileState = null;
+
+  function snapshotAdapter(adapter) {
+    try {
+      const info = adapter && adapter.info && typeof adapter.info === "object" ? adapter.info : {};
+      const pick = key => typeof info[key] === "string" && info[key] ? info[key] : null;
+      return { vendor: pick("vendor"), architecture: pick("architecture"), device: pick("device"), description: pick("description") };
+    } catch (_) { return null; }
+  }
+  function snapshotLimits(limits) {
+    if (!limits || typeof limits !== "object") return null;
+    const keys = ["maxBufferSize", "maxStorageBufferBindingSize", "maxComputeWorkgroupStorageSize",
+      "maxComputeInvocationsPerWorkgroup", "maxComputeWorkgroupsPerDimension"];
+    const result = {};
+    for (const key of keys) {
+      const value = Number(limits[key]);
+      if (Number.isFinite(value) && value > 0) result[key] = value;
+    }
+    return result;
+  }
+  function featureSnapshot(features) {
+    const has = name => {
+      try { return !!(features && typeof features.has === "function" && features.has(name)); }
+      catch (_) { return false; }
+    };
+    return {
+      shaderF16: has("shader-f16"),
+      timestampQuery: has("timestamp-query"),
+      experimentalTimestampQuery: has("chromium-experimental-timestamp-query-inside-passes"),
+      subgroups: has("subgroups")
+    };
+  }
+  function emitDiagnostics() {
+    if (state.diagnostics) post({ type: "diagnostics", diagnostics: state.diagnostics });
+  }
+  function gpuProfileSnapshot() {
+    if (!gpuProfileState) return null;
+    const kernels = [...gpuProfileState.kernels.values()]
+      .sort((a, b) => b.timeNs - a.timeNs)
+      .slice(0, 10)
+      .map(item => ({
+        name: item.name, count: item.count,
+        gpuMs: Math.round(item.timeNs / 10000) / 100
+      }));
+    return {
+      eventCount: gpuProfileState.eventCount,
+      totalGpuMs: Math.round(gpuProfileState.totalNs / 10000) / 100,
+      kernels
+    };
+  }
+  function collectGpuProfile(data) {
+    if (!gpuProfileState || !data || typeof data !== "object") return;
+    const start = Number(data.startTime), end = Number(data.endTime);
+    const duration = end - start;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const name = String(data.programName || data.kernelName || data.kernelType || "unknown").slice(0, 120);
+    let item = gpuProfileState.kernels.get(name);
+    if (!item) {
+      item = { name, count: 0, timeNs: 0 };
+      gpuProfileState.kernels.set(name, item);
+    }
+    item.count += 1;
+    item.timeNs += duration;
+    gpuProfileState.eventCount += 1;
+    gpuProfileState.totalNs += duration;
+    if (profileGenerationId != null) {
+      post({ type: "profile", id: profileGenerationId, profile: gpuProfileSnapshot() });
+    }
+  }
+  function configureRuntimeDiagnostics(probeInfo) {
+    const transformersEnv = runtime && runtime.mod && runtime.mod.env || null;
+    const onnxEnv = transformersEnv && transformersEnv.backends && transformersEnv.backends.onnx || null;
+    let profilingConfigured = false, profilingError = null;
+    try {
+      const webgpu = onnxEnv && onnxEnv.webgpu;
+      if (webgpu && typeof webgpu === "object") {
+        const profiling = webgpu.profiling && typeof webgpu.profiling === "object" ? webgpu.profiling : {};
+        const previous = typeof profiling.ondata === "function" ? profiling.ondata : null;
+        profiling.mode = "default";
+        profiling.ondata = data => {
+          if (previous) { try { previous(data); } catch (_) { /* preserve our own diagnostics */ } }
+          collectGpuProfile(data);
+        };
+        webgpu.profiling = profiling;
+        profilingConfigured = true;
+      }
+    } catch (error) { profilingError = describe(error); }
+
+    let supportedDevices = null;
+    try {
+      if (onnxEnv && typeof onnxEnv.getSupportedDevices === "function") supportedDevices = onnxEnv.getSupportedDevices();
+    } catch (_) { /* optional diagnostics only */ }
+    state.diagnostics = {
+      transformersVersion: transformersEnv && transformersEnv.version || null,
+      onnxRuntimeWebVersion: onnxEnv && onnxEnv.versions && onnxEnv.versions.web || null,
+      onnxRuntimeCommonVersion: onnxEnv && onnxEnv.versions && onnxEnv.versions.common || null,
+      supportedDevices,
+      probe: probeInfo || null,
+      runtimeGpu: null,
+      wasm: onnxEnv && onnxEnv.wasm ? {
+        numThreads: Number.isFinite(Number(onnxEnv.wasm.numThreads)) ? Number(onnxEnv.wasm.numThreads) : null,
+        proxy: typeof onnxEnv.wasm.proxy === "boolean" ? onnxEnv.wasm.proxy : null
+      } : null,
+      profiler: {
+        configured: profilingConfigured,
+        timestampQueryAvailable: probeInfo && (probeInfo.timestampQuery || probeInfo.experimentalTimestampQuery) || false,
+        error: profilingError
+      },
+      nodeAssignmentWarning: false,
+      assignmentLogs: []
+    };
+    emitDiagnostics();
+  }
+  function snapshotRuntimeGpu(transformersEnv) {
+    try {
+      const onnxEnv = transformersEnv && transformersEnv.backends && transformersEnv.backends.onnx;
+      const webgpu = onnxEnv && onnxEnv.webgpu;
+      const device = webgpu && webgpu.device;
+      if (!device || !device.features) return null;
+      return {
+        adapter: snapshotAdapter(webgpu.adapter),
+        features: featureSnapshot(device.features),
+        limits: snapshotLimits(device.limits)
+      };
+    } catch (_) { return null; }
+  }
+  function beginOnnxLogCapture(transformersEnv) {
+    const consoleObject = G.console;
+    const original = {};
+    const methods = ["log", "info", "warn", "error"];
+    const previousLevel = transformersEnv && transformersEnv.logLevel;
+    let levelChanged = false;
+    try {
+      if (transformersEnv && typeof previousLevel === "number") {
+        transformersEnv.logLevel = 10; // ONNX Runtime verbose, only while sessions are created.
+        levelChanged = true;
+      }
+    } catch (_) { /* logging is optional */ }
+
+    const relevant = /VerifyEachNodeIsAssignedToAnEp|Some nodes were not assigned|Rerunning with verbose output|assigned to .*ExecutionProvider|Execution provider of type|Adding default CPU execution provider|Adding execution provider/iu;
+    for (const method of methods) {
+      if (!consoleObject || typeof consoleObject[method] !== "function") continue;
+      original[method] = consoleObject[method];
+      try {
+        consoleObject[method] = function (...args) {
+          let line = "";
+          try { line = args.map(value => typeof value === "string" ? value : JSON.stringify(value)).join(" "); }
+          catch (_) { line = args.map(String).join(" "); }
+          const isRelevant = relevant.test(line);
+          if (isRelevant && state.diagnostics) {
+            if (/Some nodes were not assigned/iu.test(line)) state.diagnostics.nodeAssignmentWarning = true;
+            if (!state.diagnostics.assignmentLogs.includes(line)) {
+              state.diagnostics.assignmentLogs.push(line.slice(0, 700));
+              if (state.diagnostics.assignmentLogs.length > 30) state.diagnostics.assignmentLogs.shift();
+            }
+            emitDiagnostics();
+          }
+          // Keep warnings/errors and the few relevant placement lines; suppress unrelated verbose noise.
+          if (isRelevant || method === "warn" || method === "error") return original[method].apply(consoleObject, args);
+        };
+      } catch (_) { /* some hosts expose read-only console methods */ }
+    }
+    return {
+      restore() {
+        for (const method of Object.keys(original)) {
+          try { consoleObject[method] = original[method]; } catch (_) { /* ignore */ }
+        }
+        if (levelChanged) {
+          try { transformersEnv.logLevel = previousLevel; } catch (_) { /* ignore */ }
+        }
+      }
+    };
+  }
+
   let runtime = null;          // { mod, url }
   let tokenizer = null;
   let model = null;
@@ -83,11 +260,17 @@
       const nav = G.navigator;
       if (!nav || !nav.gpu) info.reason = "navigator.gpu недоступен";
       else {
-        const adapter = await nav.gpu.requestAdapter();
+        const adapter = await nav.gpu.requestAdapter({ powerPreference: "high-performance" });
         if (!adapter) info.reason = "WebGPU-адаптер не найден";
         else {
+          const features = featureSnapshot(adapter.features);
           info.webgpu = true;
-          info.shaderF16 = !!(adapter.features && typeof adapter.features.has === "function" && adapter.features.has("shader-f16"));
+          info.shaderF16 = features.shaderF16;
+          info.timestampQuery = features.timestampQuery;
+          info.experimentalTimestampQuery = features.experimentalTimestampQuery;
+          info.subgroups = features.subgroups;
+          info.adapter = snapshotAdapter(adapter);
+          info.limits = snapshotLimits(adapter.limits);
         }
       }
     } catch (error) { info.reason = describe(error); }
@@ -291,9 +474,14 @@
     const onProgress = makeProgress(id, files, okSet);
     post({ type: "progress", id, phase: "init", message: audit.complete ? "Файлы модели найдены в кэше." : "Нужно скачать: " + (audit.missing.length + audit.corrupt.length) + " файл(ов).", percent: 0 });
     tokenizer = await mod.AutoTokenizer.from_pretrained(options.modelId, { revision: meta.sha, progress_callback: onProgress });
-    model = await mod.AutoModelForCausalLM.from_pretrained(options.modelId, {
-      revision: meta.sha, device: plan.device, dtype: plan.dtype, progress_callback: onProgress
-    });
+    const logCapture = beginOnnxLogCapture(mod.env);
+    try {
+      model = await mod.AutoModelForCausalLM.from_pretrained(options.modelId, {
+        revision: meta.sha, device: plan.device, dtype: plan.dtype, progress_callback: onProgress
+      });
+    } finally {
+      logCapture.restore();
+    }
     const after = await auditCache(options.modelId, meta.sha, files, false);
     return after;
   }
@@ -307,6 +495,7 @@
     const detected = await detectDevice(options.device);
     runtime = runtime || await loadRuntime(options);
     state.runtimeUrl = runtime.url || null;
+    configureRuntimeDiagnostics(detected.info);
     const env = runtime.mod.env;
     if (env && typeof env === "object") {
       env.allowLocalModels = false;
@@ -349,6 +538,15 @@
     }
     if (lastError) {
       throw lastError.code ? lastError : fail("model_load_failed", "Не удалось создать модель: " + describe(lastError));
+    }
+    if (state.diagnostics) {
+      state.diagnostics.runtimeGpu = snapshotRuntimeGpu(runtime && runtime.mod && runtime.mod.env);
+      const actualFeatures = state.diagnostics.runtimeGpu && state.diagnostics.runtimeGpu.features;
+      if (actualFeatures) {
+        state.diagnostics.profiler.timestampQueryAvailable =
+          actualFeatures.timestampQuery || actualFeatures.experimentalTimestampQuery;
+      }
+      emitDiagnostics();
     }
     setPhase("ready");
     return { status: publicStatus(), metaSource: source, cache: audit, webgpu: detected.info, license: meta.license || null };
@@ -406,6 +604,8 @@
     const mod = runtime.mod;
     const params = sanitizeGeneration(rawOptions);
     activeGenerationId = id; stopRequested = false;
+    profileGenerationId = id;
+    gpuProfileState = { eventCount: 0, totalNs: 0, kernels: new Map() };
     setPhase("generating");
     const startedAt = Date.now();
     let reply = "", completionTokens = 0, promptTokens = 0;
@@ -466,6 +666,7 @@
           generationMs, totalMs: elapsedMs, decodeMs,
           decodeTokensPerSecond, endToEndTokensPerSecond
         },
+        gpuProfile: gpuProfileSnapshot(),
         device: state.device, dtype: state.dtype
       });
     } catch (error) {
