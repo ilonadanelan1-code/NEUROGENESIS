@@ -26,7 +26,7 @@
     metaTimeoutMs: 8000,
     dtypeSuffix: { q4f16: "_q4f16", q4: "_q4", fp16: "_fp16", fp32: "" },
     requiredFiles: ["config.json", "tokenizer.json", "tokenizer_config.json"],
-    optionalFiles: ["generation_config.json"],
+    optionalFiles: ["generation_config.json", "chat_template.jinja"],
     maxMessages: 40,
     maxPromptChars: 60000,
     generation: { max_new_tokens: 128, temperature: 0, top_p: 0.8, top_k: 20, repetition_penalty: 1.05 }
@@ -92,15 +92,24 @@
       }));
     return {
       eventCount: gpuProfileState.eventCount,
+      callbackCount: gpuProfileState.callbackCount,
+      rejectedRecords: gpuProfileState.rejectedRecords,
+      lastDataKeys: gpuProfileState.lastDataKeys,
       totalGpuMs: Math.round(gpuProfileState.totalNs / 10000) / 100,
       kernels
     };
   }
   function collectGpuProfile(data) {
     if (!gpuProfileState || !data || typeof data !== "object") return;
+    gpuProfileState.callbackCount += 1;
+    try { gpuProfileState.lastDataKeys = Object.keys(data).slice(0, 20); }
+    catch (_) { gpuProfileState.lastDataKeys = []; }
     const start = Number(data.startTime), end = Number(data.endTime);
     const duration = end - start;
-    if (!Number.isFinite(duration) || duration <= 0) return;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      gpuProfileState.rejectedRecords += 1;
+      return;
+    }
     const name = String(data.programName || data.kernelName || data.kernelType || "unknown").slice(0, 120);
     let item = gpuProfileState.kernels.get(name);
     if (!item) {
@@ -185,7 +194,7 @@
       }
     } catch (_) { /* logging is optional */ }
 
-    const relevant = /VerifyEachNodeIsAssignedToAnEp|Some nodes were not assigned|Rerunning with verbose output|assigned to .*ExecutionProvider|Execution provider of type|Adding default CPU execution provider|Adding execution provider/iu;
+    const relevant = /VerifyEachNodeIsAssignedToAnEp|Some nodes were not assigned|All nodes placed on|Number of nodes|Rerunning with verbose output|assigned to .*ExecutionProvider|Execution provider of type|Adding default CPU execution provider|Adding execution provider/iu;
     for (const method of methods) {
       if (!consoleObject || typeof consoleObject[method] !== "function") continue;
       original[method] = consoleObject[method];
@@ -605,15 +614,44 @@
     const params = sanitizeGeneration(rawOptions);
     activeGenerationId = id; stopRequested = false;
     profileGenerationId = id;
-    gpuProfileState = { eventCount: 0, totalNs: 0, kernels: new Map() };
+    gpuProfileState = { eventCount: 0, totalNs: 0, kernels: new Map(), callbackCount: 0, rejectedRecords: 0, lastDataKeys: [] };
     setPhase("generating");
     const startedAt = Date.now();
     let reply = "", completionTokens = 0, promptTokens = 0;
     let generationStartedAt = null, firstTokenAt = null, firstTextAt = null;
     let generationStage = "prepare";
     try {
+      let promptDiagnostics = null;
+      if (rawOptions && rawOptions.promptDiagnostics === true) {
+        generationStage = "inspect_chat_template";
+        try {
+          const rendered = tokenizer.apply_chat_template(messages, {
+            tokenize: false, add_generation_prompt: true, enable_thinking: false
+          });
+          const latestUser = [...messages].reverse().find(row => row.role === "user");
+          let template = null;
+          try {
+            template = typeof tokenizer.get_chat_template === "function" ? tokenizer.get_chat_template() : null;
+          } catch (_) { /* optional tokenizer introspection */ }
+          promptDiagnostics = {
+            renderSucceeded: typeof rendered === "string",
+            roles: messages.map(row => row.role),
+            renderedChars: typeof rendered === "string" ? rendered.length : null,
+            templateAvailable: typeof template === "string" && template.length > 0,
+            templateChars: typeof template === "string" ? template.length : null,
+            beginsWithSystem: typeof rendered === "string" && rendered.startsWith("<|im_start|>system\n"),
+            includesLatestUser: typeof rendered === "string" && !!latestUser && rendered.includes(latestUser.content),
+            endsWithAssistantPrefix: typeof rendered === "string" && rendered.endsWith("<|im_start|>assistant\n"),
+            error: typeof rendered === "string" ? null : "apply_chat_template(tokenize:false) не вернул строку"
+          };
+        } catch (error) {
+          promptDiagnostics = { renderSucceeded: false, roles: messages.map(row => row.role), error: describe(error) };
+        }
+      }
       generationStage = "tokenize_prompt";
-      const inputs = tokenizer.apply_chat_template(messages, { add_generation_prompt: true, return_dict: true, enable_thinking: false });
+      const inputs = tokenizer.apply_chat_template(messages, {
+        tokenize: true, add_generation_prompt: true, return_dict: true, enable_thinking: false
+      });
       const dims = inputs && inputs.input_ids && inputs.input_ids.dims;
       promptTokens = Array.isArray(dims) ? Number(dims[dims.length - 1]) || 0 : 0;
       generationStage = "create_stopping_criteria";
@@ -667,6 +705,8 @@
           decodeTokensPerSecond, endToEndTokensPerSecond
         },
         gpuProfile: gpuProfileSnapshot(),
+        promptDiagnostics,
+        modelId: state.modelId,
         device: state.device, dtype: state.dtype
       });
     } catch (error) {

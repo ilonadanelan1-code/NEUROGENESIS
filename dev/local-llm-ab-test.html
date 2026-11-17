@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>NEUROGENESIS · Qwen3 A/B</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#10141c;color:#e8edf5}
+*{box-sizing:border-box}body{max-width:800px;margin:auto;padding:14px}
+.panel{background:#192130;border:1px solid #344156;border-radius:12px;padding:13px;margin:12px 0}
+label{display:block;margin:9px 0 4px;color:#bac5d6}
+select,textarea,button{font:inherit;color:inherit;background:#111925;border:1px solid #40516a;border-radius:8px;padding:10px}
+select,textarea{width:100%}textarea{min-height:85px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+button{cursor:pointer}button:disabled{opacity:.5}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1119;border-radius:8px;padding:10px;font-size:13px;min-height:40px}
+progress{width:100%}.note{color:#d8bc7b;font-size:13px}
+</style>
+</head>
+<body>
+<h2>NEUROGENESIS · сравнение Qwen3 Base / Instruct</h2>
+<p>Изолированный тест моделей. Основной чат и существующий кэш не меняются.</p>
+<section class="panel">
+<label for="model">Модель</label>
+<select id="model"><option value="base">Qwen3-0.6B Base · текущий кэш</option><option value="instruct">Qwen3-0.6B Instruct · отдельные веса</option></select>
+<label for="device">Вычислительный режим</label>
+<select id="device"><option value="auto">Авто (WebGPU → CPU)</option><option value="webgpu">Только WebGPU</option><option value="wasm">Только CPU (WASM)</option></select>
+<div class="row"><button id="cache">Проверить кэш</button><button id="load">Загрузить выбранную модель</button><button id="unload">Выгрузить</button></div>
+<progress id="bar" max="100" value="0"></progress>
+<div id="progress" class="note">Модель не загружена.</div>
+<pre id="status">Фаза: idle</pre>
+<p id="modelNote" class="note"></p>
+</section>
+<section class="panel">
+<div class="row"><button id="sky">Вопрос 1 · Небо</button><button id="fact">Вопрос 2 · Митохондрия</button><button id="reset">Новый диалог</button></div>
+<label for="question">Вопрос</label>
+<textarea id="question">Почему небо голубое? Объясни по-русски в двух коротких предложениях. Не выдумывай.</textarea>
+<div class="row"><button id="send">Отправить</button><button id="stop" disabled>Остановить</button></div>
+<b>Ответ</b><pre id="answer"></pre>
+<b>Метрики</b><pre id="metrics">Появятся после генерации.</pre>
+<b>Диагностика промпта и GPU</b><pre id="diagnostics">Появится после генерации.</pre>
+<pre id="error"></pre>
+</section>
+<section class="panel">
+<b>Важно</b>
+<p class="note">Instruct — отдельный checkpoint на основе minpeter/Qwen3-0.6B-Instruct, а не автоматически гарантированно лучший официальный вариант Qwen. Его Q4F16-файл около 648 МБ, Base — около 570 МБ. Instruct загрузится только после твоего явного нажатия на кнопку; старый кэш не удаляется.</p>
+</section>
+<script src="../local-llm-adapter.js"></script>
+<script src="./local-llm-ab-test.js"></script>
+</body>
+</html>

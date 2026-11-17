@@ -49,7 +49,7 @@ function makeCaches(store = new Map()) {
 }
 
 function makeRuntime(world, opts = {}) {
-  const calls = { tokenizer: [], model: [], generate: 0, lastGenerateArgs: null };
+  const calls = { tokenizer: [], model: [], generate: 0, lastGenerateArgs: null, chatTemplates: [] };
   const onnxEnv = {
     versions: { web: "1.31.0-dev.fake", common: "1.31.0.fake" },
     webgpu: { profiling: {} },
@@ -72,7 +72,14 @@ function makeRuntime(world, opts = {}) {
           cacheFile(file);
           o.progress_callback({ status: "done", file });
         }
-        return { apply_chat_template: () => ({ input_ids: { dims: [1, 7] } }) };
+        return {
+          get_chat_template: () => "Qwen3 test chat template",
+          apply_chat_template(messages, options = {}) {
+            calls.chatTemplates.push({ roles: messages.map(row => row.role), options: { ...options } });
+            const rendered = messages.map(row => "<|im_start|>" + row.role + "\n" + row.content + "<|im_end|>\n").join("") + "<|im_start|>assistant\n";
+            return options.tokenize === false ? rendered : { input_ids: { dims: [1, 7] } };
+          }
+        };
       }
     },
     AutoModelForCausalLM: {
@@ -219,14 +226,23 @@ test("generate streams tokens, then done with the full reply and usage", async (
   const world = makeWorld();
   world.send({ type: "load", id: 1 });
   await waitFor(world.messages, m => m.type === "loaded", "loaded");
-  world.send({ type: "generate", id: 2, messages: [{ role: "system", content: "s" }, { role: "user", content: "Что такое нейрон?" }] });
+  world.send({ type: "generate", id: 2, messages: [{ role: "system", content: "s" }, { role: "user", content: "Что такое нейрон?" }], options: { promptDiagnostics: true } });
   const done = await waitFor(world.messages, m => m.type === "done", "done");
   const tokens = world.messages.filter(m => m.type === "token" && m.id === 2).map(m => m.text);
   assert.deepEqual(tokens, ["Нейрон", " передаёт", " сигнал", "."]);
   assert.equal(done.reply, "Нейрон передаёт сигнал.");
   assert.equal(done.stopped, false);
   assert.equal(done.gpuProfile.eventCount, 1);
+  assert.equal(done.gpuProfile.callbackCount, 1);
+  assert.equal(done.gpuProfile.rejectedRecords, 0);
+  assert.ok(done.gpuProfile.lastDataKeys.includes("startTime"));
   assert.equal(done.gpuProfile.kernels[0].name, "MatMulNBits_q4f16");
+  assert.equal(done.promptDiagnostics.renderSucceeded, true);
+  assert.equal(done.promptDiagnostics.templateAvailable, true);
+  assert.equal(done.promptDiagnostics.beginsWithSystem, true);
+  assert.equal(done.promptDiagnostics.includesLatestUser, true);
+  assert.equal(done.promptDiagnostics.endsWithAssistantPrefix, true);
+  assert.deepEqual(done.promptDiagnostics.roles, ["system", "user"]);
   assert.equal(done.gpuProfile.totalGpuMs, 2.5);
   assert.ok(world.messages.some(message => message.type === "profile" && message.id === 2),
     "live GPU profile updates should be forwarded from the worker");
@@ -436,12 +452,16 @@ test("adapter + worker end-to-end through the real LLM gateway contract", async 
 
   // streaming through the adapter + normalized gateway result
   const streamed = [];
-  const detailed = await adapter.generateDetailed(request, { onToken: text => streamed.push(text) });
+  const detailed = await adapter.generateDetailed(request, { promptDiagnostics: true, onToken: text => streamed.push(text) });
   assert.equal(streamed.join(""), detailed.reply);
   assert.ok(detailed.metrics && typeof detailed.metrics.timeToFirstTokenMs === "number",
     "adapter must pass per-stage timing metrics to the page");
   assert.ok(detailed.gpuProfile && detailed.gpuProfile.eventCount === 1,
     "adapter must pass GPU profile results to callers");
+  assert.ok(detailed.promptDiagnostics && detailed.promptDiagnostics.renderSucceeded,
+    "adapter must pass rendered Qwen prompt diagnostics to callers");
+  assert.equal(detailed.model, "onnx-community/Qwen3-0.6B-ONNX",
+    "adapter should report the actually loaded model id");
   const viaGateway = await gateway.generateDetailed(request);
   assert.equal(viaGateway.reply, "Нейрон передаёт сигнал.");
   assert.equal(viaGateway.model, "onnx-community/Qwen3-0.6B-ONNX");

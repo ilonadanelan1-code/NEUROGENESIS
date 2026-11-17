@@ -149,7 +149,14 @@
       let streamed = "";
       const onToken = (text, raw) => { streamed += text; if (callOptions.onToken) callOptions.onToken(text, raw); };
       let abortHandler = null;
-      const run = request("generate", { messages: trimmed, options: { ...options.generation, ...(callOptions.generation || {}) } }, { onToken });
+      const run = request("generate", {
+        messages: trimmed,
+        options: {
+          ...options.generation,
+          ...(callOptions.generation || {}),
+          promptDiagnostics: callOptions.promptDiagnostics === true
+        }
+      }, { onToken });
       activeGeneration = run;
       if (callOptions.signal) {
         if (callOptions.signal.aborted) stop();
@@ -163,12 +170,14 @@
         const reply = String(done.reply || streamed || "").trim();
         if (!reply) throw tagged(done.stopped ? "aborted" : "empty_reply", done.stopped ? "Генерация остановлена до первого символа." : "Модель вернула пустой ответ.");
         return {
-          reply, model: MODEL_ID, requestedModel: MODEL_ID, fallbackUsed: null,
+          reply, model: done.modelId || lastStatus.modelId || MODEL_ID,
+          requestedModel: done.modelId || lastStatus.modelId || MODEL_ID, fallbackUsed: null,
           usage: done.usage || null,
           stopped: !!done.stopped, device: done.device || null, dtype: done.dtype || null,
           elapsedMs: done.elapsedMs || null, tokensPerSecond: done.tokensPerSecond || null,
           metrics: done.metrics || null,
-          gpuProfile: done.gpuProfile || null
+          gpuProfile: done.gpuProfile || null,
+          promptDiagnostics: done.promptDiagnostics || null
         };
       } finally {
         activeGeneration = null;

@@ -9,6 +9,8 @@ on:
       - local-llm-worker.js
       - local-llm-adapter.js
       - dev/local-llm-test.html
+      - dev/local-llm-ab-test.html
+      - dev/local-llm-ab-test.js
       - tests/local-llm.test.js
       - LOCAL_LLM_CORE.md
       - .github/workflows/local-llm.yml
@@ -31,3 +33,4 @@ jobs:
         run: |
           node --check local-llm-worker.js
           node --check local-llm-adapter.js
+          node --check dev/local-llm-ab-test.js
