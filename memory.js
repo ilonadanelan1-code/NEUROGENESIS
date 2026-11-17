@@ -1082,6 +1082,7 @@
       question:raw.question.slice(0,700),reason:typeof raw.reason==="string"?raw.reason.slice(0,700):"",
       priority:Math.max(0,Math.min(9,Number(raw.priority)||0)),
       status:["open","answered","skipped"].includes(raw.status)?raw.status:"open",
+      duplicateOfId:typeof raw.duplicateOfId==="string"&&/^Q\d{1,8}$/u.test(raw.duplicateOfId)?raw.duplicateOfId:"",
       sourceClaimIds:Array.isArray(raw.sourceClaimIds)?raw.sourceClaimIds.filter(x=>typeof x==="string").slice(0,12):[],
       createdAt:safeTime(raw.createdAt,Date.now()),updatedAt:safeTime(raw.updatedAt,safeTime(raw.createdAt,Date.now())),
       lastAskedAt:safeTime(raw.lastAskedAt,0),lastResumedAt:safeTime(raw.lastResumedAt,0),
@@ -1180,6 +1181,69 @@
     const key=value=>KNOWLEDGE&&KNOWLEDGE.canonicalEntity?KNOWLEDGE.canonicalEntity(value):normalise(value);
     return key(subject)+"|"+key(object);
   }
+  function inquiryTokensEquivalent(left,right) {
+    if (left === right) return true;
+    if (left.length < 7 || right.length < 7 || Math.abs(left.length-right.length)>1) return false;
+    let i=0,j=0,edits=0;
+    while(i<left.length&&j<right.length) {
+      if(left[i]===right[j]) { i++; j++; continue; }
+      if(++edits>1) return false;
+      if(left.length>right.length) i++;
+      else if(right.length>left.length) j++;
+      else { i++; j++; }
+    }
+    return edits+(i<left.length||j<right.length?1:0)<=1;
+  }
+  function inquiryEntityEquivalent(left,right) {
+    if(sameEntity(left,right)) return true;
+    const a=[...new Set(tokens(left))],b=[...new Set(tokens(right))];
+    if(!a.length||a.length!==b.length) return false;
+    const remaining=b.slice();
+    for(const token of a) {
+      const index=remaining.findIndex(other=>inquiryTokensEquivalent(token,other));
+      if(index<0) return false;
+      remaining.splice(index,1);
+    }
+    return remaining.length===0;
+  }
+  function sameInquiryTarget(left,right) {
+    if(!left||!right||left.kind!==right.kind) return false;
+    if(left.kind==="duplicate_observation") return left.signature===right.signature;
+    const pairs=item=>item.kind==="discriminating_observations"&&Array.isArray(item.comparisonEdges)&&item.comparisonEdges.length
+      ?item.comparisonEdges:[{subject:item.edgeSubject,object:item.edgeObject}];
+    const a=pairs(left),b=pairs(right);
+    if(!a.length||a.length!==b.length) return false;
+    return a.every(edge=>b.some(other=>
+      inquiryEntityEquivalent(edge.subject,other.subject)&&inquiryEntityEquivalent(edge.object,other.object)));
+  }
+  function deduplicateInquiryHistory() {
+    const candidates=inquiries.filter(item=>!item.duplicateOfId&&item.status!=="skipped")
+      .sort((a,b)=>Number(b.status==="answered")-Number(a.status==="answered")||
+        a.createdAt-b.createdAt||Number(a.id.slice(1))-Number(b.id.slice(1)));
+    const archived=inquiries.filter(item=>item.duplicateOfId||item.status==="skipped");
+    const keepers=[];
+    let changed=false;
+    for(const item of candidates) {
+      const keeper=keepers.find(old=>sameInquiryTarget(old,item));
+      if(!keeper) { keepers.push(item); continue; }
+      keeper.sourceClaimIds=[...new Set([...(keeper.sourceClaimIds||[]),...(item.sourceClaimIds||[])])].slice(0,12);
+      keeper.responseClaimIds=[...new Set([...(keeper.responseClaimIds||[]),...(item.responseClaimIds||[])])].slice(0,12);
+      if(!keeper.responseText&&item.responseText) keeper.responseText=item.responseText;
+      if(!keeper.responseMemoryId&&item.responseMemoryId) keeper.responseMemoryId=item.responseMemoryId;
+      if(!keeper.comparisonEdges.length&&item.comparisonEdges.length) keeper.comparisonEdges=item.comparisonEdges.slice();
+      keeper.updatedAt=Math.max(keeper.updatedAt,item.updatedAt);
+      item.duplicateOfId=keeper.id;
+      item.status="skipped";
+      item.responseText="Этот повторный исследовательский вопрос объединён с "+keeper.id+".";
+      item.reason=(item.reason?item.reason+" ":"")+"Дубликат цели "+keeper.id+"; исходная запись сохранена.";
+      item.updatedAt=Date.now();
+      changed=true;
+    }
+    inquiries=[...keepers,...archived].sort((a,b)=>a.createdAt-b.createdAt).slice(-MAX_INQUIRIES);
+    const sequence=inquiries.map(item=>Number(item.id.slice(1))).filter(Number.isFinite);
+    nextInquiryNumber=Math.max(nextInquiryNumber,sequence.length?Math.max(...sequence)+1:1);
+    return changed;
+  }
   function inquiryCandidates() {
     const claims=memories.flatMap(item=>item.claims||[]).filter(claim=>claim&&KNOWLEDGE&&KNOWLEDGE.isCurrentClaim(claim));
     const edges=new Map();
@@ -1246,12 +1310,13 @@
     return candidates.sort((a,b)=>a.priority-b.priority);
   }
   function refreshInquiryQueue() {
-    let added=0,changed=false;
+    let added=0,changed=deduplicateInquiryHistory();
     for(const c of inquiryCandidates()) {
-      const old=inquiries.find(x=>x.signature===c.signature);
+      const old=inquiries.find(x=>!x.duplicateOfId&&(x.signature===c.signature||sameInquiryTarget(x,c)));
       if(old) {
         if(old.status==="open"&&(old.question!==c.question||old.reason!==c.reason)) {
           old.question=c.question;old.reason=c.reason;old.sourceClaimIds=c.sourceClaimIds;
+          old.edgeSubject=c.edgeSubject;old.edgeObject=c.edgeObject;
           old.comparisonEdges=Array.isArray(c.comparisonEdges)?c.comparisonEdges:[];old.updatedAt=Date.now();changed=true;
         }
         continue;
@@ -2498,6 +2563,7 @@
         dialogContext = savedContext
           ? DIALOG_CONTEXT.sanitize(savedContext)
           : DIALOG_CONTEXT.rebuild(dialog);
+        if (savedContext && JSON.stringify(dialogContext)!==JSON.stringify(savedContext)) memoryMigrated = true;
         if (!savedContext && dialog.length) memoryMigrated = true;
       }
     } catch (error) {
@@ -2516,7 +2582,8 @@
     try {
       const savedInquiries=JSON.parse(localStorage.getItem(INQUIRIES_KEY)||"[]");
       inquiries=mergeInquiryHistory([],savedInquiries);
-       if(Array.isArray(savedInquiries)&&savedInquiries.some(item=>item&&item.status==="answered"&&!item.responseDetails))memoryMigrated=true;
+      if(deduplicateInquiryHistory())memoryMigrated=true;
+      if(Array.isArray(savedInquiries)&&savedInquiries.some(item=>item&&item.status==="answered"&&!item.responseDetails))memoryMigrated=true;
       if(reconcileInquiryResponsesFromEntries(dialog))memoryMigrated=true;
       if(assessAnsweredInquiries())memoryMigrated=true;
       if(clearLegacyInquiryFragmentClaims())memoryMigrated=true;
@@ -2969,7 +3036,7 @@
     const candidates=memories.map(item=>({
       item,match:matchMemory(query,item),strength:Math.max(0,Math.min(1,Number(item.strength)||0.6)),
       repetitions:Math.max(1,Number(item.repetitions)||1),updatedAt:Number(item.updatedAt)||Number(item.createdAt)||0
-    })).filter(row=>row.match.score>=0.035).sort((a,b)=>b.match.score-a.match.score).slice(0,24);
+    })).filter(row=>row.match.score>=0.12&&(row.match.directHits+row.match.associativeHits)>0).sort((a,b)=>b.match.score-a.match.score).slice(0,24);
     const candidateClaims=candidates.flatMap(row=>row.item.claims||[]).slice(0,180);
     const conflicts=KNOWLEDGE&&KNOWLEDGE.findConflicts?KNOWLEDGE.findConflicts(candidateClaims):[];
     const conflictedIds=new Set(conflicts.flatMap(item=>[item.left&&item.left.id,item.right&&item.right.id]).filter(Boolean));
@@ -3052,6 +3119,15 @@
     if(sensitive&&!observations){supportIndex-=22;reasons.push("нет прямых карточек наблюдений для проверки");}
     if(sensitive&&relevant.length&&independentSources===0){
       supportIndex-=8;reasons.push("используются пользовательские записи без независимых внешних источников");
+    }
+    if(!relevant.length){
+      supportIndex=Math.min(supportIndex,15);
+      reasons.push(mode==="llm"
+        ?"у ответа языковой модели нет связанных структурированных утверждений в сохранённой памяти; это не независимая проверка"
+        :"в выбранных записях нет структурированных утверждений, подтверждающих ответ");
+    } else if(mode==="llm"&&independentSources===0){
+      supportIndex=Math.min(supportIndex,55);
+      reasons.push("связанные записи не имеют подтверждённых независимых внешних источников");
     }
     if(!reasons.length)reasons.push("прямых препятствий в выбранных данных не обнаружено");
     supportIndex=Math.max(0,Math.min(100,Math.round(supportIndex)));
@@ -3381,18 +3457,31 @@
     return runCognitiveCycle("remember", raw, rememberTextCore);
   }
 
+  const GENERIC_MEMORY_QUERY_TOKENS = new Set([
+    "скольк","количеств","числ","мир","информац","инф","откуд","взя","данн",
+    "источн","сведен","ответ","вопрос","факт","зна","расскаж","объясн","помощ","полезн"
+  ]);
+  function isAssistantEchoMemory(item) {
+    const text=normalise(item&&item.text),createdAt=Number(item&&item.createdAt)||0;
+    if(text.length<18||!createdAt) return false;
+    return dialog.some(entry=>entry&&entry.role==="assistant"&&
+      Math.abs((Number(entry.time)||0)-createdAt)<=5*60*1000&&
+      normalise(entry.text).includes(text));
+  }
   function matchMemory(query, item, searchQueries = []) {
+    const empty={score:0,directHits:0,associativeHits:0,ngramHits:0,ngramBoost:0};
+    if(isAssistantEchoMemory(item)) return {...empty,excludedReason:"recent_assistant_echo"};
     const structuredText = KNOWLEDGE ? (item.claims || []).map(claim => KNOWLEDGE.claimSearchText(claim)).join(" ") : "";
     const words = [...new Set(tokens(item.text + " " + structuredText))];
-    if (!words.length) return {score:0,directHits:0,associativeHits:0,ngramHits:0,ngramBoost:0};
+    if (!words.length) return empty;
     const candidates = [...new Set([query, ...(Array.isArray(searchQueries) ? searchQueries : [])]
       .map(value => String(value || "").trim()).filter(Boolean))].slice(0, 8);
-    let best = {score:0,directHits:0,associativeHits:0};
+    let best = {...empty};
     for (const candidate of candidates) {
-      const q = [...new Set(tokens(candidate))];
+      const q = [...new Set(tokens(candidate))].filter(word=>!GENERIC_MEMORY_QUERY_TOKENS.has(word));
       if (!q.length) continue;
       const predicted = NGRAM_MEMORY ? NGRAM_MEMORY.suggest(candidate) : [];
-      const predictedHits = predicted.filter(row => words.includes(row.token));
+      const predictedHits = predicted.filter(row => words.includes(row.token)&&!GENERIC_MEMORY_QUERY_TOKENS.has(row.token));
       const ngramBoost = Math.min(0.075, predictedHits.reduce((sum, row) =>
         sum + Math.max(0, Math.min(1, Number(row.probability) || 0)) * 0.12, 0));
       const similarity = KNOWLEDGE && typeof KNOWLEDGE.semanticMatch === "function"
@@ -4745,7 +4834,7 @@
     ngramSuggestions: query => NGRAM_MEMORY ? NGRAM_MEMORY.suggest(String(query || "")) : [],
     ngramPredictMasked: (text,index,options) => NGRAM_MEMORY ? NGRAM_MEMORY.predictMasked(text,index,options) : null,
     search: query => memories.map(item => ({ text: item.text, claims: item.claims || [], score: scoreMemory(query, item) }))
-      .sort((a, b) => b.score - a.score).slice(0, 5),
+      .filter(item=>item.score>=0.12).sort((a, b) => b.score - a.score).slice(0, 5),
     ask: query => askMemory(query),
     remember: text => rememberText(text),
     dialogContext: () => DIALOG_CONTEXT ? DIALOG_CONTEXT.report(dialogContext) : null,
@@ -4801,6 +4890,8 @@
     cognitiveCycles: () => cognitiveCycles.map(item=>cleanCognitiveCycle(item)).filter(Boolean),
     cognitiveCycleReport: (limit=1) => cognitiveCycleReport(limit),
     attentionSelection: query => attentionSelection(query).map(hit=>({memoryId:hit.item.id,score:hit.score,relevance:hit.relevance,reasons:hit.reasons})),
+    assessSupport: (answer,intent,claims=[],conflicts=[],attentionCount=0,mode="ask") =>
+      assessCognitiveUncertainty(answer,intent,claims,conflicts,attentionCount,mode),
     nextResearchFocus: (query="",claimIds=[]) => { const row=nextResearchFocus(query,claimIds);return row?{id:row.item.id,kind:row.item.kind,score:row.score,relevance:row.relevance,impact:row.impact,reasons:row.reasons}:null; },
     goals: () => window.NGGoals&&typeof window.NGGoals.list==="function"?window.NGGoals.list():[],
     goalSummary: () => syncResearchGoals(),
