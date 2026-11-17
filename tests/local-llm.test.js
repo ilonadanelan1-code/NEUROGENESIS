@@ -49,7 +49,7 @@ function makeCaches(store = new Map()) {
 }
 
 function makeRuntime(world, opts = {}) {
-  const calls = { tokenizer: [], model: [], generate: 0 };
+  const calls = { tokenizer: [], model: [], generate: 0, lastGenerateArgs: null };
   class InterruptableStoppingCriteria { constructor() { this.interrupted = false; } interrupt() { this.interrupted = true; } }
   class TextStreamer { constructor(tokenizer, options) { Object.assign(this, options); } }
   const sizeOf = Object.fromEntries(SIBLINGS);
@@ -79,6 +79,7 @@ function makeRuntime(world, opts = {}) {
         return {
           async generate(args) {
             calls.generate += 1;
+            calls.lastGenerateArgs = args;
             if (opts.generateError) throw opts.generateError;
             const chunks = opts.chunks || ["Нейрон", " передаёт", " сигнал", "."];
             for (const chunk of chunks) {
@@ -179,8 +180,30 @@ test("generate streams tokens, then done with the full reply and usage", async (
   assert.equal(done.reply, "Нейрон передаёт сигнал.");
   assert.equal(done.stopped, false);
   assert.equal(JSON.stringify(done.usage), JSON.stringify({ prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 }));
+  assert.equal(world.runtime.calls.lastGenerateArgs.do_sample, false, "default generation must be deterministic");
+  assert.equal(world.runtime.calls.lastGenerateArgs.max_new_tokens, 128);
+  assert.ok(done.metrics && done.metrics.promptPreparationMs >= 0);
+  assert.ok(done.metrics.generationMs >= 0 && done.metrics.totalMs >= 0);
+  assert.equal(typeof done.metrics.timeToFirstTokenMs, "number");
+  assert.equal(typeof done.metrics.timeToFirstTextMs, "number");
+  assert.equal(typeof done.metrics.decodeTokensPerSecond, "number");
   assert.ok(world.messages.indexOf(done) > world.messages.indexOf(world.messages.find(m => m.type === "token")));
   assert.equal(world.runtime.calls.generate, 1);
+});
+
+
+test("sampling remains available only when explicitly requested", async () => {
+  const world = makeWorld();
+  world.send({ type: "load", id: 1 });
+  await waitFor(world.messages, m => m.type === "loaded", "loaded");
+  world.send({
+    type: "generate", id: 2,
+    messages: [{ role: "user", content: "проверка" }],
+    options: { temperature: 0.7, top_p: 0.8, top_k: 20 }
+  });
+  await waitFor(world.messages, m => m.type === "done" && m.id === 2, "sampled done");
+  assert.equal(world.runtime.calls.lastGenerateArgs.do_sample, true);
+  assert.equal(world.runtime.calls.lastGenerateArgs.temperature, 0.7);
 });
 
 test("generation errors retain the failing stage and original stack", async () => {
