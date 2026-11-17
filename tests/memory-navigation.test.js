@@ -225,13 +225,13 @@ database.set("neurogenesis.goals.v1",JSON.stringify([
 window.NGGoals.load();
 loadMemory();
 const deduplicatedInquiries = window.NGMemory.inquiries();
-const duplicateInquiry = deduplicatedInquiries.find(item=>item.id==="Q5");
+const deduplicatedQ5Record = deduplicatedInquiries.find(item=>item.id==="Q5");
 assert.equal(deduplicatedInquiries.filter(item=>
   !item.duplicateOfId&&item.status!=="skipped"&&item.kind==="missing_observation").length,1,
   "morphologically near-identical inquiry targets should collapse into one canonical question");
-assert.ok(duplicateInquiry);
-assert.equal(duplicateInquiry.duplicateOfId,"Q2");
-assert.equal(duplicateInquiry.status,"skipped");
+assert.ok(deduplicatedQ5Record);
+assert.equal(deduplicatedQ5Record.duplicateOfId,"Q2");
+assert.equal(deduplicatedQ5Record.status,"skipped");
 assert.deepEqual(Array.from(window.NGMemory.goals().map(item=>item.inquiryId)),["Q2"],
   "a duplicate inquiry must not keep a second active research goal");
 
