@@ -39,11 +39,11 @@
   function showFriendlyResult(title,message,state="info"){
     if(!friendlyResult)return;
     friendlyResult.dataset.state=state;
-    friendlyResult.textContent=title+"\\n"+message;
+    friendlyResult.textContent=title+"\n"+message;
   }
   function updateCorpusCount(){
     if(!corpusCount)return;
-    const count=corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean).length;
+    const count=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean).length;
     corpusCount.textContent="Предложений добавлено: "+count+" · минимум для запуска: 3";
     corpusCount.dataset.state=count>=3?"ready":"warning";
   }
@@ -59,11 +59,11 @@
   ];
   corpusInput.addEventListener("input",updateCorpusCount);
   if(addExamplesButton)addExamplesButton.addEventListener("click",()=>{
-    const existing=corpusInput.value.split(/[\\r\\n]+/u).map(value=>value.trim()).filter(Boolean);
+    const existing=corpusInput.value.split(/[\r\n]+/u).map(value=>value.trim()).filter(Boolean);
     const known=new Set(existing.map(value=>value.toLocaleLowerCase("ru")));
     const additions=EXTRA_EXAMPLES.filter(value=>!known.has(value.toLocaleLowerCase("ru")));
     if(additions.length){
-      corpusInput.value=[...existing,...additions].join("\\n");
+      corpusInput.value=[...existing,...additions].join("\n");
       corpusInput.dispatchEvent(new Event("input",{bubbles:true}));
     }
     updateCorpusCount();
@@ -178,14 +178,14 @@
       if(data.type==="progress"){
         if(data.phase==="contextual"){
           const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
-          setTrainingProgress(fraction*82,"Контекстная модель · эпоха "+data.epoch+" / "+data.totalEpochs,
+          setTrainingProgress(fraction*82,"Изучаю сочетания слов",
             "Сверяю подсказки на отдельных предложениях, чтобы модель не просто заучивала строки.");
         }else if(data.phase==="phrase-preparing"){
           setTrainingProgress(83,"Подготовка фразовой модели",
             "Собираю примеры и ищу повторяющиеся сочетания слов. Остальные вкладки остаются доступны.");
         }else if(data.phase==="phrase"){
           const fraction=data.totalEpochs?data.epoch/data.totalEpochs:0;
-          setTrainingProgress(82+fraction*18,"Фразовая структура · эпоха "+data.epoch+" / "+data.totalEpochs,
+          setTrainingProgress(82+fraction*18,"Собираю структуру фраз",
             "Пробую определить, какие слова могут быть главным действием, его участником и дополнением.");
         }
         return;
@@ -307,6 +307,26 @@
       lines.push("Связи: "+(composition.edges.slice(0,8).map(edge=>edge.fromToken+" → "+edge.toToken+" ["+edge.relation+" "+Math.round(edge.confidence*100)+"%]").join(" · ")||"уверенных связей пока нет"));
       lines.push("Вектор композиции: "+composition.phraseVector.length+" измерений · weak train examples: "+(composition.training&&composition.training.roleExamples||0));
     }else lines.push("Фразовая модель ещё не обучена. Запусти обучение корпуса для построения графа зависимостей.");
+    const total=Array.isArray(analysis.tokens)?analysis.tokens.length:0;
+    const exact=Number(analysis.knownTokenCount)||0;
+    const morphological=Number(analysis.morphologyCoveredTokenCount)||0;
+    const familiar=Math.min(total,Math.max(exact,morphological));
+    const unknown=Array.isArray(analysis.positions)
+      ?analysis.positions.filter(row=>!row.targetKnown).map(row=>row.token).filter(Boolean):[];
+    if(total===0){
+      showFriendlyResult("Не нашёл слов для проверки","Попробуй ввести обычное предложение, а не только знаки или числа.","warning");
+    }else if(exact===0&&morphological===0){
+      const names=unknown.length?" Пока незнакомые слова: "+unknown.join(", ")+".":"";
+      showFriendlyResult("Пока не узнаю слова в этой фразе",
+        "Ни одно слово не найдено в точном словаре примеров. Поэтому внутренние подсказки ниже ненадёжны и не означают, что модель поняла предложение."+names+
+        " Добавь несколько предложений с похожими словами и снова обучи модель.","warning");
+    }else if(familiar<total){
+      showFriendlyResult("Я узнаю только часть слов",
+        "Нашёл опору для "+familiar+" из "+total+" слов. Остальные пока незнакомы; выводы о всей фразе могут быть ошибочными. Добавь примеры с недостающими словами и переобучи модель.","warning");
+    }else{
+      showFriendlyResult("Слова знакомы модели",
+        "Все "+total+" слов найдены в словаре или сопоставлены по основе. Это говорит о знакомстве со словами, но само по себе ещё не доказывает понимание смысла предложения.","success");
+    }
     output.textContent=lines.join("\n")||"Для этой фразы пока недостаточно известных слов.";
   });
 })();
