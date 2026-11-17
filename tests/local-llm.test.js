@@ -79,6 +79,7 @@ function makeRuntime(world, opts = {}) {
         return {
           async generate(args) {
             calls.generate += 1;
+            if (opts.generateError) throw opts.generateError;
             const chunks = opts.chunks || ["Нейрон", " передаёт", " сигнал", "."];
             for (const chunk of chunks) {
               if (args.stopping_criteria && args.stopping_criteria.interrupted) break;
@@ -180,6 +181,20 @@ test("generate streams tokens, then done with the full reply and usage", async (
   assert.equal(JSON.stringify(done.usage), JSON.stringify({ prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 }));
   assert.ok(world.messages.indexOf(done) > world.messages.indexOf(world.messages.find(m => m.type === "token")));
   assert.equal(world.runtime.calls.generate, 1);
+});
+
+test("generation errors retain the failing stage and original stack", async () => {
+  const expected = new TypeError("GPU buffer destroy path failed");
+  const world = makeWorld({ runtime: { generateError: expected } });
+  world.send({ type: "load", id: 1 });
+  await waitFor(world.messages, m => m.type === "loaded", "loaded");
+  world.send({ type: "generate", id: 2, messages: [{ role: "user", content: "проверка" }] });
+  const error = await waitFor(world.messages, m => m.type === "error" && m.id === 2, "generation error");
+  assert.equal(error.code, "generation_failed");
+  assert.equal(error.details.stage, "model.generate");
+  assert.equal(error.details.originalName, "TypeError");
+  assert.match(error.details.originalMessage, /GPU buffer destroy path failed/u);
+  assert.match(error.details.stack, /GPU buffer destroy path failed/u);
 });
 
 test("stop interrupts generation and returns the partial reply", async () => {

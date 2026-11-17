@@ -53,7 +53,18 @@
     let busy = false;
 
     function showError(error) {
-      $("err").textContent = error ? "Ошибка [" + (error.code || "error") + "]: " + (error.message || error) : "";
+      if (!error) { $("err").textContent = ""; return; }
+      let message = "Ошибка [" + (error.code || "error") + "]: " + (error.message || error);
+      const details = error.details;
+      if (details) {
+        if (details.stage) message += "\nЭтап: " + details.stage;
+        if (details.originalName || details.originalMessage) {
+          message += "\nИсходная ошибка: " + [details.originalName, details.originalMessage].filter(Boolean).join(": ");
+        }
+        if (details.stack) message += "\nСтек:\n" + details.stack;
+        else message += "\nДетали: " + JSON.stringify(details);
+      }
+      $("err").textContent = message;
     }
     function renderStatus(status) {
       const s = status || adapter.status();
