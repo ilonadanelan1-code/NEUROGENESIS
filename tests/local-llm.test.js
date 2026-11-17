@@ -79,8 +79,8 @@ function makeRuntime(world, opts = {}) {
       async from_pretrained(id, o) {
         calls.model.push({ id, ...o });
         calls.logLevelDuringLoad = mod.env.logLevel;
-        onnxEnv.webgpu.adapter = world.adapter || null;
-        onnxEnv.webgpu.device = world.fakeGpuDevice || null;
+        onnxEnv.webgpu.adapter = o.device === "webgpu" ? world.adapter || null : null;
+        onnxEnv.webgpu.device = o.device === "webgpu" ? world.fakeGpuDevice || null : null;
         if (world.sandbox && world.sandbox.console) {
           world.sandbox.console.warn("[W:onnxruntime:, session_state.cc] VerifyEachNodeIsAssignedToAnEp: Some nodes were not assigned to the preferred execution providers.");
         }
