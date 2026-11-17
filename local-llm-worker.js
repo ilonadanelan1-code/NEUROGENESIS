@@ -29,7 +29,7 @@
     optionalFiles: ["generation_config.json"],
     maxMessages: 40,
     maxPromptChars: 60000,
-    generation: { max_new_tokens: 384, temperature: 0.7, top_p: 0.8, top_k: 20, repetition_penalty: 1.05 }
+    generation: { max_new_tokens: 128, temperature: 0, top_p: 0.8, top_k: 20, repetition_penalty: 1.05 }
   };
 
   const state = {
@@ -409,6 +409,8 @@
     setPhase("generating");
     const startedAt = Date.now();
     let reply = "", completionTokens = 0, promptTokens = 0;
+    const startedAt = Date.now();
+    let generationStartedAt = null, firstTokenAt = null, firstTextAt = null;
     let generationStage = "prepare";
     try {
       generationStage = "tokenize_prompt";
@@ -425,12 +427,17 @@
         skip_special_tokens: true,
         callback_function: text => {
           if (!text) return;
+          if (firstTextAt === null) firstTextAt = Date.now();
           reply += text;
           post({ type: "token", id, text });
         },
-        token_callback_function: () => { completionTokens += 1; }
+        token_callback_function: () => {
+          completionTokens += 1;
+          if (firstTokenAt === null) firstTokenAt = Date.now();
+        }
       });
       generationStage = "model.generate";
+      generationStartedAt = Date.now();
       await model.generate({
         ...inputs,
         max_new_tokens: params.max_new_tokens,
@@ -440,11 +447,26 @@
         streamer,
         ...(stopping ? { stopping_criteria: stopping } : {})
       });
-      const elapsedMs = Date.now() - startedAt;
+      const endedAt = Date.now();
+      const elapsedMs = Math.max(0, endedAt - startedAt);
+      const generationMs = generationStartedAt === null ? 0 : Math.max(0, endedAt - generationStartedAt);
+      const promptPreparationMs = generationStartedAt === null ? elapsedMs : Math.max(0, generationStartedAt - startedAt);
+      const timeToFirstTokenMs = firstTokenAt === null || generationStartedAt === null ? null : Math.max(0, firstTokenAt - generationStartedAt);
+      const timeToFirstTextMs = firstTextAt === null || generationStartedAt === null ? null : Math.max(0, firstTextAt - generationStartedAt);
+      const decodeMs = firstTokenAt === null ? null : Math.max(1, endedAt - firstTokenAt);
+      const endToEndTokensPerSecond = elapsedMs > 0 && completionTokens > 0
+        ? Math.round(completionTokens * 10000 / elapsedMs) / 10 : null;
+      const decodeTokensPerSecond = decodeMs !== null && completionTokens > 0
+        ? Math.round(completionTokens * 10000 / decodeMs) / 10 : null;
       post({
         type: "done", id, reply: cleanReply(reply), stopped: stopRequested,
         usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
-        elapsedMs, tokensPerSecond: elapsedMs > 0 ? Math.round(completionTokens * 10000 / elapsedMs) / 10 : null,
+        elapsedMs, tokensPerSecond: endToEndTokensPerSecond,
+        metrics: {
+          promptPreparationMs, timeToFirstTokenMs, timeToFirstTextMs,
+          generationMs, totalMs: elapsedMs, decodeMs,
+          decodeTokensPerSecond, endToEndTokensPerSecond
+        },
         device: state.device, dtype: state.dtype
       });
     } catch (error) {
