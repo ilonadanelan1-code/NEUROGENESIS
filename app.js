@@ -144,6 +144,8 @@
   function refreshExperienceEpisodeUi(message) {
     const statusElement = $("wasm-experience-status");
     const reportElement = $("wasm-experience-report");
+    const summaryElement = $("wasm-experience-summary");
+    const technicalReportElement = $("wasm-experience-technical-report");
     const beginButton = $("wasm-episode-begin-button");
     const cancelButton = $("wasm-episode-cancel-button");
     const evaluateButton = $("wasm-sequence-learn-button");
@@ -151,37 +153,78 @@
     const status = experienceQuality ? experienceQuality.status() : { state: "unavailable", current: null, latestReport: null };
     const isOpen = status.state === "open" && !!status.current;
     const wasmReady = !!(wasmShadow && wasmShadow.diagnostics().state === "ready");
+    const report = status.latestReport;
     if (beginButton) beginButton.disabled = !wasmReady || isOpen;
     if (cancelButton) cancelButton.disabled = !isOpen;
     if (evaluateButton) evaluateButton.disabled = !isOpen;
     if (benchmarkButton) benchmarkButton.disabled = !wasmReady || experienceBenchmarkRunning;
-    if (statusElement) {
-      if (isOpen) {
-        const current = status.current;
+
+    let friendlySummary = "";
+    let nextStep = "";
+    if (isOpen) {
+      const current = status.current;
+      if (statusElement) {
         statusElement.textContent = "ЭПИЗОД " + current.id +
           " · шаги " + current.steps +
           " · следов сейчас " + (current.latestMetrics?.eligibleSynapses || 0);
         statusElement.dataset.state = "open";
-      } else if (status.latestReport) {
-        const report = status.latestReport;
+      }
+      friendlySummary = current.steps > 0
+        ? "Эпизод идёт: симуляция сделала " + current.steps + " шагов. Когда закончишь, нажми «Завершить и оценить»."
+        : "Эпизод начат. Теперь открой вкладку «Сеть» и запусти симуляцию — без неё оценивать будет нечего.";
+      nextStep = "После симуляции вернись сюда и нажми «Завершить и оценить».";
+    } else if (report) {
+      if (statusElement) {
         statusElement.textContent = report.id + " · " + report.status +
           " · шагов " + report.steps +
           (report.changedSynapses != null ? " · изменено связей " + report.changedSynapses : "");
         statusElement.dataset.state = report.status;
+      }
+      if (report.status === "cancelled") {
+        friendlySummary = "Эпизод сброшен. Изменения весов не применялись.";
+      } else if (report.status === "empty-episode") {
+        friendlySummary = "Оценивать было нечего: симуляция не запускалась. Начни новый эпизод и сначала запусти сеть.";
+      } else if (report.status === "no-eligible-traces") {
+        friendlySummary = "Симуляция прошла, но подходящих активных связей для изменения не нашлось. Попробуй новый эпизод с другой активностью.";
+      } else if (report.status === "evaluated" && report.changedSynapses > 0) {
+        friendlySummary = "Опыт завершён: на отдельной копии изменилось " + report.changedSynapses + " связей. Основная сеть не затронута.";
+      } else if (report.status === "evaluated") {
+        friendlySummary = "Опыт завершён, но веса не изменились. Проверь, что во время эпизода действительно работала симуляция.";
       } else {
+        friendlySummary = "Опыт завершён. Открой технические подробности, чтобы посмотреть результат.";
+      }
+      nextStep = report.status === "evaluated"
+        ? "Можно начать следующий опыт или сравнить результаты в дополнительных проверках."
+        : "Можно повторить опыт, следуя трём шагам выше.";
+    } else {
+      if (statusElement) {
         statusElement.textContent = wasmReady ? "ЭПИЗОД НЕ НАЧАТ" : "ОЖИДАНИЕ WASM";
         statusElement.dataset.state = status.state;
       }
+      friendlySummary = wasmReady
+        ? "Пока опыта нет. Нажми «Начать эпизод», перейди в «Сеть» и включи симуляцию."
+        : "Экспериментальный модуль загружается. Основная сеть при этом продолжает работать.";
+      nextStep = "Сначала симуляция, затем оценка.";
+    }
+
+    if (summaryElement) {
+      summaryElement.dataset.state = isOpen ? "loading" :
+        report && report.status === "evaluated" && report.changedSynapses > 0 ? "success" :
+        report && report.status !== "cancelled" ? "warning" : "info";
+      summaryElement.textContent = friendlySummary;
     }
     if (reportElement) {
-      const report = status.latestReport;
-      reportElement.textContent = message || (report
-        ? "Последний отчёт: следов до оценки " + (report.eligibleSynapsesBeforeReward || 0) +
-          ", изменено связанных весов " + (report.changedEligibleSynapses || 0) +
-          ", изменено остальных весов " + (report.changedNonEligibleSynapses || 0) +
-          ", изменение среднего веса " + Number(report.meanAbsoluteWeightDelta || 0).toFixed(5) +
-          (report.traceConsumed ? ". Следы использованы." : ". Остались неиспользованные следы.")
-        : "Начни эпизод, запусти симуляцию и только затем оцени результат.");
+      reportElement.textContent = message || nextStep;
+    }
+    if (technicalReportElement) {
+      technicalReportElement.textContent = report
+        ? "Последний отчёт: шагов " + report.steps +
+          ", шагов с активными связями " + (report.stepsWithEligibleTraces || 0) +
+          ", подходящих связей до оценки " + (report.eligibleSynapsesBeforeReward || 0) +
+          ", изменено связей " + (report.changedSynapses || 0) +
+          ", средняя величина изменения веса " + Number(report.meanAbsoluteWeightDelta || 0).toFixed(6) +
+          (report.traceConsumed ? ". Записанные сигналы использованы." : ". Часть сигналов осталась неиспользованной.")
+        : "Подробные показатели появятся после завершения опыта.";
     }
   }
   function refreshWasmLearningUi(message) {
@@ -1187,14 +1230,14 @@
         : "Не удалось начать эпизод: "+result.code+".");
       return;
     }
-    refreshExperienceEpisodeUi("Эпизод начат. Следы старых эпизодов очищены; теперь запусти симуляцию.");
+    refreshExperienceEpisodeUi("Эпизод начат. Перейди в «Сеть» и включи симуляцию.");
   });
 
   $("wasm-episode-cancel-button").addEventListener("click",()=>{
     if(!experienceQuality)return;
     const result=experienceQuality.cancel("сброшен пользователем");
     refreshExperienceEpisodeUi(result.ok
-      ? "Эпизод сброшен без подкрепления. Веса не изменялись."
+      ? "Эпизод сброшен. Веса не изменялись."
       : "Нет открытого эпизода для сброса.");
   });
 
