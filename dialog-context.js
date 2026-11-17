@@ -27,7 +27,11 @@
     };
     const hasReference = text => {
       const value = clean(text, 500).replace(/что(?:\s+же)?\s+такое/giu, "что");
-      return /(?<![\p{L}\p{N}_])(?:это|этот|эта|эти|тот|та|те|такой|такая|такие|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|предыдущ|выше|сказан|упомянут)(?![\p{L}\p{N}_])/iu.test(value);
+      return /(?<![\p{L}\p{N}_])(?:это|этот|эта|эту|этим|этими|этих|эти|того|той|тому|тем|теми|тех|тот|та|ту|те|такой|такая|такое|такие|такого|такую|таким|такими|таких|таком|он|она|они|его|ее|их|там|тогда|этого|этой|этому|нему|ней|них|данн[\p{L}\p{M}]*|предыдущ|выше|сказан|упомянут)(?![\p{L}\p{N}_])/iu.test(value);
+    };
+    const isGenericClosingQuestion = text => {
+      const value = normalise(clean(text, 260)).replace(/[?？]+$/u, "").trim();
+      return /^(?:чем (?:еще )?(?:я )?могу помочь(?: тебе)?|чем могу быть полезен|чем могу быть полезна|есть что то конкретное в чем могу пригодиться|есть ли что то конкретное в чем могу помочь|в чем я могу помочь|что еще могу сделать(?: для тебя)?|могу ли я чем то помочь)$/u.test(value);
     };
     const isStandaloneQuestion = text => {
       const value = clean(text, 500);
@@ -52,7 +56,11 @@
       /^(?:я изучаю|я интересуюсь|меня интересует|мне интересно|хочу узнать|хочу разобраться|я хочу понять)(?=$|\s)/iu.test(text);
     const isLikelyAnswer = (text, pendingQuestion) => {
       const value = clean(text, 500);
-      const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
+      const clarificationPrompt = /(?:какой|какая|какое|какую|какие)[\p{L}]*\s+(?:именно\s+)?(?:информац|част|аспект|момент|факт)[\p{L}]*|(?:что|какую информацию)\s+(?:именно\s+)?(?:ты\s+)?имеешь\s+в\s+виду|о\s+чем\s+речь/iu.test(String(pendingQuestion || ""));
+      const answerPrefix = value.split(/[?？]/u, 1)[0].replace(/[.!]+\\s*$/u, "").trim();
+      const explicitTopicReply = /^(?:(?:я\\s+)?(?:про|об|о)\\s+|(?:речь|вопрос)\\s+(?:о|об|про)\\s+|это\\s+(?:про|о|об)\\s+)[\p{L}\p{N}][\p{L}\p{N}\s-]{1,80}$/iu.test(answerPrefix);
+      if (clarificationPrompt && explicitTopicReply) return true;
+      const wordCount = value ? value.split(/\\s+/u).filter(Boolean).length : 0;
       if (!pendingQuestion || wordCount < 1 || wordCount > 14 ||
           /[?？]/u.test(value) || /[.!?]\s+\S/u.test(value) ||
           isStandaloneQuestion(value) || isStandaloneRequest(value)) return false;
@@ -91,7 +99,7 @@
     const extractQuestions = text => clean(text, MAX_TEXT)
       .split(/(?<=[.!?？])\s+/u)
       .map(row => clean(row, 260))
-      .filter(row => /[?？]\s*$/u.test(row))
+      .filter(row => /[?？]\s*$/u.test(row) && !isGenericClosingQuestion(row))
       .slice(0, MAX_PENDING_QUESTIONS);
     const MAX_SUMMARY_PARTS = 4;
     const MAX_SUMMARY_PART_CHARS = 180;
@@ -139,7 +147,7 @@
           askedAt: Math.max(0, Number(row.askedAt) || 0),
           answered: !!row.answered
         }))
-        .filter(row => row.text)
+        .filter(row => row.text && !isGenericClosingQuestion(row.text))
         .slice(-MAX_PENDING_QUESTIONS);
     }
     function latestPendingQuestion(rows) {
@@ -180,6 +188,93 @@
       if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08) return null;
       return ranked[0].question;
     }
+    function repairSplitFollowUps(state) {
+      let changed = false;
+      const chronological = state.messages.slice().sort((a, b) => a.time - b.time);
+      const candidates = state.threads.slice().sort((a, b) => a.createdAt - b.createdAt);
+      for (const candidate of candidates) {
+        if (!state.threads.some(row => row.id === candidate.id)) continue;
+        const own = chronological.filter(row => row.threadId === candidate.id);
+        const firstUser = own.find(row => row.role === "user");
+        if (!firstUser || !hasReference(firstUser.text)) continue;
+        const firstIndex = chronological.findIndex(row => row.id === firstUser.id);
+        const previous = firstIndex > 0 ? chronological[firstIndex - 1] : null;
+        if (!previous || previous.role !== "assistant" || previous.threadId === candidate.id ||
+            firstUser.time < previous.time || firstUser.time - previous.time > 10 * 60 * 1000) continue;
+        const destination = state.threads.find(row => row.id === previous.threadId);
+        if (!destination) continue;
+
+        const validationQueue = sanitizePendingQuestions(destination)
+          .filter(row => !row.answered).map(row => ({ ...row }));
+        let mergeable = true;
+        for (const message of own) {
+          if (message.role === "assistant") {
+            for (const question of extractQuestions(message.text)) {
+              if (!validationQueue.some(row => !row.answered && normalise(row.text) === normalise(question))) {
+                validationQueue.push({ text: question, askedAt: message.time, answered: false });
+              }
+            }
+            continue;
+          }
+          const matched = matchPendingQuestion(message.text, validationQueue);
+          if (matched) {
+            matched.answered = true;
+            continue;
+          }
+          if (!hasReference(message.text) && !isShortFollowUp(message.text) &&
+              message.relation !== "answer_to_question") {
+            mergeable = false;
+            break;
+          }
+        }
+        if (!mergeable) continue;
+
+        const mergedQueue = sanitizePendingQuestions(destination).map(row => ({ ...row }));
+        let firstRelation = "continuation", firstQuestion = "";
+        for (const message of own) {
+          if (message.role === "assistant") {
+            for (const question of extractQuestions(message.text)) {
+              if (!mergedQueue.some(row => !row.answered && normalise(row.text) === normalise(question))) {
+                mergedQueue.push({ text: question, askedAt: message.time, answered: false });
+              }
+            }
+          } else {
+            const matched = matchPendingQuestion(message.text, mergedQueue);
+            if (matched) {
+              matched.answered = true;
+              if (message.id === firstUser.id) {
+                firstRelation = "answer_to_question";
+                firstQuestion = matched.text;
+              }
+            }
+          }
+        }
+        for (const message of state.messages) {
+          if (message.threadId !== candidate.id) continue;
+          message.threadId = destination.id;
+          if (message.id === firstUser.id) {
+            message.relation = firstRelation;
+            message.questionText = firstQuestion;
+          }
+        }
+        destination.keywords = [...new Set([...(destination.keywords || []), ...(candidate.keywords || [])])].slice(0, 16);
+        destination.turnCount += Math.max(0, Number(candidate.turnCount) || 0);
+        destination.summaryParts = mergeSummaryParts(destination.summaryParts, candidate.summaryParts);
+        destination.updatedAt = Math.max(destination.updatedAt, candidate.updatedAt, ...own.map(row => row.time));
+        const lastUser = own.filter(row => row.role === "user").slice(-1)[0];
+        const lastAssistant = own.filter(row => row.role === "assistant").slice(-1)[0];
+        if (lastUser) destination.lastUserText = lastUser.text;
+        if (lastAssistant) destination.lastAssistantText = lastAssistant.text;
+        destination.pendingQuestions = mergedQueue.slice(-MAX_PENDING_QUESTIONS);
+        syncPendingQuestion(destination);
+        state.threads = state.threads.filter(row => row.id !== candidate.id);
+        if (state.activeThreadId === candidate.id) state.activeThreadId = destination.id;
+        if (state.lastDecision && Array.isArray(state.lastDecision.candidates) &&
+            state.lastDecision.candidates.includes(candidate.id)) state.lastDecision = null;
+        changed = true;
+      }
+      return changed;
+    }
     function empty() {
       return { version: 1, activeThreadId: "", nextSequence: 1, threads: [], messages: [], lastDecision: null };
     }
@@ -219,6 +314,7 @@
         const indicated = result.threads.slice().reverse().find(row => row.status === "active");
         result.activeThreadId = (indicated || result.threads[result.threads.length - 1]).id;
       }
+      repairSplitFollowUps(result);
       result.threads = result.threads.map(row => {
         const threadMessages = result.messages.filter(message => message.threadId === row.id);
         const candidates = threadMessages.filter(message => message.role === "user").map(message => ({
