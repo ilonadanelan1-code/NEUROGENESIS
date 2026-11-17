@@ -221,8 +221,7 @@
             matched.answered = true;
             continue;
           }
-          if (!hasReference(message.text) && !isShortFollowUp(message.text) &&
-              message.relation !== "answer_to_question") {
+          if (!hasReference(message.text) && message.relation !== "answer_to_question") {
             mergeable = false;
             break;
           }
