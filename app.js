@@ -160,6 +160,7 @@
     if (benchmarkButton) benchmarkButton.disabled = !wasmReady || experienceBenchmarkRunning;
 
     let friendlySummary = "";
+    let summaryTitle = "Состояние эксперимента";
     let nextStep = "";
     if (isOpen) {
       const current = status.current;
@@ -169,6 +170,7 @@
           " · следов сейчас " + (current.latestMetrics?.eligibleSynapses || 0);
         statusElement.dataset.state = "open";
       }
+      summaryTitle = "Идёт опыт";
       friendlySummary = current.steps > 0
         ? "Эпизод идёт: симуляция сделала " + current.steps + " шагов. Когда закончишь, нажми «Завершить и оценить»."
         : "Эпизод начат. Теперь открой вкладку «Сеть» и запусти симуляцию — без неё оценивать будет нечего.";
@@ -181,16 +183,22 @@
         statusElement.dataset.state = report.status;
       }
       if (report.status === "cancelled") {
+        summaryTitle = "Эпизод сброшен";
         friendlySummary = "Эпизод сброшен. Изменения весов не применялись.";
       } else if (report.status === "empty-episode") {
+        summaryTitle = "Симуляция не запускалась";
         friendlySummary = "Оценивать было нечего: симуляция не запускалась. Начни новый эпизод и сначала запусти сеть.";
       } else if (report.status === "no-eligible-traces") {
+        summaryTitle = "Связи не изменились";
         friendlySummary = "Симуляция прошла, но подходящих активных связей для изменения не нашлось. Попробуй новый эпизод с другой активностью.";
       } else if (report.status === "evaluated" && report.changedSynapses > 0) {
+        summaryTitle = "Опыт завершён";
         friendlySummary = "Опыт завершён: на отдельной копии изменилось " + report.changedSynapses + " связей. Основная сеть не затронута.";
       } else if (report.status === "evaluated") {
+        summaryTitle = "Связи не изменились";
         friendlySummary = "Опыт завершён, но веса не изменились. Проверь, что во время эпизода действительно работала симуляция.";
       } else {
+        summaryTitle = "Опыт завершён";
         friendlySummary = "Опыт завершён. Открой технические подробности, чтобы посмотреть результат.";
       }
       nextStep = report.status === "evaluated"
@@ -201,8 +209,9 @@
         statusElement.textContent = wasmReady ? "ЭПИЗОД НЕ НАЧАТ" : "ОЖИДАНИЕ WASM";
         statusElement.dataset.state = status.state;
       }
+      summaryTitle = wasmReady ? "Пока опыта нет" : "Загрузка эксперимента";
       friendlySummary = wasmReady
-        ? "Пока опыта нет. Нажми «Начать эпизод», перейди в «Сеть» и включи симуляцию."
+        ? "Нажми «Начать эпизод», перейди в «Сеть» и включи симуляцию."
         : "Экспериментальный модуль загружается. Основная сеть при этом продолжает работать.";
       nextStep = "Сначала симуляция, затем оценка.";
     }
@@ -211,7 +220,11 @@
       summaryElement.dataset.state = isOpen ? "loading" :
         report && report.status === "evaluated" && report.changedSynapses > 0 ? "success" :
         report && report.status !== "cancelled" ? "warning" : "info";
-      summaryElement.textContent = friendlySummary;
+      const heading = document.createElement("strong");
+      heading.textContent = summaryTitle;
+      const body = document.createElement("span");
+      body.textContent = friendlySummary;
+      summaryElement.replaceChildren(heading, body);
     }
     if (reportElement) {
       reportElement.textContent = message || nextStep;
