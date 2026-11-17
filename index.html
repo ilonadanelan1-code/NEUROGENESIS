@@ -106,12 +106,18 @@
                 <button class="secondary-button llm-config-clear" id="wasm-episode-cancel-button" type="button" disabled>Сбросить</button>
                 <button class="primary-button llm-config-save" id="wasm-sequence-learn-button" type="button" disabled>Завершить и оценить</button>
               </div>
-              <p class="memory-feedback" id="wasm-experience-status" data-state="idle" aria-live="polite">ЭПИЗОД НЕ НАЧАТ</p>
-              <p class="control-note learning-report" id="wasm-experience-report" aria-live="polite">Начни эпизод, перейди в «Сеть», включи симуляцию, затем вернись сюда.</p>
+              <div class="learning-friendly-result" id="wasm-experience-summary" data-state="info" role="status" aria-live="polite">
+                <strong>Пока опыта нет</strong>
+                Начни эпизод, открой вкладку «Сеть» и запусти симуляцию. Затем вернись и оцени результат.
+              </div>
+              <p class="control-note learning-report" id="wasm-experience-report" aria-live="polite">Главное правило: сначала симуляция, потом оценка. Иначе системе нечего будет оценивать.</p>
               <details class="learning-advanced">
                 <summary>Дополнительные настройки и опыты</summary>
                 <div class="learning-advanced-body">
                   <p class="learning-helper">Эти параметры меняют ход эксперимента. Для первого знакомства оставь значения по умолчанию.</p>
+                  <p class="memory-feedback" id="wasm-experience-status" data-state="idle" aria-live="polite">ЭПИЗОД НЕ НАЧАТ</p>
+                  <p class="learning-helper">Технический отчёт об эпизоде</p>
+                  <p class="control-note" id="wasm-experience-technical-report" aria-live="polite">Подробные показатели появятся после завершения опыта.</p>
                   <div class="range-heading">
                     <label class="field-label" for="wasm-learning-rate">СКОРОСТЬ ОБУЧЕНИЯ</label>
                     <strong id="wasm-learning-rate-value">5%</strong>
