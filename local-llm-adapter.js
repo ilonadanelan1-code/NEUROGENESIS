@@ -158,7 +158,8 @@
           reply, model: MODEL_ID, requestedModel: MODEL_ID, fallbackUsed: null,
           usage: done.usage || null,
           stopped: !!done.stopped, device: done.device || null, dtype: done.dtype || null,
-          elapsedMs: done.elapsedMs || null, tokensPerSecond: done.tokensPerSecond || null
+          elapsedMs: done.elapsedMs || null, tokensPerSecond: done.tokensPerSecond || null,
+          metrics: done.metrics || null
         };
       } finally {
         activeGeneration = null;
