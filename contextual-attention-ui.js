@@ -39,7 +39,11 @@
   function showFriendlyResult(title,message,state="info"){
     if(!friendlyResult)return;
     friendlyResult.dataset.state=state;
-    friendlyResult.textContent=title+"\n"+message;
+    const heading=document.createElement("strong");
+    heading.textContent=title;
+    const body=document.createElement("span");
+    body.textContent=message;
+    friendlyResult.replaceChildren(heading,body);
   }
   function updateCorpusCount(){
     if(!corpusCount)return;
