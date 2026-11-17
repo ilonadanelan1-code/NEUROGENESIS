@@ -57,10 +57,10 @@
     const isLikelyAnswer = (text, pendingQuestion) => {
       const value = clean(text, 500);
       const clarificationPrompt = /(?:какой|какая|какое|какую|какие)[\p{L}]*\s+(?:именно\s+)?(?:информац|част|аспект|момент|факт)[\p{L}]*|(?:что|какую информацию)\s+(?:именно\s+)?(?:ты\s+)?имеешь\s+в\s+виду|о\s+чем\s+речь/iu.test(String(pendingQuestion || ""));
-      const answerPrefix = value.split(/[?？]/u, 1)[0].replace(/[.!]+\\s*$/u, "").trim();
-      const explicitTopicReply = /^(?:(?:я\\s+)?(?:про|об|о)\\s+|(?:речь|вопрос)\\s+(?:о|об|про)\\s+|это\\s+(?:про|о|об)\\s+)[\p{L}\p{N}][\p{L}\p{N}\s-]{1,80}$/iu.test(answerPrefix);
+      const answerPrefix = value.split(/[?？]/u, 1)[0].replace(/[.!]+\s*$/u, "").trim();
+      const explicitTopicReply = /^(?:(?:я\s+)?(?:про|об|о)\s+|(?:речь|вопрос)\s+(?:о|об|про)\s+|это\s+(?:про|о|об)\s+)[\p{L}\p{N}][\p{L}\p{N}\s-]{1,80}$/iu.test(answerPrefix);
       if (clarificationPrompt && explicitTopicReply) return true;
-      const wordCount = value ? value.split(/\\s+/u).filter(Boolean).length : 0;
+      const wordCount = value ? value.split(/\s+/u).filter(Boolean).length : 0;
       if (!pendingQuestion || wordCount < 1 || wordCount > 14 ||
           /[?？]/u.test(value) || /[.!?]\s+\S/u.test(value) ||
           isStandaloneQuestion(value) || isStandaloneRequest(value)) return false;
