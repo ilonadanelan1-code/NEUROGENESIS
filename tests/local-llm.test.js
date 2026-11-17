@@ -50,12 +50,19 @@ function makeCaches(store = new Map()) {
 
 function makeRuntime(world, opts = {}) {
   const calls = { tokenizer: [], model: [], generate: 0, lastGenerateArgs: null };
+  const onnxEnv = {
+    versions: { web: "1.31.0-dev.fake", common: "1.31.0.fake" },
+    webgpu: { profiling: {} },
+    wasm: { numThreads: 2, proxy: false },
+    getSupportedDevices: () => ["webgpu", "wasm"]
+  };
+  const transformersEnv = { version: "4.3.2", logLevel: 30, backends: { onnx: onnxEnv } };
   class InterruptableStoppingCriteria { constructor() { this.interrupted = false; } interrupt() { this.interrupted = true; } }
   class TextStreamer { constructor(tokenizer, options) { Object.assign(this, options); } }
   const sizeOf = Object.fromEntries(SIBLINGS);
   const cacheFile = file => world.caches.putFile("https://huggingface.co/onnx-community/Qwen3-0.6B-ONNX/resolve/" + SHA + "/" + file, sizeOf[file]);
   const mod = {
-    env: {},
+    env: transformersEnv,
     InterruptableStoppingCriteria, TextStreamer,
     AutoTokenizer: {
       async from_pretrained(id, o) {
@@ -71,6 +78,12 @@ function makeRuntime(world, opts = {}) {
     AutoModelForCausalLM: {
       async from_pretrained(id, o) {
         calls.model.push({ id, ...o });
+        calls.logLevelDuringLoad = mod.env.logLevel;
+        onnxEnv.webgpu.adapter = world.adapter || null;
+        onnxEnv.webgpu.device = world.fakeGpuDevice || null;
+        if (world.sandbox && world.sandbox.console) {
+          world.sandbox.console.warn("[W:onnxruntime:, session_state.cc] VerifyEachNodeIsAssignedToAnEp: Some nodes were not assigned to the preferred execution providers.");
+        }
         if (opts.failDevice && opts.failDevice === o.device) throw new Error("device " + o.device + " cannot start");
         const file = "onnx/model_" + o.dtype + ".onnx";
         o.progress_callback({ status: "progress", file, loaded: sizeOf[file] / 2, total: sizeOf[file] });
@@ -88,6 +101,14 @@ function makeRuntime(world, opts = {}) {
               args.streamer.token_callback_function();
               if (opts.delayMs) await sleep(opts.delayMs);
             }
+            const profiling = mod.env.backends.onnx.webgpu.profiling;
+            if (profiling && profiling.mode === "default" && typeof profiling.ondata === "function") {
+              profiling.ondata({
+                version: 1, kernelId: 7, kernelType: "MatMul", kernelName: "MatMulNBits",
+                programName: "MatMulNBits_q4f16", startTime: 1000, endTime: 2501000,
+                inputsMetadata: [], outputsMetadata: []
+              });
+            }
           },
           async dispose() { calls.disposed = true; }
         };
@@ -101,11 +122,25 @@ function makeWorld(opts = {}) {
   const messages = [];
   const handlers = {};
   const caches = opts.caches || makeCaches();
-  const world = { messages, caches, persistCalls: 0, loaderCalls: 0, online: opts.online !== false };
-  const features = { has: name => opts.shaderF16 !== false && name === "shader-f16" };
+  const world = { messages, caches, persistCalls: 0, loaderCalls: 0, online: opts.online !== false, consoleLines: [] };
+  const features = { has: name => {
+    if (name === "shader-f16") return opts.shaderF16 !== false;
+    if (name === "timestamp-query") return opts.timestampQuery !== false;
+    if (name === "chromium-experimental-timestamp-query-inside-passes") return !!opts.experimentalTimestampQuery;
+    if (name === "subgroups") return true;
+    return false;
+  } };
   const siblings = (opts.siblings || SIBLINGS).map(([rfilename, size]) => ({ rfilename, size, lfs: { size, sha256: "f".repeat(64) } }));
   const deliver = opts.deliver || (message => messages.push(message));
+  const fakeAdapter = {
+    info: { vendor: "TestGPU", architecture: "test-arch", device: "test-device" },
+    limits: { maxBufferSize: 4096, maxStorageBufferBindingSize: 2048 },
+    features
+  };
+  world.adapter = fakeAdapter;
+  world.fakeGpuDevice = { features, limits: fakeAdapter.limits };
   const sandbox = {
+    console: Object.fromEntries(["log", "info", "warn", "error"].map(method => [method, (...args) => world.consoleLines.push(method + ": " + args.join(" "))])),
     postMessage: message => deliver(message),
     addEventListener: (name, callback) => { handlers[name] = callback; },
     navigator: {
@@ -160,6 +195,9 @@ test("load: WebGPU/q4f16, pinned commit SHA, persistence request, monotonic prog
   assert.equal(loaded.license, "apache-2.0");
   assert.equal(world.runtime.mod.env.useBrowserCache, true);
   assert.equal(world.runtime.mod.env.allowLocalModels, false);
+  assert.equal(world.runtime.mod.env.backends.onnx.webgpu.profiling.mode, "default");
+  assert.equal(world.runtime.calls.logLevelDuringLoad, 10, "ORT verbose logs should be enabled only while sessions are created");
+  assert.equal(world.runtime.mod.env.logLevel, 30, "original Transformers.js log level must be restored after load");
   assert.equal(world.runtime.calls.model[0].revision, SHA, "weights must be requested by commit SHA, not by 'main'");
   assert.equal(world.runtime.calls.tokenizer[0].revision, SHA);
   const percents = world.messages.filter(m => m.type === "progress" && m.phase === "download").map(m => m.percent);
@@ -167,6 +205,14 @@ test("load: WebGPU/q4f16, pinned commit SHA, persistence request, monotonic prog
   assert.deepEqual(percents, [...percents].sort((a, b) => a - b));
   assert.equal(percents[percents.length - 1], 100);
   assert.equal(world.runtime.calls.model.length, 1);
+  const diagnostics = world.messages.find(message => message.type === "diagnostics");
+  assert.ok(diagnostics && diagnostics.diagnostics, "runtime diagnostics must be sent to the page");
+  assert.equal(diagnostics.diagnostics.transformersVersion, "4.3.2");
+  assert.equal(diagnostics.diagnostics.onnxRuntimeWebVersion, "1.31.0-dev.fake");
+  assert.equal(diagnostics.diagnostics.probe.timestampQuery, true);
+  assert.equal(diagnostics.diagnostics.runtimeGpu.features.timestampQuery, true);
+  assert.equal(diagnostics.diagnostics.nodeAssignmentWarning, true);
+  assert.ok(diagnostics.diagnostics.assignmentLogs.some(line => /Some nodes were not assigned/u.test(line)));
 });
 
 test("generate streams tokens, then done with the full reply and usage", async () => {
@@ -179,6 +225,11 @@ test("generate streams tokens, then done with the full reply and usage", async (
   assert.deepEqual(tokens, ["Нейрон", " передаёт", " сигнал", "."]);
   assert.equal(done.reply, "Нейрон передаёт сигнал.");
   assert.equal(done.stopped, false);
+  assert.equal(done.gpuProfile.eventCount, 1);
+  assert.equal(done.gpuProfile.kernels[0].name, "MatMulNBits_q4f16");
+  assert.equal(done.gpuProfile.totalGpuMs, 2.5);
+  assert.ok(world.messages.some(message => message.type === "profile" && message.id === 2),
+    "live GPU profile updates should be forwarded from the worker");
   assert.equal(JSON.stringify(done.usage), JSON.stringify({ prompt_tokens: 7, completion_tokens: 4, total_tokens: 11 }));
   assert.equal(world.runtime.calls.lastGenerateArgs.do_sample, false, "default generation must be deterministic");
   assert.equal(world.runtime.calls.lastGenerateArgs.max_new_tokens, 128);
@@ -389,6 +440,8 @@ test("adapter + worker end-to-end through the real LLM gateway contract", async 
   assert.equal(streamed.join(""), detailed.reply);
   assert.ok(detailed.metrics && typeof detailed.metrics.timeToFirstTokenMs === "number",
     "adapter must pass per-stage timing metrics to the page");
+  assert.ok(detailed.gpuProfile && detailed.gpuProfile.eventCount === 1,
+    "adapter must pass GPU profile results to callers");
   const viaGateway = await gateway.generateDetailed(request);
   assert.equal(viaGateway.reply, "Нейрон передаёт сигнал.");
   assert.equal(viaGateway.model, "onnx-community/Qwen3-0.6B-ONNX");
